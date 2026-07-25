@@ -6,3 +6,4 @@
 - [Service normalizers](service-normalizers.md) — all services have normalizer fns (normalizeUser/Post/Comment/…) mapping snake_case→camelCase; User type has website,location,isVerifiedCreator,role (NOT credits/subscriberCount).
 - [Create-post media flow](create-post-media.md) — upload media first→get id from result→pass media_ids:[id] to createPost; mediaUrl/mediaType/isPremium are not backend fields.
 - [Missing services added](missing-services.md) — creator.ts, subscriptions.ts, settings.ts, search.ts, categories.ts all created; use /creator/* endpoints.
+- [Turso schema access](turso-schema-access.md) — use the stored URL/token with Turso's HTTPS `/v2/pipeline` endpoint; no Replit Turso connector is available.

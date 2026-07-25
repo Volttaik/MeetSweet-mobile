@@ -7,6 +7,8 @@
     "dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port ${PORT:-5000} --clear",
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
+    "db:migrate": "node scripts/turso-migrate.js migrate",
+    "db:check": "node scripts/turso-migrate.js check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
