@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Spinner } from 'heroui-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, PaperPlaneRight, DotsThree } from 'phosphor-react-native';
+import { ArrowLeft, PaperPlaneRight, DotsThree, X } from 'phosphor-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -171,6 +171,8 @@ export default function ChatScreen() {
   const [otherUserName, setOtherUserName] = useState('');
   const [otherUserAvatar, setOtherUserAvatar] = useState<string | null>(null);
 
+  // Reply state
+  const [replyTo, setReplyTo] = useState<{ id: string; body: string | null; senderName: string } | null>(null);
   // Message action sheet
   const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ChatMessage | null>(null);
@@ -219,6 +221,8 @@ export default function ChatScreen() {
     const body = text.trim();
     if (!body || sending) return;
     setText('');
+    const replyingTo = replyTo;
+    setReplyTo(null);
     setSending(true);
 
     const optimistic: ChatMessage = {
@@ -285,7 +289,7 @@ export default function ChatScreen() {
       {
         label: 'Reply',
         onPress: () => {
-          setText(`@${msg.sender.username} `);
+          setReplyTo({ id: msg.id, body: msg.body, senderName: msg.sender.name });
         },
       },
     ];
@@ -443,6 +447,24 @@ export default function ChatScreen() {
               </View>
             }
           />
+        )}
+
+        {/* Reply preview */}
+        {replyTo && (
+          <View style={styles.replyBar}>
+            <View style={styles.replyBarContent}>
+              <Text style={styles.replyBarName}>{replyTo.senderName}</Text>
+              <Text style={styles.replyBarBody} numberOfLines={1}>
+                {replyTo.body ?? 'Message'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setReplyTo(null)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={16} color={T.TEXT_2} />
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* Input bar */}
@@ -677,4 +699,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnDisabled: { backgroundColor: T.SURFACE_2 },
+
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+    backgroundColor: T.SURFACE,
+    borderTopWidth: 1,
+    borderTopColor: T.BORDER,
+    borderLeftWidth: 3,
+    borderLeftColor: T.TEXT_2,
+  },
+  replyBarContent: { flex: 1 },
+  replyBarName: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT_2,
+    marginBottom: 2,
+  },
+  replyBarBody: {
+    fontSize: 13,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+  },
 });

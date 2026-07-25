@@ -2,3 +2,4 @@
 - [heroui-native BottomSheet requires gorhom](heroui-native-bottomsheet.md) — BottomSheet crashes unless @gorhom/bottom-sheet is installed; replace with RN Modal as safe fallback.
 - [Icons must never be inside RN Text](rn-icon-in-text.md) — phosphor-react-native icons inside <Text> cause a native crash; always wrap in <View>.
 - [Micro-interactions system](micro-interactions-system.md) — MsConfirmDialog + MsToast added; all screens wired with action sheets, confirmations, and toast feedback.
+- [Feature completion 2026-07-25](feature-completion-2026-07-25.md) — Search modal, locked content, creator dashboard, payout, privacy/notifications/security screens, edit-profile expansion, chat reply preview all added.

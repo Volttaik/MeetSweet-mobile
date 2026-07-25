@@ -313,6 +313,14 @@ export default function SettingsScreen() {
     { label: 'Allow Direct Messages', onPress: () => toast.info('Setting updated') },
   ];
 
+  const handleLinkedAccountsAlert = () => {
+    Alert.alert(
+      'Linked Accounts',
+      'Connect Google, Apple, GitHub, X, or Facebook to your MeetSweet account for quick sign-in.\n\nLinked accounts management requires backend implementation.',
+      [{ text: 'OK' }],
+    );
+  };
+
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -356,17 +364,17 @@ export default function SettingsScreen() {
           <View style={styles.rowDivider} />
           <SettingsRow Icon={Info} label="Account Information" onPress={handleAccountInfo} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Link} label="Linked Accounts" onPress={handleLinkedAccounts} />
+          <SettingsRow Icon={Link} label="Linked Accounts" onPress={handleLinkedAccountsAlert} />
         </View>
 
         {/* Privacy */}
         <SectionHeader title="Privacy" />
         <View style={styles.section}>
-          <SettingsRow Icon={Lock} label="Privacy Settings" onPress={() => setPrivacySheetVisible(true)} />
+          <SettingsRow Icon={Lock} label="Privacy Settings" onPress={() => router.push('/privacy-settings')} />
           <View style={styles.rowDivider} />
           <SettingsRow Icon={UserMinus} label="Blocked Users" onPress={handleBlockedUsers} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Eye} label="Content Preferences" onPress={() => setPrivacySheetVisible(true)} />
+          <SettingsRow Icon={Eye} label="Content Preferences" onPress={() => router.push('/privacy-settings')} />
         </View>
 
         {/* Notifications */}
@@ -375,23 +383,23 @@ export default function SettingsScreen() {
           <SettingsRow
             Icon={Bell}
             label="Notification Preferences"
-            onPress={() => setNotifSheetVisible(true)}
+            onPress={() => router.push('/notification-settings')}
           />
         </View>
 
         {/* Security */}
         <SectionHeader title="Security" />
         <View style={styles.section}>
-          <SettingsRow Icon={Lock} label="Change Password" onPress={handleChangePassword} />
+          <SettingsRow Icon={Lock} label="Change Password" onPress={() => router.push('/security-settings')} />
           <View style={styles.rowDivider} />
           <SettingsRow
             Icon={Shield}
             label="Two-Factor Authentication"
-            onPress={handleTwoFactor}
+            onPress={() => router.push('/security-settings')}
             badge="Off"
           />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Info} label="Active Sessions" onPress={handleActiveSessions} />
+          <SettingsRow Icon={Info} label="Active Sessions" onPress={() => router.push('/security-settings')} />
         </View>
 
         {/* Support */}
