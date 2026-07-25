@@ -356,3 +356,51 @@ This document describes every backend endpoint the frontend is already wired to 
 | P2 | Payment methods | `GET/POST /payment-methods` | High |
 | P3 | Linked accounts | `GET /auth/linked-accounts` | Medium |
 | P3 | Sign out all | `POST /auth/logout-all` | Low |
+
+---
+
+## (Settings phase) New missing endpoints
+
+### Username change
+**Endpoint:** `GET /api/users/:username` (availability check)  
+**Method:** GET  
+**Auth:** Bearer token  
+**Purpose:** Live availability check as user types new username  
+**Response:** `{ "ok": true, "data": { "available": true } }`
+
+### Username update
+**Endpoint:** `PATCH /api/users/me`  
+**Field:** `username`  
+**Notes:** Already documented above — PATCH /users/me also needs to accept `username` field with uniqueness validation.
+
+### Email change
+**Endpoint:** `POST /api/auth/change-email`  
+**Method:** POST  
+**Auth:** Bearer token  
+**Body:** `{ "email": "new@example.com" }`  
+**Response:** `{ "ok": true, "data": { "message": "Verification email sent" } }`  
+**Notes:** Should send verification to new address; old email stays until verified.
+
+### Phone number update & OTP
+**Endpoint:** `POST /api/auth/phone/request-otp`  
+**Method:** POST  
+**Auth:** Bearer token  
+**Body:** `{ "phone": "+1234567890" }`  
+**Notes:** Sends OTP to the number.
+
+**Endpoint:** `POST /api/auth/phone/verify-otp`  
+**Method:** POST  
+**Auth:** Bearer token  
+**Body:** `{ "phone": "+1234567890", "otp": "123456" }`
+
+### Biometric registration
+**Endpoint:** `POST /api/auth/biometric/register`  
+**Method:** POST  
+**Auth:** Bearer token  
+**Notes:** Stores device biometric credential server-side. Frontend also requires `expo-local-authentication` package for native fingerprint/Face ID prompt.
+
+### Username availability (standalone)
+**Endpoint:** `GET /api/users/check-username?username=<value>`  
+**Method:** GET  
+**Auth:** Bearer token  
+**Response:** `{ "ok": true, "data": { "available": true } }`
