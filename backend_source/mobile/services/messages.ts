@@ -48,52 +48,6 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-function normalizeConversationUser(raw: any): ConversationUser {
-  return {
-    id: String(raw.id ?? ''),
-    name: raw.name ?? raw.display_name ?? raw.full_name ?? '',
-    username: raw.username ?? '',
-    avatarUrl: raw.avatarUrl ?? raw.avatar_url ?? null,
-    isVerified: raw.isVerified ?? raw.is_verified ?? false,
-  };
-}
-
-function normalizeConversation(raw: any): Conversation {
-  const otherUser = raw.otherUser ?? raw.other_user ?? raw.participant ?? {};
-  return {
-    id: String(raw.id),
-    lastMessageBody: raw.lastMessageBody ?? raw.last_message_body ?? null,
-    lastMessageAt: raw.lastMessageAt ?? raw.last_message_at ?? null,
-    createdAt: raw.createdAt ?? raw.created_at ?? new Date(0).toISOString(),
-    isMuted: raw.isMuted ?? raw.is_muted ?? false,
-    isArchived: raw.isArchived ?? raw.is_archived ?? false,
-    unreadCount: raw.unreadCount ?? raw.unread_count ?? 0,
-    otherUser: normalizeConversationUser(otherUser),
-  };
-}
-
-function normalizeChatMessage(raw: any, currentUserId?: string): ChatMessage {
-  const sender = raw.sender ?? raw.author ?? {};
-  return {
-    id: String(raw.id),
-    body: raw.body ?? raw.content ?? null,
-    mediaUrl: raw.mediaUrl ?? raw.media_url ?? null,
-    mediaType: raw.mediaType ?? raw.media_type ?? null,
-    isDeleted: raw.isDeleted ?? raw.is_deleted ?? false,
-    createdAt: raw.createdAt ?? raw.created_at ?? new Date(0).toISOString(),
-    sender: {
-      id: String(sender.id ?? ''),
-      name: sender.name ?? sender.display_name ?? '',
-      username: sender.username ?? '',
-      avatarUrl: sender.avatarUrl ?? sender.avatar_url ?? null,
-    },
-    isOwn:
-      raw.isOwn ??
-      raw.is_own ??
-      (currentUserId ? String(sender.id) === currentUserId : false),
-  };
-}
-
 // ─── API calls ────────────────────────────────────────────────────────────────
 
 export async function getConversations(
@@ -101,9 +55,7 @@ export async function getConversations(
 ): Promise<{ conversations: Conversation[] }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const data = await apiFetch<any>(`/conversations?tab=${tab}`, { headers: authHeader(token) });
-  const list: any[] = data?.conversations ?? data ?? [];
-  return { conversations: list.map(normalizeConversation) };
+  return apiFetch(`/conversations?tab=${tab}`, { headers: authHeader(token) });
 }
 
 export async function createConversation(
@@ -111,19 +63,11 @@ export async function createConversation(
 ): Promise<{ conversationId: string; created: boolean }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const data = await apiFetch<any>('/conversations', {
+  return apiFetch('/conversations', {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ userId, user_id: userId }),
+    body: JSON.stringify({ userId }),
   });
-  return {
-    conversationId:
-      data?.conversationId ??
-      data?.conversation_id ??
-      data?.id ??
-      '',
-    created: data?.created ?? true,
-  };
 }
 
 export async function getMessages(
@@ -133,14 +77,9 @@ export async function getMessages(
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const qs = before ? `?before=${encodeURIComponent(before)}` : '';
-  const data = await apiFetch<any>(`/conversations/${conversationId}/messages${qs}`, {
+  return apiFetch(`/conversations/${conversationId}/messages${qs}`, {
     headers: authHeader(token),
   });
-  const list: any[] = data?.messages ?? data ?? [];
-  return {
-    messages: list.map((m) => normalizeChatMessage(m)),
-    hasMore: data?.hasMore ?? data?.has_more ?? false,
-  };
 }
 
 export async function sendMessage(
@@ -151,19 +90,11 @@ export async function sendMessage(
 ): Promise<{ message: ChatMessage }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const data = await apiFetch<any>(`/conversations/${conversationId}/messages`, {
+  return apiFetch(`/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({
-      body,
-      mediaUrl,
-      mediaType,
-      media_url: mediaUrl,
-      media_type: mediaType,
-    }),
+    body: JSON.stringify({ body, mediaUrl, mediaType }),
   });
-  const raw = data?.message ?? data;
-  return { message: normalizeChatMessage(raw) };
 }
 
 export async function deleteMessage(messageId: string): Promise<void> {
@@ -193,9 +124,7 @@ export async function searchUsers(
 ): Promise<{ users: ConversationUser[] }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const data = await apiFetch<any>(`/users/search?q=${encodeURIComponent(q)}`, {
+  return apiFetch(`/users/search?q=${encodeURIComponent(q)}`, {
     headers: authHeader(token),
   });
-  const list: any[] = data?.users ?? data ?? [];
-  return { users: list.map(normalizeConversationUser) };
 }

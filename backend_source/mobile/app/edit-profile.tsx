@@ -68,7 +68,7 @@ export default function EditProfileScreen() {
       if (!token) throw new Error('Not authenticated');
 
       const updated = await apiFetch<{ user: typeof user }>('/users/me', {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           name: name.trim(),

@@ -99,40 +99,10 @@ export default function CreatePostScreen() {
       const asset = result.assets[0];
       setMediaUri(asset.uri);
       setMediaType(type);
-
-      // Normalise MIME type to one the backend accepts.
-      // Backend allowed: image/jpeg, image/png, image/webp, image/gif,
-      //                  video/mp4, video/quicktime, video/webm
-      const rawMime = (asset.mimeType ?? '').toLowerCase().trim();
-      let mime: string;
-      if (type === 'image') {
-        if (rawMime === 'image/png') mime = 'image/png';
-        else if (rawMime === 'image/webp') mime = 'image/webp';
-        else if (rawMime === 'image/gif') mime = 'image/gif';
-        else mime = 'image/jpeg'; // covers heic, heif, jpg, jpeg, unknown, empty
-      } else {
-        if (rawMime === 'video/quicktime' || rawMime === 'video/mov') mime = 'video/quicktime';
-        else if (rawMime === 'video/webm') mime = 'video/webm';
-        else mime = 'video/mp4'; // covers mp4, avi, mkv, unknown, empty
-      }
-
-      // Match filename extension to the normalised MIME type.
-      const extMap: Record<string, string> = {
-        'image/jpeg': 'jpg',
-        'image/png': 'png',
-        'image/webp': 'webp',
-        'image/gif': 'gif',
-        'video/mp4': 'mp4',
-        'video/quicktime': 'mov',
-        'video/webm': 'webm',
-      };
-      const ext = extMap[mime] ?? (type === 'image' ? 'jpg' : 'mp4');
-      let fileName = asset.fileName ?? `media-${Date.now()}.${ext}`;
-      // Replace any non-matching extension
-      if (!/\.[a-z0-9]+$/i.test(fileName)) fileName = `${fileName}.${ext}`;
-
+      const mime = asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4');
+      const ext = asset.fileName?.split('.').pop() ?? (type === 'image' ? 'jpg' : 'mp4');
       setMediaMime(mime);
-      setMediaName(fileName);
+      setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
     }
   }, []);
 
