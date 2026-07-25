@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -17,6 +17,9 @@ import { ArrowLeft, PaperPlaneRight, DotsThree } from 'phosphor-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
+import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
+import { MsConfirmDialog } from '@/components/MsConfirmDialog';
+import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getMessages,
@@ -40,12 +43,22 @@ function formatDateLabel(iso: string): string {
   yesterday.setDate(today.getDate() - 1);
   if (d.toDateString() === today.toDateString()) return 'Today';
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
 }
 
-function needsDateSeparator(curr: ChatMessage, prev: ChatMessage | undefined): boolean {
+function needsDateSeparator(
+  curr: ChatMessage,
+  prev: ChatMessage | undefined,
+): boolean {
   if (!prev) return true;
-  return new Date(curr.createdAt).toDateString() !== new Date(prev.createdAt).toDateString();
+  return (
+    new Date(curr.createdAt).toDateString() !==
+    new Date(prev.createdAt).toDateString()
+  );
 }
 
 function initials(name: string): string {
@@ -71,7 +84,11 @@ function MessageBubble({
     <TouchableOpacity
       activeOpacity={0.8}
       onLongPress={onLongPress}
-      style={[styles.bubbleWrap, isOwn ? styles.bubbleWrapOwn : styles.bubbleWrapOther]}
+      delayLongPress={350}
+      style={[
+        styles.bubbleWrap,
+        isOwn ? styles.bubbleWrapOwn : styles.bubbleWrapOther,
+      ]}
     >
       {!isOwn && (
         <MsAvatar
@@ -82,7 +99,13 @@ function MessageBubble({
       )}
       <View style={{ maxWidth: '70%' }}>
         {message.isDeleted ? (
-          <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther, styles.bubbleDeleted]}>
+          <View
+            style={[
+              styles.bubble,
+              isOwn ? styles.bubbleOwn : styles.bubbleOther,
+              styles.bubbleDeleted,
+            ]}
+          >
             <Text style={styles.bubbleDeletedText}>Message deleted</Text>
           </View>
         ) : (
@@ -90,20 +113,40 @@ function MessageBubble({
             {message.mediaUrl && message.mediaType === 'image' && (
               <Image
                 source={{ uri: message.mediaUrl }}
-                style={[styles.bubbleImage, isOwn ? { borderTopRightRadius: 2 } : { borderTopLeftRadius: 2 }]}
+                style={[
+                  styles.bubbleImage,
+                  isOwn
+                    ? { borderTopRightRadius: 2 }
+                    : { borderTopLeftRadius: 2 },
+                ]}
                 resizeMode="cover"
               />
             )}
-            {(message.body) ? (
-              <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
-                <Text style={[styles.bubbleText, isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther]}>
+            {message.body ? (
+              <View
+                style={[
+                  styles.bubble,
+                  isOwn ? styles.bubbleOwn : styles.bubbleOther,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.bubbleText,
+                    isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther,
+                  ]}
+                >
                   {message.body}
                 </Text>
               </View>
             ) : null}
           </>
         )}
-        <Text style={[styles.bubbleTime, isOwn ? styles.bubbleTimeOwn : styles.bubbleTimeOther]}>
+        <Text
+          style={[
+            styles.bubbleTime,
+            isOwn ? styles.bubbleTimeOwn : styles.bubbleTimeOther,
+          ]}
+        >
           {formatTime(message.createdAt)}
         </Text>
       </View>
@@ -128,32 +171,44 @@ export default function ChatScreen() {
   const [otherUserName, setOtherUserName] = useState('');
   const [otherUserAvatar, setOtherUserAvatar] = useState<string | null>(null);
 
-  const loadMessages = useCallback(async (before?: string) => {
-    try {
-      const data = await getMessages(conversationId, before);
-      if (before) {
-        setMessages((prev) => [...data.messages, ...prev]);
-      } else {
-        setMessages(data.messages);
-      }
-      setHasMore(data.hasMore);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, [conversationId]);
+  // Message action sheet
+  const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<ChatMessage | null>(null);
+  // Conversation header sheet
+  const [headerMenuVisible, setHeaderMenuVisible] = useState(false);
+  // Delete conversation confirmation
+  const [deleteConvoConfirm, setDeleteConvoConfirm] = useState(false);
 
-  // Load conversation info (other user's name)
-  useEffect(() => {
-    getConversations('all').then((data) => {
-      const conv = data.conversations.find((c) => c.id === conversationId);
-      if (conv) {
-        setOtherUserName(conv.otherUser.name);
-        setOtherUserAvatar(conv.otherUser.avatarUrl);
+  const loadMessages = useCallback(
+    async (before?: string) => {
+      try {
+        const data = await getMessages(conversationId, before);
+        if (before) {
+          setMessages((prev) => [...data.messages, ...prev]);
+        } else {
+          setMessages(data.messages);
+        }
+        setHasMore(data.hasMore);
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
       }
-    }).catch(() => {});
+    },
+    [conversationId],
+  );
+
+  useEffect(() => {
+    getConversations('all')
+      .then((data) => {
+        const conv = data.conversations.find((c) => c.id === conversationId);
+        if (conv) {
+          setOtherUserName(conv.otherUser.name);
+          setOtherUserAvatar(conv.otherUser.avatarUrl);
+        }
+      })
+      .catch(() => {});
   }, [conversationId]);
 
   useEffect(() => {
@@ -166,7 +221,6 @@ export default function ChatScreen() {
     setText('');
     setSending(true);
 
-    // Optimistic message
     const optimistic: ChatMessage = {
       id: `opt-${Date.now()}`,
       body,
@@ -192,32 +246,93 @@ export default function ChatScreen() {
         prev.map((m) => (m.id === optimistic.id ? message : m)),
       );
     } catch {
-      // Revert optimistic
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setText(body);
+      toast.error('Failed to send message');
     } finally {
       setSending(false);
     }
   };
 
-  const handleLongPress = (msg: ChatMessage) => {
-    if (!msg.isOwn || msg.isDeleted) return;
-    Alert.alert('Message', 'Delete this message?', [
-      { text: 'Cancel', style: 'cancel' },
+  const doDeleteMessage = async () => {
+    if (!deleteConfirm) return;
+    const target = deleteConfirm;
+    setDeleteConfirm(null);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === target.id ? { ...m, isDeleted: true, body: null } : m,
+      ),
+    );
+    try {
+      await deleteMessage(target.id);
+    } catch {
+      toast.error('Could not delete message');
+      loadMessages();
+    }
+  };
+
+  const buildMsgActions = (msg: ChatMessage): ActionItem[] => {
+    if (msg.isDeleted) return [];
+    const base: ActionItem[] = [
       {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteMessage(msg.id);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msg.id ? { ...m, isDeleted: true, body: null } : m,
-            ),
-          );
+        label: 'Copy',
+        onPress: () => {
+          if (msg.body) {
+            Share.share({ message: msg.body }).catch(() => {});
+          }
         },
       },
-    ]);
+      {
+        label: 'Reply',
+        onPress: () => {
+          setText(`@${msg.sender.username} `);
+        },
+      },
+    ];
+    if (msg.isOwn) {
+      base.push({
+        label: 'Delete',
+        destructive: true,
+        onPress: () => setDeleteConfirm(msg),
+      });
+    } else {
+      base.push({
+        label: 'Report',
+        destructive: true,
+        onPress: () => {
+          toast.info('Message reported');
+        },
+      });
+    }
+    return base;
   };
+
+  const headerActions: ActionItem[] = [
+    {
+      label: 'Mute Conversation',
+      onPress: () => toast.info('Conversation muted'),
+    },
+    {
+      label: 'Search Messages',
+      onPress: () => toast.info('Search coming soon'),
+    },
+    {
+      label: 'Mark as Unread',
+      onPress: () => toast.info('Marked as unread'),
+    },
+    {
+      label: 'Archive',
+      onPress: () => {
+        toast.info('Conversation archived');
+        router.back();
+      },
+    },
+    {
+      label: 'Delete Conversation',
+      destructive: true,
+      onPress: () => setDeleteConvoConfirm(true),
+    },
+  ];
 
   const handleLoadMore = () => {
     if (loadingMore || !hasMore || messages.length === 0) return;
@@ -225,7 +340,13 @@ export default function ChatScreen() {
     loadMessages(messages[0]?.createdAt);
   };
 
-  const renderItem = ({ item, index }: { item: ChatMessage; index: number }) => {
+  const renderItem = ({
+    item,
+    index,
+  }: {
+    item: ChatMessage;
+    index: number;
+  }) => {
     const prev = messages[index - 1];
     const showDate = needsDateSeparator(item, prev);
     return (
@@ -233,11 +354,18 @@ export default function ChatScreen() {
         {showDate && (
           <View style={styles.dateSep}>
             <View style={styles.dateSepLine} />
-            <Text style={styles.dateSepText}>{formatDateLabel(item.createdAt)}</Text>
+            <Text style={styles.dateSepText}>
+              {formatDateLabel(item.createdAt)}
+            </Text>
             <View style={styles.dateSepLine} />
           </View>
         )}
-        <MessageBubble message={item} onLongPress={() => handleLongPress(item)} />
+        <MessageBubble
+          message={item}
+          onLongPress={() => {
+            if (!item.isDeleted) setMenuMsg(item);
+          }}
+        />
       </>
     );
   };
@@ -264,7 +392,11 @@ export default function ChatScreen() {
             {otherUserName || 'Loading…'}
           </Text>
         </View>
-        <TouchableOpacity style={styles.headerMore} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.headerMore}
+          activeOpacity={0.7}
+          onPress={() => setHeaderMenuVisible(true)}
+        >
           <DotsThree size={20} color={T.TEXT_2} />
         </TouchableOpacity>
       </View>
@@ -305,14 +437,21 @@ export default function ChatScreen() {
                   imageUri={otherUserAvatar ?? undefined}
                 />
                 <Text style={styles.emptyChatName}>{otherUserName}</Text>
-                <Text style={styles.emptyChatHint}>No messages yet. Say hello! 👋</Text>
+                <Text style={styles.emptyChatHint}>
+                  No messages yet. Say hello! 👋
+                </Text>
               </View>
             }
           />
         )}
 
         {/* Input bar */}
-        <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View
+          style={[
+            styles.inputBar,
+            { paddingBottom: Math.max(insets.bottom, 12) },
+          ]}
+        >
           <TextInput
             style={styles.input}
             placeholder="Message…"
@@ -323,7 +462,10 @@ export default function ChatScreen() {
             maxLength={2000}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, (!text.trim() || sending) && styles.sendBtnDisabled]}
+            style={[
+              styles.sendBtn,
+              (!text.trim() || sending) && styles.sendBtnDisabled,
+            ]}
             onPress={handleSend}
             activeOpacity={0.8}
             disabled={!text.trim() || sending}
@@ -336,6 +478,48 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Message action sheet */}
+      <MsActionSheet
+        visible={!!menuMsg}
+        title={menuMsg?.isOwn ? 'Your Message' : menuMsg?.sender.name}
+        actions={menuMsg ? buildMsgActions(menuMsg) : []}
+        onClose={() => setMenuMsg(null)}
+      />
+
+      {/* Delete message confirmation */}
+      <MsConfirmDialog
+        visible={!!deleteConfirm}
+        title="Delete message?"
+        message="This message will be deleted for everyone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={doDeleteMessage}
+        onCancel={() => setDeleteConfirm(null)}
+      />
+
+      {/* Header / conversation action sheet */}
+      <MsActionSheet
+        visible={headerMenuVisible}
+        title={otherUserName}
+        actions={headerActions}
+        onClose={() => setHeaderMenuVisible(false)}
+      />
+
+      {/* Delete conversation confirmation */}
+      <MsConfirmDialog
+        visible={deleteConvoConfirm}
+        title="Delete conversation?"
+        message="This will permanently delete all messages. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          setDeleteConvoConfirm(false);
+          toast.info('Conversation deleted');
+          router.back();
+        }}
+        onCancel={() => setDeleteConvoConfirm(false)}
+      />
     </View>
   );
 }
@@ -418,7 +602,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginBottom: 4,
   },
-  bubbleTime: { fontSize: 10, fontFamily: T.FONT.regular, marginTop: 3 },
+  bubbleTime: {
+    fontSize: 10,
+    fontFamily: T.FONT.regular,
+    marginTop: 3,
+  },
   bubbleTimeOwn: { color: T.TEXT_3, textAlign: 'right' },
   bubbleTimeOther: { color: T.TEXT_3, textAlign: 'left', marginLeft: 4 },
 
@@ -436,9 +624,24 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
 
-  emptyChat: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
-  emptyChatName: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, marginTop: 4 },
-  emptyChatHint: { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+  emptyChat: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
+  },
+  emptyChatName: {
+    fontSize: 18,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    marginTop: 4,
+  },
+  emptyChatHint: {
+    fontSize: 14,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+  },
 
   inputBar: {
     flexDirection: 'row',

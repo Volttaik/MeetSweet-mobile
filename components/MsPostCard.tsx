@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Alert,
   Image,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,6 +18,7 @@ import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play } from 'phospho
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
+import { MsConfirmDialog } from '@/components/MsConfirmDialog';
 import type { Post } from '@/services/posts';
 import {
   likePost,
@@ -142,45 +144,44 @@ export function MsPostCard({
     }
   };
 
-  const doDelete = () => {
-    Alert.alert('Delete Post', 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deletePost(post.id);
-            onDeleted?.(post.id);
-          } catch {
-            Alert.alert('Error', 'Could not delete post.');
-          }
-        },
-      },
-    ]);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [reportConfirm, setReportConfirm] = useState(false);
+
+  const doDelete = async () => {
+    try {
+      await deletePost(post.id);
+      onDeleted?.(post.id);
+    } catch {
+      Alert.alert('Error', 'Could not delete post.');
+    }
   };
 
-  const doReport = (reason: string) =>
-    reportPost(post.id, reason).catch(() =>
-      Alert.alert('Error', 'Could not report post.'),
-    );
+  const doReport = () =>
+    reportPost(post.id, 'inappropriate').catch(() => {});
+
+  const doShare = () => {
+    Share.share({
+      message: post.caption ?? `Check out this post on MeetSweet!`,
+      title: post.author.name,
+    }).catch(() => {});
+  };
 
   // Own post actions
   const ownActions: ActionItem[] = [
+    { label: 'Share Post', onPress: doShare },
     { label: 'Edit Post', onPress: () => {} },
     { label: 'Archive Post', onPress: () => {} },
-    { label: 'View Statistics', onPress: () => {} },
-    { label: 'Delete Post', destructive: true, onPress: doDelete },
+    { label: 'Delete Post', destructive: true, onPress: () => setDeleteConfirm(true) },
   ];
 
   // Guest post actions
   const guestActions: ActionItem[] = [
-    { label: 'Save Post', onPress: () => handleBookmark() },
-    { label: 'Copy Link', onPress: () => {} },
-    { label: 'Share Profile', onPress: () => onAuthorPress?.() },
+    { label: bookmarked ? 'Remove Saved' : 'Save Post', onPress: () => handleBookmark() },
+    { label: 'Share Post', onPress: doShare },
+    { label: 'Copy Link', onPress: doShare },
     { label: 'Not Interested', onPress: () => {} },
-    { label: 'Hide Creator', onPress: () => {} },
-    { label: 'Report', destructive: true, onPress: () => doReport('inappropriate') },
+    { label: 'Mute Creator', onPress: () => {} },
+    { label: 'Report', destructive: true, onPress: () => setReportConfirm(true) },
   ];
 
   const inits = post.author.name
@@ -317,6 +318,27 @@ export function MsPostCard({
         subtitle={isOwn ? undefined : `@${post.author.username}`}
         actions={isOwn ? ownActions : guestActions}
         onClose={() => setSheetVisible(false)}
+      />
+
+      {/* Delete post confirmation */}
+      <MsConfirmDialog
+        visible={deleteConfirm}
+        title="Delete post?"
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={doDelete}
+        onCancel={() => setDeleteConfirm(false)}
+      />
+
+      {/* Report confirmation */}
+      <MsConfirmDialog
+        visible={reportConfirm}
+        title="Report this post?"
+        message="We'll review it and take appropriate action."
+        confirmLabel="Report"
+        onConfirm={() => { doReport(); setReportConfirm(false); }}
+        onCancel={() => setReportConfirm(false)}
       />
     </View>
   );

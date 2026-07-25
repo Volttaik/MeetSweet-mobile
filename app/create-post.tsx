@@ -78,6 +78,25 @@ export default function CreatePostScreen() {
     getCategories().then(({ categories }) => setCategories(categories)).catch(() => {});
   }, []);
 
+  // ─── Unsaved changes guard ───────────────────────────────────────────────
+
+  const hasContent = !!caption.trim() || !!mediaUri;
+
+  const handleBack = () => {
+    if (hasContent) {
+      Alert.alert(
+        'Discard post?',
+        'You have unsaved content. Leave anyway?',
+        [
+          { text: 'Keep editing', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+        ],
+      );
+    } else {
+      router.back();
+    }
+  };
+
   // ─── Media picker ────────────────────────────────────────────────────────
 
   const pickMedia = useCallback(async (type: 'image' | 'video') => {
@@ -273,7 +292,7 @@ export default function CreatePostScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
-          onPress={() => router.back()}
+          onPress={handleBack}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <ArrowLeft size={20} color={T.TEXT} />

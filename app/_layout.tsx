@@ -21,6 +21,7 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { MsToastHost } from '@/components/MsToast';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -115,6 +116,7 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <AuthProvider>
                   <RootLayoutNav />
+                  <MsToastHost />
                 </AuthProvider>
               </KeyboardProvider>
             </HeroUINativeProvider>
