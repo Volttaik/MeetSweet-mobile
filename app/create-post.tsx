@@ -99,10 +99,22 @@ export default function CreatePostScreen() {
       const asset = result.assets[0];
       setMediaUri(asset.uri);
       setMediaType(type);
-      const mime = asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4');
-      const ext = asset.fileName?.split('.').pop() ?? (type === 'image' ? 'jpg' : 'mp4');
+
+      // iOS returns 'image/heic' or 'image/heif' for photos shot on device.
+      // expo-image-picker transcodes to JPEG when `quality` is set, but still
+      // reports the original container MIME type. Normalise to image/jpeg so
+      // the backend accepts the upload.
+      let mime = asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4');
+      if (mime === 'image/heic' || mime === 'image/heif') mime = 'image/jpeg';
+
+      // Match the filename extension to the normalised MIME type.
+      let fileName = asset.fileName ?? `media-${Date.now()}.${type === 'image' ? 'jpg' : 'mp4'}`;
+      if (/\.(heic|heif)$/i.test(fileName)) {
+        fileName = fileName.replace(/\.(heic|heif)$/i, '.jpg');
+      }
+
       setMediaMime(mime);
-      setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
+      setMediaName(fileName);
     }
   }, []);
 
