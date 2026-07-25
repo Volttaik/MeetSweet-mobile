@@ -12,10 +12,12 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  withSpring,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play, Share as ShareIcon } from 'phosphor-react-native';
+import { T, AppGradients } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
@@ -47,7 +49,6 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** Scale-on-press wrapper */
 function ScalePressable({
   children,
   onPress,
@@ -70,10 +71,10 @@ function ScalePressable({
         onPress={onPress}
         onLongPress={onLongPress}
         onPressIn={() => {
-          scale.value = withTiming(0.93, { duration: 80, easing: Easing.out(Easing.cubic) });
+          scale.value = withTiming(0.96, { duration: 90, easing: Easing.out(Easing.cubic) });
         }}
         onPressOut={() => {
-          scale.value = withTiming(1, { duration: 160, easing: Easing.out(Easing.back(1.4)) });
+          scale.value = withSpring(1, { damping: 18, stiffness: 220 });
         }}
         delayLongPress={400}
       >
@@ -104,8 +105,13 @@ export function MsPostCard({
   const [bookmarked, setBookmarked] = useState(post.bookmarkedByMe ?? false);
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const heartScale = useSharedValue(1);
 
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
+
+  const heartStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heartScale.value }],
+  }));
 
   const handleLike = async () => {
     if (liking) return;
@@ -113,6 +119,11 @@ export function MsPostCard({
     const wasLiked = liked;
     setLiked(!wasLiked);
     setLikeCount((c) => (wasLiked ? Math.max(0, c - 1) : c + 1));
+    if (!wasLiked) {
+      heartScale.value = withSpring(1.35, { damping: 10, stiffness: 300 }, () => {
+        heartScale.value = withSpring(1, { damping: 14, stiffness: 260 });
+      });
+    }
     try {
       if (wasLiked) {
         const res = await unlikePost(post.id);
@@ -166,7 +177,6 @@ export function MsPostCard({
     }).catch(() => {});
   };
 
-  // Own post actions
   const ownActions: ActionItem[] = [
     { label: 'Share Post', onPress: doShare },
     { label: 'Edit Post', onPress: () => {} },
@@ -174,7 +184,6 @@ export function MsPostCard({
     { label: 'Delete Post', destructive: true, onPress: () => setDeleteConfirm(true) },
   ];
 
-  // Guest post actions
   const guestActions: ActionItem[] = [
     { label: bookmarked ? 'Remove Saved' : 'Save Post', onPress: () => handleBookmark() },
     { label: 'Share Post', onPress: doShare },
@@ -202,7 +211,7 @@ export function MsPostCard({
           delayLongPress={400}
         >
           <MsAvatar
-            size={38}
+            size={40}
             initials={inits}
             imageUri={post.author.avatarUrl ?? undefined}
           />
@@ -212,7 +221,7 @@ export function MsPostCard({
                 {post.author.name}
               </Text>
               {post.author.isVerified && (
-                <SealCheck size={14} color={T.TEXT} weight="fill" />
+                <SealCheck size={14} color={T.ROSE} weight="fill" />
               )}
             </View>
             <Text style={styles.authorMeta}>
@@ -223,9 +232,14 @@ export function MsPostCard({
 
         <View style={styles.authorRight}>
           {post.isPremium && (
-            <View style={styles.premiumBadge}>
-              <Text style={styles.premiumText}>PREMIUM</Text>
-            </View>
+            <LinearGradient
+              colors={AppGradients.rosePurple}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.premiumBadge}
+            >
+              <Text style={styles.premiumText}>✦ PREMIUM</Text>
+            </LinearGradient>
           )}
           <TouchableOpacity
             style={styles.moreBtn}
@@ -240,7 +254,12 @@ export function MsPostCard({
 
       {/* Caption */}
       {!!post.caption && (
-        <TouchableOpacity activeOpacity={0.9} onPress={onPress} onLongPress={() => setSheetVisible(true)} delayLongPress={400}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onPress}
+          onLongPress={() => setSheetVisible(true)}
+          delayLongPress={400}
+        >
           <Text style={styles.caption} numberOfLines={3}>
             {post.caption}
           </Text>
@@ -258,15 +277,25 @@ export function MsPostCard({
       {post.mediaUrl && post.mediaType === 'video' && (
         <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
           <View style={styles.videoPlaceholder}>
+            <LinearGradient
+              colors={['rgba(14,11,18,0.2)', 'rgba(14,11,18,0.7)']}
+              style={StyleSheet.absoluteFill}
+            />
             <View style={styles.videoOverlay}>
               <View style={styles.playBtn}>
-                <Play size={20} color={T.TEXT} weight="fill" />
+                <LinearGradient
+                  colors={AppGradients.rosePurple}
+                  style={styles.playGradient}
+                >
+                  <Play size={22} color={T.TEXT} weight="fill" />
+                </LinearGradient>
               </View>
               {post.durationSecs != null && (
-                <Text style={styles.duration}>
-                  {Math.floor(post.durationSecs / 60)}:
-                  {String(post.durationSecs % 60).padStart(2, '0')}
-                </Text>
+                <View style={styles.durationPill}>
+                  <Text style={styles.duration}>
+                    {Math.floor(post.durationSecs / 60)}:{String(post.durationSecs % 60).padStart(2, '0')}
+                  </Text>
+                </View>
               )}
             </View>
           </View>
@@ -277,11 +306,13 @@ export function MsPostCard({
       <View style={styles.actions}>
         {/* Like */}
         <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.7}>
-          <Heart
-            size={18}
-            color={liked ? '#EF4444' : T.TEXT_2}
-            weight={liked ? 'fill' : 'regular'}
-          />
+          <Animated.View style={heartStyle}>
+            <Heart
+              size={19}
+              color={liked ? T.ROSE : T.TEXT_2}
+              weight={liked ? 'fill' : 'regular'}
+            />
+          </Animated.View>
           {likeCount > 0 && (
             <Text style={[styles.actionCount, liked && styles.actionCountLiked]}>
               {formatCount(likeCount)}
@@ -291,10 +322,15 @@ export function MsPostCard({
 
         {/* Comment */}
         <TouchableOpacity style={styles.actionBtn} onPress={onPress} activeOpacity={0.7}>
-          <ChatCircle size={18} color={T.TEXT_2} />
+          <ChatCircle size={19} color={T.TEXT_2} />
           {post.commentCount > 0 && (
             <Text style={styles.actionCount}>{formatCount(post.commentCount)}</Text>
           )}
+        </TouchableOpacity>
+
+        {/* Share */}
+        <TouchableOpacity style={styles.actionBtn} onPress={doShare} activeOpacity={0.7}>
+          <ShareIcon size={19} color={T.TEXT_2} />
         </TouchableOpacity>
 
         <View style={{ flex: 1 }} />
@@ -302,8 +338,8 @@ export function MsPostCard({
         {/* Bookmark */}
         <TouchableOpacity style={styles.actionBtn} onPress={handleBookmark} activeOpacity={0.7}>
           <Bookmark
-            size={18}
-            color={bookmarked ? T.TEXT : T.TEXT_2}
+            size={19}
+            color={bookmarked ? T.ROSE : T.TEXT_2}
             weight={bookmarked ? 'fill' : 'regular'}
           />
         </TouchableOpacity>
@@ -311,7 +347,6 @@ export function MsPostCard({
 
       <View style={styles.divider} />
 
-      {/* Context menu bottom sheet */}
       <MsActionSheet
         visible={sheetVisible}
         title={isOwn ? 'Your Post' : post.author.name}
@@ -320,7 +355,6 @@ export function MsPostCard({
         onClose={() => setSheetVisible(false)}
       />
 
-      {/* Delete post confirmation */}
       <MsConfirmDialog
         visible={deleteConfirm}
         title="Delete post?"
@@ -331,7 +365,6 @@ export function MsPostCard({
         onCancel={() => setDeleteConfirm(false)}
       />
 
-      {/* Report confirmation */}
       <MsConfirmDialog
         visible={reportConfirm}
         title="Report this post?"
@@ -351,8 +384,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 10,
+    paddingTop: 18,
+    paddingBottom: 12,
   },
   authorLeft: {
     flex: 1,
@@ -361,7 +394,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   authorInfo: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   authorName: {
     fontSize: 14,
     fontFamily: T.FONT.semibold,
@@ -372,76 +405,97 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
-    marginTop: 1,
+    marginTop: 2,
   },
-  authorRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  authorRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   premiumBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: T.RADIUS.xs,
-    backgroundColor: T.SURFACE_2,
+    paddingVertical: 4,
+    borderRadius: T.RADIUS.full,
   },
   premiumText: {
-    fontSize: 9,
+    fontSize: 8,
     fontFamily: T.FONT.bold,
     color: T.TEXT,
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   moreBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: T.BORDER,
   },
 
   caption: {
     fontSize: 14,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
-    lineHeight: 21,
+    lineHeight: 22,
     paddingHorizontal: 20,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
 
-  media: { width: '100%', aspectRatio: 1, backgroundColor: T.SURFACE },
+  media: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: T.SURFACE,
+    marginBottom: 2,
+  },
 
   videoPlaceholder: {
     width: '100%',
     aspectRatio: 16 / 9,
-    backgroundColor: T.SURFACE,
+    backgroundColor: T.SURFACE_2,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  videoOverlay: { alignItems: 'center', gap: 10 },
+  videoOverlay: { alignItems: 'center', gap: 12 },
   playBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: 'hidden',
+    shadowColor: T.ROSE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  playGradient: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  duration: { fontSize: 12, fontFamily: T.FONT.medium, color: 'rgba(255,255,255,0.7)' },
+  durationPill: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: T.RADIUS.full,
+  },
+  duration: { fontSize: 11, fontFamily: T.FONT.medium, color: T.TEXT },
 
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    gap: 4,
+    gap: 2,
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: T.RADIUS.sm,
   },
   actionCount: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  actionCountLiked: { color: '#EF4444' },
+  actionCountLiked: { color: T.ROSE },
 
   divider: { height: 1, backgroundColor: T.BORDER, marginTop: 2 },
 });

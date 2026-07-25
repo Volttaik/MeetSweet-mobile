@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import { T } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { T, AppGradients } from '@/constants/theme';
 
 interface MsAvatarProps {
   size?: number;
@@ -8,6 +9,8 @@ interface MsAvatarProps {
   imageUri?: string;
   showOnline?: boolean;
   badgeCount?: number;
+  /** Wrap avatar in rose-pink gradient ring */
+  premium?: boolean;
 }
 
 export function MsAvatar({
@@ -16,6 +19,7 @@ export function MsAvatar({
   imageUri,
   showOnline = false,
   badgeCount,
+  premium = false,
 }: MsAvatarProps) {
   const radius = size / 2;
   const dotSize = Math.max(Math.floor(size * 0.26), 10);
@@ -25,36 +29,61 @@ export function MsAvatar({
   const onLoad = () => {
     Animated.timing(imgOpacity, {
       toValue: 1,
-      duration: 220,
+      duration: 250,
       useNativeDriver: true,
     }).start();
   };
 
+  const ring = premium ? 2.5 : 0;
+  const innerSize = size - ring * 2 - 2;
+
   return (
     <View style={{ width: size, height: size }}>
-      <View
-        style={[
-          styles.circle,
-          { width: size, height: size, borderRadius: radius },
-        ]}
-      >
-        {/* Initials always rendered underneath — visible while image loads */}
-        <Text style={[styles.initials, { fontSize }]}>
-          {(initials || 'U').toUpperCase().slice(0, 2)}
-        </Text>
-
-        {imageUri ? (
-          <Animated.Image
-            source={{ uri: imageUri }}
+      {premium ? (
+        <LinearGradient
+          colors={AppGradients.rosePurple}
+          style={[styles.premiumRing, { width: size, height: size, borderRadius: radius }]}
+        >
+          <View
             style={[
-              styles.absoluteImage,
-              { width: size, height: size, borderRadius: radius, opacity: imgOpacity },
+              styles.circle,
+              { width: innerSize, height: innerSize, borderRadius: innerSize / 2 },
             ]}
-            resizeMode="cover"
-            onLoad={onLoad}
-          />
-        ) : null}
-      </View>
+          >
+            <Text style={[styles.initials, { fontSize: Math.floor(innerSize * 0.36) }]}>
+              {(initials || 'U').toUpperCase().slice(0, 2)}
+            </Text>
+            {imageUri ? (
+              <Animated.Image
+                source={{ uri: imageUri }}
+                style={[
+                  styles.absoluteImage,
+                  { width: innerSize, height: innerSize, borderRadius: innerSize / 2, opacity: imgOpacity },
+                ]}
+                resizeMode="cover"
+                onLoad={onLoad}
+              />
+            ) : null}
+          </View>
+        </LinearGradient>
+      ) : (
+        <View style={[styles.circle, { width: size, height: size, borderRadius: radius }]}>
+          <Text style={[styles.initials, { fontSize }]}>
+            {(initials || 'U').toUpperCase().slice(0, 2)}
+          </Text>
+          {imageUri ? (
+            <Animated.Image
+              source={{ uri: imageUri }}
+              style={[
+                styles.absoluteImage,
+                { width: size, height: size, borderRadius: radius, opacity: imgOpacity },
+              ]}
+              resizeMode="cover"
+              onLoad={onLoad}
+            />
+          ) : null}
+        </View>
+      )}
 
       {showOnline && (
         <View
@@ -77,6 +106,10 @@ export function MsAvatar({
 }
 
 const styles = StyleSheet.create({
+  premiumRing: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   circle: {
     backgroundColor: T.SURFACE_2,
     alignItems: 'center',
@@ -87,7 +120,7 @@ const styles = StyleSheet.create({
   },
   initials: {
     fontFamily: T.FONT.semibold,
-    color: T.TEXT,
+    color: T.TEXT_2,
   },
   absoluteImage: {
     position: 'absolute',
@@ -109,7 +142,7 @@ const styles = StyleSheet.create({
     minWidth: 16,
     height: 16,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.ROSE,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
@@ -119,6 +152,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 9,
     fontFamily: T.FONT.bold,
-    color: T.BG,
+    color: T.TEXT,
   },
 });

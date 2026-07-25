@@ -12,7 +12,7 @@ import { House, MagnifyingGlass, ChatCircle, User, type Icon } from 'phosphor-re
 import { T } from '@/constants/theme';
 
 const TAB_HEIGHT = 60;
-const INACTIVE_COLOR = '#777777';
+const INACTIVE_COLOR = 'rgba(255,255,255,0.35)';
 
 type VisualTab = {
   label: string;
@@ -79,7 +79,7 @@ function TabBtn({
     );
   }
 
-  const iconColor = isActive ? T.TEXT : INACTIVE_COLOR;
+  const iconColor = isActive ? T.ROSE : INACTIVE_COLOR;
 
   return (
     <Pressable onPress={handlePress} style={styles.tabWrap}>
@@ -184,7 +184,7 @@ const badgeStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
-    backgroundColor: T.BG,
+    backgroundColor: T.SURFACE,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: T.BORDER,
@@ -213,13 +213,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   centerBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: T.TEXT,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: T.ROSE,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
+    shadowColor: T.ROSE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 8,
   },
   centerLogo: {
     width: 34,

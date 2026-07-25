@@ -19,7 +19,11 @@ export function MsSectionHeader({
     <View style={[styles.row, style]}>
       <Text style={styles.title}>{title}</Text>
       {actionLabel && (
-        <TouchableOpacity onPress={onAction} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={onAction}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Text style={styles.action}>{actionLabel}</Text>
         </TouchableOpacity>
       )}
@@ -33,18 +37,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 12,
+    paddingTop: 24,
+    paddingBottom: 14,
   },
   title: {
     fontSize: 16,
     fontFamily: T.FONT.bold,
     color: T.TEXT,
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
   action: {
     fontSize: 13,
     fontFamily: T.FONT.medium,
-    color: T.TEXT_2,
+    color: T.ROSE,
   },
 });
