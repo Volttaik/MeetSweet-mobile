@@ -2,7 +2,7 @@
 
 > **Probed:** 2026-07-25  
 > **Base URL:** `https://meetsweet-server.quizmi.space/api`  
-> **Test account:** `onyeaghorlouis@gmail.com` / `devatron`  
+> **Test account:** username `devatron` (owner's account — credentials not stored here)  
 > **Account upgraded to creator** during this session via `POST /creator/become`
 
 All responses use the envelope `{ ok: true, data: { ... } }` on success and `{ ok: false, error: "...", code: "..." }` on failure. The `apiFetch` wrapper in `services/api.ts` automatically unwraps `.data` for successful responses.
