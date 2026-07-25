@@ -14,9 +14,23 @@
       "backgroundColor": "#0D0B1A"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.meetsweet.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "MeetSweet needs access to your photo library to upload media.",
+        "NSCameraUsageDescription": "MeetSweet needs access to your camera to take photos for your profile.",
+        "NSPhotoLibraryAddUsageDescription": "MeetSweet needs permission to save photos."
+      }
     },
-    "android": {},
+    "android": {
+      "package": "com.meetsweet.app",
+      "permissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.CAMERA"
+      ]
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -24,11 +38,18 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://meetsweet.app/"
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MeetSweet needs access to your photo library to upload media.",
+          "cameraPermission": "MeetSweet needs access to your camera to take photos for your profile."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
