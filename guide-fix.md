@@ -12,29 +12,82 @@
 
 ## PART A — BACKEND FIXES REQUIRED
 
-### A1. Routes That Return 500 (Server Crash)
+### A1. Routes That Return 500 — ROOT CAUSE CONFIRMED FROM VERCEL LOGS
 
-These routes exist on the server but crash internally. They return HTTP 500 with an **empty body** — no error message, no stack trace. This is the highest-priority issue because it breaks the core user experience.
+The Vercel production logs reveal the exact errors. These are **missing database migrations** — the backend code references columns and tables that do not exist in the production SQLite (LibSQL/Turso) database.
 
-| Route | Frontend calls it from | Impact |
-|---|---|---|
-| `GET /posts` | `services/posts.ts → getFeed()` | Home feed always shows "Feed unavailable" |
-| `GET /posts?page=N&limit=20` | `services/posts.ts → getFeed()` | Same — query params make no difference |
-| `GET /posts/feed` | (probed directly) | Not used by frontend but also 500 |
-| `POST /posts` | `services/posts.ts → createPost()` | Cannot create any posts |
-| `GET /users/:username/posts` | `services/posts.ts → getUserPosts()` | Profile posts tab always empty |
-| `GET /explore` | `services/search.ts → getExplore()` | Explore tab always fails |
-| `GET /settings` | `services/settings.ts → getSettings()` | Settings screen crashes on load |
-| `PATCH /settings` | `services/settings.ts → updateSettings()` | Cannot save settings |
+---
 
-**Everything related to posts is dead.** This is a backend database query or middleware crash — the route handler exists (it's not a 404) but it throws before returning.
+#### 🔴 CRASH #1 — `posts` table missing `unlock_price` column
 
-All other post-related routes that depend on posts will also fail by extension:
-- `GET /posts/:id` (single post view)
-- `POST /posts/:id/like` / `DELETE /posts/:id/like`
-- `POST /posts/:id/bookmark` / `DELETE /posts/:id/bookmark`
-- `GET /posts/:id/comments`
-- `POST /posts/:id/comments`
+**Exact Vercel error (both GET and POST /posts):**
+```
+Error [LibsqlError]: SQL_INPUT_ERROR: SQLite input error:
+no such column: posts.unlock_price (at offset 101)
+
+Error [LibsqlError]: SQLITE_UNKNOWN: SQLite error:
+table posts has no column named unlock_price
+```
+
+**What this means:** The backend code queries or inserts `posts.unlock_price` but this column was never added to the production database via a migration. Every single query that touches the `posts` table fails.
+
+**Fix — run this migration on the production LibSQL/Turso database:**
+```sql
+ALTER TABLE posts ADD COLUMN unlock_price INTEGER DEFAULT NULL;
+```
+
+**If there are other new columns in the schema that are also missing, add them all in the same migration.** Check the full `posts` table schema in the backend code against the live database schema (`PRAGMA table_info(posts)`) to find all missing columns.
+
+**Routes unblocked once this column is added:**
+
+| Route | Impact |
+|---|---|
+| `GET /posts` | Home feed loads |
+| `GET /posts?page=N&limit=20` | Pagination works |
+| `POST /posts` | Post creation works |
+| `GET /users/:username/posts` | Profile posts tab works |
+| `GET /posts/:id` | Single post view works |
+| `POST /posts/:id/like` / `DELETE` | Like/unlike works |
+| `POST /posts/:id/bookmark` / `DELETE` | Bookmark works |
+| `GET /posts/:id/comments` | Comments load |
+| `POST /posts/:id/comments` | Commenting works |
+| `GET /explore` | Explore tab works (also queries posts) |
+
+---
+
+#### 🔴 CRASH #2 — `user_settings` table does not exist
+
+**Exact Vercel error (`GET /settings`):**
+```
+Error [LibsqlError]: SQLITE_UNKNOWN: SQLite error:
+no such table: user_settings
+```
+
+**What this means:** The settings feature was added to the backend code but the `user_settings` table migration was never run against the production database.
+
+**Fix — create the table in production:**
+```sql
+CREATE TABLE IF NOT EXISTS user_settings (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  push_notifications INTEGER NOT NULL DEFAULT 1,
+  email_notifications INTEGER NOT NULL DEFAULT 1,
+  dark_mode INTEGER NOT NULL DEFAULT 1,
+  data_saver INTEGER NOT NULL DEFAULT 0,
+  autoplay_media INTEGER NOT NULL DEFAULT 1,
+  biometric_login INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+> Adjust column names/types to match what the backend code actually expects — check the `settings` route handler schema.
+
+**Routes unblocked once this table is created:**
+
+| Route | Impact |
+|---|---|
+| `GET /settings` | Settings screen loads |
+| `PATCH /settings` | Settings can be saved |
 
 ---
 
