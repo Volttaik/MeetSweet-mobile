@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from './api';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface PostAuthor {
   id: string;
   name: string;
@@ -32,9 +34,6 @@ export interface Post {
   bookmarkedByMe: boolean;
   isLocked?: boolean;
   updatedAt?: string;
-  previewMediaUrl?: string | null;
-  previewMediaType?: 'image' | 'video' | null;
-  previewDurationSecs?: number | null;
 }
 
 export interface Comment {
@@ -54,6 +53,66 @@ export interface Comment {
   };
 }
 
+// ─── Normalizers ──────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizePost(raw: any): Post {
+  const media = Array.isArray(raw.media) ? raw.media : [];
+  const firstMedia = media[0] ?? null;
+  return {
+    id: raw.id,
+    caption: raw.caption ?? '',
+    visibility: raw.visibility ?? 'public',
+    mediaUrl: firstMedia?.url ?? null,
+    mediaType: firstMedia?.type ?? null,
+    thumbnailUrl: firstMedia?.thumbnail_url ?? null,
+    durationSecs: firstMedia?.duration_secs ?? null,
+    fileSize: firstMedia?.file_size ?? null,
+    width: firstMedia?.width ?? null,
+    height: firstMedia?.height ?? null,
+    likeCount: raw.like_count ?? 0,
+    commentCount: raw.comment_count ?? 0,
+    bookmarkCount: raw.save_count ?? 0,
+    isPremium: raw.visibility === 'subscribers',
+    priceCredits: raw.unlock_price ?? null,
+    createdAt: raw.created_at ?? raw.published_at ?? new Date().toISOString(),
+    updatedAt: raw.updated_at,
+    author: {
+      id: raw.creator_id ?? '',
+      name: raw.creator_display_name ?? raw.creator_username ?? 'Unknown',
+      username: raw.creator_username ?? '',
+      avatarUrl: raw.creator_avatar ?? null,
+      isVerified: raw.creator_is_verified ?? false,
+      isCreator: true,
+    },
+    likedByMe: raw.liked_by_me ?? false,
+    bookmarkedByMe: raw.bookmarked_by_me ?? false,
+    isLocked: raw.unlock_price != null && raw.unlock_price > 0,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeComment(raw: any): Comment {
+  return {
+    id: raw.id,
+    body: raw.body ?? '',
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+    likeCount: raw.like_count ?? 0,
+    replyCount: raw.reply_count ?? 0,
+    parentId: raw.parent_id ?? null,
+    likedByMe: raw.liked_by_me ?? false,
+    author: {
+      id: raw.author_id ?? raw.author?.id ?? '',
+      name: raw.author_display_name ?? raw.author?.name ?? raw.author_username ?? '',
+      username: raw.author_username ?? raw.author?.username ?? '',
+      avatarUrl: raw.author_avatar ?? raw.author?.avatar_url ?? null,
+    },
+  };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem('@ms_access_token');
 }
@@ -62,48 +121,83 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+// ─── Feed & Posts ─────────────────────────────────────────────────────────────
+
 export async function getFeed(page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts?page=${page}&limit=20`, { headers });
+  const raw = await apiFetch<{ posts: unknown[]; page: number; limit: number }>(
+    `/posts?page=${page}&limit=20`,
+    { headers },
+  );
+  const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
+  return { posts, hasMore: posts.length === 20 };
 }
 
-export async function getUserPosts(userId: string, page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
+export async function getUserPosts(
+  username: string,
+  page = 1,
+): Promise<{ posts: Post[]; hasMore: boolean }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts?userId=${userId}&page=${page}&limit=20`, { headers });
+  const raw = await apiFetch<{ posts: unknown[]; page: number; limit: number }>(
+    `/users/${encodeURIComponent(username)}/posts?page=${page}&limit=20`,
+    { headers },
+  );
+  const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
+  return { posts, hasMore: posts.length === 20 };
 }
 
 export async function getPost(id: string): Promise<{ post: Post }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts/${id}`, { headers });
+  const raw = await apiFetch<unknown>(`/posts/${id}`, { headers });
+  return { post: normalizePost(raw) };
 }
+
+export async function getBookmarkedPosts(page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
+  const token = await getToken();
+  const headers = token ? authHeader(token) : {};
+  const raw = await apiFetch<{ posts: unknown[]; page: number; limit: number }>(
+    `/posts?bookmarked=true&page=${page}&limit=20`,
+    { headers },
+  );
+  const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
+  return { posts, hasMore: posts.length === 20 };
+}
+
+// ─── Create / Edit / Delete ───────────────────────────────────────────────────
 
 export interface CreatePostData {
   caption?: string;
-  visibility?: string;
-  mediaUrl?: string;
-  mediaType?: string;
-  thumbnailUrl?: string;
-  durationSecs?: number;
-  fileSize?: number;
-  width?: number;
-  height?: number;
-  isPremium?: boolean;
-  priceCredits?: number;
+  visibility?: 'public' | 'subscribers' | 'draft';
+  media_ids?: string[];
+  unlock_price?: number;
+  preview_duration?: number;
+  expires_at?: string;
   categories?: string[];
   tags?: string[];
-  previewMediaUrl?: string;
-  previewMediaType?: string;
-  previewDurationSecs?: number;
 }
 
-export async function createPost(data: CreatePostData): Promise<{ post: Post }> {
+export async function createPost(data: CreatePostData): Promise<{ id: string }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch('/posts', {
+  const raw = await apiFetch<{ id: string }>('/posts', {
     method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify(data),
+  });
+  return raw;
+}
+
+export async function editPost(
+  id: string,
+  data: { caption?: string; visibility?: string; preview_duration?: number | null; expires_at?: string | null },
+): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/posts/${id}`, {
+    method: 'PATCH',
     headers: authHeader(token),
     body: JSON.stringify(data),
   });
@@ -118,100 +212,53 @@ export async function deletePost(id: string): Promise<void> {
   });
 }
 
-export async function likePost(id: string): Promise<{ liked: boolean; likeCount: number }> {
+export async function publishPost(id: string): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${id}/like`, {
+  await apiFetch(`/posts/${id}/publish`, {
     method: 'POST',
     headers: authHeader(token),
   });
+}
+
+export async function archivePost(id: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/posts/${id}/archive`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}
+
+export async function restorePost(id: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/posts/${id}/restore`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}
+
+// ─── Interactions ─────────────────────────────────────────────────────────────
+
+export async function likePost(id: string): Promise<{ liked: boolean; likeCount: number }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ liked: boolean; like_count: number }>(`/posts/${id}/like`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+  return { liked: raw.liked, likeCount: raw.like_count ?? 0 };
 }
 
 export async function unlikePost(id: string): Promise<{ liked: boolean; likeCount: number }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${id}/like`, {
+  const raw = await apiFetch<{ liked: boolean; like_count: number }>(`/posts/${id}/like`, {
     method: 'DELETE',
     headers: authHeader(token),
   });
-}
-
-export async function getComments(postId: string, parentId?: string): Promise<{ comments: Comment[] }> {
-  const query = parentId ? `?parentId=${encodeURIComponent(parentId)}` : '';
-  return apiFetch(`/posts/${postId}/comments${query}`);
-}
-
-export async function addComment(postId: string, body: string): Promise<{ comment: Comment }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${postId}/comments`, {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ body }),
-  });
-}
-
-export async function addReply(postId: string, parentId: string, body: string): Promise<{ comment: Comment }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${postId}/comments`, {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ body, parentId }),
-  });
-}
-
-export async function editComment(postId: string, commentId: string, body: string): Promise<{ comment: Comment }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${postId}/comments/${commentId}`, {
-    method: 'PUT',
-    headers: authHeader(token),
-    body: JSON.stringify({ body }),
-  });
-}
-
-export async function editPost(id: string, data: { caption?: string; visibility?: string }): Promise<void> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/posts/${id}`, {
-    method: 'PUT',
-    headers: authHeader(token),
-    body: JSON.stringify(data),
-  });
-}
-
-export async function deleteComment(postId: string, commentId: string): Promise<void> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/posts/${postId}/comments/${commentId}`, {
-    method: 'DELETE',
-    headers: authHeader(token),
-  });
-}
-
-export async function likeComment(
-  postId: string,
-  commentId: string,
-): Promise<{ liked: boolean; likeCount: number }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${postId}/comments/${commentId}/like`, {
-    method: 'POST',
-    headers: authHeader(token),
-  });
-}
-
-export async function unlikeComment(
-  postId: string,
-  commentId: string,
-): Promise<{ liked: boolean; likeCount: number }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${postId}/comments/${commentId}/like`, {
-    method: 'DELETE',
-    headers: authHeader(token),
-  });
+  return { liked: raw.liked, likeCount: raw.like_count ?? 0 };
 }
 
 export async function bookmarkPost(id: string): Promise<{ bookmarked: boolean }> {
@@ -232,20 +279,159 @@ export async function unbookmarkPost(id: string): Promise<{ bookmarked: boolean 
   });
 }
 
-export async function reportPost(id: string, reason = 'inappropriate'): Promise<{ reported: boolean }> {
+export async function reportPost(
+  id: string,
+  reason = 'inappropriate',
+  description?: string,
+): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/posts/${id}/report`, {
+  await apiFetch(`/posts/${id}/report`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ reason, description }),
+  });
+}
+
+export async function hidePost(id: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/posts/${id}/hide`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}
+
+// ─── Comments ────────────────────────────────────────────────────────────────
+
+export async function getComments(
+  postId: string,
+  page = 1,
+): Promise<{ comments: Comment[] }> {
+  const raw = await apiFetch<{ comments: unknown[]; page: number; limit: number }>(
+    `/posts/${postId}/comments?page=${page}&limit=20`,
+  );
+  return { comments: Array.isArray(raw?.comments) ? raw.comments.map(normalizeComment) : [] };
+}
+
+export async function addComment(postId: string, body: string): Promise<{ comment: Comment }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ id: string }>(`/posts/${postId}/comments`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ body }),
+  });
+  // Backend returns just {id} on create — return minimal comment
+  return {
+    comment: {
+      id: raw.id,
+      body,
+      createdAt: new Date().toISOString(),
+      likeCount: 0,
+      replyCount: 0,
+      parentId: null,
+      likedByMe: false,
+      author: { id: '', name: '', username: '', avatarUrl: null },
+    },
+  };
+}
+
+export async function addReply(
+  _postId: string,
+  parentCommentId: string,
+  body: string,
+): Promise<{ comment: Comment }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ id: string }>(`/comments/${parentCommentId}/replies`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ body }),
+  });
+  return {
+    comment: {
+      id: raw.id,
+      body,
+      createdAt: new Date().toISOString(),
+      likeCount: 0,
+      replyCount: 0,
+      parentId: parentCommentId,
+      likedByMe: false,
+      author: { id: '', name: '', username: '', avatarUrl: null },
+    },
+  };
+}
+
+export async function getReplies(
+  commentId: string,
+  page = 1,
+): Promise<{ comments: Comment[] }> {
+  const raw = await apiFetch<{ replies: unknown[] }>(
+    `/comments/${commentId}/replies?page=${page}&limit=20`,
+  );
+  return { comments: Array.isArray(raw?.replies) ? raw.replies.map(normalizeComment) : [] };
+}
+
+export async function editComment(
+  postId: string,
+  commentId: string,
+  body: string,
+): Promise<{ comment: Comment }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ comment: unknown }>(
+    `/posts/${postId}/comments/${commentId}`,
+    {
+      method: 'PATCH',
+      headers: authHeader(token),
+      body: JSON.stringify({ body }),
+    },
+  );
+  return { comment: normalizeComment(raw?.comment ?? { id: commentId, body }) };
+}
+
+export async function deleteComment(postId: string, commentId: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/posts/${postId}/comments/${commentId}`, {
+    method: 'DELETE',
+    headers: authHeader(token),
+  });
+}
+
+export async function likeComment(
+  postId: string,
+  commentId: string,
+): Promise<{ liked: boolean; likeCount: number }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ liked: boolean; likeCount: number }>(
+    `/posts/${postId}/comments/${commentId}/like`,
+    { method: 'POST', headers: authHeader(token) },
+  );
+  return { liked: raw.liked, likeCount: raw.likeCount ?? 0 };
+}
+
+export async function unlikeComment(
+  postId: string,
+  commentId: string,
+): Promise<{ liked: boolean; likeCount: number }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ liked: boolean; likeCount: number }>(
+    `/posts/${postId}/comments/${commentId}/like`,
+    { method: 'DELETE', headers: authHeader(token) },
+  );
+  return { liked: raw.liked, likeCount: raw.likeCount ?? 0 };
+}
+
+export async function reportComment(commentId: string, reason: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/comments/${commentId}/report`, {
     method: 'POST',
     headers: authHeader(token),
     body: JSON.stringify({ reason }),
   });
-}
-
-export async function getBookmarkedPosts(
-  page = 1,
-): Promise<{ posts: Post[]; hasMore: boolean }> {
-  const token = await getToken();
-  const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts?bookmarked=true&page=${page}&limit=20`, { headers });
 }

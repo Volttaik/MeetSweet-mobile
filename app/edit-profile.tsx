@@ -67,8 +67,8 @@ export default function EditProfileScreen() {
       const token = await AsyncStorage.getItem('@ms_access_token');
       if (!token) throw new Error('Not authenticated');
 
-      const updated = await apiFetch<{ user: typeof user }>('/users/me', {
-        method: 'PUT',
+      const raw = await apiFetch<unknown>('/users/me', {
+        method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           name: name.trim(),
@@ -76,11 +76,15 @@ export default function EditProfileScreen() {
         }),
       });
 
-      if (updated?.user) {
-        updateUser(updated.user);
-      } else if (user) {
-        // Patch local state optimistically
-        updateUser({ ...user, name: name.trim(), bio: bio.trim() || null });
+      if (user) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updated = raw as any;
+        const updatedUser = updated?.user ?? updated;
+        updateUser({
+          ...user,
+          name: updatedUser?.full_name ?? name.trim(),
+          bio: updatedUser?.bio ?? (bio.trim() || null),
+        });
       }
 
       router.back();

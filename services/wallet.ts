@@ -6,6 +6,7 @@ export interface Transaction {
   type: 'credit' | 'debit';
   amount: number;
   description: string;
+  status: 'pending' | 'success' | 'failed';
   createdAt: string;
 }
 
@@ -13,10 +14,61 @@ async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem('@ms_access_token');
 }
 
+function authHeader(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeTransaction(raw: any): Transaction {
+  return {
+    id: raw.id,
+    type: raw.type,
+    amount: raw.amount,
+    description: raw.description ?? '',
+    status: raw.status ?? 'success',
+    createdAt: raw.created_at,
+  };
+}
+
 export async function getWallet(): Promise<{ balance: number; transactions: Transaction[] }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch('/wallet', {
-    headers: { Authorization: `Bearer ${token}` },
+  const raw = await apiFetch<{ balance: number; transactions: unknown[] }>('/wallet', {
+    headers: authHeader(token),
   });
+  return {
+    balance: raw?.balance ?? 0,
+    transactions: Array.isArray(raw?.transactions)
+      ? raw.transactions.map(normalizeTransaction)
+      : [],
+  };
+}
+
+export async function initializePayment(amount: number): Promise<{
+  authorization_url: string;
+  reference: string;
+}> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/payments/initialize', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ amount }),
+  });
+}
+
+export async function verifyPayment(reference: string): Promise<{
+  status: 'success' | 'failed';
+  transaction: Transaction;
+}> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ status: string; transaction: unknown }>(
+    `/payments/verify?reference=${encodeURIComponent(reference)}`,
+    { headers: authHeader(token) },
+  );
+  return {
+    status: raw.status as 'success' | 'failed',
+    transaction: normalizeTransaction(raw.transaction),
+  };
 }

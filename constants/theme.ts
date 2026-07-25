@@ -1,26 +1,35 @@
 /**
- * MeetSweet authenticated-app design tokens.
- * Visual identity: Pure black background, pure white foreground.
- * No transparency, no blur, no glassmorphism.
+ * MeetSweet design tokens — soft rose, warm ivory, charcoal.
+ * Premium minimalism. Warm, elegant, calm.
  */
 export const T = {
-  // Backgrounds
-  BG: '#000000',
-  SURFACE: '#111111',
-  SURFACE_2: '#1A1A1A',
+  // Backgrounds — warm off-white / light stone
+  BG: '#FAF8F6',
+  SURFACE: '#F2EEE9',
+  SURFACE_2: '#EAE3DA',
 
-  // Borders
-  BORDER: 'rgba(255,255,255,0.07)',
-  BORDER_2: 'rgba(255,255,255,0.12)',
+  // Borders — soft warm grey
+  BORDER: 'rgba(60,45,35,0.09)',
+  BORDER_2: 'rgba(60,45,35,0.15)',
 
-  // Text
-  TEXT: '#FFFFFF',
-  TEXT_2: 'rgba(255,255,255,0.45)',
-  TEXT_3: 'rgba(255,255,255,0.2)',
+  // Text — charcoal family
+  TEXT: '#2C2420',
+  TEXT_2: 'rgba(44,36,32,0.5)',
+  TEXT_3: 'rgba(44,36,32,0.28)',
+
+  // Accent — soft dusty rose (primary)
+  ACCENT: '#C9847A',
+  ACCENT_LIGHT: '#F0E0DC',
+  ACCENT_DARK: '#A8635A',
 
   // Status
-  SUCCESS: '#22C55E',
-  ERROR: '#EF4444',
+  SUCCESS: '#5B8F6A',
+  ERROR: '#C0504A',
+
+  // Aliases kept for component compatibility
+  DANGER: '#C0504A',
+  PURPLE: '#9B6ECA',
+  ROSE: '#C9847A',
 
   // Typography (Poppins loaded in root layout)
   FONT: {
@@ -33,10 +42,17 @@ export const T = {
   // Border radius scale
   RADIUS: {
     xs: 6,
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 20,
+    sm: 10,
+    md: 14,
+    lg: 18,
+    xl: 24,
     full: 999,
   },
+} as const;
+
+/** Gradient colour stops used by premium / locked-content components. */
+export const AppGradients = {
+  premium:    ['#C9847A', '#A8635A'] as const,
+  rose:       ['#F0E0DC', '#C9847A'] as const,
+  rosePurple: ['#C9847A', '#9B6ECA'] as const,
 } as const;

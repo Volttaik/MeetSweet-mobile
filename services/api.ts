@@ -12,7 +12,6 @@
 export function getApiBase(): string {
   const vercelUrl = process.env.EXPO_PUBLIC_API_URL;
   if (vercelUrl) return `${vercelUrl.replace(/\/+$/, '')}/api`;
-  // Fallback for local Next.js dev (npm run dev inside /server)
   return 'http://localhost:3000/api';
 }
 
@@ -28,7 +27,8 @@ export class ApiError extends Error {
 }
 
 /**
- * Authenticated fetch wrapper. Prepends the API base URL automatically.
+ * Fetch wrapper. Prepends the API base URL automatically.
+ * Unwraps the standard { ok, data } envelope on successful responses.
  */
 export async function apiFetch<T = unknown>(
   path: string,
@@ -49,27 +49,33 @@ export async function apiFetch<T = unknown>(
 
   const response = await fetch(url, { ...options, headers });
 
-  let data: unknown;
+  let parsed: unknown;
   try {
     const text = await response.text();
-    data = text ? JSON.parse(text) : null;
+    parsed = text ? JSON.parse(text) : null;
   } catch {
-    data = null;
+    parsed = null;
   }
 
   if (!response.ok) {
     const message =
-      (data as Record<string, string>)?.error ??
-      (data as Record<string, string>)?.message ??
+      (parsed as Record<string, string>)?.error ??
+      (parsed as Record<string, string>)?.message ??
       `HTTP ${response.status}`;
-    throw new ApiError(response.status, message, data);
+    throw new ApiError(response.status, message, parsed);
   }
 
-  return data as T;
+  // Unwrap the standard { ok: true, data: ... } envelope
+  const envelope = parsed as { ok?: boolean; data?: unknown } | null;
+  if (envelope && typeof envelope === 'object' && 'ok' in envelope && 'data' in envelope) {
+    return envelope.data as T;
+  }
+
+  return parsed as T;
 }
 
 /**
- * Authenticated fetch with Bearer token injected from AsyncStorage.
+ * Authenticated fetch with Bearer token injected.
  */
 export async function authFetch<T = unknown>(
   path: string,

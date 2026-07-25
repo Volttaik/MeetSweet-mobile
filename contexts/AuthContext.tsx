@@ -1,6 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setAuthTokenGetter, setBaseUrl } from '@/lib/api-client-react';
 import { getApiBase, apiFetch } from '@/services/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -14,28 +13,28 @@ export interface User {
   bio: string | null;
   avatarUrl: string | null;
   bannerUrl: string | null;
+  website: string | null;
+  location: string | null;
   isVerified: boolean;
   isCreator: boolean;
-  credits: number;
+  isVerifiedCreator: boolean;
+  role: 'user' | 'creator' | 'admin';
   followerCount: number;
   followingCount: number;
-  subscriberCount: number;
   postCount: number;
   createdAt: string;
 }
 
 export interface RegisterData {
-  name: string;
-  username?: string;
-  email?: string;
-  phone?: string;
+  full_name: string;
+  username: string;
+  email: string;
   password: string;
-  bio?: string;
-  avatarUrl?: string;
+  phone?: string;
 }
 
 export interface LoginData {
-  identifier: string;
+  email: string;
   password: string;
 }
 
@@ -48,7 +47,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login: (data: LoginData) => Promise<void>;
-  register: (data: RegisterData) => Promise<void>;
+  register: (data: RegisterData) => Promise<{ userId: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser: (user: User) => void;
@@ -62,6 +61,32 @@ const KEYS = {
   USER: '@ms_user',
 } as const;
 
+// ─── Normalizer ───────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeUser(raw: any): User {
+  return {
+    id: raw.id,
+    name: raw.full_name ?? raw.name ?? raw.display_name ?? '',
+    username: raw.username ?? '',
+    email: raw.email ?? null,
+    phone: raw.phone ?? null,
+    bio: raw.bio ?? null,
+    avatarUrl: raw.avatar_url ?? raw.avatarUrl ?? null,
+    bannerUrl: raw.banner_url ?? raw.bannerUrl ?? null,
+    website: raw.website ?? null,
+    location: raw.location ?? null,
+    isVerified: raw.is_verified ?? raw.isVerified ?? false,
+    isCreator: raw.is_creator ?? raw.isCreator ?? false,
+    isVerifiedCreator: raw.is_verified_creator ?? raw.isVerifiedCreator ?? false,
+    role: raw.role ?? 'user',
+    followerCount: raw.follower_count ?? raw.followerCount ?? 0,
+    followingCount: raw.following_count ?? raw.followingCount ?? 0,
+    postCount: raw.post_count ?? raw.postCount ?? 0,
+    createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
+  };
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -73,15 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading: true,
     isAuthenticated: false,
   });
-
-  // Configure the generated client against the standalone server.
-  useEffect(() => {
-    const apiUrl = process.env.EXPO_PUBLIC_API_URL;
-    setBaseUrl(apiUrl ? apiUrl.replace(/\/+$/, '') : null);
-    setAuthTokenGetter(async () => {
-      return await AsyncStorage.getItem(KEYS.ACCESS_TOKEN);
-    });
-  }, []);
 
   // Load persisted auth on mount
   useEffect(() => {
@@ -97,9 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const user = JSON.parse(userJson) as User;
           setState({ user, accessToken, isLoading: false, isAuthenticated: true });
 
-          // Try to refresh user data in background
+          // Refresh user in background
           fetchCurrentUser(accessToken).catch(async () => {
-            // Access token might be expired — try refresh
             if (refreshToken) {
               try {
                 await doRefresh(refreshToken);
@@ -119,24 +134,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const fetchCurrentUser = async (token: string) => {
-    const data = await apiFetch<{ user: User }>('/auth/me', {
+  const fetchCurrentUser = async (token: string): Promise<User> => {
+    // GET /api/users/me returns the user object directly after envelope unwrap
+    const raw = await apiFetch<unknown>('/users/me', {
       headers: { Authorization: `Bearer ${token}` },
     });
-    setState((s) => ({ ...s, user: data.user }));
-    await AsyncStorage.setItem(KEYS.USER, JSON.stringify(data.user));
-    return data.user;
+    const user = normalizeUser(raw);
+    setState((s) => ({ ...s, user }));
+    await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
+    return user;
   };
 
   const doRefresh = async (refreshToken: string) => {
-    const data = await apiFetch<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
+    // POST /api/auth/refresh → { access_token, refresh_token }
+    const data = await apiFetch<{ access_token: string; refresh_token: string }>('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, data.accessToken);
-    await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, data.refreshToken);
-    const user = await fetchCurrentUser(data.accessToken);
-    setState((s) => ({ ...s, accessToken: data.accessToken, user, isAuthenticated: true }));
+    await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, data.access_token);
+    await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, data.refresh_token);
+    const user = await fetchCurrentUser(data.access_token);
+    setState((s) => ({
+      ...s,
+      accessToken: data.access_token,
+      user,
+      isAuthenticated: true,
+    }));
   };
 
   const clearAuth = async () => {
@@ -149,49 +172,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = useCallback(async (data: LoginData) => {
-    const result = await apiFetch<{ user: User; accessToken: string; refreshToken: string }>(
-      '/auth/login',
-      { method: 'POST', body: JSON.stringify(data) },
-    );
+    // POST /api/auth/login → { access_token, refresh_token, user }
+    const result = await apiFetch<{
+      access_token: string;
+      refresh_token: string;
+      user: unknown;
+    }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: data.email, password: data.password }),
+    });
+    const user = normalizeUser(result.user);
     await Promise.all([
-      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, result.accessToken),
-      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, result.refreshToken),
-      AsyncStorage.setItem(KEYS.USER, JSON.stringify(result.user)),
+      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, result.access_token),
+      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, result.refresh_token),
+      AsyncStorage.setItem(KEYS.USER, JSON.stringify(user)),
     ]);
     setState({
-      user: result.user,
-      accessToken: result.accessToken,
+      user,
+      accessToken: result.access_token,
       isLoading: false,
       isAuthenticated: true,
     });
   }, []);
 
-  const register = useCallback(async (data: RegisterData) => {
-    const result = await apiFetch<{ user: User; accessToken: string; refreshToken: string }>(
-      '/auth/register',
-      { method: 'POST', body: JSON.stringify(data) },
-    );
-    await Promise.all([
-      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, result.accessToken),
-      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, result.refreshToken),
-      AsyncStorage.setItem(KEYS.USER, JSON.stringify(result.user)),
-    ]);
-    setState({
-      user: result.user,
-      accessToken: result.accessToken,
-      isLoading: false,
-      isAuthenticated: true,
+  const register = useCallback(async (data: RegisterData): Promise<{ userId: string }> => {
+    // POST /api/auth/register → { user_id } + sends verification email
+    const result = await apiFetch<{ user_id: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
+    return { userId: result.user_id };
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      const refreshToken = await AsyncStorage.getItem(KEYS.REFRESH_TOKEN);
       const accessToken = await AsyncStorage.getItem(KEYS.ACCESS_TOKEN);
       await apiFetch('/auth/logout', {
         method: 'POST',
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        body: JSON.stringify({ refreshToken }),
       }).catch(() => {});
     } finally {
       await clearAuth();

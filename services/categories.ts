@@ -8,5 +8,15 @@ export interface Category {
 }
 
 export async function getCategories(): Promise<{ categories: Category[] }> {
-  return apiFetch('/categories');
+  const raw = await apiFetch<{ categories: unknown[] }>('/categories');
+  const categories = Array.isArray(raw?.categories)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? raw.categories.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        postCount: c.postCount ?? c.post_count ?? 0,
+      }))
+    : [];
+  return { categories };
 }

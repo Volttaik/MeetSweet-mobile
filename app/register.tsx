@@ -649,12 +649,11 @@ export default function RegisterScreen() {
     setRegisterError('');
     try {
       await register({
-        name: step1.name.trim(),
-        username: step1.username.trim() || undefined,
-        email: step1.email.trim() || undefined,
-        phone: step1.phone.trim() || undefined,
+        full_name: step1.name.trim(),
+        username: step1.username.trim().toLowerCase(),
+        email: step1.email.trim().toLowerCase(),
         password: step2.password,
-        bio: step3.bio.trim() || undefined,
+        phone: step1.phone.replace(/\D/g, '').slice(0, 15) || undefined,
       });
       router.push({ pathname: '/verify-email', params: { email: step1.email.trim() } });
     } catch (err) {

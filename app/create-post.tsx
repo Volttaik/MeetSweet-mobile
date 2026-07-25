@@ -144,33 +144,24 @@ export default function CreatePostScreen() {
     setUploadProgress(0);
 
     try {
-      let uploadedMediaUrl: string | undefined;
-      let uploadedThumbnailUrl: string | undefined;
-      let uploadedMediaType: 'image' | 'video' | undefined;
-      let uploadedSize: number | undefined;
-
-      // Upload media if selected
+      // Upload media if selected, then grab the media id for the post
+      let mediaIds: string[] | undefined;
       if (mediaUri && mediaType) {
         const result = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
           setUploadProgress(p);
         });
-        uploadedMediaUrl = result.url;
-        uploadedThumbnailUrl = result.thumbnailUrl ?? undefined;
-        uploadedMediaType = result.type;
-        uploadedSize = result.size;
+        if (result.id) {
+          mediaIds = [result.id];
+        }
       }
 
       setStep('creating');
 
-      // Create post
+      // Create post using backend contract: caption, visibility, media_ids
       await createPost({
         caption: caption.trim(),
         visibility,
-        mediaUrl: uploadedMediaUrl,
-        mediaType: uploadedMediaType,
-        thumbnailUrl: uploadedThumbnailUrl,
-        fileSize: uploadedSize,
-        isPremium: visibility === 'subscribers',
+        media_ids: mediaIds,
         categories: selectedCategories,
         tags,
       });

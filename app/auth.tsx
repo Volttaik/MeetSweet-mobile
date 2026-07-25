@@ -63,7 +63,7 @@ export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
 
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -77,7 +77,7 @@ export default function AuthScreen() {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!identifier.trim()) e.identifier = 'Enter your email, username, or phone';
+    if (!email.trim()) e.email = 'Enter your email address';
     if (password.length < 6) e.password = 'Password must be at least 6 characters';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -88,7 +88,7 @@ export default function AuthScreen() {
     setLoading(true);
     setServerError('');
     try {
-      await login({ identifier: identifier.trim().toLowerCase(), password });
+      await login({ email: email.trim().toLowerCase(), password });
       router.replace('/(tabs)');
     } catch (err) {
       if (err instanceof ApiError) {
@@ -138,37 +138,37 @@ export default function AuthScreen() {
         <View style={styles.formOuter}>
           <View style={styles.form}>
             {/* Identifier (email / username / phone) */}
-            <TextField isInvalid={!!errors.identifier}>
-              <Label style={styles.fieldLabel}>Email, Username or Phone</Label>
+            <TextField isInvalid={!!errors.email}>
+              <Label style={styles.fieldLabel}>Email Address</Label>
               <InputRow
                 icon={
                   <At
                     size={18}
-                    color={focused.identifier ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
+                    color={focused.email ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
                    
                   />
                 }
-                isError={!!errors.identifier}
-                isFocused={focused.identifier}
+                isError={!!errors.email}
+                isFocused={focused.email}
               >
                 <Input
-                  placeholder="you@email.com or @username"
+                  placeholder="you@email.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  value={identifier}
+                  value={email}
                   onChangeText={(v) => {
-                    setIdentifier(v);
-                    setErrors((e) => ({ ...e, identifier: '' }));
+                    setEmail(v);
+                    setErrors((e) => ({ ...e, email: '' }));
                     setServerError('');
                   }}
-                  onFocus={() => setFoc('identifier', true)}
-                  onBlur={() => setFoc('identifier', false)}
+                  onFocus={() => setFoc('email', true)}
+                  onBlur={() => setFoc('email', false)}
                   style={styles.input}
                   placeholderTextColor="rgba(255,255,255,0.18)"
                 />
               </InputRow>
-              {!!errors.identifier && (
-                <FieldError style={styles.fieldError}>{errors.identifier}</FieldError>
+              {!!errors.email && (
+                <FieldError style={styles.fieldError}>{errors.email}</FieldError>
               )}
             </TextField>
 

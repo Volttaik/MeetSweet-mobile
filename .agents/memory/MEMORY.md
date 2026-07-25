@@ -2,4 +2,7 @@
 - [heroui-native BottomSheet requires gorhom](heroui-native-bottomsheet.md) — BottomSheet crashes unless @gorhom/bottom-sheet is installed; replace with RN Modal as safe fallback.
 - [Icons must never be inside RN Text](rn-icon-in-text.md) — phosphor-react-native icons inside <Text> cause a native crash; always wrap in <View>.
 - [Micro-interactions system](micro-interactions-system.md) — MsConfirmDialog + MsToast added; all screens wired with action sheets, confirmations, and toast feedback.
-- [Feature completion 2026-07-25](feature-completion-2026-07-25.md) — Search modal, locked content, creator dashboard, payout, privacy/notifications/security screens, edit-profile expansion, chat reply preview all added.
+- [Auth flow contract](auth-flow-contract.md) — login sends {email,password}; register sends {full_name,username,email,password}→{user_id}+verify email; refresh sends {refresh_token}; tokens are snake_case access_token/refresh_token.
+- [Service normalizers](service-normalizers.md) — all services have normalizer fns (normalizeUser/Post/Comment/…) mapping snake_case→camelCase; User type has website,location,isVerifiedCreator,role (NOT credits/subscriberCount).
+- [Create-post media flow](create-post-media.md) — upload media first→get id from result→pass media_ids:[id] to createPost; mediaUrl/mediaType/isPremium are not backend fields.
+- [Missing services added](missing-services.md) — creator.ts, subscriptions.ts, settings.ts, search.ts, categories.ts all created; use /creator/* endpoints.

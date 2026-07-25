@@ -59,7 +59,7 @@ export default function ProfileScreen() {
   const loadPosts = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await getUserPosts(user.id);
+      const data = await getUserPosts(user.username);
       setPosts(data.posts);
     } catch {
       // ignore
