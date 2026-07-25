@@ -130,7 +130,7 @@ export const getGetExploreCatalogUrl = () => {
 
 
 
-  return `/api/explore`
+  return `/api/posts?page=1&limit=100`
 }
 
 /**
@@ -138,15 +138,63 @@ export const getGetExploreCatalogUrl = () => {
  * @summary Get Explore marketplace catalog
  */
 export const getExploreCatalog = async ( options?: RequestInit): Promise<ExploreCatalog> => {
-
-  return customFetch<ExploreCatalog>(getGetExploreCatalogUrl(),
-  {
+  const response = await customFetch<
+    { ok?: boolean; data?: { posts?: Array<Record<string, any>> } } | { posts?: Array<Record<string, any>> }
+  >('/api/posts?page=1&limit=100', {
     ...options,
-    method: 'GET'
+    method: 'GET',
+  });
+  const payload = (response as any)?.data ?? response;
+  const posts = payload?.posts ?? [];
+  const creators = new Map<string, any>();
 
-
+  for (const post of posts) {
+    const id = String(post.creator_id ?? post.creator_username ?? post.id);
+    if (!creators.has(id)) {
+      const name = post.creator_display_name ?? post.creator_username ?? 'Creator';
+      const handle = `@${post.creator_username ?? id}`;
+      creators.set(id, {
+        id,
+        name,
+        handle,
+        initials: name.split(/\s+/).map((part: string) => part[0] ?? '').join('').slice(0, 2).toUpperCase(),
+        bio: '',
+        category: 'Creator',
+        followers: '—',
+        subscriberCount: 0,
+        monthlyCredits: 0,
+        isVerified: Boolean(post.creator_is_verified),
+        isOnline: false,
+        gradient: 'mono-ink',
+      });
+    }
   }
-);}
+
+  return {
+    creditBalance: 0,
+    categories: [],
+    trendingSearches: [],
+    featuredCreatorIds: Array.from(creators.keys()).slice(0, 5),
+    recommendedCreatorIds: Array.from(creators.keys()),
+    creators: Array.from(creators.values()),
+    previews: posts.map((post: any) => {
+      const creatorId = String(post.creator_id ?? post.creator_username ?? post.id);
+      return {
+        id: String(post.id),
+        creatorId,
+        title: post.caption || 'Latest post',
+        category: 'Creator',
+        kind: post.visibility === 'subscribers' ? 'Premium' : 'Post',
+        duration: post.preview_duration ? String(post.preview_duration) : '',
+        likes: String(post.like_count ?? 0),
+        isPremium: post.visibility === 'subscribers',
+        gradient: 'mono-ink',
+        lockedLabel: post.visibility === 'subscribers' ? 'Subscribers only' : 'View post',
+      };
+    }),
+    collections: [],
+  };
+}
 
 
 
@@ -154,7 +202,7 @@ export const getExploreCatalog = async ( options?: RequestInit): Promise<Explore
 
 export const getGetExploreCatalogQueryKey = () => {
     return [
-    `/api/explore`
+    `/api/posts?page=1&limit=100`
     ] as const;
     }
 

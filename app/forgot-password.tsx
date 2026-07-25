@@ -294,7 +294,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
     try {
       await apiFetch('/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ email, code, password }),
+        body: JSON.stringify({ email, code, password, confirm_password: password }),
       });
       onNext();
     } catch (err: unknown) {

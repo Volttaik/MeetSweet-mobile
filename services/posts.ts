@@ -54,6 +54,90 @@ export interface Comment {
   };
 }
 
+type RawPost = {
+  id: string;
+  caption?: string | null;
+  visibility?: Post['visibility'];
+  like_count?: number;
+  comment_count?: number;
+  save_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  published_at?: string;
+  creator_id?: string;
+  creator_username?: string;
+  creator_display_name?: string;
+  creator_avatar?: string | null;
+  creator_is_verified?: boolean;
+  media?: Array<{
+    url?: string;
+    media_url?: string;
+    type?: 'image' | 'video';
+    media_type?: 'image' | 'video';
+    thumbnail_url?: string | null;
+    duration_secs?: number | null;
+    file_size?: number | null;
+    width?: number | null;
+    height?: number | null;
+  }>;
+  liked_by_me?: boolean;
+  bookmarked_by_me?: boolean;
+};
+
+function normalizePost(raw: RawPost): Post {
+  const media = raw.media?.[0];
+  const username = raw.creator_username ?? 'creator';
+  return {
+    id: raw.id,
+    caption: raw.caption ?? '',
+    visibility: raw.visibility ?? 'public',
+    mediaUrl: media?.url ?? media?.media_url ?? null,
+    mediaType: media?.type ?? media?.media_type ?? null,
+    thumbnailUrl: media?.thumbnail_url ?? null,
+    durationSecs: media?.duration_secs ?? null,
+    fileSize: media?.file_size ?? null,
+    width: media?.width ?? null,
+    height: media?.height ?? null,
+    likeCount: raw.like_count ?? 0,
+    commentCount: raw.comment_count ?? 0,
+    bookmarkCount: raw.save_count ?? 0,
+    isPremium: raw.visibility === 'subscribers',
+    priceCredits: null,
+    createdAt: raw.created_at ?? raw.published_at ?? new Date(0).toISOString(),
+    updatedAt: raw.updated_at,
+    author: {
+      id: raw.creator_id ?? username,
+      name: raw.creator_display_name ?? username,
+      username,
+      avatarUrl: raw.creator_avatar ?? null,
+      isVerified: raw.creator_is_verified ?? false,
+      isCreator: true,
+    },
+    likedByMe: raw.liked_by_me ?? false,
+    bookmarkedByMe: raw.bookmarked_by_me ?? false,
+  };
+}
+
+function normalizeComment(raw: Record<string, any>): Comment {
+  const author = raw.author ?? raw.user ?? {};
+  return {
+    id: String(raw.id),
+    body: raw.body ?? raw.content ?? '',
+    createdAt: raw.created_at ?? raw.createdAt ?? new Date(0).toISOString(),
+    updatedAt: raw.updated_at ?? raw.updatedAt,
+    likeCount: raw.like_count ?? raw.likeCount ?? 0,
+    replyCount: raw.reply_count ?? raw.replyCount ?? 0,
+    parentId: raw.parent_id ?? raw.parentId ?? null,
+    likedByMe: raw.liked_by_me ?? raw.likedByMe ?? false,
+    author: {
+      id: String(author.id ?? ''),
+      name: author.name ?? author.display_name ?? 'User',
+      username: author.username ?? '',
+      avatarUrl: author.avatar_url ?? author.avatarUrl ?? null,
+    },
+  };
+}
+
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem('@ms_access_token');
 }
@@ -65,19 +149,34 @@ function authHeader(token: string): Record<string, string> {
 export async function getFeed(page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts?page=${page}&limit=20`, { headers });
+  const data = await apiFetch<{ posts: RawPost[]; page?: number; limit?: number }>(
+    `/posts?page=${page}&limit=20`,
+    { headers },
+  );
+  return {
+    posts: (data.posts ?? []).map(normalizePost),
+    hasMore: (data.posts?.length ?? 0) >= (data.limit ?? 20),
+  };
 }
 
 export async function getUserPosts(userId: string, page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts?userId=${userId}&page=${page}&limit=20`, { headers });
+  const data = await apiFetch<{ posts: RawPost[]; limit?: number }>(
+    `/posts?userId=${encodeURIComponent(userId)}&page=${page}&limit=20`,
+    { headers },
+  );
+  return {
+    posts: (data.posts ?? []).map(normalizePost),
+    hasMore: (data.posts?.length ?? 0) >= (data.limit ?? 20),
+  };
 }
 
 export async function getPost(id: string): Promise<{ post: Post }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  return apiFetch(`/posts/${id}`, { headers });
+  const data = await apiFetch<RawPost>(`/posts/${id}`, { headers });
+  return { post: normalizePost(data) };
 }
 
 export interface CreatePostData {
@@ -138,7 +237,10 @@ export async function unlikePost(id: string): Promise<{ liked: boolean; likeCoun
 
 export async function getComments(postId: string, parentId?: string): Promise<{ comments: Comment[] }> {
   const query = parentId ? `?parentId=${encodeURIComponent(parentId)}` : '';
-  return apiFetch(`/posts/${postId}/comments${query}`);
+  const data = await apiFetch<{ comments?: Record<string, any>[] }>(
+    `/posts/${postId}/comments${query}`,
+  );
+  return { comments: (data.comments ?? []).map(normalizeComment) };
 }
 
 export async function addComment(postId: string, body: string): Promise<{ comment: Comment }> {

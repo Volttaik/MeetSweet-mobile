@@ -1,0 +1,1 @@
+- [MeetSweet backend contract](meetsweet-backend.md) — deployed API uses `/api`, `{ok,data}` envelopes, and several imported client routes are unavailable.
