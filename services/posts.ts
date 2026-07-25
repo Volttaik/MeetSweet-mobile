@@ -277,7 +277,7 @@ export async function editPost(id: string, data: { caption?: string; visibility?
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   await apiFetch(`/posts/${id}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: authHeader(token),
     body: JSON.stringify(data),
   });
