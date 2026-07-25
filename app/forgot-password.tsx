@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
@@ -8,6 +7,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import {
+  Button,
+  FieldError,
+  Input,
+  Label,
+  Spinner,
+  TextField,
+} from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -94,8 +101,8 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
         Enter the email address on your account and we'll send you a reset code.
       </Text>
 
-      
-        <Text style={styles.fieldLabel}>Email Address</Text>
+      <TextField isInvalid={!!error}>
+        <Label style={styles.fieldLabel}>Email Address</Label>
         <InputRow
           icon={
             <Envelope
@@ -107,7 +114,7 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
           isError={!!error}
           isFocused={focused}
         >
-          <TextInput
+          <Input
             placeholder="your@email.com"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -119,14 +126,20 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
             placeholderTextColor="rgba(255,255,255,0.18)"
           />
         </InputRow>
-        {!!error && <Text style={styles.fieldError}>{error}</Text>}
-      
+        {!!error && <FieldError style={styles.fieldError}>{error}</FieldError>}
+      </TextField>
 
-      <TouchableOpacity onPress={handleSend} disabled={loading} style={styles.primaryBtn} activeOpacity={0.85}>
+      <Button
+        variant="primary"
+        size="lg"
+        onPress={handleSend}
+        isDisabled={loading}
+        style={styles.primaryBtn}
+      >
         {loading
-          ? <ActivityIndicator size="small" color="#FFFFFF" />
-          : <Text style={styles.btnLabel}>Send Reset Code</Text>}
-      </TouchableOpacity>
+          ? <Spinner size="sm" color="#FFFFFF" />
+          : <Button.Label style={styles.btnLabel}>Send Reset Code</Button.Label>}
+      </Button>
     </View>
   );
 }
@@ -227,13 +240,19 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
       {!!error && <Text style={styles.errorText}>{error}</Text>}
       {!!resendMsg && <Text style={styles.successText}>{resendMsg}</Text>}
 
-      <TouchableOpacity onPress={handleVerify} disabled={!completed || loading} style={[styles.primaryBtn, (!completed || loading) && styles.primaryBtnDisabled]} activeOpacity={0.85}>
+      <Button
+        variant="primary"
+        size="lg"
+        onPress={handleVerify}
+        isDisabled={!completed || loading}
+        style={[styles.primaryBtn, (!completed || loading) && styles.primaryBtnDisabled]}
+      >
         {loading
-          ? <ActivityIndicator size="small" color="#FFFFFF" />
-          : <Text style={[styles.btnLabel, !completed && styles.btnLabelDisabled]}>
+          ? <Spinner size="sm" color="#FFFFFF" />
+          : <Button.Label style={[styles.btnLabel, !completed && styles.btnLabelDisabled]}>
               Verify Code
-            </Text>}
-      </TouchableOpacity>
+            </Button.Label>}
+      </Button>
 
       <TouchableOpacity
         onPress={handleResend}
@@ -275,7 +294,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
     try {
       await apiFetch('/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ email, code, password, confirm_password: password }),
+        body: JSON.stringify({ email, code, password }),
       });
       onNext();
     } catch (err: unknown) {
@@ -294,8 +313,8 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
       <Text style={step.title}>New Password</Text>
       <Text style={step.subtitle}>Choose a strong password of at least 8 characters.</Text>
 
-      
-        <Text style={styles.fieldLabel}>New Password</Text>
+      <TextField isInvalid={!!errors.password}>
+        <Label style={styles.fieldLabel}>New Password</Label>
         <InputRow
           icon={
             <Lock
@@ -307,7 +326,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
           isError={!!errors.password}
           isFocused={focused.password}
         >
-          <TextInput
+          <Input
             placeholder="••••••••"
             secureTextEntry={!showPw}
             value={password}
@@ -327,12 +346,12 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
           </TouchableOpacity>
         </InputRow>
         {!!errors.password && (
-          <Text style={styles.fieldError}>{errors.password}</Text>
+          <FieldError style={styles.fieldError}>{errors.password}</FieldError>
         )}
-      
+      </TextField>
 
-      
-        <Text style={styles.fieldLabel}>Confirm Password</Text>
+      <TextField isInvalid={!!errors.confirm}>
+        <Label style={styles.fieldLabel}>Confirm Password</Label>
         <InputRow
           icon={
             <Lock
@@ -344,7 +363,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
           isError={!!errors.confirm}
           isFocused={focused.confirm}
         >
-          <TextInput
+          <Input
             placeholder="••••••••"
             secureTextEntry={!showConfirm}
             value={confirm}
@@ -364,15 +383,21 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
           </TouchableOpacity>
         </InputRow>
         {!!errors.confirm && (
-          <Text style={styles.fieldError}>{errors.confirm}</Text>
+          <FieldError style={styles.fieldError}>{errors.confirm}</FieldError>
         )}
-      
+      </TextField>
 
-      <TouchableOpacity onPress={handleReset} disabled={loading} style={styles.primaryBtn} activeOpacity={0.85}>
+      <Button
+        variant="primary"
+        size="lg"
+        onPress={handleReset}
+        isDisabled={loading}
+        style={styles.primaryBtn}
+      >
         {loading
-          ? <ActivityIndicator size="small" color="#FFFFFF" />
-          : <Text style={styles.btnLabel}>Reset Password</Text>}
-      </TouchableOpacity>
+          ? <Spinner size="sm" color="#FFFFFF" />
+          : <Button.Label style={styles.btnLabel}>Reset Password</Button.Label>}
+      </Button>
     </View>
   );
 }
@@ -389,9 +414,14 @@ function StepDone() {
       <Text style={[step.subtitle, { textAlign: 'center' }]}>
         Your password has been reset successfully. Log in with your new password.
       </Text>
-      <TouchableOpacity onPress={() => router.replace('/auth')} style={styles.primaryBtn} activeOpacity={0.85}>
-        <Text style={styles.btnLabel}>Back to Log In</Text>
-      </TouchableOpacity>
+      <Button
+        variant="primary"
+        size="lg"
+        onPress={() => router.replace('/auth')}
+        style={styles.primaryBtn}
+      >
+        <Button.Label style={styles.btnLabel}>Back to Log In</Button.Label>
+      </Button>
     </View>
   );
 }

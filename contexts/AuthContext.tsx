@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAuthTokenGetter, setBaseUrl } from '@/lib/api-client-react';
-import { getApiBase, apiFetch, setAuthExpiredHandler } from '@/services/api';
+import { getApiBase, apiFetch } from '@/services/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,27 +32,6 @@ export interface RegisterData {
   password: string;
   bio?: string;
   avatarUrl?: string;
-}
-
-function normalizeUser(raw: any): User {
-  return {
-    id: String(raw.id),
-    name: raw.name ?? raw.full_name ?? raw.display_name ?? '',
-    username: raw.username ?? '',
-    email: raw.email ?? null,
-    phone: raw.phone ?? null,
-    bio: raw.bio ?? null,
-    avatarUrl: raw.avatarUrl ?? raw.avatar_url ?? null,
-    bannerUrl: raw.bannerUrl ?? raw.banner_url ?? null,
-    isVerified: raw.isVerified ?? raw.is_verified ?? false,
-    isCreator: raw.isCreator ?? raw.is_creator ?? false,
-    credits: raw.credits ?? raw.credit_balance ?? 0,
-    followerCount: raw.followerCount ?? raw.follower_count ?? 0,
-    followingCount: raw.followingCount ?? raw.following_count ?? 0,
-    subscriberCount: raw.subscriberCount ?? raw.subscriber_count ?? 0,
-    postCount: raw.postCount ?? raw.post_count ?? 0,
-    createdAt: raw.createdAt ?? raw.created_at ?? new Date(0).toISOString(),
-  };
 }
 
 export interface LoginData {
@@ -98,14 +77,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Configure the generated client against the standalone server.
   useEffect(() => {
     const apiUrl = process.env.EXPO_PUBLIC_API_URL;
-    setBaseUrl((apiUrl || getApiBase().replace(/\/api$/, '')).replace(/\/+$/, ''));
+    setBaseUrl(apiUrl ? apiUrl.replace(/\/+$/, '') : null);
     setAuthTokenGetter(async () => {
       return await AsyncStorage.getItem(KEYS.ACCESS_TOKEN);
     });
-    setAuthExpiredHandler(() => {
-      void clearAuth();
-    });
-    return () => setAuthExpiredHandler(null);
   }, []);
 
   // Load persisted auth on mount
@@ -145,27 +120,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchCurrentUser = async (token: string) => {
-    const data = await apiFetch<any>('/users/me', {
+    const data = await apiFetch<{ user: User }>('/auth/me', {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const user = normalizeUser(data.user ?? data);
-    setState((s) => ({ ...s, user }));
-    await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
-    return user;
+    setState((s) => ({ ...s, user: data.user }));
+    await AsyncStorage.setItem(KEYS.USER, JSON.stringify(data.user));
+    return data.user;
   };
 
   const doRefresh = async (refreshToken: string) => {
     const data = await apiFetch<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refreshToken, refresh_token: refreshToken }),
+      body: JSON.stringify({ refreshToken }),
     });
-    const accessToken = data.accessToken ?? (data as any).access_token;
-    const nextRefreshToken = data.refreshToken ?? (data as any).refresh_token ?? refreshToken;
-    if (!accessToken) throw new Error('Refresh succeeded but no access token was returned');
-    await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken);
-    await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, nextRefreshToken);
-    const user = await fetchCurrentUser(accessToken);
-    setState((s) => ({ ...s, accessToken, user, isAuthenticated: true }));
+    await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, data.accessToken);
+    await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, data.refreshToken);
+    const user = await fetchCurrentUser(data.accessToken);
+    setState((s) => ({ ...s, accessToken: data.accessToken, user, isAuthenticated: true }));
   };
 
   const clearAuth = async () => {
@@ -180,68 +151,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (data: LoginData) => {
     const result = await apiFetch<{ user: User; accessToken: string; refreshToken: string }>(
       '/auth/login',
-      {
-        method: 'POST',
-        body: JSON.stringify({ email: data.identifier.trim().toLowerCase(), password: data.password }),
-      },
+      { method: 'POST', body: JSON.stringify(data) },
     );
-    const accessToken = result.accessToken ?? (result as any).access_token;
-    const refreshToken = result.refreshToken ?? (result as any).refresh_token;
-    if (!accessToken) throw new Error('Login succeeded but no access token was returned');
     await Promise.all([
-      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken),
-      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken ?? ''),
-      AsyncStorage.setItem(KEYS.USER, JSON.stringify(normalizeUser(result.user))),
+      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, result.accessToken),
+      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, result.refreshToken),
+      AsyncStorage.setItem(KEYS.USER, JSON.stringify(result.user)),
     ]);
     setState({
-      user: normalizeUser(result.user),
-      accessToken,
+      user: result.user,
+      accessToken: result.accessToken,
       isLoading: false,
       isAuthenticated: true,
     });
   }, []);
 
   const register = useCallback(async (data: RegisterData) => {
-    const result = await apiFetch<{
-      user?: User;
-      user_id?: string;
-      accessToken?: string;
-      refreshToken?: string;
-      access_token?: string;
-      refresh_token?: string;
-    }>(
+    const result = await apiFetch<{ user: User; accessToken: string; refreshToken: string }>(
       '/auth/register',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          full_name: data.name,
-          username: data.username,
-          email: data.email,
-          phone: data.phone,
-          password: data.password,
-          confirm_password: data.password,
-          bio: data.bio,
-          avatar_url: data.avatarUrl,
-        }),
-      },
+      { method: 'POST', body: JSON.stringify(data) },
     );
-    const accessToken = result.accessToken ?? result.access_token;
-    const refreshToken = result.refreshToken ?? result.refresh_token;
-    // The deployed API intentionally requires email verification before
-    // issuing a session. The verify-email screen is the next step.
-    if (!accessToken) {
-      setState((s) => ({ ...s, isLoading: false }));
-      return;
-    }
-    if (!result.user) throw new Error('Registration succeeded but no user was returned');
     await Promise.all([
-      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken),
-      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken ?? ''),
-      AsyncStorage.setItem(KEYS.USER, JSON.stringify(normalizeUser(result.user))),
+      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, result.accessToken),
+      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, result.refreshToken),
+      AsyncStorage.setItem(KEYS.USER, JSON.stringify(result.user)),
     ]);
     setState({
-      user: normalizeUser(result.user),
-      accessToken,
+      user: result.user,
+      accessToken: result.accessToken,
       isLoading: false,
       isAuthenticated: true,
     });

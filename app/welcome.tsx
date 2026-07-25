@@ -5,9 +5,9 @@ import {
   Platform,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { Button } from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -119,13 +119,14 @@ export default function WelcomeScreen() {
         {/* Actions */}
         <View style={styles.actions}>
           <FadeUp delay={220}>
-            <TouchableOpacity
+            <Button
+              variant="primary"
+              size="lg"
               onPress={handleGetStarted}
               style={styles.primaryBtn}
-              activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnLabel}>Get Started</Text>
-            </TouchableOpacity>
+              <Button.Label style={styles.primaryBtnLabel}>Get Started</Button.Label>
+            </Button>
           </FadeUp>
 
           <FadeUp delay={300}>

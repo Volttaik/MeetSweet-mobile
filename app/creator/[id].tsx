@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Check, CaretRight, Lock, Play, Sparkle, Users } from 'phosphor-react-native';
+import { BottomSheet, Button, Spinner } from 'heroui-native';
 import { useGetExploreCatalog } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsPreviewCard } from '@/components/MsExploreVisual';
@@ -19,7 +20,7 @@ export default function CreatorProfileScreen() {
   const canSubscribe = Boolean(creator && query.data && query.data.creditBalance >= creator.monthlyCredits);
 
   if (query.isLoading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#FFFFFF" /></View>;
+    return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
   }
 
   if (query.isError || !creator) {
@@ -50,9 +51,9 @@ export default function CreatorProfileScreen() {
             <View style={styles.metricDivider} />
             <View><Text style={styles.metricValue}>{creatorPreviews.length}</Text><Text style={styles.metricLabel}>Previews</Text></View>
           </View>
-          <TouchableOpacity onPress={() => setSheetOpen(true)} style={[styles.subscribeButton, styles.primaryBtn]}>
-            <Text style={styles.primaryBtnLabel}>{canSubscribe ? `Subscribe · ${creator.monthlyCredits} credits` : 'Get more credits to subscribe'}</Text>
-          </TouchableOpacity>
+          <Button variant="primary" size="lg" onPress={() => setSheetOpen(true)} style={styles.subscribeButton}>
+            <Button.Label>{canSubscribe ? `Subscribe · ${creator.monthlyCredits} credits` : 'Get more credits to subscribe'}</Button.Label>
+          </Button>
         </View>
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Latest from {creator.name.split(' ')[0]}</Text><Text style={styles.sectionMeta}>{creatorPreviews.length} drops</Text></View>
         <View style={styles.previewGrid}>
@@ -64,37 +65,23 @@ export default function CreatorProfileScreen() {
           <CaretRight size={17} color={T.TEXT_3} />
         </View>
       </ScrollView>
-      <Modal
-        visible={sheetOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSheetOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.sheetOverlay}
-          activeOpacity={1}
-          onPress={() => setSheetOpen(false)}
-        />
-        <View style={styles.sheetContainer}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetContent}>
-            <Text style={styles.sheetTitle}>
-              {canSubscribe ? `Subscribe to ${creator.name}` : 'More credits needed'}
-            </Text>
-            <Text style={styles.sheetDescription}>
-              {canSubscribe
-                ? `${creator.monthlyCredits} credits unlock this creator's complete premium feed. Your balance will update after confirmation.`
-                : `You need ${creator.monthlyCredits - (query.data?.creditBalance ?? 0)} more credits to subscribe.`}
-            </Text>
-            <TouchableOpacity onPress={() => { setSheetOpen(false); if (!canSubscribe) router.push('/wallet'); }} style={[styles.sheetButton, styles.primaryBtn]}>
-              <Text style={styles.primaryBtnLabel}>{canSubscribe ? 'Confirm subscription' : 'Open wallet'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setSheetOpen(false)} style={[styles.sheetButton, styles.outlineBtn]}>
-              <Text style={styles.outlineBtnLabel}>Not now</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <BottomSheet isOpen={sheetOpen} onOpenChange={setSheetOpen}>
+        <BottomSheet.Portal>
+          <BottomSheet.Overlay />
+          <BottomSheet.Content>
+            <View style={styles.sheetContent}>
+              <BottomSheet.Title style={styles.sheetTitle}>{canSubscribe ? `Subscribe to ${creator.name}` : 'More credits needed'}</BottomSheet.Title>
+              <BottomSheet.Description style={styles.sheetDescription}>
+                {canSubscribe ? `${creator.monthlyCredits} credits unlock this creator's complete premium feed. Your balance will update after confirmation.` : `You need ${creator.monthlyCredits - (query.data?.creditBalance ?? 0)} more credits to subscribe.`}
+              </BottomSheet.Description>
+              <Button variant="primary" size="lg" onPress={() => { setSheetOpen(false); if (!canSubscribe) router.push('/wallet'); }} style={styles.sheetButton}>
+                <Button.Label>{canSubscribe ? 'Confirm subscription' : 'Open wallet'}</Button.Label>
+              </Button>
+              <Button variant="outline" size="lg" onPress={() => setSheetOpen(false)} style={styles.sheetButton}><Button.Label>Not now</Button.Label></Button>
+            </View>
+          </BottomSheet.Content>
+        </BottomSheet.Portal>
+      </BottomSheet>
     </View>
   );
 }
@@ -124,15 +111,5 @@ const styles = StyleSheet.create({
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 20 },
   aboutCard: { flexDirection: 'row', alignItems: 'center', gap: 12, margin: 20, padding: 16, borderRadius: T.RADIUS.lg, backgroundColor: T.SURFACE, borderWidth: 1, borderColor: T.BORDER },
   aboutCopy: { flex: 1 }, aboutTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12 }, aboutText: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, lineHeight: 17, marginTop: 3 },
-  sheetOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
-  sheetContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: T.SURFACE, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 32 },
-  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2, alignSelf: 'center', marginTop: 12, marginBottom: 4 },
-  sheetContent: { padding: 22, gap: 11 },
-  sheetTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 21 },
-  sheetDescription: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 20, marginBottom: 7 },
-  sheetButton: { width: '100%' },
-  primaryBtn: { backgroundColor: T.TEXT, borderRadius: T.RADIUS.md, height: 48, alignItems: 'center', justifyContent: 'center' },
-  primaryBtnLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
-  outlineBtn: { borderRadius: T.RADIUS.md, height: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.BORDER_2 },
-  outlineBtnLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 15 },
+  sheetContent: { backgroundColor: T.SURFACE, padding: 22, gap: 11 }, sheetTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 21 }, sheetDescription: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 20, marginBottom: 7 }, sheetButton: { width: '100%' },
 });

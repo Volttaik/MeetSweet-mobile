@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -13,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import { Spinner } from 'heroui-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,23 +24,6 @@ const INPUT_BORDER = T.BORDER_2;
 const INPUT_BORDER_FOCUSED = T.TEXT;
 const INPUT_BORDER_ERROR = T.ERROR;
 
-// Extra profile fields stored locally until PATCH /users/me is live
-const EXTRA_FIELDS_KEY = '@ms_profile_extra';
-interface ExtraFields { website: string; location: string; birthday: string; gender: string }
-const EMPTY_EXTRA: ExtraFields = { website: '', location: '', birthday: '', gender: '' };
-
-async function loadExtra(): Promise<ExtraFields> {
-  try {
-    const v = await AsyncStorage.getItem(EXTRA_FIELDS_KEY);
-    return v ? { ...EMPTY_EXTRA, ...(JSON.parse(v) as Partial<ExtraFields>) } : EMPTY_EXTRA;
-  } catch { return EMPTY_EXTRA; }
-}
-async function saveExtra(e: ExtraFields): Promise<void> {
-  await AsyncStorage.setItem(EXTRA_FIELDS_KEY, JSON.stringify(e)).catch(() => {});
-}
-
-const GENDER_OPTIONS = ['Prefer not to say', 'Male', 'Female', 'Non-binary', 'Other'];
-
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function EditProfileScreen() {
@@ -49,12 +32,6 @@ export default function EditProfileScreen() {
 
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
-  // Extra fields (local)
-  const [website, setWebsite] = useState('');
-  const [location, setLocation] = useState('');
-  const [birthday, setBirthday] = useState('');
-  const [gender, setGender] = useState('Prefer not to say');
-
   const [loading, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -64,12 +41,6 @@ export default function EditProfileScreen() {
       setName(user.name ?? '');
       setBio(user.bio ?? '');
     }
-    loadExtra().then((e) => {
-      setWebsite(e.website);
-      setLocation(e.location);
-      setBirthday(e.birthday);
-      setGender(e.gender || 'Prefer not to say');
-    });
   }, [user?.id]);
 
   const initials = name.trim()
@@ -78,10 +49,7 @@ export default function EditProfileScreen() {
 
   const hasChanges =
     name.trim() !== (user?.name ?? '') ||
-    bio.trim() !== (user?.bio ?? '') ||
-    website.trim() !== '' ||
-    location.trim() !== '' ||
-    birthday.trim() !== '';
+    bio.trim() !== (user?.bio ?? '');
 
   const handleSave = async () => {
     if (!name.trim() || name.trim().length < 2) {
@@ -100,7 +68,7 @@ export default function EditProfileScreen() {
       if (!token) throw new Error('Not authenticated');
 
       const updated = await apiFetch<{ user: typeof user }>('/users/me', {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           name: name.trim(),
@@ -115,21 +83,9 @@ export default function EditProfileScreen() {
         updateUser({ ...user, name: name.trim(), bio: bio.trim() || null });
       }
 
-      // Save extra fields locally (until PATCH /users/me is live)
-      await saveExtra({ website: website.trim(), location: location.trim(), birthday: birthday.trim(), gender });
-
       router.back();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save profile';
-      // PATCH /users/me returns 405 — apply optimistically
-      if (err instanceof Error && (err.message.includes('405') || err.message.includes('Method Not Allowed'))) {
-        if (user) {
-          updateUser({ ...user, name: name.trim(), bio: bio.trim() || null });
-        }
-        await saveExtra({ website: website.trim(), location: location.trim(), birthday: birthday.trim(), gender });
-        router.back();
-        return;
-      }
       setError(msg);
     } finally {
       setSaving(false);
@@ -164,7 +120,7 @@ export default function EditProfileScreen() {
           activeOpacity={0.8}
         >
           {loading ? (
-            <ActivityIndicator size="small" color={T.BG} />
+            <Spinner size="sm" color={T.BG} />
           ) : (
             <Text style={styles.saveBtnLabel}>Save</Text>
           )}
@@ -258,105 +214,6 @@ export default function EditProfileScreen() {
               />
             </View>
             <Text style={styles.charCount}>{bio.length}/160</Text>
-          </View>
-
-          {/* Website */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Website</Text>
-            <View
-              style={[
-                styles.inputWrap,
-                focusedField === 'website' && styles.inputWrapFocused,
-              ]}
-            >
-              <TextInput
-                style={styles.input}
-                value={website}
-                onChangeText={setWebsite}
-                onFocus={() => setFocusedField('website')}
-                onBlur={() => setFocusedField(null)}
-                placeholder="https://yourwebsite.com"
-                placeholderTextColor={T.TEXT_3}
-                keyboardType="url"
-                autoCapitalize="none"
-                autoCorrect={false}
-                maxLength={100}
-              />
-            </View>
-          </View>
-
-          {/* Location */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Location</Text>
-            <View
-              style={[
-                styles.inputWrap,
-                focusedField === 'location' && styles.inputWrapFocused,
-              ]}
-            >
-              <TextInput
-                style={styles.input}
-                value={location}
-                onChangeText={setLocation}
-                onFocus={() => setFocusedField('location')}
-                onBlur={() => setFocusedField(null)}
-                placeholder="City, Country"
-                placeholderTextColor={T.TEXT_3}
-                autoCorrect={false}
-                maxLength={60}
-              />
-            </View>
-          </View>
-
-          {/* Birthday */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Birthday</Text>
-            <View
-              style={[
-                styles.inputWrap,
-                focusedField === 'birthday' && styles.inputWrapFocused,
-              ]}
-            >
-              <TextInput
-                style={styles.input}
-                value={birthday}
-                onChangeText={setBirthday}
-                onFocus={() => setFocusedField('birthday')}
-                onBlur={() => setFocusedField(null)}
-                placeholder="MM/DD/YYYY"
-                placeholderTextColor={T.TEXT_3}
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-              />
-            </View>
-            <Text style={styles.fieldHint}>Not shown publicly unless enabled in Privacy Settings</Text>
-          </View>
-
-          {/* Gender */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Gender</Text>
-            <View style={styles.genderRow}>
-              {GENDER_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt}
-                  style={[
-                    styles.genderChip,
-                    gender === opt && styles.genderChipActive,
-                  ]}
-                  onPress={() => setGender(opt)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.genderChipLabel,
-                      gender === opt && styles.genderChipLabelActive,
-                    ]}
-                  >
-                    {opt}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
         </View>
       </ScrollView>
@@ -515,32 +372,5 @@ const styles = StyleSheet.create({
     color: T.TEXT,
     minHeight: 88,
     backgroundColor: 'transparent',
-  },
-
-  genderRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 4,
-  },
-  genderChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.SURFACE,
-    borderWidth: 1,
-    borderColor: T.BORDER_2,
-  },
-  genderChipActive: {
-    backgroundColor: T.TEXT,
-    borderColor: T.TEXT,
-  },
-  genderChipLabel: {
-    fontSize: 13,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT_2,
-  },
-  genderChipLabelActive: {
-    color: T.BG,
   },
 });

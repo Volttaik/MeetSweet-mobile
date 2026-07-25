@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { HeroUINativeProvider } from 'heroui-native';
 import { Uniwind } from 'uniwind';
 
 // MeetSweet is a dark-first app — force dark theme
@@ -20,7 +21,6 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/contexts/AuthContext';
-import { MsToastHost } from '@/components/MsToast';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -111,12 +111,13 @@ export default function RootLayout() {
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
+            <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
                   <RootLayoutNav />
-                  <MsToastHost />
                 </AuthProvider>
               </KeyboardProvider>
+            </HeroUINativeProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
       </ErrorBoundary>

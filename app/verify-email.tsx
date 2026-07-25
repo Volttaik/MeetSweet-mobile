@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
@@ -8,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Button, Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -186,27 +186,28 @@ export default function VerifyEmailScreen() {
           )}
 
           {/* Verify button */}
-          <TouchableOpacity
+          <Button
+            variant="primary"
+            size="lg"
             onPress={handleVerify}
-            disabled={loading || !completed}
+            isDisabled={loading || !completed}
             style={[
               styles.verifyBtn,
               loading && styles.verifyBtnLoading,
               (!completed && !loading) && styles.verifyBtnDisabled,
             ]}
-            activeOpacity={0.8}
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <Spinner size="sm" color="#FFFFFF" />
             ) : (
-              <Text style={[
+              <Button.Label style={[
                 styles.verifyBtnLabel,
                 (!completed || loading) && styles.verifyBtnLabelDisabled,
               ]}>
                 Verify Email
-              </Text>
+              </Button.Label>
             )}
-          </TouchableOpacity>
+          </Button>
 
           {/* Resend */}
           <View style={styles.resendSection}>

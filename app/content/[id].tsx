@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Heart, Lock, Play } from 'phosphor-react-native';
 import { useGetExploreCatalog } from '@/lib/api-client-react';
+import { Button, Spinner } from 'heroui-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { T } from '@/constants/theme';
@@ -17,7 +18,7 @@ export default function ContentViewerScreen() {
   const preview = useMemo(() => query.data?.previews.find((item) => item.id === id), [id, query.data]);
   const creator = useMemo(() => query.data?.creators.find((item) => item.id === preview?.creatorId), [preview, query.data]);
 
-  if (query.isLoading) return <View style={styles.center}><ActivityIndicator size="large" color="#FFFFFF" /></View>;
+  if (query.isLoading) return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
   if (query.isError || !preview || !creator) return <View style={styles.center}><MsEmptyState title="Preview unavailable" message="This drop is no longer available." actionLabel="Back to Explore" onAction={() => router.replace('/(tabs)/explore')} /></View>;
 
   return (
@@ -27,7 +28,7 @@ export default function ContentViewerScreen() {
         <View style={[styles.art, { backgroundColor: tones[preview.gradient] ?? T.SURFACE_2 }]}><View style={styles.artGlow} /><View style={styles.artCopy}><Text style={styles.artKind}>{preview.kind.toUpperCase()} · {preview.duration}</Text><Text style={styles.artTitle}>{preview.title}</Text></View>{preview.isPremium && <View style={styles.lock}><Lock size={18} color={T.TEXT} /><Text style={styles.lockText}>PREMIUM PREVIEW</Text></View>} {!preview.isPremium && <View style={styles.play}><Play size={21} color={T.BG} weight="fill" /></View>}</View>
         <View style={styles.creatorRow}><Pressable style={styles.creatorPress} onPress={() => router.push(`/creator/${creator.id}`)}><MsAvatar size={44} initials={creator.initials} showOnline={creator.isOnline} /><View style={styles.creatorCopy}><Text style={styles.creatorName}>{creator.name}</Text><Text style={styles.creatorHandle}>{creator.handle} · {creator.followers} followers</Text></View></Pressable><Pressable style={styles.likeButton}><Heart size={19} color={T.TEXT} /></Pressable></View>
         <Text style={styles.description}>A closer look at what makes this creator's work worth following. Subscribe for the full drop and a growing archive of premium content.</Text>
-        <View style={styles.unlockCard}><View><Text style={styles.unlockEyebrow}>{preview.isPremium ? 'UNLOCK THIS DROP' : 'DISCOVER THE FULL FEED'}</Text><Text style={styles.unlockTitle}>{preview.lockedLabel}</Text></View><TouchableOpacity onPress={() => router.push(`/creator/${creator.id}`)} style={styles.unlockBtn}><Text style={styles.unlockBtnLabel}>{preview.isPremium ? 'Subscribe' : 'View profile'}</Text></TouchableOpacity></View>
+        <View style={styles.unlockCard}><View><Text style={styles.unlockEyebrow}>{preview.isPremium ? 'UNLOCK THIS DROP' : 'DISCOVER THE FULL FEED'}</Text><Text style={styles.unlockTitle}>{preview.lockedLabel}</Text></View><Button variant="primary" size="sm" onPress={() => router.push(`/creator/${creator.id}`)}><Button.Label>{preview.isPremium ? 'Subscribe' : 'View profile'}</Button.Label></Button></View>
       </ScrollView>
     </View>
   );

@@ -1,16 +1,23 @@
 import React, { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import {
+  Button,
+  Dialog,
+  FieldError,
+  Input,
+  Label,
+  PressableFeedback,
+  Spinner,
+  TextField,
+} from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
@@ -206,14 +213,14 @@ function Step1({
 
       <View style={styles.form}>
         {/* Full Name */}
-        
-          <Text style={styles.fieldLabel}>Full Name</Text>
+        <TextField isInvalid={!!errors.name}>
+          <Label style={styles.fieldLabel}>Full Name</Label>
           <InputRow
             icon={<User size={20} color={focused.name ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
             isError={!!errors.name}
             isFocused={focused.name}
           >
-            <TextInput
+            <Input
               placeholder="Jane Smith"
               value={data.name}
               onChangeText={(v) => { onChange({ name: v }); setErrors((e) => ({ ...e, name: '' })); }}
@@ -223,18 +230,18 @@ function Step1({
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.name && <Text style={styles.fieldError}>{errors.name}</Text>}
-        
+          {!!errors.name && <FieldError style={styles.fieldError}>{errors.name}</FieldError>}
+        </TextField>
 
         {/* Username */}
-        
-          <Text style={styles.fieldLabel}>Username</Text>
+        <TextField isInvalid={!!errors.username}>
+          <Label style={styles.fieldLabel}>Username</Label>
           <InputRow
             icon={<At size={20} color={focused.username ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
             isError={!!errors.username}
             isFocused={focused.username}
           >
-            <TextInput
+            <Input
               placeholder="yourhandle"
               autoCapitalize="none"
               autoCorrect={false}
@@ -246,18 +253,18 @@ function Step1({
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.username && <Text style={styles.fieldError}>{errors.username}</Text>}
-        
+          {!!errors.username && <FieldError style={styles.fieldError}>{errors.username}</FieldError>}
+        </TextField>
 
         {/* Email */}
-        
-          <Text style={styles.fieldLabel}>Email</Text>
+        <TextField isInvalid={!!errors.email}>
+          <Label style={styles.fieldLabel}>Email</Label>
           <InputRow
             icon={<Envelope size={20} color={focused.email ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
             isError={!!errors.email}
             isFocused={focused.email}
           >
-            <TextInput
+            <Input
               placeholder="your@email.com"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -269,18 +276,18 @@ function Step1({
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.email && <Text style={styles.fieldError}>{errors.email}</Text>}
-        
+          {!!errors.email && <FieldError style={styles.fieldError}>{errors.email}</FieldError>}
+        </TextField>
 
         {/* Phone */}
-        
-          <Text style={styles.fieldLabel}>Phone Number</Text>
+        <TextField isInvalid={!!errors.phone}>
+          <Label style={styles.fieldLabel}>Phone Number</Label>
           <InputRow
             icon={<Phone size={20} color={focused.phone ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
             isError={!!errors.phone}
             isFocused={focused.phone}
           >
-            <TextInput
+            <Input
               placeholder="1 (555) 000-0000"
               keyboardType="phone-pad"
               value={data.phone}
@@ -294,12 +301,12 @@ function Step1({
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.phone && <Text style={styles.fieldError}>{errors.phone}</Text>}
-        
+          {!!errors.phone && <FieldError style={styles.fieldError}>{errors.phone}</FieldError>}
+        </TextField>
 
         {/* Date of Birth */}
-        
-          <Text style={styles.fieldLabel}>Date of Birth</Text>
+        <TextField isInvalid={!!errors.dob}>
+          <Label style={styles.fieldLabel}>Date of Birth</Label>
           <View style={styles.fieldHint}>
             <Text style={styles.fieldHintText}>You must be 18+ to join</Text>
           </View>
@@ -308,7 +315,7 @@ function Step1({
             isError={!!errors.dob}
             isFocused={focused.dob}
           >
-            <TextInput
+            <Input
               placeholder="MM/DD/YYYY"
               keyboardType="numeric"
               value={data.dob}
@@ -323,13 +330,13 @@ function Step1({
               maxLength={10}
             />
           </InputRow>
-          {!!errors.dob && <Text style={styles.fieldError}>{errors.dob}</Text>}
-        
+          {!!errors.dob && <FieldError style={styles.fieldError}>{errors.dob}</FieldError>}
+        </TextField>
       </View>
 
-      <TouchableOpacity onPress={handleNext} style={styles.primaryBtn} activeOpacity={0.85}>
-        <Text style={styles.btnLabel}>Continue</Text>
-      </TouchableOpacity>
+      <Button variant="primary" size="lg" onPress={handleNext} style={styles.primaryBtn}>
+        <Button.Label style={styles.btnLabel}>Continue</Button.Label>
+      </Button>
     </View>
   );
 }
@@ -380,14 +387,14 @@ function Step2({
 
       <View style={styles.form}>
         {/* Password */}
-        
-          <Text style={styles.fieldLabel}>Password</Text>
+        <TextField isInvalid={!!errors.password}>
+          <Label style={styles.fieldLabel}>Password</Label>
           <InputRow
             icon={<Lock size={18} color={focused.password ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
             isError={!!errors.password}
             isFocused={focused.password}
           >
-            <TextInput
+            <Input
               placeholder="••••••••"
               secureTextEntry={!showPw}
               value={data.password}
@@ -417,18 +424,18 @@ function Step2({
               </Text>
             </View>
           )}
-          {!!errors.password && <Text style={styles.fieldError}>{errors.password}</Text>}
-        
+          {!!errors.password && <FieldError style={styles.fieldError}>{errors.password}</FieldError>}
+        </TextField>
 
         {/* Confirm Password */}
-        
-          <Text style={styles.fieldLabel}>Confirm Password</Text>
+        <TextField isInvalid={!!errors.confirm}>
+          <Label style={styles.fieldLabel}>Confirm Password</Label>
           <InputRow
             icon={<Lock size={18} color={focused.confirm ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
             isError={!!errors.confirm}
             isFocused={focused.confirm}
           >
-            <TextInput
+            <Input
               placeholder="••••••••"
               secureTextEntry={!showConfirm}
               value={data.confirm}
@@ -442,8 +449,8 @@ function Step2({
               {showConfirm ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
             </TouchableOpacity>
           </InputRow>
-          {!!errors.confirm && <Text style={styles.fieldError}>{errors.confirm}</Text>}
-        
+          {!!errors.confirm && <FieldError style={styles.fieldError}>{errors.confirm}</FieldError>}
+        </TextField>
 
         {/* Password hints */}
         <View style={styles.passwordHints}>
@@ -458,13 +465,14 @@ function Step2({
         </View>
       </View>
 
-      <TouchableOpacity
+      <Button
+        variant="primary"
+        size="lg"
         onPress={() => { if (validate()) onNext(); }}
         style={styles.primaryBtn}
-        activeOpacity={0.85}
       >
-        <Text style={styles.btnLabel}>Continue</Text>
-      </TouchableOpacity>
+        <Button.Label style={styles.btnLabel}>Continue</Button.Label>
+      </Button>
 
     </View>
   );
@@ -559,7 +567,7 @@ function Step3({
               { borderColor: focused ? INPUT_BORDER_FOCUSED : INPUT_BORDER },
             ]}
           >
-            <TextInput
+            <Input
               placeholder="A little about yourself…"
               multiline
               numberOfLines={4}
@@ -580,13 +588,19 @@ function Step3({
         <Text style={styles.serverError}>{serverError}</Text>
       )}
 
-      <TouchableOpacity onPress={handleComplete} disabled={loading} style={[styles.primaryBtn, loading && styles.primaryBtnLoading]} activeOpacity={0.85}>
+      <Button
+        variant="primary"
+        size="lg"
+        onPress={handleComplete}
+        isDisabled={loading}
+        style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
+      >
         {loading ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
+          <Spinner size="sm" color="#FFFFFF" />
         ) : (
-          <Text style={styles.btnLabel}>Complete</Text>
+          <Button.Label style={styles.btnLabel}>Complete</Button.Label>
         )}
-      </TouchableOpacity>
+      </Button>
 
     </View>
   );

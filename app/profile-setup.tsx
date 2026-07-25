@@ -43,7 +43,7 @@ export default function ProfileSetupScreen() {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
       });
     }
     if (!result.canceled && result.assets[0]) {

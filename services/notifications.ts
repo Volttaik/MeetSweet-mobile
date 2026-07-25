@@ -49,7 +49,7 @@ export async function markAllNotificationsRead(): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   await apiFetch('/notifications/read-all', {
-    method: 'POST',
+    method: 'PUT',
     headers: authHeader(token),
   });
 }

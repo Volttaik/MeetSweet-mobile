@@ -14,15 +14,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MsInput from '@/components/MsInput';
 import StepIndicator from '@/components/StepIndicator';
 import ScreenTransition from '@/components/ScreenTransition';
-import { apiFetch } from '@/services/api';
 
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken';
 
 async function checkUsernameAvailability(username: string): Promise<boolean> {
-  const data = await apiFetch<{ available: boolean }>(
-    `/auth/check-username?username=${encodeURIComponent(username)}`,
-  );
-  return data.available;
+  try {
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+    const base = apiUrl ? `${apiUrl.replace(/\/+$/, '')}/api` : '/api';
+    const res = await fetch(`${base}/auth/check-username?username=${encodeURIComponent(username)}`);
+    if (!res.ok) return true; // default to available on error
+    const data: { available: boolean } = await res.json();
+    return data.available;
+  } catch {
+    return true; // default to available on network error
+  }
 }
 
 function calcAge(dob: string): number {
@@ -65,16 +70,8 @@ export default function CreateAccountScreen() {
     if (clean.length >= 3) {
       setUsernameStatus('checking');
       usernameTimer.current = setTimeout(async () => {
-        try {
-          const available = await checkUsernameAvailability(clean);
-          setUsernameStatus(available ? 'available' : 'taken');
-        } catch {
-          setUsernameStatus('idle');
-          setErrors((e) => ({
-            ...e,
-            username: 'Username availability is unavailable right now. Try again later.',
-          }));
-        }
+        const available = await checkUsernameAvailability(clean);
+        setUsernameStatus(available ? 'available' : 'taken');
       }, 700);
     }
   }, []);

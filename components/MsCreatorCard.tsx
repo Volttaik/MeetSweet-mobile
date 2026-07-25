@@ -1,8 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Users } from 'phosphor-react-native';
-import { T, AppGradients } from '@/constants/theme';
+import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 
 const CREATORS = [
@@ -31,7 +30,7 @@ export function MsCreatorCard({ id, variant = 'compact', onPress, onSubscribe }:
   if (variant === 'compact') {
     return (
       <TouchableOpacity style={styles.compact} activeOpacity={0.75} onPress={onPress}>
-        <MsAvatar size={60} initials={initials} showOnline={online} />
+        <MsAvatar size={58} initials={initials} showOnline={online} />
         <Text style={styles.compactName} numberOfLines={1}>
           {creator.name.split(' ')[0]}
         </Text>
@@ -42,23 +41,23 @@ export function MsCreatorCard({ id, variant = 'compact', onPress, onSubscribe }:
 
   return (
     <TouchableOpacity style={styles.featured} activeOpacity={0.75} onPress={onPress}>
+      {/* Top row: avatar + online status */}
       <View style={styles.featuredTop}>
         <MsAvatar size={50} initials={initials} showOnline={online} />
-        {online && (
-          <View style={styles.onlinePill}>
-            <Text style={styles.onlineLabel}>● Live</Text>
-          </View>
-        )}
+        {online && <Text style={styles.onlineLabel}>● Online</Text>}
       </View>
 
+      {/* Category tag */}
       <View style={styles.categoryTag}>
         <Text style={styles.categoryTagText}>{creator.category.toUpperCase()}</Text>
       </View>
 
+      {/* Name + handle */}
       <Text style={styles.featuredName} numberOfLines={1}>{creator.name}</Text>
       <Text style={styles.featuredHandle} numberOfLines={1}>{creator.handle}</Text>
       <Text style={styles.featuredBio} numberOfLines={2}>{creator.bio}</Text>
 
+      {/* Metrics: subscribers + price */}
       <View style={styles.metrics}>
         <View style={styles.metric}>
           <Users size={11} color={T.TEXT_3} />
@@ -67,19 +66,13 @@ export function MsCreatorCard({ id, variant = 'compact', onPress, onSubscribe }:
         <Text style={styles.priceText}>{creator.price} cr/mo</Text>
       </View>
 
+      {/* Subscribe button */}
       <TouchableOpacity
-        style={styles.subscribeBtnWrap}
-        activeOpacity={0.85}
+        style={styles.subscribeBtn}
+        activeOpacity={0.8}
         onPress={onSubscribe ?? onPress}
       >
-        <LinearGradient
-          colors={AppGradients.rose}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.subscribeBtn}
-        >
-          <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
-        </LinearGradient>
+        <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -105,11 +98,11 @@ const styles = StyleSheet.create({
   },
 
   featured: {
-    width: 158,
+    width: 155,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     borderWidth: 1,
-    borderColor: T.BORDER,
+    borderColor: T.BORDER_2,
     padding: 14,
     gap: 4,
   },
@@ -118,41 +111,32 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
-  onlinePill: {
-    backgroundColor: 'rgba(52,201,123,0.12)',
-    borderRadius: T.RADIUS.full,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(52,201,123,0.25)',
-  },
   onlineLabel: {
     fontSize: 9,
-    fontFamily: T.FONT.semibold,
+    fontFamily: T.FONT.medium,
     color: T.SUCCESS,
     letterSpacing: 0.2,
+    marginTop: 3,
   },
   categoryTag: {
     marginTop: 10,
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(232,68,122,0.1)',
+    backgroundColor: T.SURFACE_2,
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: T.RADIUS.xs,
-    borderWidth: 1,
-    borderColor: 'rgba(232,68,122,0.2)',
   },
   categoryTagText: {
     fontSize: 8,
     fontFamily: T.FONT.semibold,
-    color: T.ROSE,
+    color: T.TEXT_3,
     letterSpacing: 0.8,
   },
   featuredName: {
     fontSize: 13,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
-    marginTop: 4,
+    marginTop: 2,
   },
   featuredHandle: {
     fontSize: 11,
@@ -164,7 +148,7 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
     lineHeight: 16,
-    marginTop: 2,
+    marginTop: 3,
   },
   metrics: {
     flexDirection: 'row',
@@ -175,19 +159,32 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: T.BORDER,
   },
-  metric: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metricText: { fontSize: 10, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  priceText:  { fontSize: 9,  fontFamily: T.FONT.semibold, color: T.ROSE_GOLD },
-  subscribeBtnWrap: { marginTop: 8 },
+  metric: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metricText: {
+    fontSize: 10,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
+  },
+  priceText: {
+    fontSize: 9,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+  },
   subscribeBtn: {
+    marginTop: 8,
     height: 32,
     borderRadius: T.RADIUS.sm,
+    backgroundColor: T.TEXT,
     alignItems: 'center',
     justifyContent: 'center',
   },
   subscribeBtnLabel: {
     fontSize: 12,
     fontFamily: T.FONT.semibold,
-    color: T.TEXT,
+    color: T.BG,
   },
 });

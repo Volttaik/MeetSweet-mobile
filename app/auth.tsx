@@ -6,10 +6,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import {
+  Button,
+  Checkbox,
+  FieldError,
+  Input,
+  Label,
+  TextField,
+} from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { At, Eye, EyeSlash, Lock } from 'phosphor-react-native';
@@ -131,8 +138,8 @@ export default function AuthScreen() {
         <View style={styles.formOuter}>
           <View style={styles.form}>
             {/* Identifier (email / username / phone) */}
-            
-              <Text style={styles.fieldLabel}>Email, Username or Phone</Text>
+            <TextField isInvalid={!!errors.identifier}>
+              <Label style={styles.fieldLabel}>Email, Username or Phone</Label>
               <InputRow
                 icon={
                   <At
@@ -144,7 +151,7 @@ export default function AuthScreen() {
                 isError={!!errors.identifier}
                 isFocused={focused.identifier}
               >
-                <TextInput
+                <Input
                   placeholder="you@email.com or @username"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -161,13 +168,13 @@ export default function AuthScreen() {
                 />
               </InputRow>
               {!!errors.identifier && (
-                <Text style={styles.fieldError}>{errors.identifier}</Text>
+                <FieldError style={styles.fieldError}>{errors.identifier}</FieldError>
               )}
-            
+            </TextField>
 
             {/* Password */}
-            
-              <Text style={styles.fieldLabel}>Password</Text>
+            <TextField isInvalid={!!errors.password}>
+              <Label style={styles.fieldLabel}>Password</Label>
               <InputRow
                 icon={
                   <Lock
@@ -179,7 +186,7 @@ export default function AuthScreen() {
                 isError={!!errors.password}
                 isFocused={focused.password}
               >
-                <TextInput
+                <Input
                   placeholder="••••••••"
                   secureTextEntry={!showPw}
                   value={password}
@@ -205,9 +212,9 @@ export default function AuthScreen() {
                 </TouchableOpacity>
               </InputRow>
               {!!errors.password && (
-                <Text style={styles.fieldError}>{errors.password}</Text>
+                <FieldError style={styles.fieldError}>{errors.password}</FieldError>
               )}
-            
+            </TextField>
 
             {/* Remember me + Forgot */}
             <View style={styles.loginMeta}>
@@ -216,7 +223,7 @@ export default function AuthScreen() {
                 onPress={() => setRememberMe((v) => !v)}
                 activeOpacity={0.7}
               >
-                <TouchableOpacity onPress={() => setRememberMe(v => !v)} style={{width:18,height:18,borderRadius:4,backgroundColor:rememberMe?'#FFFFFF':'transparent',borderWidth:1,borderColor:'rgba(255,255,255,0.3)',alignItems:'center',justifyContent:'center'}}>{rememberMe && <Text style={{color:'#000',fontSize:11,lineHeight:14}}>✓</Text>}</TouchableOpacity>
+                <Checkbox isSelected={rememberMe} onSelectedChange={setRememberMe} />
                 <Text style={styles.checkLabel}>Remember me</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -228,13 +235,19 @@ export default function AuthScreen() {
             </View>
 
             {/* Login button */}
-            <TouchableOpacity onPress={handleLogin} disabled={loading} style={[styles.submitBtn, loading && styles.submitBtnLoading]} activeOpacity={0.85}>
+            <Button
+              variant="primary"
+              size="lg"
+              onPress={handleLogin}
+              isDisabled={loading}
+              style={[styles.submitBtn, loading && styles.submitBtnLoading]}
+            >
               {loading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.submitBtnLabel}>Log In</Text>
+                <Button.Label style={styles.submitBtnLabel}>Log In</Button.Label>
               )}
-            </TouchableOpacity>
+            </Button>
           </View>
         </View>
 

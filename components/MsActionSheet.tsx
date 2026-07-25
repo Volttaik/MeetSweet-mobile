@@ -1,5 +1,6 @@
 /**
- * MsActionSheet — native-feeling context menu bottom sheet.
+ * MsActionSheet — reusable native-feeling context menu bottom sheet.
+ * Replaces browser-style Alert.alert / ActionSheetIOS for all long-press menus.
  */
 import React from 'react';
 import {
@@ -47,7 +48,7 @@ export function MsActionSheet({
     >
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable
-          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]}
+          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 4, 20) }]}
           onPress={(e) => e.stopPropagation()}
         >
           <View style={styles.handle} />
@@ -56,18 +57,18 @@ export function MsActionSheet({
             <View style={styles.header}>
               <View style={{ flex: 1 }}>
                 {title && (
-                  <Text style={styles.title} numberOfLines={1}>{title}</Text>
+                  <Text style={styles.title} numberOfLines={1}>
+                    {title}
+                  </Text>
                 )}
                 {subtitle && (
-                  <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+                  <Text style={styles.subtitle} numberOfLines={1}>
+                    {subtitle}
+                  </Text>
                 )}
               </View>
-              <TouchableOpacity
-                onPress={onClose}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                style={styles.closeBtn}
-              >
-                <X size={16} color={T.TEXT_2} />
+              <TouchableOpacity onPress={onClose} hitSlop={12}>
+                <X size={18} color={T.TEXT_2} />
               </TouchableOpacity>
             </View>
           )}
@@ -77,7 +78,7 @@ export function MsActionSheet({
               <TouchableOpacity
                 key={idx}
                 style={[styles.action, idx > 0 && styles.actionBorder]}
-                activeOpacity={0.5}
+                activeOpacity={0.55}
                 onPress={() => {
                   onClose();
                   setTimeout(action.onPress, 80);
@@ -103,38 +104,36 @@ export function MsActionSheet({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'flex-end',
   },
   sheet: {
     backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     paddingTop: 12,
     paddingHorizontal: 20,
-    borderTopWidth: 1,
-    borderColor: T.BORDER,
   },
   handle: {
-    width: 38,
+    width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: T.BORDER_2,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignSelf: 'center',
-    marginBottom: 18,
+    marginBottom: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingBottom: 16,
+    marginBottom: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: T.BORDER,
   },
   title: {
-    fontSize: 15,
-    fontFamily: T.FONT.semibold,
+    fontSize: 16,
+    fontFamily: T.FONT.bold,
     color: T.TEXT,
   },
   subtitle: {
@@ -143,25 +142,15 @@ const styles = StyleSheet.create({
     color: T.TEXT_2,
     marginTop: 2,
   },
-  closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: T.SURFACE_2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   actionsWrap: {
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE_2,
     overflow: 'hidden',
     marginBottom: 4,
-    borderWidth: 1,
-    borderColor: T.BORDER,
   },
   action: {
     paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
   },
   actionBorder: {
     borderTopWidth: 1,
@@ -173,6 +162,6 @@ const styles = StyleSheet.create({
     color: T.TEXT,
   },
   destructiveLabel: {
-    color: T.DANGER,
+    color: '#EF4444',
   },
 });

@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -15,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
+import { Button, Chip, Spinner } from 'heroui-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ArrowLeft, Check } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
@@ -78,25 +78,6 @@ export default function CreatePostScreen() {
     getCategories().then(({ categories }) => setCategories(categories)).catch(() => {});
   }, []);
 
-  // ─── Unsaved changes guard ───────────────────────────────────────────────
-
-  const hasContent = !!caption.trim() || !!mediaUri;
-
-  const handleBack = () => {
-    if (hasContent) {
-      Alert.alert(
-        'Discard post?',
-        'You have unsaved content. Leave anyway?',
-        [
-          { text: 'Keep editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: () => router.back() },
-        ],
-      );
-    } else {
-      router.back();
-    }
-  };
-
   // ─── Media picker ────────────────────────────────────────────────────────
 
   const pickMedia = useCallback(async (type: 'image' | 'video') => {
@@ -118,40 +99,10 @@ export default function CreatePostScreen() {
       const asset = result.assets[0];
       setMediaUri(asset.uri);
       setMediaType(type);
-
-      // Normalise MIME type to one the backend accepts.
-      // Backend allowed: image/jpeg, image/png, image/webp, image/gif,
-      //                  video/mp4, video/quicktime, video/webm
-      const rawMime = (asset.mimeType ?? '').toLowerCase().trim();
-      let mime: string;
-      if (type === 'image') {
-        if (rawMime === 'image/png') mime = 'image/png';
-        else if (rawMime === 'image/webp') mime = 'image/webp';
-        else if (rawMime === 'image/gif') mime = 'image/gif';
-        else mime = 'image/jpeg'; // covers heic, heif, jpg, jpeg, unknown, empty
-      } else {
-        if (rawMime === 'video/quicktime' || rawMime === 'video/mov') mime = 'video/quicktime';
-        else if (rawMime === 'video/webm') mime = 'video/webm';
-        else mime = 'video/mp4'; // covers mp4, avi, mkv, unknown, empty
-      }
-
-      // Match filename extension to the normalised MIME type.
-      const extMap: Record<string, string> = {
-        'image/jpeg': 'jpg',
-        'image/png': 'png',
-        'image/webp': 'webp',
-        'image/gif': 'gif',
-        'video/mp4': 'mp4',
-        'video/quicktime': 'mov',
-        'video/webm': 'webm',
-      };
-      const ext = extMap[mime] ?? (type === 'image' ? 'jpg' : 'mp4');
-      let fileName = asset.fileName ?? `media-${Date.now()}.${ext}`;
-      // Replace any non-matching extension
-      if (!/\.[a-z0-9]+$/i.test(fileName)) fileName = `${fileName}.${ext}`;
-
+      const mime = asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4');
+      const ext = asset.fileName?.split('.').pop() ?? (type === 'image' ? 'jpg' : 'mp4');
       setMediaMime(mime);
-      setMediaName(fileName);
+      setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
     }
   }, []);
 
@@ -254,7 +205,7 @@ export default function CreatePostScreen() {
             </>
           ) : (
             <>
-              <ActivityIndicator size="large" color={T.TEXT} />
+              <Spinner size="lg" color={T.TEXT} />
               <Text style={styles.publishTitle}>
                 {step === 'uploading'
                   ? 'Uploading Media'
@@ -292,7 +243,7 @@ export default function CreatePostScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
-          onPress={handleBack}
+          onPress={() => router.back()}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <ArrowLeft size={20} color={T.TEXT} />
@@ -487,11 +438,17 @@ export default function CreatePostScreen() {
         )}
 
         {/* ─── Publish button ────────────────────────────────────────────────── */}
-         <TouchableOpacity onPress={handlePublish} disabled={!caption.trim() && !mediaUri} style={styles.publishFooterBtn} activeOpacity={0.85}>
-          <Text style={styles.publishFooterBtnLabel}>
+         <Button
+          variant="primary"
+           size="md"
+          onPress={handlePublish}
+          isDisabled={!caption.trim() && !mediaUri}
+          style={styles.publishFooterBtn}
+        >
+          <Button.Label style={styles.publishFooterBtnLabel}>
             Publish{visibility !== 'public' ? ` · ${selectedOption.label}` : ''}
-          </Text>
-        </TouchableOpacity>
+          </Button.Label>
+        </Button>
 
         <View style={{ height: 40 }} />
       </ScrollView>

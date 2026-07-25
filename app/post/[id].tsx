@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -17,9 +17,6 @@ import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
-import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
-import { MsConfirmDialog } from '@/components/MsConfirmDialog';
-import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   addComment,
@@ -49,12 +46,6 @@ export default function PostDetailScreen() {
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
   const [sending, setSending] = useState(false);
 
-  // Comment action sheet state
-  const [menuComment, setMenuComment] = useState<Comment | null>(null);
-  const [editingComment, setEditingComment] = useState<Comment | null>(null);
-  const [editDraft, setEditDraft] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<Comment | null>(null);
-
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -83,120 +74,86 @@ export default function PostDetailScreen() {
         ? await addReply(id, replyingTo.id, body)
         : await addComment(id, body);
       if (replyingTo) {
-        setComments((items) =>
-          items.map((item) =>
-            item.id === replyingTo.id
-              ? { ...item, replyCount: item.replyCount + 1 }
-              : item,
-          ),
-        );
+        setComments((items) => items.map((item) =>
+          item.id === replyingTo.id ? { ...item, replyCount: item.replyCount + 1 } : item,
+        ));
       } else {
         setComments((items) => [...items, result.comment]);
-        setPost((current) =>
-          current ? { ...current, commentCount: current.commentCount + 1 } : current,
-        );
+        setPost((current) => current ? { ...current, commentCount: current.commentCount + 1 } : current);
       }
       setDraft('');
       setReplyingTo(null);
     } catch {
-      toast.error('Could not post comment');
+      Alert.alert('Could not post comment', 'Please try again.');
     } finally {
       setSending(false);
     }
   };
 
-  const submitEdit = async () => {
-    if (!editingComment || !editDraft.trim() || !id) return;
-    const prev = editingComment.body;
-    setComments((items) =>
-      items.map((item) =>
-        item.id === editingComment.id ? { ...item, body: editDraft.trim() } : item,
-      ),
-    );
-    setEditingComment(null);
-    try {
-      await editComment(id, editingComment.id, editDraft.trim());
-      toast.success('Comment updated');
-    } catch {
-      // revert
-      setComments((items) =>
-        items.map((item) =>
-          item.id === editingComment.id ? { ...item, body: prev } : item,
-        ),
-      );
-      toast.error('Could not update comment');
-    }
-  };
-
-  const doDeleteComment = async () => {
-    if (!deleteConfirm || !id) return;
-    const target = deleteConfirm;
-    setComments((items) => items.filter((item) => item.id !== target.id));
-    setPost((current) =>
-      current
-        ? { ...current, commentCount: Math.max(0, current.commentCount - (target.parentId ? 0 : 1)) }
-        : current,
-    );
-    setDeleteConfirm(null);
-    try {
-      await deleteComment(id, target.id);
-      toast.success('Comment deleted');
-    } catch {
-      toast.error('Could not delete comment');
-      load();
-    }
-  };
-
-  const copyComment = (comment: Comment) => {
-    Share.share({ message: comment.body }).catch(() => {});
-  };
-
-  const mentionUser = (comment: Comment) => {
-    setReplyingTo(comment);
-    setDraft(`@${comment.author.username} `);
-  };
-
-  const buildCommentActions = (comment: Comment): ActionItem[] => {
+  const handleCommentMenu = (comment: Comment) => {
     const own = comment.author.id === user?.id;
-    if (own) {
-      return [
-        { label: 'Edit', onPress: () => { setEditingComment(comment); setEditDraft(comment.body); } },
-        { label: 'Copy', onPress: () => copyComment(comment) },
-        { label: 'Delete', destructive: true, onPress: () => setDeleteConfirm(comment) },
-      ];
-    }
-    return [
-      { label: 'Reply', onPress: () => setReplyingTo(comment) },
-      { label: 'Mention', onPress: () => mentionUser(comment) },
-      { label: 'Copy', onPress: () => copyComment(comment) },
-      {
-        label: 'Report',
-        destructive: true,
+    const options = own ? ['Edit', 'Delete', 'Cancel'] : ['Reply', 'Cancel'];
+    Alert.alert('Comment', undefined, [
+      ...options.filter((option) => option !== 'Cancel').map((option) => ({
+        text: option,
+        style: option === 'Delete' ? 'destructive' as const : 'default' as const,
         onPress: () => {
-          reportPost(id!, 'inappropriate').catch(() => {});
-          toast.info('Comment reported');
+          if (option === 'Reply') {
+            setReplyingTo(comment);
+          } else if (option === 'Edit') {
+            Alert.prompt(
+              'Edit comment',
+              undefined,
+              async (body) => {
+                if (!body?.trim() || !id) return;
+                try {
+                  await editComment(id, comment.id, body);
+                  setComments((items) => items.map((item) =>
+                    item.id === comment.id ? { ...item, body: body.trim() } : item,
+                  ));
+                } catch {
+                  Alert.alert('Could not edit comment', 'Please try again.');
+                }
+              },
+              'plain-text',
+              comment.body,
+            );
+          } else if (option === 'Delete') {
+            Alert.alert('Delete comment?', 'This cannot be undone.', [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: async () => {
+                  if (!id) return;
+                  try {
+                    await deleteComment(id, comment.id);
+                    setComments((items) => items.filter((item) => item.id !== comment.id));
+                    setPost((current) => current ? {
+                      ...current,
+                      commentCount: Math.max(0, current.commentCount - (comment.parentId ? 0 : 1)),
+                    } : current);
+                  } catch {
+                    Alert.alert('Could not delete comment', 'Please try again.');
+                  }
+                },
+              },
+            ]);
+          }
         },
-      },
-    ];
+      })),
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   if (loading) {
-    return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
-        <Text style={styles.muted}>Loading post…</Text>
-      </View>
-    );
+    return <View style={[styles.center, { paddingTop: insets.top }]}><Text style={styles.muted}>Loading post…</Text></View>;
   }
 
   if (error || !post) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
-        <MsEmptyState
-          title="Post unavailable"
-          message={error}
-          actionLabel="Go back"
-          onAction={() => router.back()}
-        />
+        <MsEmptyState title="Post unavailable" message={error} actionLabel="Go back" onAction={() => router.back()} />
       </View>
     );
   }
@@ -208,22 +165,18 @@ export default function PostDetailScreen() {
       keyboardVerticalOffset={insets.top + 48}
     >
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable
-          style={styles.iconButton}
-          onPress={() => router.back()}
-          accessibilityLabel="Go back"
-        >
+        <Pressable style={styles.iconButton} onPress={() => router.back()} accessibilityLabel="Go back">
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
         <Text style={styles.headerTitle}>Post</Text>
         <Pressable
           style={styles.iconButton}
-          onPress={() =>
-            Share.share({
-              message: `Check out this post on MeetSweet!`,
-            }).catch(() => {})
-          }
-          accessibilityLabel="Share post"
+          onPress={() => Alert.alert('Report post', 'Choose a reason.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Inappropriate', onPress: () => reportPost(post.id).catch(() => Alert.alert('Could not report post', 'Please try again.')) },
+            { text: 'Something else', onPress: () => reportPost(post.id, 'other').catch(() => Alert.alert('Could not report post', 'Please try again.')) },
+          ])}
+          accessibilityLabel="Report post"
         >
           <DotsThree size={22} color={T.TEXT_2} />
         </Pressable>
@@ -247,33 +200,21 @@ export default function PostDetailScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable
-            style={styles.commentRow}
-            onLongPress={() => setMenuComment(item)}
-            delayLongPress={400}
-          >
-            <MsAvatar
-              size={34}
-              initials={initials(item.author.name)}
-              imageUri={item.author.avatarUrl ?? undefined}
-            />
+          <View style={styles.commentRow}>
+            <MsAvatar size={34} initials={initials(item.author.name)} imageUri={item.author.avatarUrl ?? undefined} />
             <View style={styles.commentBody}>
               <View style={styles.commentTop}>
                 <Text style={styles.commentAuthor}>{item.author.name}</Text>
-                <Pressable onPress={() => setMenuComment(item)} hitSlop={8}>
+                <Pressable onPress={() => handleCommentMenu(item)} hitSlop={8}>
                   <DotsThree size={18} color={T.TEXT_2} />
                 </Pressable>
               </View>
               <Text style={styles.commentText}>{item.body}</Text>
-              <View style={styles.commentMeta}>
-                <Pressable onPress={() => setReplyingTo(item)}>
-                  <Text style={styles.replyAction}>
-                    {item.replyCount > 0 ? `${item.replyCount} replies · Reply` : 'Reply'}
-                  </Text>
-                </Pressable>
-              </View>
+              <Pressable onPress={() => setReplyingTo(item)}>
+                <Text style={styles.replyAction}>{item.replyCount > 0 ? `${item.replyCount} replies · Reply` : 'Reply'}</Text>
+              </Pressable>
             </View>
-          </Pressable>
+          </View>
         )}
         ListEmptyComponent={
           <View style={styles.emptyComments}>
@@ -285,91 +226,32 @@ export default function PostDetailScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Inline edit bar */}
-      {editingComment ? (
-        <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        {replyingTo && (
           <View style={styles.replyingBar}>
-            <Text style={styles.replyingText}>Editing comment</Text>
-            <Pressable onPress={() => setEditingComment(null)}>
-              <Text style={styles.cancelReply}>Cancel</Text>
-            </Pressable>
+            <Text style={styles.replyingText}>Replying to {replyingTo.author.name}</Text>
+            <Pressable onPress={() => setReplyingTo(null)}><Text style={styles.cancelReply}>Cancel</Text></Pressable>
           </View>
-          <View style={styles.composer}>
-            <TextInput
-              value={editDraft}
-              onChangeText={setEditDraft}
-              placeholder="Edit your comment…"
-              placeholderTextColor={T.TEXT_3}
-              style={styles.input}
-              multiline
-              maxLength={500}
-              autoFocus
-            />
-            <Pressable
-              style={[styles.sendButton, !editDraft.trim() && styles.sendDisabled]}
-              onPress={submitEdit}
-              disabled={!editDraft.trim()}
-            >
-              <PaperPlaneTilt size={17} color={editDraft.trim() ? T.BG : T.TEXT_3} weight="fill" />
-            </Pressable>
-          </View>
+        )}
+        <View style={styles.composer}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={replyingTo ? 'Write a reply…' : 'Add a comment…'}
+            placeholderTextColor={T.TEXT_3}
+            style={styles.input}
+            multiline
+            maxLength={500}
+          />
+          <Pressable
+            style={[styles.sendButton, (!draft.trim() || sending) && styles.sendDisabled]}
+            onPress={submitComment}
+            disabled={!draft.trim() || sending}
+          >
+            <PaperPlaneTilt size={17} color={draft.trim() ? T.BG : T.TEXT_3} weight="fill" />
+          </Pressable>
         </View>
-      ) : (
-        <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          {replyingTo && (
-            <View style={styles.replyingBar}>
-              <Text style={styles.replyingText}>
-                Replying to {replyingTo.author.name}
-              </Text>
-              <Pressable onPress={() => { setReplyingTo(null); setDraft(''); }}>
-                <Text style={styles.cancelReply}>Cancel</Text>
-              </Pressable>
-            </View>
-          )}
-          <View style={styles.composer}>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder={replyingTo ? 'Write a reply…' : 'Add a comment…'}
-              placeholderTextColor={T.TEXT_3}
-              style={styles.input}
-              multiline
-              maxLength={500}
-            />
-            <Pressable
-              style={[styles.sendButton, (!draft.trim() || sending) && styles.sendDisabled]}
-              onPress={submitComment}
-              disabled={!draft.trim() || sending}
-            >
-              <PaperPlaneTilt
-                size={17}
-                color={draft.trim() ? T.BG : T.TEXT_3}
-                weight="fill"
-              />
-            </Pressable>
-          </View>
-        </View>
-      )}
-
-      {/* Comment action sheet */}
-      <MsActionSheet
-        visible={!!menuComment}
-        title={menuComment?.author.name}
-        subtitle={`@${menuComment?.author.username ?? ''}`}
-        actions={menuComment ? buildCommentActions(menuComment) : []}
-        onClose={() => setMenuComment(null)}
-      />
-
-      {/* Delete comment confirmation */}
-      <MsConfirmDialog
-        visible={!!deleteConfirm}
-        title="Delete comment?"
-        message="This cannot be undone."
-        confirmLabel="Delete"
-        destructive
-        onConfirm={doDeleteComment}
-        onCancel={() => setDeleteConfirm(null)}
-      />
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -416,35 +298,13 @@ const styles = StyleSheet.create({
     borderBottomColor: T.BORDER,
   },
   commentBody: { flex: 1 },
-  commentTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+  commentTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   commentAuthor: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13 },
-  commentText: {
-    color: T.TEXT,
-    fontFamily: T.FONT.regular,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 3,
-  },
-  commentMeta: { flexDirection: 'row', gap: 16, marginTop: 7 },
-  replyAction: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 12 },
+  commentText: { color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 20, marginTop: 3 },
+  replyAction: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 12, marginTop: 7 },
   emptyComments: { alignItems: 'center', gap: 8, paddingVertical: 32 },
-  composerWrap: {
-    backgroundColor: T.SURFACE,
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: T.BORDER,
-  },
-  replyingBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    paddingBottom: 6,
-  },
+  composerWrap: { backgroundColor: T.SURFACE, paddingHorizontal: 14, paddingTop: 8 },
+  replyingBar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 6 },
   replyingText: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
   cancelReply: { color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 12 },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },

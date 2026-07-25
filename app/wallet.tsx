@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Check, CreditCard, Plus, Sparkle, Wallet } from 'phosphor-react-native';
+import { Button, Spinner } from 'heroui-native';
 import { T } from '@/constants/theme';
 import { getWallet, type Transaction } from '@/services/wallet';
 
@@ -54,7 +55,7 @@ export default function WalletScreen() {
           </View>
           <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
           {loading ? (
-            <ActivityIndicator size="small" color={T.BG} />
+            <Spinner size="sm" color={T.BG} />
           ) : (
             <Text style={styles.balance}>
               {(balance ?? 0).toLocaleString()}{' '}
@@ -94,10 +95,9 @@ export default function WalletScreen() {
         {/* Get credits section */}
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitle}>Get more credits</Text>
-          <View style={styles.secureRow}>
-            <CreditCard size={12} color={T.TEXT_3} />
-            <Text style={styles.secure}>Secure checkout</Text>
-          </View>
+          <Text style={styles.secure}>
+            <CreditCard size={12} color={T.TEXT_3} /> Secure checkout
+          </Text>
         </View>
 
         <View style={styles.packages}>
@@ -135,9 +135,9 @@ export default function WalletScreen() {
           </Text>
         </View>
 
-        <TouchableOpacity onPress={() => undefined} style={[styles.buyButton, styles.primaryBtn]}>
-          <Text style={styles.primaryBtnLabel}>Continue with {pack.price}</Text>
-        </TouchableOpacity>
+        <Button variant="primary" size="lg" onPress={() => undefined} style={styles.buyButton}>
+          <Button.Label>Continue with {pack.price}</Button.Label>
+        </Button>
 
         <View style={styles.paymentRow}>
           <Plus size={14} color={T.TEXT_2} />
@@ -242,7 +242,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15 },
-  secureRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   secure: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
 
   packages: { gap: 9 },
@@ -325,8 +324,6 @@ const styles = StyleSheet.create({
   },
 
   buyButton: { width: '100%', marginTop: 18 },
-  primaryBtn: { backgroundColor: T.TEXT, borderRadius: T.RADIUS.md, height: 52, alignItems: 'center', justifyContent: 'center' },
-  primaryBtnLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
   paymentRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,33 +1,26 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, ViewStyle } from 'react-native';
+import React from 'react';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { Skeleton } from 'heroui-native';
 import { T } from '@/constants/theme';
 
-/** Animated shimmer skeleton rectangle */
+interface MsSkeletonCardProps {
+  style?: ViewStyle;
+  height?: number;
+  radius?: number;
+}
+
+/** HeroUI Native animated skeleton rectangle — wraps content or stands alone. */
 export function MsSkeletonCard({
   style,
   height = 120,
   radius = T.RADIUS.md,
-}: {
-  style?: ViewStyle;
-  height?: number;
-  radius?: number;
-}) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.7, duration: 900, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.3, duration: 900, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-
+}: MsSkeletonCardProps) {
   return (
-    <Animated.View
-      style={[{ backgroundColor: T.SURFACE, height, borderRadius: radius, opacity }, style]}
+    <Skeleton
+      isLoading
+      variant="pulse"
+      animation={{ pulse: { minOpacity: 0.35, maxOpacity: 0.75, duration: 1800 } }}
+      style={[{ backgroundColor: T.SURFACE, height, borderRadius: radius }, style]}
     />
   );
 }
@@ -44,23 +37,13 @@ export function MsSkeletonRow({
   radius?: number;
   style?: ViewStyle;
 }) {
-  const opacity = useRef(new Animated.Value(0.25)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.55, duration: 1000, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.25, duration: 1000, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-
   return (
-    <Animated.View
+    <Skeleton
+      isLoading
+      variant="pulse"
+      animation={{ pulse: { minOpacity: 0.3, maxOpacity: 0.65, duration: 2000 } }}
       style={[
-        { backgroundColor: T.SURFACE_2, height, borderRadius: radius, width: width as number, opacity },
+        { backgroundColor: T.SURFACE_2, height, borderRadius: radius, width: width as number },
         style,
       ]}
     />
@@ -71,17 +54,20 @@ export function MsSkeletonRow({
 export function MsPostSkeleton() {
   return (
     <View style={postStyles.card}>
+      {/* Header */}
       <View style={postStyles.header}>
-        <MsSkeletonCard height={40} radius={20} style={{ width: 40 }} />
+        <MsSkeletonCard height={38} radius={19} style={{ width: 38 }} />
         <View style={postStyles.headerText}>
           <MsSkeletonRow width="55%" height={12} />
           <MsSkeletonRow width="38%" height={10} />
         </View>
       </View>
-      <MsSkeletonCard height={200} radius={T.RADIUS.lg} style={{ marginTop: 12 }} />
+      {/* Content */}
+      <MsSkeletonCard height={190} radius={T.RADIUS.md} style={{ marginTop: 12 }} />
+      {/* Footer */}
       <View style={postStyles.footer}>
-        <MsSkeletonRow width={56} height={10} />
-        <MsSkeletonRow width={56} height={10} />
+        <MsSkeletonRow width={60} height={10} />
+        <MsSkeletonRow width={60} height={10} />
         <MsSkeletonRow width={40} height={10} />
       </View>
     </View>
@@ -92,11 +78,16 @@ const postStyles = StyleSheet.create({
   card: {
     marginHorizontal: 20,
     marginBottom: 16,
-    paddingBottom: 16,
+    paddingVertical: 4,
     borderBottomWidth: 1,
     borderBottomColor: T.BORDER,
+    paddingBottom: 16,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerText: { flex: 1, gap: 7 },
-  footer: { flexDirection: 'row', gap: 16, marginTop: 14 },
+  headerText: { flex: 1, gap: 6 },
+  footer: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 14,
+  },
 });
