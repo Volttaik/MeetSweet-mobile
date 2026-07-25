@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Spinner } from 'heroui-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, BellSlash, Check } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -192,7 +192,7 @@ export default function NotificationsScreen() {
         {unreadCount > 0 ? (
           <TouchableOpacity style={styles.iconBtn} onPress={handleMarkAll} activeOpacity={0.7}>
             {marking ? (
-              <Spinner size="sm" color={T.TEXT_2 as any} />
+              <ActivityIndicator size="small" color={T.TEXT_2} />
             ) : (
               <Check size={18} color={T.TEXT_2} />
             )}
@@ -206,7 +206,7 @@ export default function NotificationsScreen() {
 
       {loading ? (
         <View style={styles.loadingWrap}>
-          <Spinner size="lg" color="default" />
+          <ActivityIndicator size="large" color="#FFFFFF" />
         </View>
       ) : notifications.length === 0 ? (
         <MsEmptyState

@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Button, Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -222,28 +222,27 @@ export default function VerificationScreen() {
 
         {/* Verify button */}
         <Animated.View style={[styles.btnWrap, btnStyle]}>
-          <Button
-            variant="primary"
-            size="lg"
+          <TouchableOpacity
             onPress={handleVerify}
-            isDisabled={loading || !isReady || success}
+            disabled={loading || !isReady || success}
             style={[
               styles.verifyBtn,
               loading && styles.verifyBtnLoading,
               (!isReady && !loading) && styles.verifyBtnDisabled,
             ]}
+            activeOpacity={0.8}
           >
             {loading ? (
-              <Spinner size="sm" color="#FFFFFF" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Button.Label style={[
+              <Text style={[
                 styles.verifyBtnLabel,
                 (!isReady || loading || success) && styles.verifyBtnLabelDisabled,
               ]}>
-                Verify &amp; Continue
-              </Button.Label>
+                Verify & Continue
+              </Text>
             )}
-          </Button>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Success overlay */}

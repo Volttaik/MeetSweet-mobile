@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -14,7 +15,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { Button, Chip, Spinner } from 'heroui-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ArrowLeft, Check } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
@@ -254,7 +254,7 @@ export default function CreatePostScreen() {
             </>
           ) : (
             <>
-              <Spinner size="lg" color={T.TEXT} />
+              <ActivityIndicator size="large" color={T.TEXT} />
               <Text style={styles.publishTitle}>
                 {step === 'uploading'
                   ? 'Uploading Media'
@@ -487,17 +487,11 @@ export default function CreatePostScreen() {
         )}
 
         {/* ─── Publish button ────────────────────────────────────────────────── */}
-         <Button
-          variant="primary"
-           size="md"
-          onPress={handlePublish}
-          isDisabled={!caption.trim() && !mediaUri}
-          style={styles.publishFooterBtn}
-        >
-          <Button.Label style={styles.publishFooterBtnLabel}>
+         <TouchableOpacity onPress={handlePublish} disabled={!caption.trim() && !mediaUri} style={styles.publishFooterBtn} activeOpacity={0.85}>
+          <Text style={styles.publishFooterBtnLabel}>
             Publish{visibility !== 'public' ? ` · ${selectedOption.label}` : ''}
-          </Button.Label>
-        </Button>
+          </Text>
+        </TouchableOpacity>
 
         <View style={{ height: 40 }} />
       </ScrollView>

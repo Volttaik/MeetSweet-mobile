@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Modal,
   StyleSheet,
@@ -8,7 +9,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Spinner } from 'heroui-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PencilSimple, Plus, MagnifyingGlass, X } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -170,7 +170,7 @@ function NewMessageModal({
         </View>
         {searching ? (
           <View style={{ marginTop: 40, alignItems: 'center' }}>
-            <Spinner size="lg" color="default" />
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
         ) : results.length > 0 ? (
           <FlatList
@@ -323,7 +323,7 @@ export default function MessagesScreen() {
       {/* Content */}
       {loading ? (
         <View style={styles.loadingWrap}>
-          <Spinner size="lg" color="default" />
+          <ActivityIndicator size="large" color="#FFFFFF" />
         </View>
       ) : (
         <FlatList

@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -12,7 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Bell, CaretRight, CreditCard, MagnifyingGlass as SearchIcon, Wallet } from 'phosphor-react-native';
 import { useGetExploreCatalog, type Creator } from '@/lib/api-client-react';
-import { Chip, Input } from 'heroui-native';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
@@ -198,7 +198,7 @@ export default function ExploreScreen() {
         {/* Search */}
         <View style={styles.searchField}>
           <SearchIcon size={16} color={T.TEXT_2} />
-          <Input
+          <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search creators, categories, content"
@@ -219,16 +219,9 @@ export default function ExploreScreen() {
           contentContainerStyle={styles.trendingRow}
         >
           {trendingSearches.map((tag) => (
-            <Chip
-              key={tag}
-              variant="soft"
-              color="default"
-              size="sm"
-              onPress={() => setSearch(tag)}
-              style={styles.trendChip}
-            >
-              <Chip.Label style={styles.trendLabel}>#{tag.replaceAll(' ', '')}</Chip.Label>
-            </Chip>
+            <TouchableOpacity key={tag} onPress={() => setSearch(tag)} style={styles.trendChip}>
+              <Text style={styles.trendLabel}>#{tag.replaceAll(' ', '')}</Text>
+            </TouchableOpacity>
           ))}
         </ScrollView>
 
@@ -278,20 +271,11 @@ export default function ExploreScreen() {
               {CREATOR_CATEGORIES.map((category) => {
                 const active = category.id === activeCategory;
                 return (
-                  <Chip
-                    key={category.id}
-                    variant={active ? 'primary' : 'soft'}
-                    color="default"
-                    size="sm"
-                    onPress={() => setActiveCategory(category.id)}
-                    style={[styles.categoryChip, active && styles.categoryChipActive]}
-                  >
-                    <Chip.Label
-                      style={[styles.categoryLabel, active && styles.categoryLabelActive]}
-                    >
+                  <TouchableOpacity key={category.id} onPress={() => setActiveCategory(category.id)} style={[styles.categoryChip, active && styles.categoryChipActive]}>
+                    <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
                       {category.label}
-                    </Chip.Label>
-                  </Chip>
+                    </Text>
+                  </TouchableOpacity>
                 );
               })}
             </ScrollView>

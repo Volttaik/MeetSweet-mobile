@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
-import { Spinner } from 'heroui-native';
+import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Animated, {
   Easing,
@@ -48,7 +47,7 @@ export default function HomeTransition() {
         />
         <Text style={styles.appName}>MeetSweet</Text>
         <Text style={styles.subtitle}>Preparing your feed…</Text>
-        <Spinner size="sm" color="#FFFFFF" style={styles.spinner} />
+        <ActivityIndicator size="small" color="#FFFFFF" style={styles.spinner} />
       </Animated.View>
     </View>
   );

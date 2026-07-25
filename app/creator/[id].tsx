@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Check, CaretRight, Lock, Play, Sparkle, Users } from 'phosphor-react-native';
-import { Button, Spinner } from 'heroui-native';
 import { useGetExploreCatalog } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsPreviewCard } from '@/components/MsExploreVisual';
@@ -20,7 +19,7 @@ export default function CreatorProfileScreen() {
   const canSubscribe = Boolean(creator && query.data && query.data.creditBalance >= creator.monthlyCredits);
 
   if (query.isLoading) {
-    return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color="#FFFFFF" /></View>;
   }
 
   if (query.isError || !creator) {
@@ -51,9 +50,9 @@ export default function CreatorProfileScreen() {
             <View style={styles.metricDivider} />
             <View><Text style={styles.metricValue}>{creatorPreviews.length}</Text><Text style={styles.metricLabel}>Previews</Text></View>
           </View>
-          <Button variant="primary" size="lg" onPress={() => setSheetOpen(true)} style={styles.subscribeButton}>
-            <Button.Label>{canSubscribe ? `Subscribe · ${creator.monthlyCredits} credits` : 'Get more credits to subscribe'}</Button.Label>
-          </Button>
+          <TouchableOpacity onPress={() => setSheetOpen(true)} style={[styles.subscribeButton, styles.primaryBtn]}>
+            <Text style={styles.primaryBtnLabel}>{canSubscribe ? `Subscribe · ${creator.monthlyCredits} credits` : 'Get more credits to subscribe'}</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Latest from {creator.name.split(' ')[0]}</Text><Text style={styles.sectionMeta}>{creatorPreviews.length} drops</Text></View>
         <View style={styles.previewGrid}>
@@ -87,17 +86,12 @@ export default function CreatorProfileScreen() {
                 ? `${creator.monthlyCredits} credits unlock this creator's complete premium feed. Your balance will update after confirmation.`
                 : `You need ${creator.monthlyCredits - (query.data?.creditBalance ?? 0)} more credits to subscribe.`}
             </Text>
-            <Button
-              variant="primary"
-              size="lg"
-              onPress={() => { setSheetOpen(false); if (!canSubscribe) router.push('/wallet'); }}
-              style={styles.sheetButton}
-            >
-              <Button.Label>{canSubscribe ? 'Confirm subscription' : 'Open wallet'}</Button.Label>
-            </Button>
-            <Button variant="outline" size="lg" onPress={() => setSheetOpen(false)} style={styles.sheetButton}>
-              <Button.Label>Not now</Button.Label>
-            </Button>
+            <TouchableOpacity onPress={() => { setSheetOpen(false); if (!canSubscribe) router.push('/wallet'); }} style={[styles.sheetButton, styles.primaryBtn]}>
+              <Text style={styles.primaryBtnLabel}>{canSubscribe ? 'Confirm subscription' : 'Open wallet'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setSheetOpen(false)} style={[styles.sheetButton, styles.outlineBtn]}>
+              <Text style={styles.outlineBtnLabel}>Not now</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -137,4 +131,8 @@ const styles = StyleSheet.create({
   sheetTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 21 },
   sheetDescription: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 20, marginBottom: 7 },
   sheetButton: { width: '100%' },
+  primaryBtn: { backgroundColor: T.TEXT, borderRadius: T.RADIUS.md, height: 48, alignItems: 'center', justifyContent: 'center' },
+  primaryBtnLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+  outlineBtn: { borderRadius: T.RADIUS.md, height: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.BORDER_2 },
+  outlineBtnLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 15 },
 });

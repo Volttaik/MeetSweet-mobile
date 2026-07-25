@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Check, CreditCard, Plus, Sparkle, Wallet } from 'phosphor-react-native';
-import { Button, Spinner } from 'heroui-native';
 import { T } from '@/constants/theme';
 import { getWallet, type Transaction } from '@/services/wallet';
 
@@ -55,7 +54,7 @@ export default function WalletScreen() {
           </View>
           <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
           {loading ? (
-            <Spinner size="sm" color={T.BG} />
+            <ActivityIndicator size="small" color={T.BG} />
           ) : (
             <Text style={styles.balance}>
               {(balance ?? 0).toLocaleString()}{' '}
@@ -136,9 +135,9 @@ export default function WalletScreen() {
           </Text>
         </View>
 
-        <Button variant="primary" size="lg" onPress={() => undefined} style={styles.buyButton}>
-          <Button.Label>Continue with {pack.price}</Button.Label>
-        </Button>
+        <TouchableOpacity onPress={() => undefined} style={[styles.buyButton, styles.primaryBtn]}>
+          <Text style={styles.primaryBtnLabel}>Continue with {pack.price}</Text>
+        </TouchableOpacity>
 
         <View style={styles.paymentRow}>
           <Plus size={14} color={T.TEXT_2} />
@@ -326,6 +325,8 @@ const styles = StyleSheet.create({
   },
 
   buyButton: { width: '100%', marginTop: 18 },
+  primaryBtn: { backgroundColor: T.TEXT, borderRadius: T.RADIUS.md, height: 52, alignItems: 'center', justifyContent: 'center' },
+  primaryBtnLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
   paymentRow: {
     flexDirection: 'row',
     alignItems: 'center',

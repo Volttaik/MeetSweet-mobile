@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -11,7 +12,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Spinner } from 'heroui-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, PaperPlaneRight, DotsThree, X } from 'phosphor-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -413,7 +413,7 @@ export default function ChatScreen() {
       >
         {loading ? (
           <View style={styles.loadingWrap}>
-            <Spinner size="lg" color="default" />
+            <ActivityIndicator size="large" color="#FFFFFF" />
           </View>
         ) : (
           <FlatList
@@ -429,7 +429,7 @@ export default function ChatScreen() {
             ListHeaderComponent={
               loadingMore ? (
                 <View style={{ alignItems: 'center', marginVertical: 16 }}>
-                  <Spinner size="sm" color="default" />
+                  <ActivityIndicator size="small" color="#FFFFFF" />
                 </View>
               ) : null
             }
@@ -493,7 +493,7 @@ export default function ChatScreen() {
             disabled={!text.trim() || sending}
           >
             {sending ? (
-              <Spinner size="sm" color="default" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <PaperPlaneRight size={18} color={T.BG} />
             )}

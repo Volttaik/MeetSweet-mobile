@@ -7,9 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
-  ViewToken,
 } from 'react-native';
-import { Button } from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -246,11 +244,11 @@ export default function OnboardingScreen() {
           })}
         />
 
-        <Button variant="primary" size="lg" onPress={goToNext} style={styles.nextBtn}>
-          <Button.Label style={styles.nextBtnLabel}>
+        <TouchableOpacity onPress={goToNext} style={styles.nextBtn} activeOpacity={0.85}>
+          <Text style={styles.nextBtnLabel}>
             {isLast ? 'Get Started' : 'Next'}
-          </Button.Label>
-        </Button>
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   );

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -12,7 +13,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'phosphor-react-native';
 import { router } from 'expo-router';
-import { Spinner } from 'heroui-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { useAuth } from '@/contexts/AuthContext';
@@ -164,7 +164,7 @@ export default function EditProfileScreen() {
           activeOpacity={0.8}
         >
           {loading ? (
-            <Spinner size="sm" color={T.BG} />
+            <ActivityIndicator size="small" color={T.BG} />
           ) : (
             <Text style={styles.saveBtnLabel}>Save</Text>
           )}
