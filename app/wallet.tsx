@@ -95,9 +95,10 @@ export default function WalletScreen() {
         {/* Get credits section */}
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitle}>Get more credits</Text>
-          <Text style={styles.secure}>
-            <CreditCard size={12} color={T.TEXT_3} /> Secure checkout
-          </Text>
+          <View style={styles.secureRow}>
+            <CreditCard size={12} color={T.TEXT_3} />
+            <Text style={styles.secure}>Secure checkout</Text>
+          </View>
         </View>
 
         <View style={styles.packages}>
@@ -242,6 +243,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15 },
+  secureRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   secure: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
 
   packages: { gap: 9 },

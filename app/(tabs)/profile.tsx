@@ -132,9 +132,7 @@ export default function ProfileScreen() {
               {p.mediaUrl && (
                 // Show media preview (image thumbnail)
                 <View style={{ flex: 1, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.medium }}>
-                    {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : <ImageIcon size={18} color={T.TEXT_3} />}
-                  </Text>
+                  {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : <ImageIcon size={18} color={T.TEXT_3} />}
                 </View>
               )}
               {!p.mediaUrl && (
@@ -165,9 +163,7 @@ export default function ProfileScreen() {
               key={p.id}
               style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Text style={{ color: T.TEXT_3, fontSize: 11 }}>
-                {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : <ImageIcon size={18} color={T.TEXT_3} />}
-              </Text>
+              {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : <ImageIcon size={18} color={T.TEXT_3} />}
             </View>
           ))}
         </View>
@@ -198,9 +194,7 @@ export default function ProfileScreen() {
             key={p.id}
             style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text style={{ color: T.TEXT_3, fontSize: 11 }}>
-                {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : p.mediaUrl ? <Camera size={18} color={T.TEXT_3} /> : <FileText size={18} color={T.TEXT_3} />}
-            </Text>
+            {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : p.mediaUrl ? <Camera size={18} color={T.TEXT_3} /> : <FileText size={18} color={T.TEXT_3} />}
           </View>
         ))}
       </View>

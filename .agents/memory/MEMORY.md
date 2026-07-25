@@ -1,1 +1,3 @@
 - [MeetSweet backend contract](meetsweet-backend.md) — deployed API uses `/api`, `{ok,data}` envelopes, and several imported client routes are unavailable.
+- [heroui-native BottomSheet requires gorhom](heroui-native-bottomsheet.md) — BottomSheet crashes unless @gorhom/bottom-sheet is installed; replace with RN Modal as safe fallback.
+- [Icons must never be inside RN Text](rn-icon-in-text.md) — phosphor-react-native icons inside <Text> cause a native crash; always wrap in <View>.
