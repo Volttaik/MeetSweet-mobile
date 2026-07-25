@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "GyllMicnLwLLYDQ2E0e-a"
+uri = "file://BACKEND_PROMPT.md"
+type = "text"
+title = "Backend Fix Prompt"
