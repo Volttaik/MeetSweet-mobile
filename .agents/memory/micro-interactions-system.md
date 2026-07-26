@@ -49,8 +49,8 @@ Already the standard for all context menus. Used in:
 - Banner: tap → sheet (View / Change / Remove); inline `ImageViewer` modal
 - Share profile button → `Share.share()`
 - Long-press username → `Share.share()` as copy workaround
-- "Edit Profile" button wired → `/edit-profile`
-- "+ Add bio" CTA when bio is empty → `/edit-profile`
+- "Edit Profile" button opens an inline modal
+- Profile and banner photos upload through the shared media endpoint, then persist through the user update API
 - Grid post tiles wired → `/post/:id`
 
 ### Post detail (`app/post/[id].tsx`)
@@ -67,12 +67,10 @@ Already the standard for all context menus. Used in:
 - Delete conversation → `MsConfirmDialog`
 
 ### Settings (`app/settings.tsx`)
-- Log out → `MsConfirmDialog` (replaces `Alert.alert`)
-- Delete account → `MsConfirmDialog`
-- Change password → `InlineInputSheet` (inline bottom-sheet text input)
-- Notification preferences → `MsActionSheet`
-- Privacy settings → `MsActionSheet`
-- Account Info / Linked Accounts / Blocked Users / 2FA / Active Sessions / Help / Contact / Report / Terms / Privacy / About → all wired with `Alert.alert` or `toast`
+- All account, privacy, notification, content, security, and support actions open inline bottom sheets or switches; settings should not navigate to separate sub-screens
+- Edit Profile, Username, Change Password, biometrics, active sessions, login history, 2FA, privacy permissions, language, support, and delete-account flows use modal components
+- Log out and delete account use `MsConfirmDialog`
+- API-backed edits use the current service contracts and show `toast.*` feedback; unsupported backend endpoints must remain explicit rather than silently succeeding
 
 ### Post card (`components/MsPostCard.tsx`)
 - Delete post → `MsConfirmDialog`

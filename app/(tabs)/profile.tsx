@@ -1,11 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView,
   Image,
+  Modal,
+  Platform,
+  Pressable,
   RefreshControl,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -13,16 +20,158 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, FileText, FilmStrip, Gear, Image as ImageIcon, ShareNetwork } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsSkeletonCard } from '@/components/MsSkeletonCard';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
+import { MsActionSheet } from '@/components/MsActionSheet';
+import { MsConfirmDialog } from '@/components/MsConfirmDialog';
+import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
+import { uploadMedia } from '@/services/media';
+import { updateMe } from '@/services/users';
 import { getUserPosts, getBookmarkedPosts, type Post } from '@/services/posts';
 
 const PROFILE_TABS = ['Posts', 'Media', 'Saved'] as const;
 type ProfileTab = typeof PROFILE_TABS[number];
+
+function EditProfileModal({
+  visible,
+  onClose,
+  name: initialName,
+  bio: initialBio,
+  onSave,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  name: string;
+  bio: string;
+  onSave: (fields: { name: string; bio: string }) => Promise<void>;
+}) {
+  const insets = useSafeAreaInsets();
+  const [name, setName] = useState(initialName);
+  const [bio, setBio] = useState(initialBio);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setName(initialName);
+      setBio(initialBio);
+    }
+  }, [visible, initialName, initialBio]);
+
+  const handleSave = async () => {
+    if (!name.trim() || name.trim().length < 2) {
+      toast.error('Name must be at least 2 characters');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), bio: bio.trim() });
+      onClose();
+      toast.success('Profile updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <Pressable style={epm.overlay} onPress={onClose}>
+          <Pressable
+            style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={epm.handle} />
+            <View style={epm.header}>
+              <Text style={epm.title}>Edit Profile</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={12}>
+                <Text style={epm.closeLabel}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={epm.fields}>
+              <View style={epm.field}>
+                <Text style={epm.label}>Display Name</Text>
+                <TextInput
+                  style={epm.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Your display name"
+                  placeholderTextColor={T.TEXT_3}
+                  maxLength={50}
+                  autoFocus
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={epm.field}>
+                <Text style={epm.label}>Bio</Text>
+                <TextInput
+                  style={[epm.input, epm.bioInput]}
+                  value={bio}
+                  onChangeText={setBio}
+                  placeholder="Tell the community who you are…"
+                  placeholderTextColor={T.TEXT_3}
+                  multiline
+                  maxLength={160}
+                  textAlignVertical="top"
+                />
+                <Text style={epm.hint}>{bio.length}/160</Text>
+              </View>
+              <View style={epm.buttons}>
+                <TouchableOpacity style={epm.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+                  <Text style={epm.cancelLabel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[epm.saveBtn, saving && { opacity: 0.6 }]}
+                  onPress={handleSave}
+                  disabled={saving}
+                  activeOpacity={0.8}
+                >
+                  {saving
+                    ? <ActivityIndicator size="small" color={T.BG} />
+                    : <Text style={epm.saveLabel}>Save</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function ImageViewer({
+  uri,
+  visible,
+  onClose,
+}: {
+  uri: string | null;
+  visible: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={viewerStyles.bg}>
+        <TouchableOpacity style={viewerStyles.close} onPress={onClose} activeOpacity={0.8}>
+          <Text style={viewerStyles.closeLabel}>×</Text>
+        </TouchableOpacity>
+        {uri ? (
+          <Image source={{ uri }} style={viewerStyles.image} resizeMode="contain" />
+        ) : (
+          <Text style={viewerStyles.noPhoto}>No photo</Text>
+        )}
+      </View>
+    </Modal>
+  );
+}
 
 function StatItem({ label, value }: { label: string; value: string | number }) {
   return (
@@ -47,7 +196,7 @@ function formatCount(n: number): string {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, updateUser } = useAuth();
 
   const [activeTab,    setActiveTab]    = useState<ProfileTab>('Posts');
   const [posts,        setPosts]        = useState<Post[]>([]);
@@ -55,6 +204,13 @@ export default function ProfileScreen() {
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [refreshing,   setRefreshing]   = useState(false);
+  const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [avatarSheetVisible, setAvatarSheetVisible] = useState(false);
+  const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
+  const [removeAvatarConfirm, setRemoveAvatarConfirm] = useState(false);
+  const [bannerSheetVisible, setBannerSheetVisible] = useState(false);
+  const [bannerViewerVisible, setBannerViewerVisible] = useState(false);
+  const [removeBannerConfirm, setRemoveBannerConfirm] = useState(false);
 
   const gridItemSize = Math.floor((width - 2) / 3);
 
@@ -89,6 +245,65 @@ export default function ProfileScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     await Promise.all([refreshUser(), loadPosts()]);
+  };
+
+  const pickPhoto = async (kind: 'avatar' | 'banner') => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      toast.error('Photo library access required');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: kind === 'avatar' ? [1, 1] : [3, 1],
+      quality: 0.85,
+    });
+    const asset = result.canceled ? undefined : result.assets[0];
+    if (!asset || !user) return;
+
+    try {
+      const uploaded = await uploadMedia(
+        asset.uri,
+        asset.mimeType ?? 'image/jpeg',
+        asset.fileName ?? `${kind}-${Date.now()}.jpg`,
+      );
+      const { user: updated } = await updateMe(
+        kind === 'avatar' ? { avatarUrl: uploaded.url } : { bannerUrl: uploaded.url },
+      );
+      updateUser(updated);
+      toast.success(kind === 'avatar' ? 'Profile photo updated' : 'Banner updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Photo upload failed');
+    }
+  };
+
+  const removePhoto = async (kind: 'avatar' | 'banner') => {
+    if (!user) return;
+    try {
+      const { user: updated } = await updateMe(
+        kind === 'avatar' ? { avatarUrl: null } : { bannerUrl: null },
+      );
+      updateUser(updated);
+      toast.success(kind === 'avatar' ? 'Profile photo removed' : 'Banner removed');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not remove photo');
+    }
+  };
+
+  const handleSaveProfile = async (fields: { name: string; bio: string }) => {
+    const { user: updated } = await updateMe({
+      name: fields.name,
+      bio: fields.bio || null,
+    });
+    updateUser(updated);
+  };
+
+  const handleShareProfile = () => {
+    Share.share({
+      message: `Check out @${user?.username ?? 'me'} on MeetSweet!`,
+      title: user?.name ?? 'MeetSweet Profile',
+    }).catch(() => {});
   };
 
   const initials = user?.name
@@ -190,7 +405,7 @@ export default function ProfileScreen() {
 
   // ── Banner ──────────────────────────────────────────────────────────────────
 
-  const bannerUrl = (user as any)?.bannerUrl ?? null;
+  const bannerUrl = user?.bannerUrl ?? null;
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
@@ -208,7 +423,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               style={styles.iconBtn}
               activeOpacity={0.7}
-              onPress={() => {}}
+              onPress={handleShareProfile}
             >
               <ShareNetwork size={18} color={T.TEXT} />
             </TouchableOpacity>
@@ -223,7 +438,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Cover / Banner */}
-        <TouchableOpacity activeOpacity={0.85} onPress={() => router.push('/edit-profile')}>
+        <TouchableOpacity activeOpacity={0.85} onPress={() => setBannerSheetVisible(true)}>
           {bannerUrl ? (
             <Image source={{ uri: bannerUrl }} style={styles.cover} resizeMode="cover" />
           ) : (
@@ -237,7 +452,12 @@ export default function ProfileScreen() {
         <View style={styles.avatarRow}>
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => router.push('/edit-profile')}
+            onPress={() => {
+              if (user?.avatarUrl) setAvatarViewerVisible(true);
+              else setAvatarSheetVisible(true);
+            }}
+            onLongPress={() => setAvatarSheetVisible(true)}
+            delayLongPress={400}
             style={styles.avatarBorder}
           >
             <MsAvatar size={82} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
@@ -247,7 +467,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               style={styles.editBtn}
               activeOpacity={0.8}
-              onPress={() => router.push('/edit-profile')}
+              onPress={() => setEditProfileVisible(true)}
             >
               <Text style={styles.editLabel}>Edit Profile</Text>
             </TouchableOpacity>
@@ -296,6 +516,87 @@ export default function ProfileScreen() {
 
         {tabContent()}
       </ScrollView>
+      <MsActionSheet
+        visible={avatarSheetVisible}
+        title="Profile Photo"
+        actions={[
+          {
+            label: 'View Photo',
+            onPress: () => {
+              if (user?.avatarUrl) setAvatarViewerVisible(true);
+              else toast.info('No photo set');
+            },
+          },
+          { label: 'Change Photo', onPress: () => pickPhoto('avatar') },
+          ...(user?.avatarUrl ? [{
+            label: 'Remove Photo',
+            destructive: true,
+            onPress: () => setRemoveAvatarConfirm(true),
+          }] : []),
+        ]}
+        onClose={() => setAvatarSheetVisible(false)}
+      />
+      <MsActionSheet
+        visible={bannerSheetVisible}
+        title="Banner"
+        actions={[
+          {
+            label: 'View Banner',
+            onPress: () => {
+              if (user?.bannerUrl) setBannerViewerVisible(true);
+              else toast.info('No banner set');
+            },
+          },
+          { label: 'Change Banner', onPress: () => pickPhoto('banner') },
+          ...(user?.bannerUrl ? [{
+            label: 'Remove Banner',
+            destructive: true,
+            onPress: () => setRemoveBannerConfirm(true),
+          }] : []),
+        ]}
+        onClose={() => setBannerSheetVisible(false)}
+      />
+      <MsConfirmDialog
+        visible={removeAvatarConfirm}
+        title="Remove Profile Photo"
+        message="Your profile photo will be removed."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          setRemoveAvatarConfirm(false);
+          void removePhoto('avatar');
+        }}
+        onCancel={() => setRemoveAvatarConfirm(false)}
+      />
+      <MsConfirmDialog
+        visible={removeBannerConfirm}
+        title="Remove Banner"
+        message="Your banner photo will be removed."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          setRemoveBannerConfirm(false);
+          void removePhoto('banner');
+        }}
+        onCancel={() => setRemoveBannerConfirm(false)}
+      />
+      <ImageViewer
+        uri={user?.avatarUrl ?? null}
+        visible={avatarViewerVisible}
+        onClose={() => setAvatarViewerVisible(false)}
+      />
+      <ImageViewer
+        uri={user?.bannerUrl ?? null}
+        visible={bannerViewerVisible}
+        onClose={() => setBannerViewerVisible(false)}
+      />
+      <EditProfileModal
+        visible={editProfileVisible}
+        onClose={() => setEditProfileVisible(false)}
+        name={user?.name ?? ''}
+        bio={user?.bio ?? ''}
+        onSave={handleSaveProfile}
+      />
     </View>
   );
 }
@@ -399,4 +700,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+});
+
+const epm = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: T.SURFACE,
+    borderTopLeftRadius: T.RADIUS.xl,
+    borderTopRightRadius: T.RADIUS.xl,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: T.TEXT_3,
+    alignSelf: 'center',
+    marginBottom: 18,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  title: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT },
+  closeLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  fields: { gap: 14 },
+  field: { gap: 6 },
+  label: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  input: {
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+    paddingHorizontal: 14,
+    height: 48,
+    fontSize: 15,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT,
+  },
+  bioInput: { height: 88, paddingTop: 12, textAlignVertical: 'top' },
+  hint: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, textAlign: 'right' },
+  buttons: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  cancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  saveBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+});
+
+const viewerStyles = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
+  close: {
+    position: 'absolute',
+    top: 52,
+    right: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  closeLabel: { color: T.TEXT, fontSize: 26, lineHeight: 28 },
+  image: { width: '100%', height: '80%' },
+  noPhoto: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 15 },
 });

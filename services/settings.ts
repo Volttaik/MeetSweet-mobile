@@ -40,10 +40,13 @@ export async function updatePassword(data: {
 }): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  await apiFetch('/auth/update-password', {
+  await apiFetch('/auth/change-password', {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      currentPassword: data.current_password,
+      newPassword: data.new_password,
+    }),
   });
 }
 

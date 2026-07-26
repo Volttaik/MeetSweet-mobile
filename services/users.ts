@@ -43,16 +43,28 @@ export async function getMe(): Promise<{ user: User }> {
 
 export async function updateMe(data: {
   name?: string;
+  username?: string;
   bio?: string | null;
   website?: string | null;
   location?: string | null;
+  avatarUrl?: string | null;
+  bannerUrl?: string | null;
 }): Promise<{ user: User }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+  const payload = {
+    ...(data.name !== undefined ? { name: data.name } : {}),
+    ...(data.username !== undefined ? { username: data.username } : {}),
+    ...(data.bio !== undefined ? { bio: data.bio } : {}),
+    ...(data.website !== undefined ? { website: data.website } : {}),
+    ...(data.location !== undefined ? { location: data.location } : {}),
+    ...(data.avatarUrl !== undefined ? { avatar_url: data.avatarUrl } : {}),
+    ...(data.bannerUrl !== undefined ? { banner_url: data.bannerUrl } : {}),
+  };
   const raw = await apiFetch<{ user: unknown }>('/users/me', {
     method: 'PATCH',
     headers: authHeader(token),
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
   return { user: normalizeUser(raw?.user ?? raw) };
 }
