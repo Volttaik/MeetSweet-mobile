@@ -29,7 +29,9 @@ export interface ChatMessage {
   id: string;
   body: string | null;
   mediaUrl: string | null;
-  mediaType: 'image' | 'video' | null;
+  mediaType: 'image' | 'video' | 'audio' | null;
+  /** Duration in seconds — only present for audio messages */
+  audioDuration?: number;
   isDeleted: boolean;
   createdAt: string;
   sender: {

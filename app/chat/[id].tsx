@@ -48,7 +48,6 @@ import {
   X,
   Play,
   Pause,
-  Stop,
 } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ExpoClipboard from 'expo-clipboard';
@@ -81,6 +80,17 @@ import {
 const SCREEN_W = Dimensions.get('window').width;
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '👏'];
 const ICON_ANIM_DURATION = 200;
+
+// Pre-computed pseudo-random bar heights for voice note waveform (avoids re-renders)
+const VOICE_BARS = Array.from({ length: 22 }, (_, i) =>
+  4 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 14,
+);
+
+function formatDuration(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -117,6 +127,133 @@ function initials(name: string): string {
     .slice(0, 2)
     .join('');
 }
+
+// ─── Voice note bubble ────────────────────────────────────────────────────────
+
+function VoiceNoteBubble({
+  uri,
+  duration,
+  isOwn,
+}: {
+  uri: string;
+  duration: number;
+  isOwn: boolean;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position, setPosition] = useState(0); // seconds
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync().catch(() => {});
+    };
+  }, []);
+
+  const togglePlayback = async () => {
+    try {
+      if (isPlaying) {
+        await soundRef.current?.pauseAsync();
+        setIsPlaying(false);
+        return;
+      }
+      if (!soundRef.current) {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: true },
+          (status) => {
+            if (!status.isLoaded) return;
+            setPosition(Math.floor((status.positionMillis ?? 0) / 1000));
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+              soundRef.current?.unloadAsync().catch(() => {});
+              soundRef.current = null;
+            }
+          },
+        );
+        soundRef.current = sound;
+      } else {
+        await soundRef.current.playAsync();
+      }
+      setIsPlaying(true);
+    } catch {
+      Alert.alert('Playback error', 'Could not play the voice message.');
+    }
+  };
+
+  const progress = duration > 0 ? Math.min(position / duration, 1) : 0;
+
+  return (
+    <View style={[vn.wrap, isOwn ? vn.wrapOwn : vn.wrapOther]}>
+      <TouchableOpacity style={vn.playBtn} onPress={togglePlayback} activeOpacity={0.8}>
+        {isPlaying
+          ? <Pause size={14} color="#fff" weight="fill" />
+          : <Play size={14} color="#fff" weight="fill" />
+        }
+      </TouchableOpacity>
+      <View style={vn.waveRow}>
+        {VOICE_BARS.map((h, i) => {
+          const filled = i / VOICE_BARS.length <= progress;
+          return (
+            <View
+              key={i}
+              style={[
+                vn.bar,
+                { height: h },
+                filled
+                  ? { backgroundColor: isOwn ? 'rgba(255,255,255,0.9)' : T.ACCENT }
+                  : { backgroundColor: isOwn ? 'rgba(255,255,255,0.28)' : T.BORDER_2 },
+              ]}
+            />
+          );
+        })}
+      </View>
+      <Text style={[vn.dur, isOwn ? vn.durOwn : vn.durOther]}>
+        {formatDuration(isPlaying ? position : duration)}
+      </Text>
+    </View>
+  );
+}
+
+const vn = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 18,
+    minWidth: 190,
+    maxWidth: 250,
+  },
+  wrapOwn: { backgroundColor: T.ACCENT, borderBottomRightRadius: 4 },
+  wrapOther: { backgroundColor: T.SURFACE, borderBottomLeftRadius: 4 },
+  playBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  waveRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    height: 22,
+  },
+  bar: {
+    width: 3,
+    borderRadius: 2,
+    minHeight: 4,
+  },
+  dur: { fontSize: 11, fontFamily: T.FONT.regular, flexShrink: 0 },
+  durOwn: { color: 'rgba(255,255,255,0.7)' },
+  durOther: { color: T.TEXT_3 },
+});
 
 // ─── Reaction row ─────────────────────────────────────────────────────────────
 
@@ -244,6 +381,12 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
               <Text style={bs.paidLabel}>Paid content</Text>
               <Text style={bs.paidSub}>Tap to unlock with credits</Text>
             </TouchableOpacity>
+          ) : message.mediaType === 'audio' && message.mediaUrl ? (
+            <VoiceNoteBubble
+              uri={message.mediaUrl}
+              duration={message.audioDuration ?? 0}
+              isOwn={isOwn}
+            />
           ) : (
             <>
               {message.mediaUrl && message.mediaType === 'image' && (
@@ -329,8 +472,6 @@ const bs = StyleSheet.create({
   bubbleOther: {
     backgroundColor: T.SURFACE,
     borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: T.BORDER,
   },
   bubbleDeleted: {
     backgroundColor: T.SURFACE_2,
@@ -425,8 +566,6 @@ const rbs = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: T.BORDER,
   },
   accent: { width: 3, height: 36, borderRadius: 2, backgroundColor: T.ACCENT },
   name: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.ACCENT },
@@ -542,7 +681,7 @@ const lps = StyleSheet.create({
   emojiBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   emojiText: { fontSize: 22 },
   divider: { height: 1, backgroundColor: T.BORDER, marginBottom: 4 },
-  action: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 14, borderBottomWidth: 1, borderBottomColor: T.BORDER },
+  action: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 14 },
   actionIcon: { width: 24, alignItems: 'center' },
   actionLabel: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT },
 });
@@ -574,6 +713,10 @@ interface InputBarProps {
   reply: ReplyTarget;
   onDismissReply: () => void;
   paddingBottom: number;
+  isRecording: boolean;
+  recordingDuration: number;
+  onVoiceStart: () => void;
+  onVoiceEnd: () => void;
 }
 
 function InputBar(props: InputBarProps) {
@@ -581,6 +724,7 @@ function InputBar(props: InputBarProps) {
     text, onChangeText, onSend,
     onEmojiToggle, onAttachToggle, onCameraPress,
     sending, reply, onDismissReply, paddingBottom,
+    isRecording, recordingDuration, onVoiceStart, onVoiceEnd,
   } = props;
 
   const hasText = text.trim().length > 0;
@@ -590,6 +734,8 @@ function InputBar(props: InputBarProps) {
   // Mic → Send transition (outside pill)
   const micAnim = useRef(new Animated.Value(1)).current;
   const sendAnim = useRef(new Animated.Value(0)).current;
+  // Recording pulse
+  const recordingPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -611,8 +757,48 @@ function InputBar(props: InputBarProps) {
     ]).start();
   }, [hasText]);
 
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(recordingPulse, { toValue: 1.2, duration: 600, useNativeDriver: true }),
+          Animated.timing(recordingPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ]),
+      ).start();
+    } else {
+      recordingPulse.stopAnimation();
+      recordingPulse.setValue(1);
+    }
+  }, [isRecording]);
+
   const cameraWidth = cameraAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 34] });
   const cameraOpacity = cameraAnim;
+
+  // While recording, show a compact recording indicator instead of the normal bar
+  if (isRecording) {
+    return (
+      <View style={ib.wrapper}>
+        <View style={[ib.row, { paddingBottom }]}>
+          <View style={[ib.pill, ib.pillRecording]}>
+            <Animated.View style={{ transform: [{ scale: recordingPulse }] }}>
+              <View style={ib.recDot} />
+            </Animated.View>
+            <Text style={ib.recText}>Recording… {formatDuration(recordingDuration)}</Text>
+            <Text style={ib.recHint}>Release to send</Text>
+          </View>
+          <Animated.View style={{ transform: [{ scale: recordingPulse }] }}>
+            <TouchableOpacity
+              style={[ib.actionBtn, ib.actionBtnRecording]}
+              onPressOut={onVoiceEnd}
+              activeOpacity={0.8}
+            >
+              <Microphone size={18} color="#fff" weight="fill" />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={ib.wrapper}>
@@ -660,7 +846,9 @@ function InputBar(props: InputBarProps) {
           <Animated.View style={[ib.btnAbsolute, { opacity: micAnim, transform: [{ scale: micAnim }] }]}>
             <TouchableOpacity
               style={ib.actionBtn}
-              onPress={() => Alert.alert('Voice note', 'Hold to record a voice message.')}
+              onLongPress={onVoiceStart}
+              delayLongPress={150}
+              onPressOut={() => { if (isRecording) onVoiceEnd(); }}
               activeOpacity={0.8}
             >
               <Microphone size={18} color="#fff" weight="fill" />
@@ -741,6 +929,37 @@ const ib = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  actionBtnRecording: {
+    backgroundColor: '#EF4444',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  // Recording mode pill
+  pillRecording: {
+    backgroundColor: T.SURFACE_2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  recDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#EF4444',
+  },
+  recText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT,
+  },
+  recHint: {
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+  },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -777,6 +996,12 @@ export default function ChatScreen() {
 
   // Image uploading
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Voice recording
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Floating scroll-date (rn-chat feature) ─────────────────────────────────
   const [scrollDateLabel, setScrollDateLabel] = useState('');
@@ -990,6 +1215,78 @@ export default function ChatScreen() {
     Alert.alert('Forward', 'Forward message: coming soon.');
   };
 
+  // ── Voice recording ────────────────────────────────────────────────────────
+
+  const startVoiceRecording = async () => {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow microphone access to send voice messages.');
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      );
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((d) => d + 1);
+      }, 1000);
+    } catch {
+      Alert.alert('Error', 'Could not start recording. Please try again.');
+    }
+  };
+
+  const stopVoiceRecording = async () => {
+    if (!recordingRef.current) return;
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    const recording = recordingRef.current;
+    recordingRef.current = null;
+    const duration = recordingDuration;
+    setRecordingDuration(0);
+
+    try {
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      const uri = recording.getURI();
+      if (!uri || duration < 1) return; // ignore sub-second clips
+      await handleSendVoiceNote(uri, duration);
+    } catch {
+      Alert.alert('Error', 'Could not send voice message. Please try again.');
+    }
+  };
+
+  const handleSendVoiceNote = async (uri: string, duration: number) => {
+    const optimistic: ChatMessage = {
+      id: `opt-voice-${Date.now()}`,
+      body: null,
+      mediaUrl: uri,
+      mediaType: 'audio',
+      audioDuration: duration,
+      isDeleted: false,
+      createdAt: new Date().toISOString(),
+      sender: { id: user?.id ?? '', name: user?.name ?? '', username: user?.username ?? '', avatarUrl: user?.avatarUrl ?? null },
+      isOwn: true,
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    scrollToEnd();
+
+    try {
+      const uploaded = await uploadMedia(uri, 'audio/m4a', `voice-${Date.now()}.m4a`);
+      const { message } = await sendMessage(conversationId, undefined, uploaded.url ?? uri, 'audio');
+      // Preserve local duration since backend won't echo it
+      const withDuration: ChatMessage = { ...message, mediaType: 'audio', audioDuration: duration };
+      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? withDuration : m)));
+      await cacheMessages(conversationId, [withDuration]);
+    } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      Alert.alert('Error', 'Could not send voice message. Please try again.');
+    }
+  };
+
   const handleInfo = () => {
     Alert.alert(
       'Message Info',
@@ -1172,6 +1469,10 @@ export default function ChatScreen() {
         reply={replyTarget}
         onDismissReply={() => setReplyTarget(null)}
         paddingBottom={Math.max(insets.bottom, 10)}
+        isRecording={isRecording}
+        recordingDuration={recordingDuration}
+        onVoiceStart={startVoiceRecording}
+        onVoiceEnd={stopVoiceRecording}
       />
 
       {/* ── Sheets ── */}
@@ -1218,8 +1519,6 @@ const sc = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
     gap: 10,
   },
   backBtn: {
@@ -1253,12 +1552,10 @@ const sc = StyleSheet.create({
     alignItems: 'center',
   },
   floatDateBadge: {
-    backgroundColor: 'rgba(20,17,40,0.82)',
+    backgroundColor: 'rgba(20,17,40,0.88)',
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.BORDER,
   },
   floatDateText: {
     fontSize: 11,

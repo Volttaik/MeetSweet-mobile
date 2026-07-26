@@ -10,3 +10,5 @@
 - [UI design system](ui-design-system.md) — pill radius (50px) for all interactive elements; no borders on inputs; dark bg shift for focus; T.RADIUS.pill=50 in constants/theme.ts; global CSS removes all outlines.
 - [Messaging rebuild](messaging-rebuild.md) — complete chat screen rebuild with animated input bar, camera slide, mic→send, reply preview, emoji/gif/attachment bottom sheets, SQLite cache (expo-sqlite@16.0.10), offline banner; no avatars beside messages.
 - [Local server workflow](local-server-workflow.md) — nested API package needs isolated pnpm install; local 3001 is exposed as HTTPS 3000 for Expo.
+- [Voice recording implementation](voice-recording.md) — hold-to-record mic button in chat; VoiceNoteBubble with waveform + expo-av playback; ChatMessage.mediaType extended to 'audio'; audioDuration field added.
+- [Border removal system](border-removal.md) — all white/subtle borders removed from chat header, message bubbles, reply bar, create-post cards, chip selectors, preview meta rows; paid-bubble accent border kept intentionally.

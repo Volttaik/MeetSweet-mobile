@@ -592,8 +592,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     height: 56,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
   },
   headerBtn: {
     width: 36,
@@ -648,8 +646,6 @@ const styles = StyleSheet.create({
   captionWrap: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.md,
-    borderWidth: 1.5,
-    borderColor: T.BORDER_2,
     padding: 14,
     minHeight: 120,
   },
@@ -675,11 +671,9 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE,
-    borderWidth: 1.5,
-    borderColor: T.BORDER_2,
     gap: 12,
   },
-  visibilityOptionActive: { borderColor: T.ACCENT, backgroundColor: T.ACCENT_LIGHT },
+  visibilityOptionActive: { backgroundColor: T.ACCENT_LIGHT },
   visibilityText: { flex: 1 },
   visibilityLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
   visibilityLabelActive: { color: T.TEXT },
@@ -697,11 +691,9 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE,
-    borderWidth: 1.5,
-    borderColor: T.BORDER_2,
     gap: 12,
   },
-  paidToggleRowActive: { borderColor: T.ACCENT, backgroundColor: T.ACCENT_LIGHT },
+  paidToggleRowActive: { backgroundColor: T.ACCENT_LIGHT },
   paidToggleLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   paidIconWrap: {
     width: 34, height: 34, borderRadius: 17,
@@ -734,8 +726,6 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.md,
     padding: 14,
-    borderWidth: 1,
-    borderColor: T.BORDER_2,
   },
   creditPriceLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
   creditPriceInput: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -755,9 +745,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 7,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
-    borderWidth: 1, borderColor: T.BORDER_2,
   },
-  chipActive: { backgroundColor: T.ACCENT_LIGHT, borderColor: T.ACCENT },
+  chipActive: { backgroundColor: T.ACCENT_LIGHT },
   chipLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   chipLabelActive: { color: T.ACCENT },
 
@@ -781,7 +770,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.SURFACE, borderWidth: 1, borderColor: T.BORDER_2,
+    backgroundColor: T.SURFACE,
   },
   tagChipLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.ACCENT },
 
@@ -825,7 +814,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 20, marginBottom: 12,
     padding: 14,
     backgroundColor: T.SURFACE, borderRadius: T.RADIUS.md,
-    borderWidth: 1, borderColor: T.BORDER,
   },
   previewCaptionText: { fontSize: 15, fontFamily: T.FONT.regular, color: T.TEXT, lineHeight: 22 },
   paidBadge: {
@@ -833,13 +821,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 20, marginBottom: 12,
     padding: 12,
     backgroundColor: T.ACCENT_LIGHT, borderRadius: T.RADIUS.md,
-    borderWidth: 1, borderColor: T.ACCENT,
   },
   paidBadgeText: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.ACCENT },
   previewMeta: {
     flexDirection: 'row', justifyContent: 'space-between',
     marginHorizontal: 20, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: T.BORDER,
   },
   previewMetaLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   previewMetaValue: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
@@ -848,7 +834,7 @@ const styles = StyleSheet.create({
   errorBanner: {
     marginHorizontal: 20, marginTop: 16,
     padding: 12, borderRadius: T.RADIUS.md,
-    backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)',
+    backgroundColor: 'rgba(239,68,68,0.12)',
   },
   errorText: { fontSize: 13, fontFamily: T.FONT.regular, color: '#EF4444', textAlign: 'center' },
 
@@ -902,7 +888,6 @@ const styles = StyleSheet.create({
   mediaOption: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     paddingVertical: 16,
-    borderTopWidth: 1, borderTopColor: T.BORDER,
   },
   mediaOptionIcon: {
     width: 48, height: 48, borderRadius: 14,
@@ -914,7 +899,6 @@ const styles = StyleSheet.create({
   mediaOptionDesc: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
   skipOption: {
     alignItems: 'center', paddingVertical: 18,
-    borderTopWidth: 1, borderTopColor: T.BORDER,
   },
   skipLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
 });

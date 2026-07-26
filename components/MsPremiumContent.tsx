@@ -101,7 +101,7 @@ export function MsPremiumContent({
             ref={videoRef}
             source={{ uri }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            resizeMode={ResizeMode.COVER}
             shouldPlay={!isLocked && !unlocked}
             isLooping={!locked || unlocked}
             onPlaybackStatusUpdate={(status: any) => {

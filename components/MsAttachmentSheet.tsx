@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   Image as ImageIcon,
   Video,
@@ -150,9 +151,25 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
       icon: File,
       label: 'Document',
       color: '#2196F3',
-      onPress: () => {
+      onPress: async () => {
         onClose();
-        Alert.alert('Documents', 'Document sharing coming soon.');
+        await new Promise((r) => setTimeout(r, 300));
+        try {
+          const result = await DocumentPicker.getDocumentAsync({
+            type: '*/*',
+            copyToCacheDirectory: true,
+          });
+          if (result.canceled || !result.assets?.[0]) return;
+          const asset = result.assets[0];
+          onResult({
+            type: 'image', // use image slot so upload pipeline handles it
+            uri: asset.uri,
+            mimeType: asset.mimeType ?? 'application/octet-stream',
+            fileName: asset.name ?? 'document',
+          });
+        } catch {
+          Alert.alert('Error', 'Could not open the document picker.');
+        }
       },
     },
     {
