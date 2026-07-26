@@ -605,7 +605,6 @@ function InputBar(props: InputBarProps) {
             onChangeText={onChangeText}
             multiline
             scrollEnabled={false}
-            textAlignVertical="center"
             underlineColorAndroid="transparent"
             selectionColor={T.ACCENT}
             returnKeyType="default"
