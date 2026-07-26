@@ -17,12 +17,37 @@ export async function uploadMedia(
   const token = await AsyncStorage.getItem('@ms_access_token');
   if (!token) throw new Error('Not authenticated');
 
-  // Normalize HEIC/HEIF to JPEG (iOS quirk)
-  let normalizedMime = mimeType;
+  // Normalize non-standard / platform-variant MIME types to what the backend accepts
+  const MIME_MAP: Record<string, string> = {
+    'image/jpg':       'image/jpeg',  // Android often omits the 'e'
+    'image/heic':      'image/jpeg',  // iOS HEIC
+    'image/heif':      'image/jpeg',  // iOS HEIF
+    'image/tiff':      'image/jpeg',
+    'video/mov':       'video/quicktime',
+    'video/x-m4v':     'video/mp4',
+    'video/mpeg':      'video/mp4',
+    'video/x-msvideo': 'video/mp4',  // .avi
+    'video/3gpp':      'video/mp4',
+  };
+  const EXT_MAP: Record<string, string> = {
+    'image/jpeg':      'jpg',
+    'image/png':       'png',
+    'image/webp':      'webp',
+    'image/gif':       'gif',
+    'video/mp4':       'mp4',
+    'video/quicktime': 'mov',
+    'video/webm':      'webm',
+  };
+
+  let normalizedMime = MIME_MAP[mimeType] ?? mimeType;
   let normalizedName = filename;
-  if (mimeType === 'image/heic' || mimeType === 'image/heif') {
-    normalizedMime = 'image/jpeg';
-    normalizedName = filename.replace(/\.(heic|heif)$/i, '.jpg');
+
+  // Re-stamp the extension if we remapped the MIME type
+  if (normalizedMime !== mimeType) {
+    const newExt = EXT_MAP[normalizedMime];
+    if (newExt) {
+      normalizedName = filename.replace(/\.[^.]+$/, `.${newExt}`);
+    }
   }
 
   const formData = new FormData();
