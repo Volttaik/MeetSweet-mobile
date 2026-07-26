@@ -658,6 +658,7 @@ export default function RegisterScreen() {
         username: step1.username.trim().toLowerCase(),
         email: step1.email.trim().toLowerCase(),
         password: step2.password,
+        confirm_password: step2.confirm,
         phone: step1.phone.replace(/\D/g, '').slice(0, 15) || undefined,
       });
       router.push({ pathname: '/verify-email', params: { email: step1.email.trim() } });
