@@ -9,7 +9,8 @@
 - [Scoped credentials architecture](scoped-credentials-arch.md) — broker backend at /api/credentials/*; upload flow: requestUploadUrl→PUT directly to R2; object_key stored not URL; services/credentials/index.ts + services/storage/upload.ts.
 - [UI design system](ui-design-system.md) — pill radius, no borders, dark frosted buttons (not pink), RoseGradient, MsScreenBackground/MsAmbientBackground, input 54px / button 56px.
 - [Messaging rebuild](messaging-rebuild.md) — chat InputBar pill/icon/button sizes scaled up; exact px values + stylesheet location documented.
-- [Shared composer](shared-composer.md) — MsComposer replaces raw TextInput in comments; MsVideoPlayer is fullscreen video modal; JSX spread ban in Metro bundler.
+- [Shared composer](shared-composer.md) — MsComposer (comment mode) now visually matches DM InputBar: T.BG wrapper, T.SURFACE pill, T.RADIUS.pill, emoji icon inside, animated idle↔send button; JSX spread ban in Metro bundler.
+- [Video player enhancements](video-player-enhancements.md) — MsVideoPlayer has speed selector (0.25×–2×), long-press centre for 2× while held, pinch/button toggle CONTAIN↔COVER, speed menu UI, buffering indicator on scrubber.
 - [Local server workflow](local-server-workflow.md) — nested API package needs isolated pnpm install; local 3001 is exposed as HTTPS 3000 for Expo.
 - [Voice recording implementation](voice-recording.md) — hold-to-record mic button in chat; VoiceNoteBubble with waveform + expo-av playback; ChatMessage.mediaType extended to 'audio'; audioDuration field added.
 - [Border removal system](border-removal.md) — all white/subtle borders removed from chat header, message bubbles, reply bar, create-post cards, chip selectors, preview meta rows; paid-bubble accent border kept intentionally.

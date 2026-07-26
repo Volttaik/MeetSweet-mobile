@@ -1,14 +1,19 @@
 /**
- * MsComposer — shared input component for comments and DM-style screens.
+ * MsComposer — shared input component for comments and DM screens.
  *
- * mode="comment"  →  text + send button only (no voice, no attach)
- * mode="dm"       →  full feature set (used by chat)
+ * mode="comment"  → matches DM InputBar visually; voice/attach disabled
+ * mode="dm"       → full feature set integration point (used by screens that need the shared composer)
  *
- * The DM mode is a slimmed integration point — the full chat InputBar
- * with all animations lives directly in chat/[id].tsx.
+ * Visual design follows the DM InputBar exactly:
+ * - T.BG wrapper background
+ * - T.SURFACE pill with T.RADIUS.pill border-radius
+ * - Emoji icon inside pill (left side) in comment mode
+ * - 44px round T.ACCENT send button outside pill (mic↔send layout)
+ * - min-height 50px pill
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
+  Animated,
   Platform,
   StyleSheet,
   Text,
@@ -16,7 +21,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { PaperPlaneTilt, X } from 'phosphor-react-native';
+import { PaperPlaneTilt, Smiley, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
 interface ReplyInfo {
@@ -35,7 +40,7 @@ interface MsComposerProps {
   disabled?: boolean;
   /** Show inline reply preview bar above the input */
   replyTo?: ReplyInfo | null;
-  /** Called when user presses emoji button (dm mode) */
+  /** Called when user presses emoji button */
   onEmojiToggle?: () => void;
 }
 
@@ -48,9 +53,30 @@ export function MsComposer({
   maxLength = 500,
   disabled = false,
   replyTo,
+  onEmojiToggle,
 }: MsComposerProps) {
   const inputRef = useRef<TextInput>(null);
-  const canSend = value.trim().length > 0 && !disabled;
+  const hasText = value.trim().length > 0;
+  const canSend = hasText && !disabled;
+
+  // Mic ↔ Send animation (comment mode: mic hidden, send fades in when typing)
+  const sendAnim = useRef(new Animated.Value(hasText ? 1 : 0)).current;
+  const idleAnim = useRef(new Animated.Value(hasText ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(sendAnim, {
+        toValue: hasText ? 1 : 0,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(idleAnim, {
+        toValue: hasText ? 0 : 1,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [hasText]);
 
   const defaultPlaceholder =
     placeholder ?? (mode === 'comment' ? 'Add a comment…' : 'Message…');
@@ -74,10 +100,20 @@ export function MsComposer({
         </View>
       )}
 
-      {/* Input row */}
+      {/* Input row — matches DM InputBar layout exactly */}
       <View style={styles.row}>
-        {/* Text field */}
+        {/* Pill: emoji icon + text input */}
         <View style={styles.pill}>
+          {/* Emoji — left inside pill */}
+          <TouchableOpacity
+            style={styles.pillIcon}
+            onPress={onEmojiToggle}
+            activeOpacity={0.7}
+          >
+            <Smiley size={22} color={T.TEXT_2} />
+          </TouchableOpacity>
+
+          {/* Text input */}
           <TextInput
             ref={inputRef}
             value={value}
@@ -96,19 +132,39 @@ export function MsComposer({
           />
         </View>
 
-        {/* Send button */}
-        <TouchableOpacity
-          style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
-          onPress={onSend}
-          disabled={!canSend}
-          activeOpacity={0.8}
-        >
-          <PaperPlaneTilt
-            size={18}
-            color={canSend ? '#fff' : T.TEXT_3}
-            weight="fill"
-          />
-        </TouchableOpacity>
+        {/* Right button — idle ring fades out, send fades in (same as DM InputBar) */}
+        <View style={styles.rightBtn}>
+          {/* Idle state: faint ring (no mic for comments) */}
+          <Animated.View
+            style={[
+              styles.btnAbsolute,
+              { opacity: idleAnim, transform: [{ scale: idleAnim }] },
+            ]}
+            pointerEvents={hasText ? 'none' : 'auto'}
+          >
+            <View style={[styles.actionBtn, styles.actionBtnIdle]}>
+              <PaperPlaneTilt size={20} color={T.TEXT_3} weight="fill" />
+            </View>
+          </Animated.View>
+
+          {/* Send button */}
+          <Animated.View
+            style={[
+              styles.btnAbsolute,
+              { opacity: sendAnim, transform: [{ scale: sendAnim }] },
+            ]}
+            pointerEvents={canSend ? 'auto' : 'none'}
+          >
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={onSend}
+              activeOpacity={0.8}
+              disabled={!canSend}
+            >
+              <PaperPlaneTilt size={20} color="#fff" weight="fill" />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </View>
     </View>
   );
@@ -116,7 +172,7 @@ export function MsComposer({
 
 const styles = StyleSheet.create({
   root: {
-    backgroundColor: T.SURFACE,
+    backgroundColor: T.BG,
   },
 
   replyBar: {
@@ -146,31 +202,56 @@ const styles = StyleSheet.create({
 
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 14,
+    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 10,
+    gap: 8,
   },
 
+  // Pill — identical to DM InputBar pill
   pill: {
     flex: 1,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.lg,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.pill,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 50,
+  },
+  pillIcon: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   input: {
-    color: T.TEXT,
+    flex: 1,
     fontSize: 15,
-    fontFamily: T.FONT.regular,
     lineHeight: 22,
-    maxHeight: 100,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT,
+    paddingHorizontal: 6,
+    paddingTop: 8,
+    paddingBottom: 8,
     includeFontPadding: false,
+    maxHeight: 120,
   },
 
-  sendBtn: {
+  // Right button container — identical sizing to DM InputBar
+  rightBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    flexShrink: 0,
+  },
+  btnAbsolute: {
+    position: 'absolute',
+  },
+  actionBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -181,11 +262,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
-    elevation: 3,
-    flexShrink: 0,
+    elevation: 4,
   },
-  sendBtnDisabled: {
-    backgroundColor: T.SURFACE_2,
+  actionBtnIdle: {
+    backgroundColor: T.SURFACE,
     shadowOpacity: 0,
     elevation: 0,
   },
