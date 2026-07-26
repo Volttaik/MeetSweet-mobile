@@ -16,6 +16,7 @@ import {
   requestUploadUrl,
   requestDownloadUrl,
   getBrokerConfig,
+  getBrokerBase,
 } from '@/services/credentials';
 
 export { normaliseMime, isAcceptedMime, extFromMime } from '@/services/storage/upload';
@@ -97,10 +98,14 @@ export async function uploadMedia(
     throw new Error(`File is too large. Maximum size for this type is ${limitMb} MB.`);
   }
 
-  // ── Step 3: PUT blob directly to R2 ───────────────────────────────────────
-  // Using fetch() instead of XHR: avoids the XHR CORS limitation that causes
-  // "network error" on the Expo web preview. On native, fetch() never enforces
-  // browser CORS rules so it works unconditionally.
+  // ── Step 3: upload to R2 ──────────────────────────────────────────────────
+  // On web, the browser blocks direct PUT to R2 (CORS). We detect this and
+  // fall back to a server-side proxy endpoint that uploads on our behalf.
+  // On native, fetch() bypasses CORS so the direct PUT always works.
+  let usedProxyUpload = false;
+  let proxyMediaId: string | null = null;
+  let proxyUrl: string | null = null;
+
   try {
     const putRes = await fetch(upload_url, {
       method:  'PUT',
@@ -110,19 +115,50 @@ export async function uploadMedia(
     if (!putRes.ok) {
       throw new Error(`R2 upload rejected: HTTP ${putRes.status}`);
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // CORS on web shows up as "Failed to fetch" with no status code
+  } catch (directErr) {
+    const msg = directErr instanceof Error ? directErr.message : String(directErr);
+    // CORS failures on web show up as "Failed to fetch" or "Network request failed"
     if (msg.includes('Failed to fetch') || msg.includes('Network request failed')) {
-      throw new Error(
-        'Upload blocked by browser security policy. ' +
-        'Please test using the Expo Go app on your device instead of the web preview.',
-      );
+      // Fall back to server-side proxy upload
+      const form = new FormData();
+      form.append('file', blob, `media.${extFromMime(mime)}`);
+      const proxyRes = await fetch(`${getBrokerBase()}/media/upload`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body:    form,
+      });
+      if (!proxyRes.ok) {
+        const errBody = await proxyRes.json().catch(() => ({})) as Record<string, unknown>;
+        throw new Error(
+          `Upload failed: ${(errBody as Record<string,string>).error ?? `HTTP ${proxyRes.status}`}`,
+        );
+      }
+      const proxyJson = await proxyRes.json() as { ok: boolean; data: { media: { id: string; url: string } } };
+      const m = proxyJson.data?.media;
+      if (!m?.id) throw new Error('Proxy upload returned no media ID');
+      usedProxyUpload = true;
+      proxyMediaId = m.id;
+      proxyUrl = m.url || null;
+    } else {
+      throw new Error(`Upload to storage failed: ${msg}`);
     }
-    throw new Error(`Upload to storage failed: ${msg}`);
   }
 
   onProgress?.(0.85);
+
+  // If proxy handled the full upload + registration, return early
+  if (usedProxyUpload && proxyMediaId) {
+    onProgress?.(1);
+    return {
+      id:           proxyMediaId,
+      objectKey:    object_key,
+      mimeType:     mime,
+      sizeBytes:    blob.size,
+      url:          proxyUrl ?? '',
+      type,
+      thumbnailUrl: null,
+    };
+  }
 
   // ── Step 4: build public URL and register the media with the API server ────
   let publicUrl = '';
@@ -158,8 +194,8 @@ export async function uploadMedia(
       }),
     },
   );
-  // Unwrap: authFetch already unwraps {ok,data} so mediaRecord is { media: { id, url, ... } }
-  const rec = (mediaRecord as Record<string, unknown>);
+  // authFetch unwraps {ok,data} → mediaRecord is { media: { id, url, ... } }
+  const rec = mediaRecord as Record<string, unknown>;
   const inner = (rec.media ?? rec) as Record<string, unknown>;
   if (!inner.id) throw new Error('Upload completed but media registration returned no ID');
   mediaId = String(inner.id);
