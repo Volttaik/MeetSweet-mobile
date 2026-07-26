@@ -116,8 +116,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: T.RADIUS.full,
-    borderWidth: 1,
-    borderColor: T.BORDER_2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,

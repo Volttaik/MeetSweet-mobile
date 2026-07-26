@@ -44,13 +44,19 @@ export default function MsInput({
       <View
         style={[
           styles.inputRow,
+          props.multiline && styles.inputRowMultiline,
           compact && styles.inputRowCompact,
           isFocused && styles.inputFocused,
           !!error && styles.inputError,
         ]}
       >
         <TextInput
-          style={[styles.input, compact && styles.inputCompact, style]}
+          style={[
+            styles.input,
+            compact && styles.inputCompact,
+            props.multiline && styles.inputMultiline,
+            style,
+          ]}
           placeholderTextColor={T.TEXT_3}
           selectionColor={T.ACCENT}
           onFocus={() => setIsFocused(true)}
@@ -104,6 +110,12 @@ const styles = StyleSheet.create({
     height: 40,
     paddingHorizontal: 14,
   },
+  inputRowMultiline: {
+    height: 'auto',
+    minHeight: 48,
+    alignItems: 'flex-start',
+    paddingVertical: 6,
+  },
   inputFocused: {
     backgroundColor: T.SURFACE_2,
   },
@@ -122,6 +134,12 @@ const styles = StyleSheet.create({
   },
   inputCompact: {
     fontSize: 13,
+  },
+  inputMultiline: {
+    minHeight: 96,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
   },
   error: {
     fontSize: 11,

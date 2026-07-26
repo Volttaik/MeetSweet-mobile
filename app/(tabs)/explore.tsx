@@ -12,7 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Bell, CaretRight, CreditCard, MagnifyingGlass as SearchIcon, Wallet } from 'phosphor-react-native';
 import { useGetExploreCatalog, type Creator } from '@/lib/api-client-react';
-import { Chip, Input } from 'heroui-native';
+import { Chip } from 'heroui-native';
+import MsInput from '@/components/MsInput';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
@@ -24,6 +25,7 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsCreatorPreview, type CreatorPreviewData } from '@/components/MsCreatorPreview';
+import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { T } from '@/constants/theme';
 
 // ─── Creator-focused category list ────────────────────────────────────────────
@@ -165,7 +167,7 @@ export default function ExploreScreen() {
   ];
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -198,12 +200,12 @@ export default function ExploreScreen() {
         {/* Search */}
         <View style={styles.searchField}>
           <SearchIcon size={16} color={T.TEXT_2} />
-          <Input
+          <MsInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search creators, categories, content"
-            placeholderTextColor={T.TEXT_3}
             style={styles.searchInput}
+            compact
           />
           {search.length > 0 && (
             <Pressable onPress={() => setSearch('')} hitSlop={10}>
@@ -450,7 +452,7 @@ export default function ExploreScreen() {
           if (previewCreator) router.push(`/creator/${previewCreator.id}`);
         }}
       />
-    </View>
+    </MsAmbientBackground>
   );
 }
 

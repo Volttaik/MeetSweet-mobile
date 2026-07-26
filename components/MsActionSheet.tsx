@@ -77,7 +77,7 @@ export function MsActionSheet({
             {actions.map((action, idx) => (
               <TouchableOpacity
                 key={idx}
-                style={[styles.action, idx > 0 && styles.actionBorder]}
+                style={[styles.action, idx > 0 && styles.actionSpaced]}
                 activeOpacity={0.55}
                 onPress={() => {
                   onClose();
@@ -127,9 +127,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
+    paddingBottom: 2,
   },
   title: {
     fontSize: 16,
@@ -152,10 +150,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 18,
   },
-  actionBorder: {
-    borderTopWidth: 1,
-    borderTopColor: T.BORDER,
-  },
+  actionSpaced: { marginTop: 2 },
   actionLabel: {
     fontSize: 15,
     fontFamily: T.FONT.medium,

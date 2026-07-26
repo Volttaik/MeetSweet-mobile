@@ -7,16 +7,16 @@
 @layer theme {
   :root {
     @variant light {
-       --background:       #FCFCFC;
-       --foreground:       #000000;
+        --background:       #FFF9FA;
+        --foreground:       #24151B;
        --surface:          #FFFFFF;
        --surface-foreground: #000000;
-       --accent:           #000000;
+        --accent:           #B9536B;
        --accent-foreground: #FFFFFF;
-       --border:           #D9D9D9;
-       --muted:            #666666;
-       --default:          #F2F2F2;
-       --default-foreground: #000000;
+        --border:           transparent;
+        --muted:            #8C6570;
+        --default:          #FFF0F2;
+        --default-foreground: #24151B;
 
       --font-normal:   'Poppins_400Regular';
       --font-medium:   'Poppins_500Medium';
@@ -26,15 +26,15 @@
     }
 
     @variant dark {
-       --background:       #0D0B1A;
+       --background:       #120B10;
        --foreground:       #FFFFFF;
-       --surface:          #1A1628;
+       --surface:          #21151D;
        --surface-foreground: #FFFFFF;
-       --accent:           #FF4473;
+       --accent:           #D96A82;
        --accent-foreground: #FFFFFF;
-       --border:           rgba(255,255,255,0.06);
+       --border:           transparent;
        --muted:            rgba(255,255,255,0.40);
-       --default:          #251F40;
+       --default:          #2B1A25;
        --default-foreground: #FFFFFF;
 
       --font-normal:   'Poppins_400Regular';
@@ -93,7 +93,7 @@
 
   /* Prevent white background flash on body */
   body, html, #root {
-    background-color: #0D0B1A;
+    background-color: #120B10;
     color: #FFFFFF;
   }
 }

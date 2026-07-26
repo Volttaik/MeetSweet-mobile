@@ -17,6 +17,7 @@ import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play } from 'phospho
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
+import { MsPremiumContent } from '@/components/MsPremiumContent';
 import type { Post } from '@/services/posts';
 import {
   likePost,
@@ -249,26 +250,32 @@ export function MsPostCard({
       {/* Media — image */}
       {post.mediaUrl && post.mediaType === 'image' && (
         <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
-          <Image source={{ uri: post.mediaUrl }} style={styles.media} resizeMode="cover" />
+          <MsPremiumContent
+            uri={post.mediaUrl}
+            mediaType="image"
+            locked={Boolean(post.isLocked)}
+            unlocked={!post.isLocked}
+            price={post.priceCredits ?? 0}
+            aspectRatio={post.width && post.height ? post.width / post.height : 1}
+            onUnlock={onPress}
+            style={styles.media}
+          />
         </ScalePressable>
       )}
 
       {/* Media — video */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
-          <View style={styles.videoPlaceholder}>
-            <View style={styles.videoOverlay}>
-              <View style={styles.playBtn}>
-                <Play size={20} color={T.TEXT} weight="fill" />
-              </View>
-              {post.durationSecs != null && (
-                <Text style={styles.duration}>
-                  {Math.floor(post.durationSecs / 60)}:
-                  {String(post.durationSecs % 60).padStart(2, '0')}
-                </Text>
-              )}
-            </View>
-          </View>
+          <MsPremiumContent
+            uri={post.mediaUrl}
+            mediaType="video"
+            locked={Boolean(post.isLocked)}
+            unlocked={!post.isLocked}
+            price={post.priceCredits ?? 0}
+            height={260}
+            onUnlock={onPress}
+            style={styles.videoPlaceholder}
+          />
         </ScalePressable>
       )}
 
@@ -308,7 +315,7 @@ export function MsPostCard({
         </TouchableOpacity>
       </View>
 
-      <View style={styles.divider} />
+      <View style={styles.cardSpacing} />
 
       {/* Context menu bottom sheet */}
       <MsActionSheet
@@ -421,5 +428,5 @@ const styles = StyleSheet.create({
   actionCount: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   actionCountLiked: { color: '#EF4444' },
 
-  divider: { height: 1, backgroundColor: T.BORDER, marginTop: 2 },
+  cardSpacing: { height: 8 },
 });

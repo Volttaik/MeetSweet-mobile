@@ -1,16 +1,16 @@
 /**
  * MeetSweet design tokens — dark rose.
- * Deep night backgrounds, hot rose accent (#FF4473), Poppins type.
+ * Deep night backgrounds, warm rose accent, Poppins type.
  */
 export const T = {
   // Backgrounds
-  BG:        '#0D0B1A',
-  SURFACE:   '#1A1628',
-  SURFACE_2: '#251F40',
+  BG:        '#120B10',
+  SURFACE:   '#21151D',
+  SURFACE_2: '#2B1A25',
 
   // Borders
-  BORDER:   'rgba(255,255,255,0.06)',
-  BORDER_2: '#2E2850',
+  BORDER:   'rgba(255,255,255,0.035)',
+  BORDER_2: 'rgba(255,255,255,0.07)',
 
   // Text
   TEXT:   '#FFFFFF',
@@ -18,9 +18,9 @@ export const T = {
   TEXT_3: 'rgba(255,255,255,0.28)',
 
   // Accent — hot rose (primary)
-  ACCENT:       '#FF4473',
-  ACCENT_LIGHT: 'rgba(255,68,115,0.15)',
-  ACCENT_DARK:  '#E03362',
+  ACCENT:       '#D96A82',
+  ACCENT_LIGHT: 'rgba(217,106,130,0.16)',
+  ACCENT_DARK:  '#B9536B',
 
   // Status
   SUCCESS: '#4CAF82',
@@ -29,7 +29,11 @@ export const T = {
   // Aliases
   DANGER: '#EF4444',
   PURPLE: '#9B6ECA',
-  ROSE:   '#FF4473',
+  ROSE:   '#D96A82',
+
+  // Ambient glow colours. Keep the rose in the background, not on every card.
+  AMBIENT: 'rgba(217,106,130,0.13)',
+  SHADOW: 'rgba(0,0,0,0.28)',
 
   // Typography (Poppins loaded in root layout)
   FONT: {
@@ -54,7 +58,7 @@ export const T = {
 
 /** Gradient colour stops used by premium / locked-content components. */
 export const AppGradients = {
-  premium:    ['#FF4473', '#E03362'] as const,
-  rose:       ['rgba(255,68,115,0.15)', '#FF4473'] as const,
-  rosePurple: ['#FF4473', '#9B6ECA'] as const,
+  premium:    ['#D96A82', '#B9536B'] as const,
+  rose:       ['rgba(217,106,130,0.18)', '#D96A82'] as const,
+  rosePurple: ['#D96A82', '#9B6ECA'] as const,
 } as const;

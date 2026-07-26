@@ -17,6 +17,7 @@ import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSearchModal } from '@/components/MsSearchModal';
+import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeed, type Post } from '@/services/posts';
 
@@ -81,7 +82,7 @@ export default function HomeScreen() {
     : 'U';
 
   return (
-    <View style={[styles.bg, { paddingTop: insets.top }]}>
+    <MsAmbientBackground style={[styles.bg, { paddingTop: insets.top }]}>
 
       {/* ── Top bar ── */}
       <View style={styles.topBar}>
@@ -179,7 +180,7 @@ export default function HomeScreen() {
         visible={searchVisible}
         onClose={() => setSearchVisible(false)}
       />
-    </View>
+    </MsAmbientBackground>
   );
 }
 
