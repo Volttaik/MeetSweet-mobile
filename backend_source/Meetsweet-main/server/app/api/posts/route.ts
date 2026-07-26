@@ -7,6 +7,7 @@ import { requireAuth } from "@/middleware/auth";
 import { parseBody } from "@/lib/api/validate";
 import { ok, err, created } from "@/lib/api/response";
 import { generateId } from "@/lib/auth/codes";
+import { resolveUrl } from "@/lib/services/r2";
 
 const createSchema = z.object({
   caption: z.string().max(2200).nullable().optional(),
@@ -151,7 +152,18 @@ export async function GET(req: NextRequest) {
     savedSet = new Set(saved.map((s) => s.post_id));
   }
 
-  const mediaByPost = allMedia.reduce(
+  // Resolve object keys to signed URLs for any media not yet served via a public CDN
+  const resolvedMedia = await Promise.all(
+    allMedia.map(async (m) => {
+      if (m.url && !m.url.startsWith("http")) {
+        const signed = await resolveUrl(m.url, 604800).catch(() => null);
+        return { ...m, url: signed ?? m.url };
+      }
+      return m;
+    })
+  );
+
+  const mediaByPost = resolvedMedia.reduce(
     (acc, m) => {
       if (!m.post_id) return acc;
       if (!acc[m.post_id]) acc[m.post_id] = [];

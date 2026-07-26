@@ -6,6 +6,7 @@ import { users, profiles, posts, media, post_likes, saved_posts } from "@/lib/db
 import { requireAuth } from "@/middleware/auth";
 import { parseBody } from "@/lib/api/validate";
 import { ok, err } from "@/lib/api/response";
+import { resolveUrl } from "@/lib/services/r2";
 
 const patchSchema = z.object({
   caption: z.string().max(2200).nullable().optional(),
@@ -73,19 +74,29 @@ export async function GET(
     bookmarkedByMe = !!saved;
   }
 
+  const resolvedMedia = await Promise.all(
+    postMedia.map(async (m) => {
+      const url =
+        m.url && !m.url.startsWith("http")
+          ? (await resolveUrl(m.url, 604800).catch(() => null)) ?? m.url
+          : m.url;
+      return {
+        url,
+        type: m.type,
+        thumbnail_url: null,
+        duration_secs: m.duration_seconds,
+        file_size: m.size_bytes,
+        width: m.width,
+        height: m.height,
+      };
+    })
+  );
+
   return ok({
     ...row,
     liked_by_me: likedByMe,
     bookmarked_by_me: bookmarkedByMe,
-    media: postMedia.map((m) => ({
-      url: m.url,
-      type: m.type,
-      thumbnail_url: null,
-      duration_secs: m.duration_seconds,
-      file_size: m.size_bytes,
-      width: m.width,
-      height: m.height,
-    })),
+    media: resolvedMedia,
   });
 }
 
