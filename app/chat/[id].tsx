@@ -35,7 +35,6 @@ import {
   Paperclip,
   PaperPlaneRight,
   Phone,
-  Gif,
   Smiley,
   Microphone,
   LockSimple,
@@ -53,7 +52,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmojiPicker } from '@/components/MsEmojiPicker';
-import { MsGifPicker } from '@/components/MsGifPicker';
 import { MsAttachmentSheet } from '@/components/MsAttachmentSheet';
 import type { AttachmentResult } from '@/components/MsAttachmentSheet';
 import { useAuth } from '@/contexts/AuthContext';
@@ -539,7 +537,6 @@ interface InputBarProps {
   onChangeText: (t: string) => void;
   onSend: () => void;
   onEmojiToggle: () => void;
-  onGifToggle: () => void;
   onAttachToggle: () => void;
   onCameraPress: () => void;
   sending: boolean;
@@ -551,32 +548,24 @@ interface InputBarProps {
 function InputBar(props: InputBarProps) {
   const {
     text, onChangeText, onSend,
-    onEmojiToggle, onGifToggle, onAttachToggle, onCameraPress,
+    onEmojiToggle, onAttachToggle, onCameraPress,
     sending, reply, onDismissReply, paddingBottom,
   } = props;
 
   const hasText = text.trim().length > 0;
 
-  // Camera slide-out animation
-  const cameraAnim = useRef(new Animated.Value(1)).current; // 1 = visible, 0 = hidden
-  // Mic → Send transition
-  const micAnim = useRef(new Animated.Value(1)).current; // 1 = mic visible
+  // Camera slides out of the pill when typing
+  const cameraAnim = useRef(new Animated.Value(1)).current; // 1 = visible
+  // Mic → Send transition (outside pill)
+  const micAnim = useRef(new Animated.Value(1)).current;
   const sendAnim = useRef(new Animated.Value(0)).current;
-  // Left icons width compression
-  const leftWidthAnim = useRef(new Animated.Value(0)).current; // 0 = full, 1 = compact
 
   useEffect(() => {
-    const toCompact = hasText ? 1 : 0;
     Animated.parallel([
       Animated.timing(cameraAnim, {
         toValue: hasText ? 0 : 1,
         duration: ICON_ANIM_DURATION,
-        useNativeDriver: true,
-      }),
-      Animated.timing(leftWidthAnim, {
-        toValue: toCompact,
-        duration: ICON_ANIM_DURATION,
-        useNativeDriver: false, // width can't use native driver
+        useNativeDriver: false, // drives width
       }),
       Animated.timing(micAnim, {
         toValue: hasText ? 0 : 1,
@@ -591,14 +580,8 @@ function InputBar(props: InputBarProps) {
     ]).start();
   }, [hasText]);
 
-  const cameraWidth = cameraAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 40],
-  });
-  const cameraMargin = cameraAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 4],
-  });
+  const cameraWidth = cameraAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 34] });
+  const cameraOpacity = cameraAnim;
 
   return (
     <View style={ib.wrapper}>
@@ -606,63 +589,54 @@ function InputBar(props: InputBarProps) {
       <ReplyBar reply={reply} onDismiss={onDismissReply} />
 
       <View style={[ib.row, { paddingBottom }]}>
-        {/* Left icon group */}
-        <View style={ib.leftIcons}>
-          {/* Camera — slides away when typing */}
-          <Animated.View style={{ width: cameraWidth, marginRight: cameraMargin, overflow: 'hidden' }}>
-            <Animated.View style={{ opacity: cameraAnim }}>
-              <TouchableOpacity style={ib.iconBtn} onPress={onCameraPress} activeOpacity={0.7}>
-                <Camera size={20} color={T.TEXT_2} weight="regular" />
-              </TouchableOpacity>
-            </Animated.View>
-          </Animated.View>
-
-          {/* GIF */}
-          <TouchableOpacity style={ib.iconBtn} onPress={onGifToggle} activeOpacity={0.7}>
-            <Gif size={20} color={T.TEXT_2} />
+        {/* ── Pill: emoji | input | paperclip | camera ── */}
+        <View style={ib.pill}>
+          {/* Emoji — left inside pill */}
+          <TouchableOpacity style={ib.pillIcon} onPress={onEmojiToggle} activeOpacity={0.7}>
+            <Smiley size={20} color={T.TEXT_2} />
           </TouchableOpacity>
 
-          {/* Attachment */}
-          <TouchableOpacity style={ib.iconBtn} onPress={onAttachToggle} activeOpacity={0.7}>
+          {/* Text input — grows, no cap */}
+          <TextInput
+            style={ib.input}
+            placeholder="Message…"
+            placeholderTextColor={T.TEXT_3}
+            value={text}
+            onChangeText={onChangeText}
+            multiline
+            textAlignVertical="center"
+            selectionColor={T.ACCENT}
+            returnKeyType="default"
+            blurOnSubmit={false}
+          />
+
+          {/* Paperclip — right inside pill */}
+          <TouchableOpacity style={ib.pillIcon} onPress={onAttachToggle} activeOpacity={0.7}>
             <Paperclip size={20} color={T.TEXT_2} />
           </TouchableOpacity>
 
-          {/* Emoji */}
-          <TouchableOpacity style={ib.iconBtn} onPress={onEmojiToggle} activeOpacity={0.7}>
-            <Smiley size={20} color={T.TEXT_2} />
-          </TouchableOpacity>
+          {/* Camera — slides out of pill when typing */}
+          <Animated.View style={{ width: cameraWidth, overflow: 'hidden', opacity: cameraOpacity }}>
+            <TouchableOpacity style={ib.pillIcon} onPress={onCameraPress} activeOpacity={0.7}>
+              <Camera size={20} color={T.TEXT_2} />
+            </TouchableOpacity>
+          </Animated.View>
         </View>
 
-        {/* Text input — pill, no border, expands infinitely */}
-        <TextInput
-          style={ib.input}
-          placeholder="Message…"
-          placeholderTextColor={T.TEXT_3}
-          value={text}
-          onChangeText={onChangeText}
-          multiline
-          textAlignVertical="center"
-          selectionColor={T.ACCENT}
-          returnKeyType="default"
-          blurOnSubmit={false}
-        />
-
-        {/* Right button: Mic ↔ Send */}
+        {/* ── Mic ↔ Send (outside the pill) ── */}
         <View style={ib.rightBtn}>
-          {/* Mic */}
           <Animated.View style={[ib.btnAbsolute, { opacity: micAnim, transform: [{ scale: micAnim }] }]}>
             <TouchableOpacity
               style={ib.actionBtn}
               onPress={() => Alert.alert('Voice note', 'Hold to record a voice message.')}
               activeOpacity={0.8}
             >
-              <Microphone size={18} color={T.BG} weight="fill" />
+              <Microphone size={18} color="#fff" weight="fill" />
             </TouchableOpacity>
           </Animated.View>
-          {/* Send */}
           <Animated.View style={[ib.btnAbsolute, { opacity: sendAnim, transform: [{ scale: sendAnim }] }]}>
             <TouchableOpacity
-              style={[ib.actionBtn, ib.actionBtnSend]}
+              style={ib.actionBtn}
               onPress={onSend}
               activeOpacity={0.8}
               disabled={!hasText || sending}
@@ -686,32 +660,36 @@ const ib = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 8,
-    paddingTop: 8,
+    paddingTop: 6,
     gap: 6,
   },
-  leftIcons: {
+  // One pill containing all icons + text
+  pill: {
+    flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.pill,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 42,
   },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  pillIcon: {
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   input: {
     flex: 1,
-    minHeight: 40,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.pill,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 10,
     fontSize: 15,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
-    // No border, no outline — soft pill only
+    paddingHorizontal: 4,
+    paddingTop: 7,
+    paddingBottom: 7,
+    // No background, no border — it's inside the pill
   },
   rightBtn: {
     width: 42,
@@ -719,6 +697,7 @@ const ib = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    flexShrink: 0,
   },
   btnAbsolute: { position: 'absolute' },
   actionBtn: {
@@ -729,7 +708,6 @@ const ib = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionBtnSend: { backgroundColor: T.ACCENT },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -759,7 +737,6 @@ export default function ChatScreen() {
   const [menuMsg, setMenuMsg] = useState<ChatMessage | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
-  const [showGif, setShowGif] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
 
   // Reply
@@ -863,35 +840,6 @@ export default function ChatScreen() {
       setText(body);
     } finally {
       setSending(false);
-    }
-  };
-
-  // ── Send GIF ───────────────────────────────────────────────────────────────
-
-  const handleSendGif = async (gifUrl: string) => {
-    setShowGif(false);
-    setUploadingImage(true);
-
-    const optimistic: ChatMessage = {
-      id: `opt-gif-${Date.now()}`,
-      body: null,
-      mediaUrl: gifUrl,
-      mediaType: 'image',
-      isDeleted: false,
-      createdAt: new Date().toISOString(),
-      sender: { id: user?.id ?? '', name: user?.name ?? '', username: user?.username ?? '', avatarUrl: user?.avatarUrl ?? null },
-      isOwn: true,
-    };
-    setMessages((prev) => [...prev, optimistic]);
-    scrollToEnd();
-
-    try {
-      const { message } = await sendMessage(conversationId, undefined, gifUrl, 'image');
-      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? message : m)));
-    } catch {
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-    } finally {
-      setUploadingImage(false);
     }
   };
 
@@ -1146,7 +1094,6 @@ export default function ChatScreen() {
         onChangeText={setText}
         onSend={handleSend}
         onEmojiToggle={() => { Keyboard.dismiss(); setShowEmoji(true); }}
-        onGifToggle={() => { Keyboard.dismiss(); setShowGif(true); }}
         onAttachToggle={() => { Keyboard.dismiss(); setShowAttach(true); }}
         onCameraPress={handleCamera}
         sending={sending || uploadingImage}
@@ -1160,12 +1107,6 @@ export default function ChatScreen() {
         visible={showEmoji}
         onClose={() => setShowEmoji(false)}
         onEmojiSelect={handleEmojiSelect}
-      />
-
-      <MsGifPicker
-        visible={showGif}
-        onClose={() => setShowGif(false)}
-        onSelect={handleSendGif}
       />
 
       <MsAttachmentSheet
