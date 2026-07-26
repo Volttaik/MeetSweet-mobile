@@ -45,9 +45,13 @@ import {
   Info,
   VideoCamera,
   X,
+  Play,
+  Pause,
+  Stop,
 } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ExpoClipboard from 'expo-clipboard';
+import { Audio } from 'expo-av';
 import { router, useLocalSearchParams } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
