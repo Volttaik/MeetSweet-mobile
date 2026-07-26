@@ -158,11 +158,12 @@ export async function uploadMedia(
       }),
     },
   );
-  // Unwrap: authFetch already unwraps {ok,data} so mediaRecord is the data object
-  const rec = mediaRecord as Record<string, unknown>;
-  if (!rec.id) throw new Error('Upload completed but media registration returned no ID');
-  mediaId = String(rec.id);
-  if (rec.url) registeredUrl = String(rec.url);
+  // Unwrap: authFetch already unwraps {ok,data} so mediaRecord is { media: { id, url, ... } }
+  const rec = (mediaRecord as Record<string, unknown>);
+  const inner = (rec.media ?? rec) as Record<string, unknown>;
+  if (!inner.id) throw new Error('Upload completed but media registration returned no ID');
+  mediaId = String(inner.id);
+  if (inner.url) registeredUrl = String(inner.url);
 
   onProgress?.(1);
 

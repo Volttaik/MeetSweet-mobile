@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, PutBucketCorsCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireAuth } from "@/middleware/auth";
 import { ok, err } from "@/lib/api/response";
@@ -82,6 +82,38 @@ function getClient(): S3Client {
   });
 }
 
+// ── One-time R2 CORS setup ────────────────────────────────────────────────────
+// Sets permissive CORS on the bucket the first time this module loads so that
+// browsers can PUT presigned upload URLs directly to R2.
+let corsSynced = false;
+async function ensureR2Cors() {
+  if (corsSynced) return;
+  try {
+    const client = getClient();
+    await client.send(
+      new PutBucketCorsCommand({
+        Bucket: config.r2.bucket()!,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedOrigins: ["*"],
+              AllowedMethods: ["PUT", "GET", "HEAD"],
+              AllowedHeaders: ["*"],
+              ExposeHeaders: ["ETag"],
+              MaxAgeSeconds: 3600,
+            },
+          ],
+        },
+      })
+    );
+    corsSynced = true;
+    console.log("[upload-url] R2 CORS rules applied successfully");
+  } catch (e) {
+    // Non-fatal — log and move on; uploads may still work if CORS was set previously
+    console.warn("[upload-url] Could not set R2 CORS rules:", e);
+  }
+}
+
 /**
  * GET /api/credentials/upload-url?mime_type=image/jpeg&extension=jpg&folder=posts
  *
@@ -103,6 +135,9 @@ function getClient(): S3Client {
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if ("response" in auth) return auth.response;
+
+  // Ensure R2 CORS is configured so browsers can PUT directly to R2
+  ensureR2Cors();
 
   const mime = req.nextUrl.searchParams.get("mime_type");
   if (!mime) return err("mime_type query param is required", 400);
