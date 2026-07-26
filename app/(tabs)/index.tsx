@@ -16,6 +16,7 @@ import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
+import { MsSearchModal } from '@/components/MsSearchModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFeed, type Post } from '@/services/posts';
 
@@ -37,6 +38,7 @@ export default function HomeScreen() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
 
   const loadFeed = useCallback(async (reset = false) => {
     try {
@@ -107,7 +109,11 @@ export default function HomeScreen() {
           >
             <Bell size={20} color={T.TEXT} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            activeOpacity={0.7}
+            onPress={() => setSearchVisible(true)}
+          >
             <MagnifyingGlass size={20} color={T.TEXT} />
           </TouchableOpacity>
         </View>
@@ -169,6 +175,12 @@ export default function HomeScreen() {
           contentContainerStyle={posts.length === 0 ? styles.emptyContainer : undefined}
         />
       )}
+
+      {/* ── Search modal ── */}
+      <MsSearchModal
+        visible={searchVisible}
+        onClose={() => setSearchVisible(false)}
+      />
     </View>
   );
 }

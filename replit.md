@@ -47,6 +47,15 @@ These features will fail gracefully (empty state, no crash) until the backend ad
 - `GET /users/search` — user search in new-message modal
 - `PATCH/PUT /users/me` — edit profile (only GET is implemented)
 
+## Key features implemented
+
+- **Home search** — MagnifyingGlass button opens `MsSearchModal` (full-text post/user search with recent history)
+- **Chat** — reactions (6-emoji quick-react + long-press picker), enhanced long-press menu (react/delete/report), image sending via expo-image-picker, paid-content bubble for locked messages
+- **Create Post** — two-step onboarding: fill context (caption, visibility, paid toggle + credit price, categories, tags) → Continue → media picker modal → preview → publish
+- **Creator Dashboard** — live data from `/creator/dashboard` and `/creator/subscribers`; stat cards, period performance, recent subscribers, quick-action buttons
+- **Creator Profile** — tabbed layout: Drops / Reviews / About; star ratings, review cards, clean subscribe sheet (no more BottomSheet dependency)
+- **Input focus borders** — `selectionColor={T.ACCENT}` added to new TextInputs; `MsInput` uses pink (#FF4473) focus border
+
 ## User preferences
 
 - Keep the dark-first design — `Uniwind.setTheme('dark')` in `app/_layout.tsx`.
