@@ -9,6 +9,7 @@ import React, {
   useEffect,
   useRef,
   useState,
+  useMemo,
 } from 'react';
 import {
   Alert,
@@ -192,9 +193,13 @@ interface BubbleProps {
   onLongPress: () => void;
   onReact: (emoji: string) => void;
   onUnlockPaid?: () => void;
+  /** When true, show the full date+time label below the bubble (tap-to-reveal) */
+  showTimestamp?: boolean;
+  /** Called on a normal tap to toggle the timestamp */
+  onTap?: () => void;
 }
 
-function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUnlockPaid }: BubbleProps) {
+function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUnlockPaid, showTimestamp, onTap }: BubbleProps) {
   const isOwn = message.isOwn;
   const isPaidLocked = !!(message as any).isPaid && !(message as any).isUnlocked;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -210,6 +215,7 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
       <Pressable
+        onPress={onTap}
         onLongPress={onLongPress}
         delayLongPress={280}
         style={[bs.wrap, isOwn ? bs.wrapOwn : bs.wrapOther]}
@@ -269,6 +275,16 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
           {message.mediaUrl && !message.body && (
             <Text style={[bs.timeBelow, isOwn ? bs.timeBelowOwn : bs.timeBelowOther]}>
               {formatTime(message.createdAt)}{isOwn ? '  ✓✓' : ''}
+            </Text>
+          )}
+
+          {/* Tap-to-reveal full date+time (rn-chat feature) */}
+          {showTimestamp && (
+            <Text style={[bs.fullTimestamp, isOwn ? bs.fullTimestampOwn : bs.fullTimestampOther]}>
+              {new Date(message.createdAt).toLocaleString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric',
+                hour: 'numeric', minute: '2-digit', hour12: true,
+              })}
             </Text>
           )}
         </View>
@@ -350,6 +366,17 @@ const bs = StyleSheet.create({
   timeBelow: { fontSize: 10, fontFamily: T.FONT.regular, marginTop: 2, paddingHorizontal: 4 },
   timeBelowOwn: { color: T.TEXT_3, textAlign: 'right' },
   timeBelowOther: { color: T.TEXT_3 },
+
+  // Tap-to-reveal full timestamp
+  fullTimestamp: {
+    fontSize: 10,
+    fontFamily: T.FONT.regular,
+    marginTop: 4,
+    paddingHorizontal: 4,
+    color: T.TEXT_3,
+  },
+  fullTimestampOwn: { textAlign: 'right' },
+  fullTimestampOther: { textAlign: 'left' },
 });
 
 // ─── Reply preview bar ────────────────────────────────────────────────────────
@@ -751,6 +778,18 @@ export default function ChatScreen() {
   // Image uploading
   const [uploadingImage, setUploadingImage] = useState(false);
 
+  // ── Floating scroll-date (rn-chat feature) ─────────────────────────────────
+  const [scrollDateLabel, setScrollDateLabel] = useState('');
+  const [scrollDateVisible, setScrollDateVisible] = useState(false);
+  const scrollHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Tap-to-reveal full timestamp ───────────────────────────────────────────
+  const [tappedMsgId, setTappedMsgId] = useState<string | null>(null);
+
+  const handleMsgTap = useCallback((id: string) => {
+    setTappedMsgId((prev) => (prev === id ? null : id));
+  }, []);
+
   // ── Load conversations to get other user info ──────────────────────────────
 
   useEffect(() => {
@@ -958,6 +997,20 @@ export default function ChatScreen() {
     );
   };
 
+  // ── Viewability — drives the floating scroll-date badge ───────────────────
+
+  const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 60 }), []);
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: ChatMessage }> }) => {
+    if (viewableItems.length > 0) {
+      const item = viewableItems[0].item;
+      setScrollDateLabel(formatDateLabel(item.createdAt));
+      setScrollDateVisible(true);
+      if (scrollHideRef.current) clearTimeout(scrollHideRef.current);
+      scrollHideRef.current = setTimeout(() => setScrollDateVisible(false), 1200);
+    }
+  }).current;
+
   // ── Load more ──────────────────────────────────────────────────────────────
 
   const handleLoadMore = () => {
@@ -991,6 +1044,8 @@ export default function ChatScreen() {
             replyTo={rTarget}
             onLongPress={() => handleLongPress(item)}
             onReact={(emoji) => handleReact(item.id, emoji)}
+            onTap={() => handleMsgTap(item.id)}
+            showTimestamp={tappedMsgId === item.id}
             onUnlockPaid={() =>
               Alert.alert('Unlock', 'Spend credits to unlock this content?', [
                 { text: 'Cancel', style: 'cancel' },
@@ -1001,7 +1056,7 @@ export default function ChatScreen() {
         </View>
       );
     },
-    [messages, reactions, replyTargets],
+    [messages, reactions, replyTargets, tappedMsgId, handleMsgTap],
   );
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1054,6 +1109,15 @@ export default function ChatScreen() {
 
       {/* ── Messages ── */}
       <View style={{ flex: 1 }}>
+        {/* Floating scroll-date badge (rn-chat feature) */}
+        {scrollDateVisible && scrollDateLabel ? (
+          <View style={sc.floatDateWrap}>
+            <View style={sc.floatDateBadge}>
+              <Text style={sc.floatDateText}>{scrollDateLabel}</Text>
+            </View>
+          </View>
+        ) : null}
+
         {loading ? (
           <View style={sc.loadingWrap}>
             <View style={sc.loadingDots}>
@@ -1071,6 +1135,8 @@ export default function ChatScreen() {
             onLayout={() => scrollToEnd(false)}
             onStartReachedThreshold={0.3}
             onStartReached={handleLoadMore}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
             ListHeaderComponent={
               loadingMore ? (
                 <View style={{ alignItems: 'center', marginVertical: 12 }}>
@@ -1176,4 +1242,28 @@ const sc = StyleSheet.create({
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
   emptyName: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, marginTop: 4 },
   emptyHint: { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+
+  // Floating scroll-date badge (from rn-chat library)
+  floatDateWrap: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
+    zIndex: 9,
+    alignItems: 'center',
+  },
+  floatDateBadge: {
+    backgroundColor: 'rgba(20,17,40,0.82)',
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+  },
+  floatDateText: {
+    fontSize: 11,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
+    letterSpacing: 0.2,
+  },
 });
