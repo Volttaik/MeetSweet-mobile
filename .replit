@@ -33,3 +33,10 @@ externalPort = 80
 [[ports]]
 localPort = 5001
 externalPort = 3001
+
+[userenv]
+
+[userenv.shared]
+TURSO_DATABASE_URL = "libsql://database-fulvous-ferry-vercel-icfg-v86wsrnn1jihzin22m9nophx.aws-us-east-1.turso.io"
+CLOUDFLARE_ACCOUNT_ID = "e72d5cb6f9f658585db827cb12790c89"
+R2_BUCKET_NAME = "meetsweet-media"
