@@ -103,7 +103,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await getFeed(1);
+        const data = await getFeed();
         const lower = q.toLowerCase();
         const filtered: ResultItem[] = data.posts
           .filter(

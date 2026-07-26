@@ -184,8 +184,9 @@ export async function editMessage(messageId: string, body: string): Promise<void
 export async function recallMessage(messageId: string): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/messages/${messageId}/recall`, {
-    method: 'POST',
+  // Spec: DELETE /messages/:id — recall/delete own message
+  await apiFetch(`/messages/${messageId}`, {
+    method: 'DELETE',
     headers: authHeader(token),
   });
 }

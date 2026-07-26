@@ -26,29 +26,68 @@ export interface CreatorDashboard {
   recent_transactions: unknown[];
 }
 
-export async function getCreatorDashboard(): Promise<CreatorDashboard> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch('/creator/dashboard', { headers: authHeader(token) });
+// ─── Creator Settings (GET /creator/settings, PATCH /creator/settings) ────────
+
+export interface CreatorSettings {
+  subscription_price: number | null;
+  allow_dms: boolean;
+  allow_comments: boolean;
+  welcome_message: string | null;
 }
 
-export async function getCreatorAnalytics(): Promise<{
+export async function getCreatorSettings(): Promise<CreatorSettings> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/creator/settings', { headers: authHeader(token) });
+}
+
+export async function updateCreatorSettings(data: Partial<CreatorSettings>): Promise<CreatorSettings> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/creator/settings', {
+    method: 'PATCH',
+    headers: authHeader(token),
+    body: JSON.stringify(data),
+  });
+}
+
+// ─── Creator Statistics (GET /creator/statistics) ─────────────────────────────
+
+export async function getCreatorStatistics(period?: string): Promise<{
   period_stats: PeriodStat[];
   active_subscribers: number;
   total_posts: number;
+  total_revenue: number;
 }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch('/creator/analytics', { headers: authHeader(token) });
+  const qs = period ? `?period=${encodeURIComponent(period)}` : '';
+  return apiFetch(`/creator/statistics${qs}`, { headers: authHeader(token) });
 }
 
-export async function getCreatorRevenue(): Promise<{
-  total_revenue: number;
-  transactions: unknown[];
-}> {
+// ─── Creator Dashboard (aggregated from spec endpoints) ───────────────────────
+
+export async function getCreatorDashboard(): Promise<CreatorDashboard> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch('/creator/revenue', { headers: authHeader(token) });
+  // Aggregate from the two spec endpoints that cover dashboard data
+  const [stats, wallet] = await Promise.all([
+    apiFetch<{
+      period_stats: PeriodStat[];
+      active_subscribers: number;
+      total_posts: number;
+      total_revenue: number;
+    }>('/creator/statistics', { headers: authHeader(token) }).catch(() => null),
+    apiFetch<{ balance: number }>('/wallet', { headers: authHeader(token) }).catch(() => null),
+  ]);
+  return {
+    wallet_balance: wallet?.balance ?? 0,
+    active_subscribers: stats?.active_subscribers ?? 0,
+    total_posts: stats?.total_posts ?? 0,
+    period_stats: stats?.period_stats ?? [],
+    total_revenue: stats?.total_revenue ?? 0,
+    recent_transactions: [],
+  };
 }
 
 export async function getCreatorSubscribers(page = 1): Promise<{
@@ -64,14 +103,31 @@ export async function getCreatorSubscribers(page = 1): Promise<{
 }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/creator/subscribers?page=${page}&limit=20`, {
-    headers: authHeader(token),
-  });
+  // Spec: GET /subscriptions?type=subscribers
+  const raw = await apiFetch<{ subscriptions: unknown[] }>(
+    `/subscriptions?type=subscribers&limit=20`,
+    { headers: authHeader(token) },
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subscribers = Array.isArray(raw?.subscriptions)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? raw.subscriptions.map((s: any) => ({
+        id: s.id,
+        user_id: s.user_id ?? s.subscriber_id ?? '',
+        username: s.username ?? s.subscriber_username ?? '',
+        display_name: s.display_name ?? s.subscriber_display_name ?? null,
+        avatar_url: s.avatar_url ?? s.subscriber_avatar ?? null,
+        subscribed_at: s.started_at ?? s.subscribed_at ?? s.created_at ?? '',
+        expires_at: s.expires_at ?? '',
+      }))
+    : [];
+  return { subscribers };
 }
 
 export async function becomeCreator(): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+  // Not in current spec — will gracefully 404 until backend adds it
   await apiFetch('/creator/become', {
     method: 'POST',
     headers: authHeader(token),
@@ -84,6 +140,7 @@ export async function requestVerification(data: {
 }): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+  // Not in current spec — will gracefully 404 until backend adds it
   await apiFetch('/creator/verification', {
     method: 'POST',
     headers: authHeader(token),

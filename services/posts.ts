@@ -123,29 +123,33 @@ function authHeader(token: string): Record<string, string> {
 
 // ─── Feed & Posts ─────────────────────────────────────────────────────────────
 
-export async function getFeed(page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
+export async function getFeed(cursor?: string): Promise<{ posts: Post[]; hasMore: boolean; nextCursor: string | null }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const raw = await apiFetch<{ posts: unknown[]; page: number; limit: number }>(
-    `/posts?page=${page}&limit=20`,
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
+  const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
+    `/posts${qs}`,
     { headers },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
-  return { posts, hasMore: posts.length === 20 };
+  const nextCursor = raw?.next_cursor ?? (posts.length === 20 ? posts[posts.length - 1]?.createdAt ?? null : null);
+  return { posts, hasMore: posts.length === 20, nextCursor };
 }
 
 export async function getUserPosts(
   username: string,
-  page = 1,
-): Promise<{ posts: Post[]; hasMore: boolean }> {
+  cursor?: string,
+): Promise<{ posts: Post[]; hasMore: boolean; nextCursor: string | null }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const raw = await apiFetch<{ posts: unknown[]; page: number; limit: number }>(
-    `/users/${encodeURIComponent(username)}/posts?page=${page}&limit=20`,
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
+  const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
+    `/users/${encodeURIComponent(username)}/posts${qs}`,
     { headers },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
-  return { posts, hasMore: posts.length === 20 };
+  const nextCursor = raw?.next_cursor ?? (posts.length === 20 ? posts[posts.length - 1]?.createdAt ?? null : null);
+  return { posts, hasMore: posts.length === 20, nextCursor };
 }
 
 export async function getPost(id: string): Promise<{ post: Post }> {

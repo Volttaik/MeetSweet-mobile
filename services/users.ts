@@ -43,6 +43,7 @@ export async function getMe(): Promise<{ user: User }> {
 
 export async function updateMe(data: {
   name?: string;
+  displayName?: string;
   username?: string;
   bio?: string | null;
   website?: string | null;
@@ -53,7 +54,9 @@ export async function updateMe(data: {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const payload = {
-    ...(data.name !== undefined ? { name: data.name } : {}),
+    // spec field names for PATCH /users/me
+    ...(data.name !== undefined ? { full_name: data.name } : {}),
+    ...(data.displayName !== undefined ? { display_name: data.displayName } : {}),
     ...(data.username !== undefined ? { username: data.username } : {}),
     ...(data.bio !== undefined ? { bio: data.bio } : {}),
     ...(data.website !== undefined ? { website: data.website } : {}),
@@ -123,23 +126,21 @@ export async function searchUsers(
   return { users };
 }
 
-export async function blockUser(blockedId: string): Promise<void> {
+export async function blockUser(username: string): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  await apiFetch('/users/block', {
+  await apiFetch(`/users/${encodeURIComponent(username)}/block`, {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ blocked_id: blockedId }),
   });
 }
 
-export async function unblockUser(blockedId: string): Promise<void> {
+export async function unblockUser(username: string): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  await apiFetch('/users/block', {
+  await apiFetch(`/users/${encodeURIComponent(username)}/block`, {
     method: 'DELETE',
     headers: authHeader(token),
-    body: JSON.stringify({ blocked_id: blockedId }),
   });
 }
 
@@ -157,47 +158,52 @@ export async function reportUser(
   });
 }
 
-export async function updateAvatar(userId: string, formData: FormData): Promise<{ avatarUrl: string }> {
+/** Update the authenticated user's avatar. Pass the R2 object URL after upload. */
+export async function updateAvatar(_userId: string, avatarUrl: string): Promise<{ avatarUrl: string }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ avatar_url: string }>(`/profiles/${userId}/avatar`, {
-    method: 'PUT',
+  const raw = await apiFetch<{ user: unknown }>('/users/me', {
+    method: 'PATCH',
     headers: authHeader(token),
-    body: formData,
+    body: JSON.stringify({ avatar_url: avatarUrl }),
   });
-  return { avatarUrl: raw.avatar_url };
+  const user = normalizeUser(raw?.user ?? raw);
+  return { avatarUrl: user.avatarUrl ?? avatarUrl };
 }
 
-export async function updateBanner(userId: string, formData: FormData): Promise<{ bannerUrl: string }> {
+/** Update the authenticated user's banner. Pass the R2 object URL after upload. */
+export async function updateBanner(_userId: string, bannerUrl: string): Promise<{ bannerUrl: string }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ banner_url: string }>(`/profiles/${userId}/banner`, {
-    method: 'PUT',
+  const raw = await apiFetch<{ user: unknown }>('/users/me', {
+    method: 'PATCH',
     headers: authHeader(token),
-    body: formData,
+    body: JSON.stringify({ banner_url: bannerUrl }),
   });
-  return { bannerUrl: raw.banner_url };
+  const user = normalizeUser(raw?.user ?? raw);
+  return { bannerUrl: user.bannerUrl ?? bannerUrl };
 }
 
-export async function getCreatorSettings(userId: string): Promise<{
+export async function getCreatorSettings(_userId?: string): Promise<{
   subscription_price: number | null;
   allow_dms: boolean;
+  allow_comments: boolean;
   welcome_message: string | null;
 }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/profiles/${userId}/creator-settings`, {
+  return apiFetch('/creator/settings', {
     headers: authHeader(token),
   });
 }
 
 export async function updateCreatorSettings(
-  userId: string,
-  data: { subscription_price?: number; allow_dms?: boolean; welcome_message?: string | null },
+  _userId: string | undefined,
+  data: { subscription_price?: number; allow_dms?: boolean; allow_comments?: boolean; welcome_message?: string | null },
 ): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/profiles/${userId}/creator-settings`, {
+  await apiFetch('/creator/settings', {
     method: 'PATCH',
     headers: authHeader(token),
     body: JSON.stringify(data),

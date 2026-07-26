@@ -35,22 +35,20 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
-  const [page, setPage] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
 
   const loadFeed = useCallback(async (reset = false) => {
     try {
-      const targetPage = reset ? 1 : page;
-      const data = await getFeed(targetPage);
+      const data = await getFeed(reset ? undefined : (cursor ?? undefined));
       if (reset) {
         setPosts(data.posts);
-        setPage(2);
       } else {
         setPosts((prev) => [...prev, ...data.posts]);
-        setPage((p) => p + 1);
       }
+      setCursor(data.nextCursor);
       setHasMore(data.hasMore);
       setError(false);
     } catch {
@@ -60,7 +58,7 @@ export default function HomeScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [page]);
+  }, [cursor]);
 
   useEffect(() => {
     loadFeed(true);
