@@ -94,7 +94,29 @@ export async function requestUploadUrl(
 ): Promise<UploadUrlResult> {
   const qs = new URLSearchParams({ mime_type: mimeType, folder });
   if (sizeBytes !== undefined) qs.set('size_bytes', String(sizeBytes));
-  return authedBrokerFetch<UploadUrlResult>(`/credentials/upload-url?${qs}`);
+  const raw = await authedBrokerFetch<Record<string, unknown>>(
+    `/credentials/upload-url?${qs}`,
+  );
+  const uploadUrl = raw.upload_url ?? raw.uploadUrl;
+  const objectKey = raw.object_key ?? raw.key;
+  const expiresIn = raw.expires_in ?? raw.expiresIn;
+  const maxBytes = raw.max_bytes ?? raw.maxBytes;
+
+  if (
+    typeof uploadUrl !== 'string' ||
+    typeof objectKey !== 'string' ||
+    typeof expiresIn !== 'number' ||
+    typeof maxBytes !== 'number'
+  ) {
+    throw new BrokerError(502, 'Upload service returned an invalid upload URL response');
+  }
+
+  return {
+    upload_url: uploadUrl,
+    object_key: objectKey,
+    expires_in: expiresIn,
+    max_bytes: maxBytes,
+  };
 }
 
 // ─── Download URL ─────────────────────────────────────────────────────────────
@@ -108,9 +130,15 @@ export interface DownloadUrlResult {
  * Request a presigned R2 GET URL for an object key the broker issued.
  */
 export async function requestDownloadUrl(objectKey: string): Promise<DownloadUrlResult> {
-  return authedBrokerFetch<DownloadUrlResult>(
+  const raw = await authedBrokerFetch<Record<string, unknown>>(
     `/credentials/download-url?key=${encodeURIComponent(objectKey)}`,
   );
+  const url = raw.url;
+  const expiresIn = raw.expires_in ?? raw.expiresIn;
+  if (typeof url !== 'string' || typeof expiresIn !== 'number') {
+    throw new BrokerError(502, 'Download service returned an invalid URL response');
+  }
+  return { url, expires_in: expiresIn };
 }
 
 // ─── Named Database Queries ───────────────────────────────────────────────────

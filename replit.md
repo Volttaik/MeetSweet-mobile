@@ -18,6 +18,19 @@ Live API: `https://meetsweet-server.quizmi.space/api`
 Set `EXPO_PUBLIC_API_URL` in `.env.local` to point at a different environment.
 The default in `services/api.ts` already points to the production server.
 
+### Local backend on Replit
+
+The imported Next.js API server is under `backend_source/Meetsweet-main/server`.
+The `Start Backend` workflow runs it on local port `3001`, exposed through Replit's
+HTTPS port `3000`. The Expo workflow uses:
+
+```text
+https://$REPLIT_DEV_DOMAIN:3000/api
+```
+
+Both `Start application` and `Start Backend` must be running to exercise the local
+API from Expo Go. Paystack and Resend remain intentionally unset.
+
 ## Architecture
 
 | Layer | Location |

@@ -156,7 +156,11 @@ export async function sendMessage(
     {
       method: 'POST',
       headers: authHeader(token),
-      body: JSON.stringify({ body, mediaUrl, mediaType }),
+      body: JSON.stringify({
+        body,
+        media_url: mediaUrl,
+        media_type: mediaType,
+      }),
     },
   );
   return { message: normalizeMessage(raw?.message ?? {}) };

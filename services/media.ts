@@ -12,7 +12,11 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authFetch } from '@/services/api';
-import { requestUploadUrl, getBrokerConfig } from '@/services/credentials';
+import {
+  requestUploadUrl,
+  requestDownloadUrl,
+  getBrokerConfig,
+} from '@/services/credentials';
 
 export { normaliseMime, isAcceptedMime, extFromMime } from '@/services/storage/upload';
 import { normaliseMime, extFromMime } from '@/services/storage/upload';
@@ -20,6 +24,12 @@ import { normaliseMime, extFromMime } from '@/services/storage/upload';
 export interface UploadedMedia {
   /** Stable media record ID from POST /api/media — pass to createPost as media_id */
   id: string;
+  /** R2 object key issued by the broker. */
+  objectKey: string;
+  /** MIME type used for the upload. */
+  mimeType: string;
+  /** Number of bytes uploaded. */
+  sizeBytes: number;
   /** Public URL for display */
   url: string;
   type: 'image' | 'video' | 'audio' | 'document' | 'other';
@@ -122,40 +132,45 @@ export async function uploadMedia(
       publicUrl = `${cfg.r2_public_base_url.replace(/\/+$/, '')}/${object_key}`;
     }
   } catch {
-    // non-fatal — we'll try to register anyway
+    // Fall back to a broker-signed download URL below.
+  }
+
+  if (!publicUrl) {
+    const download = await requestDownloadUrl(object_key);
+    publicUrl = download.url;
   }
 
   // POST /api/media to create a media record and get a stable ID
   let mediaId = object_key; // fallback: use object_key if registration fails
   let registeredUrl = publicUrl;
 
-  try {
-    const mediaRecord = await authFetch<Record<string, unknown>>(
-      '/media',
-      token,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          url:        publicUrl || object_key,
-          blob_path:  object_key,
-          type:       type === 'image' ? 'image' : type === 'video' ? 'video' : 'image',
-          mime_type:  mime,
-          size_bytes: blob.size,
-        }),
-      },
-    );
-    // Unwrap: authFetch already unwraps {ok,data} so mediaRecord is the data object
-    const rec = mediaRecord as Record<string, unknown>;
-    if (rec.id)  mediaId       = String(rec.id);
-    if (rec.url) registeredUrl = String(rec.url);
-  } catch {
-    // Registration is best-effort — the upload succeeded; fall back to object_key as id
-  }
+  const mediaRecord = await authFetch<Record<string, unknown>>(
+    '/media',
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        url:        publicUrl,
+        blob_path:  object_key,
+        type:       type === 'image' ? 'image' : type === 'video' ? 'video' : 'image',
+        mime_type:  mime,
+        size_bytes: blob.size,
+      }),
+    },
+  );
+  // Unwrap: authFetch already unwraps {ok,data} so mediaRecord is the data object
+  const rec = mediaRecord as Record<string, unknown>;
+  if (!rec.id) throw new Error('Upload completed but media registration returned no ID');
+  mediaId = String(rec.id);
+  if (rec.url) registeredUrl = String(rec.url);
 
   onProgress?.(1);
 
   return {
     id:           mediaId,
+    objectKey:    object_key,
+    mimeType:     mime,
+    sizeBytes:    blob.size,
     url:          registeredUrl || publicUrl,
     type,
     thumbnailUrl: null,
