@@ -823,7 +823,7 @@ function InputBar(props: InputBarProps) {
             multiline
             scrollEnabled={false}
             underlineColorAndroid="transparent"
-            selectionColor={T.ACCENT}
+            selectionColor="#888"
             returnKeyType="default"
             blurOnSubmit={false}
           />

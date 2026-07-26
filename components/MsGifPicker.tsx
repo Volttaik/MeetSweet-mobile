@@ -154,7 +154,7 @@ export function MsGifPicker({ visible, onClose, onSelect }: Props) {
             value={query}
             onChangeText={handleSearch}
             returnKeyType="search"
-            selectionColor={T.ACCENT}
+            selectionColor="#888"
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => handleSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

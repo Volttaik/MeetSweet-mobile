@@ -58,7 +58,7 @@ export default function MsInput({
             style,
           ]}
           placeholderTextColor={T.TEXT_3}
-          selectionColor={T.ACCENT}
+          selectionColor="#888"
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           secureTextEntry={secureTextEntry && !showPassword}

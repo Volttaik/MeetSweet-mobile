@@ -1,12 +1,12 @@
 /**
- * MeetSweet design tokens — dark rose.
- * Deep night backgrounds, warm rose accent, Poppins type.
+ * MeetSweet design tokens — ash shadow grey.
+ * Deep neutral-grey backgrounds, warm rose accent, Poppins type.
  */
 export const T = {
-  // Backgrounds
-  BG:        '#120B10',
-  SURFACE:   '#1E1218',
-  SURFACE_2: '#261620',
+  // Backgrounds — ash shadow grey (neutral dark, no rose tint)
+  BG:        '#0C0C0F',
+  SURFACE:   '#161619',
+  SURFACE_2: '#1E1E24',
 
   // Borders (used sparingly — prefer depth/shadow over lines)
   BORDER:   'rgba(255,255,255,0.028)',
@@ -17,7 +17,7 @@ export const T = {
   TEXT_2: 'rgba(255,255,255,0.55)',
   TEXT_3: 'rgba(255,255,255,0.28)',
 
-  // Accent — warm rose (primary interactive colour)
+  // Accent — warm rose (primary interactive colour, kept as accent only)
   ACCENT:       '#C45A72',
   ACCENT_LIGHT: 'rgba(196,90,114,0.16)',
   ACCENT_DARK:  '#A34860',
@@ -31,8 +31,8 @@ export const T = {
   PURPLE: '#9B6ECA',
   ROSE:   '#C45A72',
 
-  // Ambient glow colours — rose sits quietly behind the app
-  AMBIENT: 'rgba(196,90,114,0.11)',
+  // Ambient glow — subtle neutral grey, replaces rose glow
+  AMBIENT: 'rgba(180,185,210,0.06)',
   SHADOW: 'rgba(0,0,0,0.36)',
 
   // Typography (Poppins loaded in root layout)
@@ -91,12 +91,12 @@ export const T = {
 } as const;
 
 /**
- * The application's background gradient — warm rose, premium, subtle.
+ * The application's background gradient — ash shadow grey, premium, subtle.
  * Used on every screen as the backdrop. NOT an accent colour.
  */
 export const RoseGradient = {
-  // Very top → warm dark rose → near-black
-  colors:    ['#23101A', '#170C13', '#0D0A0C'] as const,
+  // Very top → deep ash grey → near-black
+  colors:    ['#131318', '#0F0F13', '#09090C'] as const,
   locations: [0, 0.45, 1] as const,
 };
 

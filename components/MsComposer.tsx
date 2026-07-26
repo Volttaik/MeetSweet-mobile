@@ -125,7 +125,7 @@ export function MsComposer({
             maxLength={maxLength}
             scrollEnabled={false}
             underlineColorAndroid="transparent"
-            selectionColor={T.ACCENT}
+            selectionColor="#888"
             returnKeyType="default"
             blurOnSubmit={false}
             editable={!disabled}

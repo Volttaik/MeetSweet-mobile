@@ -354,7 +354,7 @@ export default function CreatePostScreen() {
               maxLength={2200}
               style={styles.captionInput}
               textAlignVertical="top"
-              selectionColor={T.ACCENT}
+              selectionColor="#888"
             />
             <Text style={styles.captionCount}>{caption.length}/2200</Text>
           </View>
@@ -426,7 +426,7 @@ export default function CreatePostScreen() {
                   keyboardType="number-pad"
                   style={styles.creditPriceField}
                   placeholderTextColor={T.TEXT_3}
-                  selectionColor={T.ACCENT}
+                  selectionColor="#888"
                 />
                 <Text style={styles.creditUnit}>credits</Text>
               </View>
@@ -471,7 +471,7 @@ export default function CreatePostScreen() {
               returnKeyType="done"
               autoCapitalize="none"
               style={styles.tagInput}
-              selectionColor={T.ACCENT}
+              selectionColor="#888"
             />
             <TouchableOpacity style={styles.tagAddBtn} onPress={addTag} activeOpacity={0.75}>
               <Text style={styles.tagAddLabel}>Add</Text>

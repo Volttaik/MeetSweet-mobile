@@ -7,7 +7,9 @@
 - [Create-post media flow](create-post-media.md) — upload media first→get id from result→pass media_ids:[id] to createPost; mediaUrl/mediaType/isPremium are not backend fields.
 - [Missing services added](missing-services.md) — creator.ts, subscriptions.ts, settings.ts, search.ts, categories.ts all created; use /creator/* endpoints.
 - [Scoped credentials architecture](scoped-credentials-arch.md) — broker backend at /api/credentials/*; upload flow: requestUploadUrl→PUT directly to R2; object_key stored not URL; services/credentials/index.ts + services/storage/upload.ts.
-- [UI design system](ui-design-system.md) — pill radius, no borders, dark frosted buttons (not pink), RoseGradient, MsScreenBackground/MsAmbientBackground, input 54px / button 56px.
+- [UI design system](ui-design-system.md) — pill radius, no borders, dark frosted buttons (not pink), RoseGradient (now ash grey), MsScreenBackground/MsAmbientBackground, input 54px / button 56px.
+- [Color scheme migration](color-scheme-migration.md) — rose-tinted dark backgrounds replaced with ash shadow grey; selectionColor changed from T.ACCENT to #888 everywhere; RoseGradient renamed but kept for compatibility.
+- [Test accounts seeded](test-accounts-seeded.md) — 5 creator accounts created on live backend with Unsplash avatar URLs and posts.
 - [Messaging rebuild](messaging-rebuild.md) — chat InputBar pill/icon/button sizes scaled up; exact px values + stylesheet location documented.
 - [Shared composer](shared-composer.md) — MsComposer (comment mode) now visually matches DM InputBar: T.BG wrapper, T.SURFACE pill, T.RADIUS.pill, emoji icon inside, animated idle↔send button; JSX spread ban in Metro bundler.
 - [Video player enhancements](video-player-enhancements.md) — MsVideoPlayer has speed selector (0.25×–2×), long-press centre for 2× while held, pinch/button toggle CONTAIN↔COVER, speed menu UI, buffering indicator on scrubber.
