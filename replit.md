@@ -18,21 +18,6 @@ Live API: `https://meetsweet-server.quizmi.space/api`
 Set `EXPO_PUBLIC_API_URL` in `.env.local` to point at a different environment.
 The default in `services/api.ts` already points to the production server.
 
-## Turso schema setup
-
-The external LibSQL/Turso database is configured through the secure
-`TURSO_DATABASE_URL` environment value and `TURSO_AUTH_TOKEN` secret. The
-migration is reproducible from source:
-
-```bash
-pnpm run db:migrate
-pnpm run db:check
-```
-
-The migration is safe to rerun and verifies the `posts.unlock_price` column
-and `user_settings` table after applying them. Do not commit database URLs or
-tokens to project files.
-
 ## Architecture
 
 | Layer | Location |
