@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,71 +14,67 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { Button, Chip, Spinner } from 'heroui-native';
-import { Ionicons } from '@expo/vector-icons';
-import { ArrowLeft, Check } from 'phosphor-react-native';
+import { ArrowLeft, Check, FilmStrip, Image as ImageIcon, VideoCamera, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
-import { useEffect } from 'react';
 import { getCategories, type Category } from '@/services/categories';
 
-// ─── Step type ────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type PublishStep = 'compose' | 'uploading' | 'creating' | 'processing' | 'success';
-
-// ─── Visibility option ───────────────────────────────────────────────────────
 
 const VISIBILITY_OPTIONS = [
   {
     value: 'public' as const,
     label: 'Public Preview',
     description: 'Visible to everyone',
-    icon: 'globe-outline' as const,
   },
   {
     value: 'subscribers' as const,
     label: 'Subscribers Only',
     description: 'Locked until subscription',
-    icon: 'lock-closed-outline' as const,
   },
   {
     value: 'draft' as const,
     label: 'Draft',
     description: 'Only you can see this',
-    icon: 'image-outline' as const,
   },
 ];
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function CreatePostScreen() {
   const insets = useSafeAreaInsets();
 
-  // Form state
-  const [caption, setCaption] = useState('');
+  const [caption,    setCaption]    = useState('');
   const [visibility, setVisibility] = useState<'public' | 'subscribers' | 'draft'>('public');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
-  const [mediaUri, setMediaUri] = useState<string | null>(null);
-  const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
-  const [mediaMime, setMediaMime] = useState<string>('image/jpeg');
-  const [mediaName, setMediaName] = useState<string>('media.jpg');
-
-  // Upload state
-  const [step, setStep] = useState<PublishStep>('compose');
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [error, setError] = useState('');
-
-  // Categories
   const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [tags,       setTags]       = useState<string[]>([]);
+  const [tagInput,   setTagInput]   = useState('');
+
+  // Media state
+  const [mediaUri,   setMediaUri]   = useState<string | null>(null);
+  const [mediaType,  setMediaType]  = useState<'image' | 'video' | null>(null);
+  const [mediaMime,  setMediaMime]  = useState('image/jpeg');
+  const [mediaName,  setMediaName]  = useState('media.jpg');
+
+  // Publish state
+  const [step,           setStep]           = useState<PublishStep>('compose');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [error,          setError]          = useState('');
 
   useEffect(() => {
     getCategories().then(({ categories }) => setCategories(categories)).catch(() => {});
   }, []);
 
-  // ─── Media picker ────────────────────────────────────────────────────────
+  // ─── Media picker ─────────────────────────────────────────────────────────
+  // Uses the same pattern as edit-profile avatar/banner upload:
+  //   1. requestMediaLibraryPermissionsAsync
+  //   2. launchImageLibraryAsync
+  //   3. uploadMedia(uri, mime, filename, onProgress) via XHR FormData
+  //   4. use result.id in the post payload
 
   const pickMedia = useCallback(async (type: 'image' | 'video') => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -88,30 +84,28 @@ export default function CreatePostScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: type === 'image' ? ['images'] : ['videos'],
+      mediaTypes:    type === 'image' ? ['images'] : ['videos'],
       allowsEditing: type === 'image',
-      aspect: type === 'image' ? [1, 1] : undefined,
-      quality: type === 'image' ? 0.85 : undefined,
+      aspect:        type === 'image' ? [4, 5] : undefined,
+      quality:       type === 'image' ? 0.85 : undefined,
       videoMaxDuration: 300,
     });
 
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      setMediaUri(asset.uri);
-      setMediaType(type);
-      const mime = asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4');
-      const ext = asset.fileName?.split('.').pop() ?? (type === 'image' ? 'jpg' : 'mp4');
-      setMediaMime(mime);
-      setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
-    }
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    const mime  = asset.mimeType ?? (type === 'image' ? 'image/jpeg' : 'video/mp4');
+    const ext   = asset.fileName?.split('.').pop() ?? (type === 'image' ? 'jpg' : 'mp4');
+
+    setMediaUri(asset.uri);
+    setMediaType(type);
+    setMediaMime(mime);
+    setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
   }, []);
 
-  const removeMedia = () => {
-    setMediaUri(null);
-    setMediaType(null);
-  };
+  const removeMedia = () => { setMediaUri(null); setMediaType(null); };
 
-  // ─── Tag management ──────────────────────────────────────────────────────
+  // ─── Tags ─────────────────────────────────────────────────────────────────
 
   const addTag = () => {
     const cleaned = tagInput.trim().replace(/^#/, '').toLowerCase();
@@ -121,17 +115,14 @@ export default function CreatePostScreen() {
     setTagInput('');
   };
 
-  const removeTag = (tag: string) => {
-    setTags((t) => t.filter((x) => x !== tag));
-  };
+  const removeTag = (tag: string) => setTags((t) => t.filter((x) => x !== tag));
 
-  const toggleCategory = (id: string) => {
+  const toggleCategory = (id: string) =>
     setSelectedCategories((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
     );
-  };
 
-  // ─── Publish ─────────────────────────────────────────────────────────────
+  // ─── Publish ──────────────────────────────────────────────────────────────
 
   const handlePublish = async () => {
     if (!caption.trim() && !mediaUri) {
@@ -144,20 +135,18 @@ export default function CreatePostScreen() {
     setUploadProgress(0);
 
     try {
-      // Upload media if selected, then grab the media id for the post
       let mediaIds: string[] | undefined;
+
+      // Upload media using the same XHR FormData approach as edit-profile
       if (mediaUri && mediaType) {
-        const result = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
+        const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
           setUploadProgress(p);
         });
-        if (result.id) {
-          mediaIds = [result.id];
-        }
+        if (uploaded.id) mediaIds = [uploaded.id];
       }
 
       setStep('creating');
 
-      // Create post using backend contract: caption, visibility, media_ids
       await createPost({
         caption: caption.trim(),
         visibility,
@@ -168,11 +157,9 @@ export default function CreatePostScreen() {
 
       setStep('processing');
       await new Promise((r) => setTimeout(r, 600));
-
       setStep('success');
       await new Promise((r) => setTimeout(r, 1200));
 
-      // Navigate to home feed so the new post is visible
       router.replace('/(tabs)');
     } catch (err) {
       setError((err as Error).message ?? 'Publish failed. Please try again.');
@@ -184,38 +171,33 @@ export default function CreatePostScreen() {
 
   if (step !== 'compose') {
     return (
-      <View style={[styles.publishOverlay, { paddingTop: insets.top }]}>
-        <View style={styles.publishCard}>
+      <View style={[styles.overlay, { paddingTop: insets.top }]}>
+        <View style={styles.overlayCard}>
           {step === 'success' ? (
             <>
               <View style={styles.successIcon}>
-                <Check size={32} color={T.BG} />
+                <Check size={32} color={T.BG} weight="bold" />
               </View>
-              <Text style={styles.publishTitle}>Published!</Text>
-              <Text style={styles.publishSubtitle}>Your post is now live.</Text>
+              <Text style={styles.overlayTitle}>Published!</Text>
+              <Text style={styles.overlaySubtitle}>Your post is now live.</Text>
             </>
           ) : (
             <>
-              <Spinner size="lg" color={T.TEXT} />
-              <Text style={styles.publishTitle}>
-                {step === 'uploading'
-                  ? 'Uploading Media'
-                  : step === 'creating'
-                  ? 'Creating Post'
-                  : 'Processing'}
+              <ActivityIndicator size="large" color={T.ACCENT} />
+              <Text style={styles.overlayTitle}>
+                {step === 'uploading' ? 'Uploading Media'
+                  : step === 'creating' ? 'Creating Post'
+                  : 'Processing…'}
               </Text>
-              {step === 'uploading' && uploadProgress > 0 && (
+              {step === 'uploading' && uploadProgress > 0 ? (
                 <>
                   <View style={styles.progressBar}>
                     <View style={[styles.progressFill, { width: `${Math.round(uploadProgress * 100)}%` as any }]} />
                   </View>
-                  <Text style={styles.publishSubtitle}>
-                    {Math.round(uploadProgress * 100)}%
-                  </Text>
+                  <Text style={styles.overlaySubtitle}>{Math.round(uploadProgress * 100)}%</Text>
                 </>
-              )}
-              {step !== 'uploading' && (
-                <Text style={styles.publishSubtitle}>Please wait…</Text>
+              ) : (
+                <Text style={styles.overlaySubtitle}>Please wait…</Text>
               )}
             </>
           )}
@@ -227,6 +209,7 @@ export default function CreatePostScreen() {
   // ─── Compose view ─────────────────────────────────────────────────────────
 
   const selectedOption = VISIBILITY_OPTIONS.find((o) => o.value === visibility)!;
+  const canPublish     = !!(caption.trim() || mediaUri);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -241,9 +224,10 @@ export default function CreatePostScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>New Post</Text>
         <TouchableOpacity
-          style={[styles.publishBtn, !caption.trim() && !mediaUri && styles.publishBtnDisabled]}
+          style={[styles.publishBtn, !canPublish && styles.publishBtnDisabled]}
           onPress={handlePublish}
           activeOpacity={0.8}
+          disabled={!canPublish}
         >
           <Text style={styles.publishBtnLabel}>Publish</Text>
         </TouchableOpacity>
@@ -254,7 +238,7 @@ export default function CreatePostScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ─── Media upload ─────────────────────────────────────────────────── */}
+        {/* ── Media ─────────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Media</Text>
 
@@ -265,7 +249,7 @@ export default function CreatePostScreen() {
                 onPress={() => pickMedia('image')}
                 activeOpacity={0.8}
               >
-                 <Ionicons name="camera-outline" size={24} color={T.TEXT_2} />
+                <ImageIcon size={26} color={T.ACCENT} />
                 <Text style={styles.mediaPickerLabel}>Photo</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -273,29 +257,28 @@ export default function CreatePostScreen() {
                 onPress={() => pickMedia('video')}
                 activeOpacity={0.8}
               >
-                 <Ionicons name="videocam-outline" size={24} color={T.TEXT_2} />
+                <VideoCamera size={26} color={T.ACCENT} />
                 <Text style={styles.mediaPickerLabel}>Video</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.mediaPreview}>
-              {mediaType === 'image' && (
+              {mediaType === 'image' ? (
                 <Image source={{ uri: mediaUri }} style={styles.mediaImg} resizeMode="cover" />
-              )}
-              {mediaType === 'video' && (
+              ) : (
                 <View style={styles.videoThumb}>
-                   <Ionicons name="videocam-outline" size={40} color={T.TEXT_2} />
+                  <FilmStrip size={40} color={T.TEXT_2} />
                   <Text style={styles.videoLabel}>Video selected</Text>
                 </View>
               )}
               <TouchableOpacity style={styles.removeMedia} onPress={removeMedia}>
-                 <Ionicons name="close" size={17} color={T.BG} />
+                <X size={15} color={T.TEXT} weight="bold" />
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* ─── Caption ───────────────────────────────────────────────────────── */}
+        {/* ── Caption ───────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Caption</Text>
           <View style={styles.captionWrap}>
@@ -314,7 +297,7 @@ export default function CreatePostScreen() {
           </View>
         </View>
 
-        {/* ─── Visibility ────────────────────────────────────────────────────── */}
+        {/* ── Visibility ────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Visibility</Text>
           <View style={styles.visibilityOptions}>
@@ -327,11 +310,6 @@ export default function CreatePostScreen() {
                   onPress={() => setVisibility(opt.value)}
                   activeOpacity={0.75}
                 >
-                   <Ionicons
-                     name={opt.icon}
-                    size={18}
-                    color={isActive ? T.BG : T.TEXT_2}
-                  />
                   <View style={styles.visibilityText}>
                     <Text style={[styles.visibilityLabel, isActive && styles.visibilityLabelActive]}>
                       {opt.label}
@@ -341,24 +319,17 @@ export default function CreatePostScreen() {
                     </Text>
                   </View>
                   {isActive && (
-                     <Ionicons name="checkmark" size={17} color={T.BG} />
+                    <View style={styles.checkCircle}>
+                      <Check size={12} color={T.BG} weight="bold" />
+                    </View>
                   )}
                 </TouchableOpacity>
               );
             })}
           </View>
-
-          {visibility === 'subscribers' && (
-            <View style={styles.premiumNote}>
-               <Ionicons name="lock-closed-outline" size={14} color={T.TEXT_2} />
-              <Text style={styles.premiumNoteText}>
-                Subscribers will see a locked preview with a PREMIUM badge.
-              </Text>
-            </View>
-          )}
         </View>
 
-        {/* ─── Categories ────────────────────────────────────────────────────── */}
+        {/* ── Categories ────────────────────────────────────────────────── */}
         {categories.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Categories</Text>
@@ -368,11 +339,11 @@ export default function CreatePostScreen() {
                 return (
                   <TouchableOpacity
                     key={cat.id}
-                    style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    style={[styles.chip, active && styles.chipActive]}
                     onPress={() => toggleCategory(cat.id)}
                     activeOpacity={0.75}
                   >
-                    <Text style={[styles.categoryChipLabel, active && styles.categoryChipLabelActive]}>
+                    <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
                       {cat.name}
                     </Text>
                   </TouchableOpacity>
@@ -382,7 +353,7 @@ export default function CreatePostScreen() {
           </View>
         )}
 
-        {/* ─── Tags ──────────────────────────────────────────────────────────── */}
+        {/* ── Tags ──────────────────────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tags</Text>
           <View style={styles.tagInputRow}>
@@ -396,12 +367,8 @@ export default function CreatePostScreen() {
               autoCapitalize="none"
               style={styles.tagInput}
             />
-            <TouchableOpacity
-              style={styles.tagAddBtn}
-              onPress={addTag}
-              activeOpacity={0.75}
-            >
-               <Ionicons name="add" size={19} color={T.BG} />
+            <TouchableOpacity style={styles.tagAddBtn} onPress={addTag} activeOpacity={0.75}>
+              <Text style={styles.tagAddLabel}>Add</Text>
             </TouchableOpacity>
           </View>
           {tags.length > 0 && (
@@ -414,32 +381,31 @@ export default function CreatePostScreen() {
                   activeOpacity={0.75}
                 >
                   <Text style={styles.tagChipLabel}>#{tag}</Text>
-                   <Ionicons name="close" size={13} color={T.TEXT_2} />
+                  <X size={11} color={T.TEXT_2} weight="bold" />
                 </TouchableOpacity>
               ))}
             </View>
           )}
         </View>
 
-        {/* ─── Error ─────────────────────────────────────────────────────────── */}
+        {/* ── Error ─────────────────────────────────────────────────────── */}
         {!!error && (
           <View style={styles.errorBanner}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        {/* ─── Publish button ────────────────────────────────────────────────── */}
-         <Button
-          variant="primary"
-           size="md"
+        {/* ── Publish footer button ─────────────────────────────────────── */}
+        <TouchableOpacity
+          style={[styles.publishFooterBtn, !canPublish && styles.publishFooterBtnDisabled]}
           onPress={handlePublish}
-          isDisabled={!caption.trim() && !mediaUri}
-          style={styles.publishFooterBtn}
+          disabled={!canPublish}
+          activeOpacity={0.85}
         >
-          <Button.Label style={styles.publishFooterBtnLabel}>
+          <Text style={styles.publishFooterBtnLabel}>
             Publish{visibility !== 'public' ? ` · ${selectedOption.label}` : ''}
-          </Button.Label>
-        </Button>
+          </Text>
+        </TouchableOpacity>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -458,6 +424,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     height: 56,
+    borderBottomWidth: 1,
+    borderBottomColor: T.BORDER,
   },
   headerBtn: {
     width: 36,
@@ -477,17 +445,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     height: 34,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  publishBtnDisabled: {
-    backgroundColor: T.SURFACE_2,
-  },
+  publishBtnDisabled: { backgroundColor: T.SURFACE_2 },
   publishBtnLabel: {
     fontSize: 13,
     fontFamily: T.FONT.semibold,
-    color: T.BG,
+    color: T.TEXT,
   },
 
   scrollContent: { paddingBottom: 20 },
@@ -498,23 +464,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: T.FONT.semibold,
-    color: T.TEXT_2,
+    color: T.TEXT_3,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 1,
   },
 
   // Media
-  mediaPickerRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
+  mediaPickerRow: { flexDirection: 'row', gap: 12 },
   mediaPickerBtn: {
     flex: 1,
-    height: 90,
+    height: 100,
     borderRadius: T.RADIUS.lg,
+    borderWidth: 1.5,
     borderStyle: 'dashed',
+    borderColor: T.BORDER_2,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
@@ -532,12 +497,12 @@ const styles = StyleSheet.create({
   },
   mediaImg: {
     width: '100%',
-    aspectRatio: 1,
+    aspectRatio: 4 / 5,
     backgroundColor: T.SURFACE,
   },
   videoThumb: {
     width: '100%',
-    height: 180,
+    height: 200,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
@@ -555,7 +520,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: T.TEXT,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -564,6 +529,8 @@ const styles = StyleSheet.create({
   captionWrap: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: T.BORDER_2,
     padding: 14,
     minHeight: 120,
   },
@@ -589,81 +556,77 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE,
+    borderWidth: 1.5,
+    borderColor: T.BORDER_2,
     gap: 12,
   },
   visibilityOptionActive: {
-    backgroundColor: T.TEXT,
+    borderColor: T.ACCENT,
+    backgroundColor: T.ACCENT_LIGHT,
   },
-  visibilityText: { flex: 1 },
+  visibilityText:  { flex: 1 },
   visibilityLabel: {
     fontSize: 14,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
   },
-  visibilityLabelActive: { color: T.BG },
+  visibilityLabelActive: { color: T.TEXT },
   visibilityDesc: {
     fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
     marginTop: 1,
   },
-  visibilityDescActive: { color: 'rgba(0,0,0,0.55)' },
-  premiumNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    padding: 12,
-    borderRadius: T.RADIUS.sm,
-    backgroundColor: T.SURFACE_2,
-  },
-  premiumNoteText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_2,
-    lineHeight: 18,
+  visibilityDescActive: { color: T.TEXT_2 },
+  checkCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  // Categories
-  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  categoryChip: {
+  // Chips (categories + tags)
+  chipsWrap:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  chip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
   },
-  categoryChipActive: { backgroundColor: T.TEXT, borderColor: T.TEXT },
-  categoryChipLabel: {
-    fontSize: 13,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT_2,
+  chipActive: {
+    backgroundColor: T.ACCENT_LIGHT,
+    borderColor: T.ACCENT,
   },
-  categoryChipLabelActive: { color: T.BG },
+  chipLabel:       { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  chipLabelActive: { color: T.ACCENT },
 
-  // Tags
-  tagInputRow: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-  },
+  // Tag input
+  tagInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   tagInput: {
     flex: 1,
-    height: 44,
+    height: 46,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: T.BORDER_2,
     paddingHorizontal: 14,
     fontSize: 14,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
   },
   tagAddBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+    height: 46,
+    paddingHorizontal: 18,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  tagAddLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
   tagChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -672,12 +635,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
   },
-  tagChipLabel: {
-    fontSize: 13,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT,
-  },
+  tagChipLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.ACCENT },
 
   // Error
   errorBanner: {
@@ -686,6 +647,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: T.RADIUS.md,
     backgroundColor: 'rgba(239,68,68,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.2)',
   },
   errorText: {
     fontSize: 13,
@@ -694,25 +657,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Publish button
+  // Footer publish button
   publishFooterBtn: {
     marginHorizontal: 20,
-     marginTop: 20,
+    marginTop: 24,
+    height: 52,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  publishFooterBtnDisabled: { backgroundColor: T.SURFACE_2 },
   publishFooterBtnLabel: {
     fontFamily: T.FONT.semibold,
-    fontSize: 15,
-    color: T.BG,
+    fontSize: 16,
+    color: T.TEXT,
   },
 
   // Publishing overlay
-  publishOverlay: {
+  overlay: {
     flex: 1,
     backgroundColor: T.BG,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  publishCard: {
+  overlayCard: {
     alignItems: 'center',
     gap: 16,
     padding: 32,
@@ -721,31 +690,31 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  publishTitle: {
+  overlayTitle: {
     fontSize: 22,
     fontFamily: T.FONT.bold,
     color: T.TEXT,
     letterSpacing: -0.4,
   },
-  publishSubtitle: {
+  overlaySubtitle: {
     fontSize: 14,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
   },
   progressBar: {
     width: 200,
-    height: 3,
+    height: 4,
     borderRadius: 2,
     backgroundColor: T.SURFACE_2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: T.TEXT,
+    backgroundColor: T.ACCENT,
     borderRadius: 2,
   },
 });

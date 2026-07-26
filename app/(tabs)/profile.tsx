@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   FlatList,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, FileText, FilmStrip, Image as ImageIcon, Gear, ShareNetwork } from 'phosphor-react-native';
+import { Camera, FileText, FilmStrip, Gear, Image as ImageIcon, ShareNetwork } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -32,14 +33,14 @@ function StatItem({ label, value }: { label: string; value: string | number }) {
   );
 }
 const statStyles = StyleSheet.create({
-  wrap: { alignItems: 'center', flex: 1 },
+  wrap:  { alignItems: 'center', flex: 1 },
   value: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
   label: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
 });
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 }
 
@@ -47,12 +48,13 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<ProfileTab>('Posts');
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+
+  const [activeTab,    setActiveTab]    = useState<ProfileTab>('Posts');
+  const [posts,        setPosts]        = useState<Post[]>([]);
+  const [savedPosts,   setSavedPosts]   = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingSaved, setLoadingSaved] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing,   setRefreshing]   = useState(false);
 
   const gridItemSize = Math.floor((width - 2) / 3);
 
@@ -62,7 +64,7 @@ export default function ProfileScreen() {
       const data = await getUserPosts(user.username);
       setPosts(data.posts);
     } catch {
-      // ignore
+      // ignore — empty state shown
     } finally {
       setLoadingPosts(false);
       setRefreshing(false);
@@ -81,13 +83,8 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadPosts();
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (activeTab === 'Saved') loadSavedPosts();
-  }, [activeTab]);
+  useEffect(() => { loadPosts(); }, [user?.id]);
+  useEffect(() => { if (activeTab === 'Saved') loadSavedPosts(); }, [activeTab]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -99,6 +96,38 @@ export default function ProfileScreen() {
     : 'U';
 
   const mediaPosts = posts.filter((p) => !!p.mediaUrl);
+
+  // ── Grid tile ──────────────────────────────────────────────────────────────
+
+  const GridTile = ({ item }: { item: Post }) => (
+    <TouchableOpacity
+      key={item.id}
+      style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE }}
+      activeOpacity={0.8}
+      onPress={() => router.push(`/post/${item.id}`)}
+    >
+      {item.mediaUrl ? (
+        <Image
+          source={{ uri: item.mediaUrl }}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={{ flex: 1, backgroundColor: T.SURFACE, padding: 8, justifyContent: 'center' }}>
+          <Text style={{ color: T.TEXT_2, fontSize: 11, fontFamily: T.FONT.regular }} numberOfLines={4}>
+            {item.caption}
+          </Text>
+        </View>
+      )}
+      {item.mediaType === 'video' && (
+        <View style={styles.videoOverlay}>
+          <FilmStrip size={14} color={T.TEXT} />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  // ── Tab content ─────────────────────────────────────────────────────────────
 
   const tabContent = () => {
     if (activeTab === 'Posts') {
@@ -115,7 +144,7 @@ export default function ProfileScreen() {
         return (
           <MsEmptyState
             title="No posts yet"
-            message="Tap the + button to share your first post with the world."
+            message="Tap the + button to share your first post."
             actionLabel="Create post"
             onAction={() => router.push('/create-post')}
           />
@@ -123,56 +152,22 @@ export default function ProfileScreen() {
       }
       return (
         <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
-          {posts.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE }}
-              activeOpacity={0.8}
-            >
-              {p.mediaUrl && (
-                // Show media preview (image thumbnail)
-                <View style={{ flex: 1, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.medium }}>
-                    {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : <ImageIcon size={18} color={T.TEXT_3} />}
-                  </Text>
-                </View>
-              )}
-              {!p.mediaUrl && (
-                <View style={{ flex: 1, backgroundColor: T.SURFACE, padding: 8 }}>
-                  <Text style={{ color: T.TEXT_2, fontSize: 11, fontFamily: T.FONT.regular }} numberOfLines={4}>
-                    {p.caption}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+          {posts.map((p) => <GridTile key={p.id} item={p} />)}
         </View>
       );
     }
+
     if (activeTab === 'Media') {
       if (mediaPosts.length === 0) {
-        return (
-          <MsEmptyState
-            title="No media yet"
-            message="Post photos or videos to see them here."
-          />
-        );
+        return <MsEmptyState title="No media yet" message="Post photos or videos to see them here." />;
       }
       return (
         <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
-          {mediaPosts.map((p) => (
-            <View
-              key={p.id}
-              style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Text style={{ color: T.TEXT_3, fontSize: 11 }}>
-                {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : <ImageIcon size={18} color={T.TEXT_3} />}
-              </Text>
-            </View>
-          ))}
+          {mediaPosts.map((p) => <GridTile key={p.id} item={p} />)}
         </View>
       );
     }
+
     // Saved
     if (loadingSaved) {
       return (
@@ -184,28 +179,18 @@ export default function ProfileScreen() {
       );
     }
     if (savedPosts.length === 0) {
-      return (
-        <MsEmptyState
-          title="No saved posts"
-          message="Posts you bookmark will appear here."
-        />
-      );
+      return <MsEmptyState title="No saved posts" message="Posts you bookmark will appear here." />;
     }
     return (
       <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
-        {savedPosts.map((p) => (
-          <View
-            key={p.id}
-            style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ color: T.TEXT_3, fontSize: 11 }}>
-                {p.mediaType === 'video' ? <FilmStrip size={18} color={T.TEXT_3} /> : p.mediaUrl ? <Camera size={18} color={T.TEXT_3} /> : <FileText size={18} color={T.TEXT_3} />}
-            </Text>
-          </View>
-        ))}
+        {savedPosts.map((p) => <GridTile key={p.id} item={p} />)}
       </View>
     );
   };
+
+  // ── Banner ──────────────────────────────────────────────────────────────────
+
+  const bannerUrl = (user as any)?.bannerUrl ?? null;
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
@@ -213,34 +198,57 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 20 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.TEXT} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.ACCENT} />
         }
       >
-
         {/* Top bar */}
         <View style={styles.topBar}>
           <Text style={styles.topUsername}>@{user?.username ?? 'username'}</Text>
           <View style={styles.topActions}>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              activeOpacity={0.7}
+              onPress={() => {}}
+            >
               <ShareNetwork size={18} color={T.TEXT} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/settings')} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => router.push('/settings')}
+              activeOpacity={0.7}
+            >
               <Gear size={18} color={T.TEXT} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Cover */}
-        <View style={[styles.cover, user?.bannerUrl ? { backgroundColor: T.SURFACE_2 } : {}]} />
+        {/* Cover / Banner */}
+        <TouchableOpacity activeOpacity={0.85} onPress={() => router.push('/edit-profile')}>
+          {bannerUrl ? (
+            <Image source={{ uri: bannerUrl }} style={styles.cover} resizeMode="cover" />
+          ) : (
+            <View style={[styles.cover, { backgroundColor: T.SURFACE }]}>
+              <Camera size={20} color={T.TEXT_3} />
+            </View>
+          )}
+        </TouchableOpacity>
 
-        {/* Avatar + action buttons row */}
+        {/* Avatar row */}
         <View style={styles.avatarRow}>
-          <View style={styles.avatarBorder}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => router.push('/edit-profile')}
+            style={styles.avatarBorder}
+          >
             <MsAvatar size={82} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
-          </View>
+          </TouchableOpacity>
           <View style={{ flex: 1 }} />
           <View style={[styles.profileActions, { paddingBottom: 6 }]}>
-            <TouchableOpacity style={styles.editBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.editBtn}
+              activeOpacity={0.8}
+              onPress={() => router.push('/edit-profile')}
+            >
               <Text style={styles.editLabel}>Edit Profile</Text>
             </TouchableOpacity>
           </View>
@@ -250,9 +258,7 @@ export default function ProfileScreen() {
         <View style={styles.userInfo}>
           <Text style={styles.displayName}>{user?.name ?? 'Display Name'}</Text>
           <Text style={styles.handle}>@{user?.username ?? 'username'}</Text>
-          {!!user?.bio && (
-            <Text style={styles.bio}>{user.bio}</Text>
-          )}
+          {!!user?.bio && <Text style={styles.bio}>{user.bio}</Text>}
         </View>
 
         {/* Stats */}
@@ -261,7 +267,7 @@ export default function ProfileScreen() {
           <View style={styles.statsDivider} />
           <StatItem label="Following" value={formatCount(user?.followingCount ?? 0)} />
           <View style={styles.statsDivider} />
-          <StatItem label="Posts" value={formatCount(user?.postCount ?? 0)} />
+          <StatItem label="Posts"     value={formatCount(user?.postCount     ?? 0)} />
         </View>
 
         {/* Content tabs */}
@@ -288,9 +294,7 @@ export default function ProfileScreen() {
           })}
         </ScrollView>
 
-        {/* Tab content */}
         {tabContent()}
-
       </ScrollView>
     </View>
   );
@@ -307,7 +311,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   topUsername: { fontSize: 16, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.2 },
-  topActions: { flexDirection: 'row', gap: 8 },
+  topActions:  { flexDirection: 'row', gap: 8 },
   iconBtn: {
     width: 36,
     height: 36,
@@ -317,7 +321,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  cover: { height: 130, backgroundColor: T.SURFACE },
+  cover: {
+    height: 130,
+    backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   avatarRow: {
     flexDirection: 'row',
@@ -338,6 +347,8 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -345,7 +356,7 @@ const styles = StyleSheet.create({
 
   userInfo: { paddingHorizontal: 20, paddingTop: 14, gap: 4 },
   displayName: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
-  handle: { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+  handle:      { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2 },
   bio: {
     fontSize: 14,
     fontFamily: T.FONT.regular,
@@ -365,16 +376,27 @@ const styles = StyleSheet.create({
   statsDivider: { width: 1, height: 28, backgroundColor: T.BORDER_2 },
 
   contentTabsScroll: { borderBottomWidth: 1, borderBottomColor: T.BORDER },
-  contentTabsRow: { paddingHorizontal: 16 },
+  contentTabsRow:    { paddingHorizontal: 16 },
   contentTab: {
     paddingHorizontal: 14,
     paddingVertical: 13,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  contentTabActive: { borderBottomColor: T.TEXT },
-  contentTabLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  contentTabActive:      { borderBottomColor: T.ACCENT },
+  contentTabLabel:       { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   contentTabLabelActive: { color: T.TEXT, fontFamily: T.FONT.semibold },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  grid:         { flexDirection: 'row', flexWrap: 'wrap' },
+  videoOverlay: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

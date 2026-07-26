@@ -70,9 +70,13 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ gestureEnabled: false, animation: 'fade' }} />
 
       {/* Authenticated push screens */}
-      <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
-      <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
-      <Stack.Screen name="wallet" options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="notifications"         options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="settings"              options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="edit-profile"          options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="privacy-settings"      options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="security-settings"     options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="notification-settings" options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="wallet"                options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
 

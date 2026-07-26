@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,20 +11,20 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
+  Bell,
   CaretRight,
-  User,
+  ChatCentered,
+  Eye,
+  FileText,
   Info,
   Link,
   Lock,
-  Bell,
-  Shield,
-  UserMinus,
   Question,
-  ChatCentered,
-  Warning,
-  FileText,
-  Eye,
+  Shield,
   SignOut,
+  User,
+  UserMinus,
+  Warning,
   type Icon,
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -33,57 +34,45 @@ import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Settings row ─────────────────────────────────────────────────────────────
 
-type RowIcon = Icon;
-
 function SettingsRow({
-  Icon,
+  Icon: RowIcon,
   label,
   onPress,
   chevron = true,
   danger = false,
   badge,
 }: {
-  Icon?: RowIcon;
+  Icon?: Icon;
   label: string;
   onPress?: () => void;
   chevron?: boolean;
   danger?: boolean;
   badge?: string;
 }) {
-  const labelColor = danger ? T.ERROR : T.TEXT;
-  const iconColor = danger ? T.ERROR : T.TEXT_2;
-
   return (
-    <TouchableOpacity
-      style={styles.row}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      {Icon && (
+    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
+      {RowIcon && (
         <View style={styles.rowIconWrap}>
-          <Icon size={17} color={iconColor} />
+          <RowIcon size={17} color={danger ? T.ERROR : T.TEXT_2} />
         </View>
       )}
-      <Text style={[styles.rowLabel, { color: labelColor }]}>{label}</Text>
+      <Text style={[styles.rowLabel, danger && { color: T.ERROR }]}>{label}</Text>
       {badge && (
         <View style={styles.rowBadge}>
           <Text style={styles.rowBadgeText}>{badge}</Text>
         </View>
       )}
-      {chevron && (
-        <CaretRight size={15} color={T.TEXT_3} />
-      )}
+      {chevron && <CaretRight size={15} color={T.TEXT_3} />}
     </TouchableOpacity>
   );
 }
 
-// ─── Section header ───────────────────────────────────────────────────────────
-
 function SectionHeader({ title }: { title: string }) {
-  return (
-    <Text style={styles.sectionTitle}>{title}</Text>
-  );
+  return <Text style={styles.sectionTitle}>{title}</Text>;
 }
+
+const comingSoon = (feature: string) =>
+  Alert.alert(feature, 'This feature is coming soon.', [{ text: 'OK' }]);
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -95,23 +84,15 @@ export default function SettingsScreen() {
     ? user.name.trim().split(' ').map((w: string) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('')
     : 'U';
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/welcome');
-          },
-        },
-      ],
-    );
-  };
+  const handleSignOut = () =>
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => { await logout(); router.replace('/welcome'); },
+      },
+    ]);
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
@@ -133,17 +114,13 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
       >
-        {/* Profile summary */}
+        {/* Profile summary card */}
         <TouchableOpacity
           style={styles.profileCard}
           activeOpacity={0.8}
           onPress={() => router.push('/edit-profile')}
         >
-          <MsAvatar
-            size={54}
-            initials={initials}
-            imageUri={user?.avatarUrl ?? undefined}
-          />
+          <MsAvatar size={54} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{user?.name ?? 'Display Name'}</Text>
             <Text style={styles.profileHandle}>
@@ -156,57 +133,57 @@ export default function SettingsScreen() {
         {/* Account */}
         <SectionHeader title="Account" />
         <View style={styles.section}>
-          <SettingsRow Icon={User}        label="Profile"            onPress={() => router.push('/edit-profile')} />
+          <SettingsRow Icon={User}     label="Edit Profile"        onPress={() => router.push('/edit-profile')} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Info}        label="Account Information" onPress={() => {}} />
+          <SettingsRow Icon={Info}     label="Account Information" onPress={() => comingSoon('Account Information')} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Link}        label="Linked Accounts"    onPress={() => {}} />
+          <SettingsRow Icon={Link}     label="Linked Accounts"     onPress={() => comingSoon('Linked Accounts')} />
         </View>
 
         {/* Privacy */}
         <SectionHeader title="Privacy" />
         <View style={styles.section}>
-          <SettingsRow Icon={Lock}    label="Privacy Settings"   onPress={() => {}} />
+          <SettingsRow Icon={Lock}     label="Privacy Settings"    onPress={() => router.push('/privacy-settings')} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={UserMinus}   label="Blocked Users"      onPress={() => {}} />
+          <SettingsRow Icon={UserMinus} label="Blocked Users"      onPress={() => comingSoon('Blocked Users')} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Eye}     label="Content Preferences" onPress={() => {}} />
+          <SettingsRow Icon={Eye}      label="Content Preferences" onPress={() => comingSoon('Content Preferences')} />
         </View>
 
         {/* Notifications */}
         <SectionHeader title="Notifications" />
         <View style={styles.section}>
-          <SettingsRow Icon={Bell}    label="Notification Preferences" onPress={() => {}} />
+          <SettingsRow Icon={Bell} label="Notification Preferences" onPress={() => router.push('/notification-settings')} />
         </View>
 
         {/* Security */}
         <SectionHeader title="Security" />
         <View style={styles.section}>
-          <SettingsRow Icon={Lock}    label="Change Password"          onPress={() => {}} />
+          <SettingsRow Icon={Lock}   label="Change Password"           onPress={() => router.push('/security-settings')} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Shield}  label="Two-Factor Authentication" onPress={() => {}} badge="Off" />
+          <SettingsRow Icon={Shield} label="Two-Factor Authentication" onPress={() => router.push('/security-settings')} badge="Off" />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Info}    label="Active Sessions"           onPress={() => {}} />
+          <SettingsRow Icon={Info}   label="Active Sessions"           onPress={() => comingSoon('Active Sessions')} />
         </View>
 
         {/* Support */}
         <SectionHeader title="Support" />
         <View style={styles.section}>
-          <SettingsRow Icon={Question}     label="Help Center"        onPress={() => {}} />
+          <SettingsRow Icon={Question}      label="Help Center"       onPress={() => Linking.openURL('https://meetsweet-server.quizmi.space/help').catch(() => {})} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={ChatCentered}  label="Contact Support"    onPress={() => {}} />
+          <SettingsRow Icon={ChatCentered}  label="Contact Support"   onPress={() => Linking.openURL('mailto:support@meetsweet.app').catch(() => {})} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Warning}  label="Report a Problem"   onPress={() => {}} />
+          <SettingsRow Icon={Warning}       label="Report a Problem"  onPress={() => Linking.openURL('mailto:support@meetsweet.app?subject=Bug%20Report').catch(() => {})} />
         </View>
 
         {/* Legal */}
         <SectionHeader title="Legal" />
         <View style={styles.section}>
-          <SettingsRow Icon={FileText}  label="Terms of Service"  onPress={() => {}} />
+          <SettingsRow Icon={FileText} label="Terms of Service" onPress={() => Linking.openURL('https://meetsweet-server.quizmi.space/terms').catch(() => {})} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Eye}       label="Privacy Policy"    onPress={() => {}} />
+          <SettingsRow Icon={Eye}      label="Privacy Policy"   onPress={() => Linking.openURL('https://meetsweet-server.quizmi.space/privacy').catch(() => {})} />
           <View style={styles.rowDivider} />
-          <SettingsRow Icon={Info}      label="About MeetSweet"   onPress={() => {}} />
+          <SettingsRow Icon={Info}     label="About MeetSweet"  onPress={() => Alert.alert('MeetSweet', 'Version 1.0.0\n\nBuilt with ❤️')} />
         </View>
 
         {/* Log out */}
@@ -268,8 +245,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   profileInfo: { flex: 1 },
-  profileName: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
-  profileHandle: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
+  profileName:   { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
+  profileHandle: { fontSize: 12, fontFamily: T.FONT.regular,  color: T.TEXT_2, marginTop: 2 },
 
   sectionTitle: {
     fontSize: 11,
@@ -298,10 +275,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
   },
-  rowIconWrap: {
-    width: 28,
-    alignItems: 'center',
-  },
+  rowIconWrap: { width: 28, alignItems: 'center' },
   rowLabel: {
     flex: 1,
     fontSize: 14,
@@ -337,7 +311,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.2)',
+    borderColor: 'rgba(239,68,68,0.25)',
   },
   logoutLabel: {
     fontSize: 14,

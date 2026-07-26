@@ -12,7 +12,7 @@
 export function getApiBase(): string {
   const vercelUrl = process.env.EXPO_PUBLIC_API_URL;
   if (vercelUrl) return `${vercelUrl.replace(/\/+$/, '')}/api`;
-  return 'http://localhost:3000/api';
+  return 'https://meetsweet-server.quizmi.space/api';
 }
 
 export class ApiError extends Error {
