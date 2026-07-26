@@ -6,3 +6,5 @@
 - [Service normalizers](service-normalizers.md) — all services have normalizer fns (normalizeUser/Post/Comment/…) mapping snake_case→camelCase; User type has website,location,isVerifiedCreator,role (NOT credits/subscriberCount).
 - [Create-post media flow](create-post-media.md) — upload media first→get id from result→pass media_ids:[id] to createPost; mediaUrl/mediaType/isPremium are not backend fields.
 - [Missing services added](missing-services.md) — creator.ts, subscriptions.ts, settings.ts, search.ts, categories.ts all created; use /creator/* endpoints.
+- [Scoped credentials architecture](scoped-credentials-arch.md) — broker backend at /api/credentials/*; upload flow: requestUploadUrl→PUT directly to R2; object_key stored not URL; services/credentials/index.ts + services/storage/upload.ts.
+- [UI design system](ui-design-system.md) — pill radius (50px) for all interactive elements; no borders on inputs; dark bg shift for focus; T.RADIUS.pill=50 in constants/theme.ts; global CSS removes all outlines.

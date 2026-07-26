@@ -26,15 +26,15 @@
     }
 
     @variant dark {
-       --background:       #111111;
+       --background:       #0D0B1A;
        --foreground:       #FFFFFF;
-       --surface:          #1F1F1F;
+       --surface:          #1A1628;
        --surface-foreground: #FFFFFF;
-       --accent:           #FFFFFF;
-       --accent-foreground: #000000;
-       --border:           #383838;
-       --muted:            #858585;
-       --default:          #292929;
+       --accent:           #FF4473;
+       --accent-foreground: #FFFFFF;
+       --border:           rgba(255,255,255,0.06);
+       --muted:            rgba(255,255,255,0.40);
+       --default:          #251F40;
        --default-foreground: #FFFFFF;
 
       --font-normal:   'Poppins_400Regular';
@@ -43,5 +43,51 @@
       --font-bold:     'Poppins_700Bold';
       --radius: 1rem;
     }
+  }
+}
+
+/* ── Web: eliminate ALL browser-default input outlines ────────────────────── */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    outline: none !important;
+    outline-width: 0 !important;
+    outline-style: none !important;
+    box-shadow: none;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    outline: none !important;
+    border: none;
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: transparent;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus,
+  button:focus,
+  input:focus-visible,
+  textarea:focus-visible,
+  button:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+
+  /* Remove iOS tap highlight */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent white background flash on body */
+  body, html, #root {
+    background-color: #0D0B1A;
+    color: #FFFFFF;
   }
 }

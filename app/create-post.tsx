@@ -764,16 +764,16 @@ const styles = StyleSheet.create({
   // Tag input
   tagInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   tagInput: {
-    flex: 1, height: 46,
+    flex: 1, height: 44,
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.md,
-    borderWidth: 1.5, borderColor: T.BORDER_2,
-    paddingHorizontal: 14,
-    fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT,
+    borderRadius: T.RADIUS.pill,
+    borderWidth: 0,
+    paddingHorizontal: 16,
+    fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT,
   },
   tagAddBtn: {
-    height: 46, paddingHorizontal: 18,
-    borderRadius: T.RADIUS.md, backgroundColor: T.ACCENT,
+    height: 44, paddingHorizontal: 18,
+    borderRadius: T.RADIUS.pill, backgroundColor: T.ACCENT,
     alignItems: 'center', justifyContent: 'center',
   },
   tagAddLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
@@ -788,16 +788,16 @@ const styles = StyleSheet.create({
   // Continue button
   continueBtn: {
     marginHorizontal: 20,
-    marginTop: 32,
-    height: 54,
-    borderRadius: T.RADIUS.lg,
+    marginTop: 28,
+    height: 50,
+    borderRadius: T.RADIUS.pill,
     backgroundColor: T.ACCENT,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
-  continueBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 16, color: T.BG },
+  continueBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.BG },
 
   // Preview step
   previewMediaWrap: { position: 'relative', margin: 20, borderRadius: T.RADIUS.lg, overflow: 'hidden' },
@@ -853,12 +853,12 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 13, fontFamily: T.FONT.regular, color: '#EF4444', textAlign: 'center' },
 
   publishFooterBtn: {
-    marginHorizontal: 20, marginTop: 24,
-    height: 54, borderRadius: T.RADIUS.lg,
+    marginHorizontal: 20, marginTop: 20,
+    height: 50, borderRadius: T.RADIUS.pill,
     backgroundColor: T.ACCENT,
     alignItems: 'center', justifyContent: 'center',
   },
-  publishFooterBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 16, color: T.BG },
+  publishFooterBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.BG },
 
   // Publishing overlay
   overlay: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },

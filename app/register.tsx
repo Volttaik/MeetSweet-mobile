@@ -819,17 +819,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: INPUT_BG,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: INPUT_BORDER,
-    height: 44,
+    borderRadius: 50,
+    paddingHorizontal: 16,
+    borderWidth: 0,
+    height: 46,
     gap: 10,
   },
   input: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: 'Poppins_400Regular',
     height: '100%',
     backgroundColor: 'transparent',
@@ -944,8 +943,8 @@ const styles = StyleSheet.create({
 
   // Buttons
   primaryBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: '#FF4473',
+    borderRadius: 50,
     height: 46,
   },
   primaryBtnLoading: {

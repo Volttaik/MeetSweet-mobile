@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -318,17 +319,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.full,
-    borderWidth: 1,
-    borderColor: T.BORDER_2,
+    borderRadius: T.RADIUS.pill,
+    borderWidth: 0,
     paddingHorizontal: 14,
-    height: 42,
+    height: 40,
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+    // Remove browser default outline
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   cancelBtn: { paddingLeft: 4 },
   cancelLabel: {

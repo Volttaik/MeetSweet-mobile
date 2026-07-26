@@ -325,20 +325,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: INPUT_BG,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: INPUT_BORDER,
-    height: 48,
+    borderRadius: 50,
+    paddingHorizontal: 16,
+    borderWidth: 0,
+    height: 46,
     gap: 10,
   },
   input: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: 'Poppins_400Regular',
     height: '100%',
     backgroundColor: 'transparent',
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   fieldError: {
     fontFamily: 'Poppins_400Regular',
@@ -366,9 +368,9 @@ const styles = StyleSheet.create({
   },
 
   submitBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    height: 48,
+    backgroundColor: '#FF4473',
+    borderRadius: 50,
+    height: 46,
   },
   submitBtnLoading: {
     backgroundColor: '#111111',

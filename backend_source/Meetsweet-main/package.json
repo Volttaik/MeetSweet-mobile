@@ -1,0 +1,9 @@
+{
+  "name": "meetsweet",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd server && pnpm install && pnpm dev",
+    "install:server": "cd server && pnpm install"
+  }
+}

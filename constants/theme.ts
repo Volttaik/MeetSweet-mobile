@@ -39,14 +39,16 @@ export const T = {
     bold:     'Poppins_700Bold'     as const,
   },
 
-  // Border radius scale
+  // Border radius scale — use RADIUS.pill for interactive elements (buttons, chips, search bars)
   RADIUS: {
-    xs:   6,
-    sm:   10,
-    md:   14,
-    lg:   18,
-    xl:   24,
+    xs:   4,
+    sm:   8,
+    md:   12,
+    lg:   16,
+    xl:   20,
     full: 999,
+    // Pill shape — the primary interactive radius for buttons, chips, search bars
+    pill: 50,
   },
 } as const;
 

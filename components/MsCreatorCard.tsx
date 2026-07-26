@@ -176,8 +176,8 @@ const styles = StyleSheet.create({
   },
   subscribeBtn: {
     marginTop: 8,
-    height: 32,
-    borderRadius: T.RADIUS.sm,
+    height: 30,
+    borderRadius: T.RADIUS.pill,
     backgroundColor: T.TEXT,
     alignItems: 'center',
     justifyContent: 'center',

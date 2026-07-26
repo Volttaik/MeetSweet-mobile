@@ -1,5 +1,13 @@
+/**
+ * MsInput — the standard text input for MeetSweet.
+ *
+ * Design: soft dark background, fully rounded pill shape, no visible
+ * outline/border on focus (uses subtle background shift instead).
+ * Works in both standard and password modes.
+ */
 import React, { ReactNode, useState } from 'react';
 import {
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -8,11 +16,14 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { T } from '@/constants/theme';
 
 interface MsInputProps extends TextInputProps {
-  label: string;
+  label?: string;
   error?: string;
   rightElement?: ReactNode;
+  /** Compact variant — reduces height and padding */
+  compact?: boolean;
 }
 
 export default function MsInput({
@@ -21,6 +32,7 @@ export default function MsInput({
   secureTextEntry,
   rightElement,
   style,
+  compact = false,
   ...props
 }: MsInputProps) {
   const [isFocused, setIsFocused] = useState(false);
@@ -28,20 +40,26 @@ export default function MsInput({
 
   return (
     <View>
-      <Text style={styles.label}>{label}</Text>
+      {!!label && <Text style={styles.label}>{label}</Text>}
       <View
         style={[
           styles.inputRow,
+          compact && styles.inputRowCompact,
           isFocused && styles.inputFocused,
           !!error && styles.inputError,
         ]}
       >
         <TextInput
-          style={[styles.input, style]}
-          placeholderTextColor="#6B5F8A"
+          style={[styles.input, compact && styles.inputCompact, style]}
+          placeholderTextColor={T.TEXT_3}
+          selectionColor={T.ACCENT}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           secureTextEntry={secureTextEntry && !showPassword}
+          // Remove web browser default outline
+          {...(Platform.OS === 'web'
+            ? ({ outlineStyle: 'none', outlineWidth: 0 } as object)
+            : {})}
           {...props}
         />
         {secureTextEntry && (
@@ -51,8 +69,8 @@ export default function MsInput({
           >
             <Ionicons
               name={showPassword ? 'eye-off' : 'eye'}
-              size={20}
-              color="#4A3F72"
+              size={18}
+              color={T.TEXT_3}
             />
           </TouchableOpacity>
         )}
@@ -65,35 +83,51 @@ export default function MsInput({
 
 const styles = StyleSheet.create({
   label: {
-    fontSize: 13,
-    fontFamily: 'Poppins_500Medium',
-    color: '#9385B8',
-    marginBottom: 6,
+    fontSize: 12,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
+    marginBottom: 5,
+    marginLeft: 2,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1628',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    borderWidth: 1.5,
-    borderColor: '#2E2850',
-    height: 52,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.pill,
+    paddingHorizontal: 18,
+    // No border by default — background change signals focus
+    borderWidth: 0,
+    height: 48,
     gap: 8,
   },
-  inputFocused: { borderColor: '#FF4473' },
-  inputError: { borderColor: '#EF4444' },
+  inputRowCompact: {
+    height: 40,
+    paddingHorizontal: 14,
+  },
+  inputFocused: {
+    backgroundColor: T.SURFACE_2,
+  },
+  inputError: {
+    backgroundColor: 'rgba(239,68,68,0.08)',
+  },
   input: {
     flex: 1,
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontFamily: 'Poppins_400Regular',
+    color: T.TEXT,
+    fontSize: 14,
+    fontFamily: T.FONT.regular,
+    // Remove any browser default outline on web
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
+  },
+  inputCompact: {
+    fontSize: 13,
   },
   error: {
-    fontSize: 12,
-    fontFamily: 'Poppins_400Regular',
-    color: '#EF4444',
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+    color: T.ERROR,
     marginTop: 4,
-    marginLeft: 4,
+    marginLeft: 6,
   },
 });

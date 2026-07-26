@@ -1,17 +1,17 @@
 /**
- * Central API service.
- * All API calls from the Expo app go through this module.
+ * Central API fetch utility.
  *
- * Backend: Next.js serverless API deployed on Vercel.
- * Set EXPO_PUBLIC_API_URL to your Vercel deployment URL,
- * e.g. https://meetsweet-server.vercel.app
+ * All backend calls from the Expo app go through this module.
+ * Feature endpoints (posts, users, comments, …) continue to use the
+ * EXPO_PUBLIC_API_URL base. The credential broker endpoints are handled
+ * separately in services/credentials/.
  *
- * All service calls use paths like /auth/login, /posts, /users/me — this
- * function appends /api so they resolve to the correct Vercel routes.
+ * Set EXPO_PUBLIC_API_URL to your broker deployment URL,
+ * e.g. https://your-broker.vercel.app
  */
 export function getApiBase(): string {
-  const vercelUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (vercelUrl) return `${vercelUrl.replace(/\/+$/, '')}/api`;
+  const url = process.env.EXPO_PUBLIC_API_URL;
+  if (url) return `${url.replace(/\/+$/, '')}/api`;
   return 'https://meetsweet-server.quizmi.space/api';
 }
 
@@ -42,7 +42,7 @@ export async function apiFetch<T = unknown>(
     ...options.headers,
   };
 
-  // Strip Content-Type for FormData (browser sets correct multipart boundary)
+  // Strip Content-Type for FormData (browser sets the correct multipart boundary)
   if (options.body instanceof FormData) {
     delete headers['Content-Type'];
   }
@@ -75,7 +75,7 @@ export async function apiFetch<T = unknown>(
 }
 
 /**
- * Authenticated fetch with Bearer token injected.
+ * Authenticated fetch — injects a Bearer token.
  */
 export async function authFetch<T = unknown>(
   path: string,
