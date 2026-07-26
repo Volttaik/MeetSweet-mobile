@@ -305,6 +305,7 @@ const featuredStyles = StyleSheet.create({
     padding: 16,
     justifyContent: 'space-between',
     overflow: 'hidden',
+    ...T.SHADOWS.medium,
   },
   mark: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   markText: { color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1.2 },
@@ -366,7 +367,7 @@ const recommendedStyles = StyleSheet.create({
 });
 
 const previewStyles = StyleSheet.create({
-  card: { width: 164, backgroundColor: T.SURFACE, borderRadius: T.RADIUS.lg, overflow: 'hidden' },
+  card: { width: 164, backgroundColor: T.SURFACE, borderRadius: T.RADIUS.lg, overflow: 'hidden', ...T.SHADOWS.medium },
   art: { height: 126, padding: 12, justifyContent: 'space-between' },
   artLines: { gap: 7, marginTop: 30 },
   lineWide: { height: 5, width: '70%', backgroundColor: 'rgba(255,255,255,0.23)', borderRadius: 3 },

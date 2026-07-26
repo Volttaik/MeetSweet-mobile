@@ -53,6 +53,41 @@ export const T = {
     full: 999,
     pill: 50,
   },
+  // Shadow presets — use elevation+shadow* together for cross-platform depth
+  SHADOWS: {
+    /** Level 1 — subtle: inputs, small buttons */
+    soft: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.10,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+    /** Level 2 — medium: cards, list items, thumbnails */
+    medium: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    /** Level 3 — hard: modals, bottom sheets, menus */
+    hard: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
+      elevation: 12,
+    },
+    /** Level 4 — deep: floating buttons, fullscreen overlays */
+    deep: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.35,
+      shadowRadius: 24,
+      elevation: 20,
+    },
+  },
 } as const;
 
 /**

@@ -3,11 +3,15 @@
  *
  * Keeps transient interactions in one place and gives every sheet the same
  * warm, borderless surface treatment on native and web.
+ *
+ * Swipe-to-close: Sheet modals support dragging down to dismiss (>80px threshold).
  */
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useRef } from 'react';
 import {
+  Animated,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -44,6 +48,40 @@ export function MsModal({
   const insets = useSafeAreaInsets();
   const isSheet = presentation === 'sheet';
 
+  // Swipe-to-close (sheet only)
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        isSheet && g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80) {
+          // Snap down then close
+          Animated.timing(translateY, {
+            toValue: 500,
+            duration: 180,
+            useNativeDriver: true,
+          }).start(() => {
+            translateY.setValue(0);
+            onClose();
+          });
+        } else {
+          // Snap back
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 120,
+            friction: 12,
+          }).start();
+        }
+      },
+    }),
+  ).current;
+
   return (
     <Modal
       visible={visible}
@@ -57,13 +95,16 @@ export function MsModal({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
+
+        <Animated.View
           style={[
             styles.surface,
             isSheet ? styles.sheet : styles.center,
             isSheet && { paddingBottom: Math.max(insets.bottom + 8, 20) },
             style,
+            isSheet && { transform: [{ translateY }] },
           ]}
+          {...(isSheet ? panResponder.panHandlers : {})}
         >
           {isSheet && <View style={styles.handle} />}
           {(title || subtitle) && (
@@ -79,7 +120,7 @@ export function MsModal({
           )}
           <View style={styles.body}>{children}</View>
           {footer && <View style={styles.footer}>{footer}</View>}
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );

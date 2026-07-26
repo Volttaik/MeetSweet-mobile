@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,7 +11,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Bell, CaretRight, CreditCard, MagnifyingGlass as SearchIcon, Wallet } from 'phosphor-react-native';
+import {
+  Bell,
+  CaretRight,
+  CreditCard,
+  FilmStrip,
+  MagnifyingGlass as SearchIcon,
+  Users,
+  Wallet,
+} from 'phosphor-react-native';
 import { useGetExploreCatalog, type Creator } from '@/lib/api-client-react';
 import { Chip } from 'heroui-native';
 import MsInput from '@/components/MsInput';
@@ -26,35 +35,140 @@ import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsCreatorPreview, type CreatorPreviewData } from '@/components/MsCreatorPreview';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
+import { MsVideoCard, type VideoCardData } from '@/components/MsVideoCard';
 import { T } from '@/constants/theme';
 
-// ─── Creator-focused category list ────────────────────────────────────────────
+// ─── Category list ────────────────────────────────────────────────────────────
 
 const CREATOR_CATEGORIES = [
-  { id: 'all',                label: 'All' },
-  { id: 'trending',           label: 'Trending' },
-  { id: 'new',                label: 'New Creators' },
-  { id: 'premium',            label: 'Premium' },
-  { id: 'lifestyle',          label: 'Lifestyle' },
-  { id: 'fashion',            label: 'Fashion' },
-  { id: 'fitness',            label: 'Fitness' },
-  { id: 'models',             label: 'Models' },
-  { id: 'photography',        label: 'Photography' },
-  { id: 'gaming',             label: 'Gaming' },
-  { id: 'music',              label: 'Music' },
-  { id: 'dance',              label: 'Dance' },
-  { id: 'comedy',             label: 'Comedy' },
-  { id: 'education',          label: 'Education' },
-  { id: 'art',                label: 'Art' },
-  { id: 'cooking',            label: 'Cooking' },
-  { id: 'travel',             label: 'Travel' },
-  { id: 'technology',         label: 'Technology' },
-  { id: 'cars',               label: 'Cars' },
-  { id: 'luxury',             label: 'Luxury' },
-  { id: 'behind-the-scenes',  label: 'Behind the Scenes' },
+  { id: 'all',               label: 'All' },
+  { id: 'trending',          label: 'Trending' },
+  { id: 'new',               label: 'New Creators' },
+  { id: 'premium',           label: 'Premium' },
+  { id: 'lifestyle',         label: 'Lifestyle' },
+  { id: 'fashion',           label: 'Fashion' },
+  { id: 'fitness',           label: 'Fitness' },
+  { id: 'models',            label: 'Models' },
+  { id: 'photography',       label: 'Photography' },
+  { id: 'gaming',            label: 'Gaming' },
+  { id: 'music',             label: 'Music' },
+  { id: 'dance',             label: 'Dance' },
+  { id: 'comedy',            label: 'Comedy' },
+  { id: 'education',         label: 'Education' },
+  { id: 'art',               label: 'Art' },
+  { id: 'cooking',           label: 'Cooking' },
+  { id: 'travel',            label: 'Travel' },
+  { id: 'technology',        label: 'Technology' },
+  { id: 'cars',              label: 'Cars' },
+  { id: 'luxury',            label: 'Luxury' },
+  { id: 'behind-the-scenes', label: 'Behind the Scenes' },
 ];
 
+const VIDEO_CATEGORIES = [
+  { id: 'all',       label: 'All' },
+  { id: 'trending',  label: 'Trending' },
+  { id: 'premium',   label: 'Premium' },
+  { id: 'free',      label: 'Free' },
+  { id: 'video',     label: 'Video' },
+  { id: 'photo',     label: 'Photo' },
+  { id: 'audio',     label: 'Audio' },
+];
+
+// ─── View mode toggle ─────────────────────────────────────────────────────────
+
+type ViewMode = 'creators' | 'videos';
+
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: ViewMode;
+  onChange: (m: ViewMode) => void;
+}) {
+  return (
+    <View style={toggleStyles.wrap}>
+      <Pressable
+        style={[toggleStyles.tab, mode === 'creators' && toggleStyles.tabActive]}
+        onPress={() => onChange('creators')}
+      >
+        <Users size={14} color={mode === 'creators' ? T.BG : T.TEXT_2} />
+        <Text style={[toggleStyles.label, mode === 'creators' && toggleStyles.labelActive]}>
+          Creators
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[toggleStyles.tab, mode === 'videos' && toggleStyles.tabActive]}
+        onPress={() => onChange('videos')}
+      >
+        <FilmStrip size={14} color={mode === 'videos' ? T.BG : T.TEXT_2} />
+        <Text style={[toggleStyles.label, mode === 'videos' && toggleStyles.labelActive]}>
+          Videos
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const toggleStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.full,
+    padding: 3,
+    marginHorizontal: 20,
+    ...T.SHADOWS.soft,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: T.RADIUS.full,
+  },
+  tabActive: {
+    backgroundColor: T.TEXT,
+    ...T.SHADOWS.soft,
+  },
+  label: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.semibold,
+    fontSize: 13,
+  },
+  labelActive: {
+    color: T.BG,
+  },
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const UPLOAD_DATES = ['2h ago', '5h ago', '1d ago', '2d ago', '3d ago', '1w ago'];
+const VIEW_COUNTS  = ['1.2K', '3.4K', '842', '12.1K', '4.7K', '927', '6.3K', '2.1K'];
+
+function makeVideoCard(
+  preview: { id: string; creatorId: string; title: string; kind: string; duration: string; likes: string; isPremium: boolean; gradient: string; lockedLabel: string },
+  creator: Creator,
+  index: number,
+): VideoCardData {
+  return {
+    id: preview.id,
+    title: preview.title,
+    duration: preview.duration,
+    views: VIEW_COUNTS[index % VIEW_COUNTS.length],
+    uploadDate: UPLOAD_DATES[index % UPLOAD_DATES.length],
+    gradient: preview.gradient,
+    isPremium: preview.isPremium,
+    kind: preview.kind,
+    lockedLabel: preview.lockedLabel,
+    creatorId: creator.id,
+    creatorName: creator.name,
+    creatorHandle: creator.handle,
+    creatorInitials: creator.initials,
+    creatorIsVerified: creator.isVerified,
+    creatorIsOnline: creator.isOnline,
+  };
+}
 
 function findCreator(creators: Creator[], id: string) {
   return creators.find((c) => c.id === id);
@@ -62,11 +176,10 @@ function findCreator(creators: Creator[], id: string) {
 
 function creatorMatchesCategory(creator: Creator, categoryId: string): boolean {
   if (categoryId === 'all') return true;
-  if (categoryId === 'trending') return true; // show all as "trending" for now
-  if (categoryId === 'new') return true;       // show all as "new" for now
+  if (categoryId === 'trending') return true;
+  if (categoryId === 'new') return true;
   if (categoryId === 'premium') return Number(creator.monthlyCredits ?? 0) > 0;
   const cat = String(creator.category ?? '').toLowerCase();
-  // Match "behind-the-scenes" → "behind the scenes"
   const normalized = categoryId.replace(/-/g, ' ');
   return cat.includes(normalized) || cat === categoryId;
 }
@@ -86,18 +199,59 @@ function toPreviewData(creator: Creator): CreatorPreviewData {
   };
 }
 
+// ─── Video Feed ───────────────────────────────────────────────────────────────
+
+function VideoFeed({
+  videos,
+  onVideoPress,
+  onCreatorPress,
+}: {
+  videos: VideoCardData[];
+  onVideoPress: (v: VideoCardData) => void;
+  onCreatorPress: (v: VideoCardData) => void;
+}) {
+  if (videos.length === 0) {
+    return (
+      <MsEmptyState
+        title="No videos found"
+        message="Try a different filter or check back later for new content."
+      />
+    );
+  }
+
+  return (
+    <View style={feedStyles.wrap}>
+      {videos.map((video) => (
+        <MsVideoCard
+          key={video.id}
+          video={video}
+          onPress={() => onVideoPress(video)}
+          onCreatorPress={() => onCreatorPress(video)}
+        />
+      ))}
+    </View>
+  );
+}
+
+const feedStyles = StyleSheet.create({
+  wrap: {
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+});
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('creators');
   const [activeCategory, setActiveCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Long-press context menu
+  // Context menus
   const [menuCreator, setMenuCreator] = useState<Creator | null>(null);
-
-  // Avatar-tap preview card
   const [previewCreator, setPreviewCreator] = useState<CreatorPreviewData | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
 
@@ -110,6 +264,7 @@ export default function ExploreScreen() {
   const trendingSearches = catalog?.trendingSearches ?? ['slow living', 'new creators', 'exclusive'];
   const creditBalance = Number(catalog?.creditBalance ?? 0);
 
+  // ── Creator filtering ──────────────────────────────────────────────────────
   const visibleCreators = useMemo(() => {
     if (!catalog) return [];
     const needle = search.trim().toLowerCase();
@@ -140,8 +295,29 @@ export default function ExploreScreen() {
     );
   });
 
-  const openCreator = (creator: Creator) => router.push(`/creator/${creator.id}`);
+  // ── Video filtering ────────────────────────────────────────────────────────
+  const videoCards = useMemo<VideoCardData[]>(() => {
+    if (!catalog) return [];
+    const needle = search.trim().toLowerCase();
+    return previewsData
+      .map((p, i) => {
+        const creator = findCreator(creators, p.creatorId);
+        if (!creator) return null;
+        return makeVideoCard(p, creator, i);
+      })
+      .filter((v): v is VideoCardData => {
+        if (!v) return false;
+        if (activeCategory === 'premium' && !v.isPremium) return false;
+        if (activeCategory === 'free' && v.isPremium) return false;
+        if (activeCategory !== 'all' && activeCategory !== 'premium' && activeCategory !== 'free') {
+          if (activeCategory !== 'trending' && v.kind.toLowerCase() !== activeCategory) return false;
+        }
+        if (needle && !`${v.title} ${v.creatorName} ${v.kind}`.toLowerCase().includes(needle)) return false;
+        return true;
+      });
+  }, [activeCategory, catalog, creators, previewsData, search]);
 
+  const openCreator = (creator: Creator) => router.push(`/creator/${creator.id}`);
   const openAvatarPreview = (creator: Creator) => {
     setPreviewCreator(toPreviewData(creator));
     setPreviewVisible(true);
@@ -149,26 +325,29 @@ export default function ExploreScreen() {
 
   const refresh = async () => {
     setRefreshing(true);
-    try {
-      await query.refetch();
-    } finally {
-      setRefreshing(false);
-    }
+    try { await query.refetch(); } finally { setRefreshing(false); }
   };
 
-  // Long-press creator context menu actions
+  // Reset category when switching modes
+  const handleModeChange = (m: ViewMode) => {
+    setViewMode(m);
+    setActiveCategory('all');
+  };
+
   const creatorMenuActions = (creator: Creator): ActionItem[] => [
-    { label: 'View Profile',    onPress: () => openCreator(creator) },
-    { label: 'Subscribe',       onPress: () => router.push(`/creator/${creator.id}`) },
-    { label: 'Copy Username',   onPress: () => {} },
-    { label: 'Share Profile',   onPress: () => {} },
-    { label: 'Mute',            onPress: () => {} },
-    { label: 'Block',           destructive: true, onPress: () => {} },
+    { label: 'View Profile',  onPress: () => openCreator(creator) },
+    { label: 'Subscribe',     onPress: () => router.push(`/creator/${creator.id}`) },
+    { label: 'Copy Username', onPress: () => {} },
+    { label: 'Share Profile', onPress: () => {} },
+    { label: 'Mute',          onPress: () => {} },
+    { label: 'Block',         destructive: true, onPress: () => {} },
   ];
+
+  const categories = viewMode === 'videos' ? VIDEO_CATEGORIES : CREATOR_CATEGORIES;
 
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Header */}
+      {/* ── Header ───────────────────────────────────────── */}
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>DISCOVER</Text>
@@ -197,13 +376,17 @@ export default function ExploreScreen() {
         }
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Search */}
+        {/* ── Search ───────────────────────────────────────── */}
         <View style={styles.searchField}>
           <SearchIcon size={16} color={T.TEXT_2} />
           <MsInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search creators, categories, content"
+            placeholder={
+              viewMode === 'videos'
+                ? 'Search videos, creators, categories'
+                : 'Search creators, categories, content'
+            }
             style={styles.searchInput}
             compact
           />
@@ -214,7 +397,7 @@ export default function ExploreScreen() {
           )}
         </View>
 
-        {/* Trending tags */}
+        {/* ── Trending tags ─────────────────────────────────── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -234,20 +417,27 @@ export default function ExploreScreen() {
           ))}
         </ScrollView>
 
-        {/* Loading */}
-        {query.isLoading && <MsCatalogSkeleton />}
+        {/* ── Mode toggle ───────────────────────────────────── */}
+        <ModeToggle mode={viewMode} onChange={handleModeChange} />
 
-        {/* Error */}
+        {/* ── Loading ───────────────────────────────────────── */}
+        {query.isLoading && (
+          <View style={styles.loadingWrap}>
+            <MsCatalogSkeleton />
+          </View>
+        )}
+
+        {/* ── Error ─────────────────────────────────────────── */}
         {query.isError && (
           <MsEmptyState
             title="Explore is taking a moment"
-            message="We couldn't load the creator marketplace. Pull down to try again."
+            message="We couldn't load content. Pull down to try again."
             actionLabel="Retry"
             onAction={() => query.refetch()}
           />
         )}
 
-        {/* Content */}
+        {/* ── Content ───────────────────────────────────────── */}
         {!query.isLoading && !query.isError && catalog && (
           <>
             {/* Wallet banner */}
@@ -268,7 +458,7 @@ export default function ExploreScreen() {
               </View>
             </Pressable>
 
-            {/* Categories — creator-focused list */}
+            {/* Categories */}
             <View style={styles.categoryHeader}>
               <Text style={styles.sectionTitle}>Browse by category</Text>
             </View>
@@ -277,7 +467,7 @@ export default function ExploreScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.categoryRow}
             >
-              {CREATOR_CATEGORIES.map((category) => {
+              {categories.map((category) => {
                 const active = category.id === activeCategory;
                 return (
                   <Chip
@@ -288,9 +478,7 @@ export default function ExploreScreen() {
                     onPress={() => setActiveCategory(category.id)}
                     style={[styles.categoryChip, active && styles.categoryChipActive]}
                   >
-                    <Chip.Label
-                      style={[styles.categoryLabel, active && styles.categoryLabelActive]}
-                    >
+                    <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
                       {category.label}
                     </Chip.Label>
                   </Chip>
@@ -298,44 +486,132 @@ export default function ExploreScreen() {
               })}
             </ScrollView>
 
-            {/* Featured creators */}
-            {featured.length > 0 && (
+            {/* ═══════ VIDEO FEED MODE ═══════ */}
+            {viewMode === 'videos' && (
               <>
                 <MsSectionHeader
-                  title="Featured creators"
-                  actionLabel="View all"
-                  onAction={() => setActiveCategory('all')}
+                  title="Video Feed"
+                  style={styles.sectionHeader}
+                />
+                <VideoFeed
+                  videos={videoCards}
+                  onVideoPress={(v) => router.push(`/content/${v.id}`)}
+                  onCreatorPress={(v) => router.push(`/creator/${v.creatorId}`)}
+                />
+              </>
+            )}
+
+            {/* ═══════ CREATORS MODE ═══════ */}
+            {viewMode === 'creators' && (
+              <>
+                {/* Featured creators */}
+                {featured.length > 0 && (
+                  <>
+                    <MsSectionHeader
+                      title="Featured creators"
+                      actionLabel="View all"
+                      onAction={() => setActiveCategory('all')}
+                      style={styles.sectionHeader}
+                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.featuredRow}
+                    >
+                      {featured.map((creator) => (
+                        <MsFeaturedCreatorCard
+                          key={creator.id}
+                          creator={creator}
+                          onPress={() => openCreator(creator)}
+                          onLongPress={() => setMenuCreator(creator)}
+                          onAvatarPress={() => openAvatarPreview(creator)}
+                        />
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* Recommended */}
+                {recommended.length > 0 && (
+                  <>
+                    <MsSectionHeader
+                      title="Recommended for you"
+                      actionLabel="See all"
+                      onAction={() => setSearch('')}
+                      style={styles.sectionHeader}
+                    />
+                    <View>
+                      {recommended.map((creator) => (
+                        <MsRecommendedCreatorRow
+                          key={creator.id}
+                          creator={creator}
+                          onPress={() => openCreator(creator)}
+                          onLongPress={() => setMenuCreator(creator)}
+                          onAvatarPress={() => openAvatarPreview(creator)}
+                        />
+                      ))}
+                    </View>
+                  </>
+                )}
+
+                {/* Premium previews */}
+                <MsSectionHeader
+                  title="Premium previews"
+                  actionLabel="Latest"
+                  style={styles.sectionHeader}
+                />
+                {previews.length > 0 ? (
+                  <View style={styles.previewGrid}>
+                    {previews.map((preview) => {
+                      const creator = findCreator(catalog.creators, preview.creatorId);
+                      return creator ? (
+                        <MsPreviewCard
+                          key={preview.id}
+                          preview={preview}
+                          creator={creator}
+                          onPress={() => router.push(`/content/${preview.id}`)}
+                          onLongPress={() => setMenuCreator(creator)}
+                        />
+                      ) : null;
+                    })}
+                  </View>
+                ) : (
+                  <MsEmptyState
+                    title="Discover creators you'll love"
+                    message="Try a different category or search to find your next favourite creator."
+                    actionLabel="Show all"
+                    onAction={() => setActiveCategory('all')}
+                  />
+                )}
+
+                {/* Collections */}
+                <MsSectionHeader
+                  title="Trending collections"
+                  actionLabel="Explore all"
                   style={styles.sectionHeader}
                 />
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.featuredRow}
+                  contentContainerStyle={styles.collectionRow}
                 >
-                  {featured.map((creator) => (
-                    <MsFeaturedCreatorCard
-                      key={creator.id}
-                      creator={creator}
-                      onPress={() => openCreator(creator)}
-                      onLongPress={() => setMenuCreator(creator)}
-                      onAvatarPress={() => openAvatarPreview(creator)}
+                  {(catalog.collections ?? []).map((collection) => (
+                    <MsCollectionCard
+                      key={collection.id}
+                      collection={collection}
+                      onPress={() => setSearch(collection.title)}
                     />
                   ))}
                 </ScrollView>
-              </>
-            )}
 
-            {/* Recommended */}
-            {recommended.length > 0 && (
-              <>
+                {/* Recently joined */}
                 <MsSectionHeader
-                  title="Recommended for you"
-                  actionLabel="See all"
-                  onAction={() => setSearch('')}
+                  title="Recently joined"
+                  actionLabel="Meet the newest"
                   style={styles.sectionHeader}
                 />
-                <View>
-                  {recommended.map((creator) => (
+                {visibleCreators.length > 0 ? (
+                  visibleCreators.slice(-3).map((creator) => (
                     <MsRecommendedCreatorRow
                       key={creator.id}
                       creator={creator}
@@ -343,87 +619,19 @@ export default function ExploreScreen() {
                       onLongPress={() => setMenuCreator(creator)}
                       onAvatarPress={() => openAvatarPreview(creator)}
                     />
-                  ))}
-                </View>
+                  ))
+                ) : (
+                  <MsEmptyState
+                    title="No creators match that search"
+                    message="Try a trending tag or clear your filters to keep discovering."
+                    actionLabel="Clear search"
+                    onAction={() => {
+                      setSearch('');
+                      setActiveCategory('all');
+                    }}
+                  />
+                )}
               </>
-            )}
-
-            {/* Premium previews */}
-            <MsSectionHeader
-              title="Premium previews"
-              actionLabel="Latest"
-              style={styles.sectionHeader}
-            />
-            {previews.length > 0 ? (
-              <View style={styles.previewGrid}>
-                {previews.map((preview) => {
-                  const creator = findCreator(catalog.creators, preview.creatorId);
-                  return creator ? (
-                    <MsPreviewCard
-                      key={preview.id}
-                      preview={preview}
-                      creator={creator}
-                      onPress={() => router.push(`/content/${preview.id}`)}
-                      onLongPress={() => setMenuCreator(creator)}
-                    />
-                  ) : null;
-                })}
-              </View>
-            ) : (
-              <MsEmptyState
-                title="Discover creators you'll love"
-                message="Try a different category or search to find your next favourite creator."
-                actionLabel="Show all"
-                onAction={() => setActiveCategory('all')}
-              />
-            )}
-
-            {/* Collections */}
-            <MsSectionHeader
-              title="Trending collections"
-              actionLabel="Explore all"
-              style={styles.sectionHeader}
-            />
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.collectionRow}
-            >
-              {(catalog.collections ?? []).map((collection) => (
-                <MsCollectionCard
-                  key={collection.id}
-                  collection={collection}
-                  onPress={() => setSearch(collection.title)}
-                />
-              ))}
-            </ScrollView>
-
-            {/* Recently joined */}
-            <MsSectionHeader
-              title="Recently joined"
-              actionLabel="Meet the newest"
-              style={styles.sectionHeader}
-            />
-            {visibleCreators.length > 0 ? (
-              visibleCreators.slice(-3).map((creator) => (
-                <MsRecommendedCreatorRow
-                  key={creator.id}
-                  creator={creator}
-                  onPress={() => openCreator(creator)}
-                  onLongPress={() => setMenuCreator(creator)}
-                  onAvatarPress={() => openAvatarPreview(creator)}
-                />
-              ))
-            ) : (
-              <MsEmptyState
-                title="No creators match that search"
-                message="Try a trending tag or clear your filters to keep discovering."
-                actionLabel="Clear search"
-                onAction={() => {
-                  setSearch('');
-                  setActiveCategory('all');
-                }}
-              />
             )}
 
             <View style={styles.bottomSpace} />
@@ -475,6 +683,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
+    ...T.SHADOWS.soft,
   },
   notificationDot: {
     position: 'absolute',
@@ -493,9 +702,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     borderRadius: 19,
     backgroundColor: T.TEXT,
+    ...T.SHADOWS.soft,
   },
   walletButtonText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
-  scrollContent: { paddingTop: 16 },
+  scrollContent: { paddingTop: 16, gap: 0 },
   searchField: {
     marginHorizontal: 20,
     height: 46,
@@ -505,6 +715,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 15,
     gap: 9,
+    ...T.SHADOWS.soft,
   },
   searchInput: {
     flex: 1,
@@ -518,8 +729,10 @@ const styles = StyleSheet.create({
   trendingRow: { gap: 8, paddingHorizontal: 20, paddingVertical: 13 },
   trendChip: { backgroundColor: T.SURFACE },
   trendLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
+  loadingWrap: { paddingTop: 12 },
   creditBanner: {
     marginHorizontal: 20,
+    marginTop: 16,
     backgroundColor: T.TEXT,
     minHeight: 78,
     borderRadius: T.RADIUS.lg,
@@ -527,6 +740,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 11,
+    ...T.SHADOWS.medium,
   },
   creditIcon: {
     width: 38,
@@ -555,7 +769,7 @@ const styles = StyleSheet.create({
   creditActionText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
   categoryHeader: {
     paddingHorizontal: 20,
-    paddingTop: 25,
+    paddingTop: 20,
     paddingBottom: 3,
     flexDirection: 'row',
     justifyContent: 'space-between',

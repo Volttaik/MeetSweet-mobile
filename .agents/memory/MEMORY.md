@@ -16,3 +16,5 @@
 - [Border removal system](border-removal.md) — all white/subtle borders removed from chat header, message bubbles, reply bar, create-post cards, chip selectors, preview meta rows; paid-bubble accent border kept intentionally.
 - [Shared media lifecycle](shared-media-lifecycle.md) — images use one fade/retry loader; feed videos stay poster-only until explicit play and fullscreen uses a poster beneath the player.
 - [Expo workflow package manager](expo-workflow-pnpm.md) — Node 20 needs the system pnpm and direct local Expo binary; avoid re-entering a stale local pnpm shim.
+- [Shadow system](shadow-system.md) — T.SHADOWS.{soft,medium,hard,deep} added to constants/theme.ts; use these instead of inline shadow* props; phosphor icon Film does not exist, use FilmStrip.
+- [Explore page rebuild](explore-page-rebuild.md) — Creators/Videos mode toggle; MsVideoCard for YouTube-style cards; MsCommentsSheet for comment previews + full modal; MsModal has PanResponder swipe-to-close.
