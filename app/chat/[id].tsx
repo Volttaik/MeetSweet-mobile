@@ -685,12 +685,14 @@ const ib = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 14,
+    lineHeight: 20,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
     paddingHorizontal: 4,
-    paddingTop: 0,
-    paddingBottom: 0,
-    // No background, no border — sits inside the pill
+    paddingTop: 5,
+    paddingBottom: 5,
+    // Remove Android's extra internal font spacing so text sits centred
+    includeFontPadding: false,
   },
   rightBtn: {
     width: 36,

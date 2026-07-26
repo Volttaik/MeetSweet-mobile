@@ -68,6 +68,12 @@
     background-color: transparent;
   }
 
+  /* Kill the textarea resize handle (the "dots" in the corner) */
+  textarea {
+    resize: none;
+    overflow: hidden;
+  }
+
   input:focus,
   textarea:focus,
   select:focus,
