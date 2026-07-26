@@ -28,8 +28,6 @@ import { T } from '@/constants/theme';
 // ─── Input row ────────────────────────────────────────────────────────────────
 
 const INPUT_BG = 'rgba(255,255,255,0.07)';
-const INPUT_BORDER = 'transparent';
-const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.22)';
 const INPUT_BORDER_ERROR = '#EF4444';
 
 function InputRow({
@@ -43,13 +41,8 @@ function InputRow({
   isError?: boolean;
   isFocused?: boolean;
 }) {
-  const borderColor = isError
-    ? INPUT_BORDER_ERROR
-    : isFocused
-    ? INPUT_BORDER_FOCUSED
-    : INPUT_BORDER;
   return (
-    <View style={[styles.inputWrapper, { borderColor }]}>
+    <View style={[styles.inputWrapper, isError && styles.inputWrapperError, isFocused && styles.inputWrapperFocused]}>
       <View style={styles.inputIcon}>{icon}</View>
       {children}
     </View>
@@ -317,10 +310,15 @@ const styles = StyleSheet.create({
     backgroundColor: INPUT_BG,
     borderRadius: T.RADIUS.pill,
     paddingHorizontal: 18,
-    borderWidth: 1,
-    borderColor: INPUT_BORDER,
+    borderWidth: 0,
     height: 54,
     gap: 12,
+  },
+  inputWrapperFocused: {
+    backgroundColor: 'rgba(255,255,255,0.085)',
+  },
+  inputWrapperError: {
+    backgroundColor: 'rgba(239,68,68,0.08)',
   },
   inputIcon: { width: 22, alignItems: 'center' },
   input: {

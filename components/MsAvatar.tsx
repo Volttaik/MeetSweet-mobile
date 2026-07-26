@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { T } from '@/constants/theme';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 
 interface MsAvatarProps {
   size?: number;
@@ -20,16 +21,6 @@ export function MsAvatar({
   const radius = size / 2;
   const dotSize = Math.max(Math.floor(size * 0.26), 10);
   const fontSize = Math.floor(size * 0.36);
-  const imgOpacity = useRef(new Animated.Value(0)).current;
-
-  const onLoad = () => {
-    Animated.timing(imgOpacity, {
-      toValue: 1,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  };
-
   return (
     <View style={{ width: size, height: size }}>
       <View
@@ -44,14 +35,16 @@ export function MsAvatar({
         </Text>
 
         {imageUri ? (
-          <Animated.Image
-            source={{ uri: imageUri }}
-            style={[
-              styles.absoluteImage,
-              { width: size, height: size, borderRadius: radius, opacity: imgOpacity },
-            ]}
-            resizeMode="cover"
-            onLoad={onLoad}
+          <MsMediaLoader
+            uri={imageUri}
+            style={[styles.absoluteImage, { width: size, height: size, borderRadius: radius }]}
+            accessibleLabel="Profile picture"
+            errorMessage="Profile picture unavailable"
+            fallback={
+              <Text style={[styles.initials, { fontSize }]}>
+                {(initials || 'U').toUpperCase().slice(0, 2)}
+              </Text>
+            }
           />
         ) : null}
       </View>

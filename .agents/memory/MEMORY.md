@@ -13,3 +13,5 @@
 - [Local server workflow](local-server-workflow.md) — nested API package needs isolated pnpm install; local 3001 is exposed as HTTPS 3000 for Expo.
 - [Voice recording implementation](voice-recording.md) — hold-to-record mic button in chat; VoiceNoteBubble with waveform + expo-av playback; ChatMessage.mediaType extended to 'audio'; audioDuration field added.
 - [Border removal system](border-removal.md) — all white/subtle borders removed from chat header, message bubbles, reply bar, create-post cards, chip selectors, preview meta rows; paid-bubble accent border kept intentionally.
+- [Shared media lifecycle](shared-media-lifecycle.md) — images use one fade/retry loader; feed videos stay poster-only until explicit play and fullscreen uses a poster beneath the player.
+- [Expo workflow package manager](expo-workflow-pnpm.md) — Node 20 needs the system pnpm and direct local Expo binary; avoid re-entering a stale local pnpm shim.

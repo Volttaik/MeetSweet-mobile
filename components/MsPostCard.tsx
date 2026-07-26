@@ -267,9 +267,10 @@ export function MsPostCard({
       {/* Media — video */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <View>
-          <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
+          <ScalePressable onLongPress={() => setSheetVisible(true)}>
             <MsPremiumContent
               uri={post.mediaUrl}
+              posterUri={post.thumbnailUrl}
               mediaType="video"
               locked={Boolean(post.isLocked)}
               unlocked={!post.isLocked}
@@ -295,6 +296,7 @@ export function MsPostCard({
             <MsVideoPlayer
               visible={videoPlayerVisible}
               uri={post.mediaUrl}
+              posterUri={post.thumbnailUrl}
               onClose={() => setVideoPlayerVisible(false)}
             />
           )}

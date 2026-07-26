@@ -5,7 +5,6 @@
 import React, { useEffect, useRef } from 'react';
 import {
   Animated,
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,6 +14,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Lock } from 'phosphor-react-native';
 import { T, AppGradients } from '@/constants/theme';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 
 interface MsLockedContentProps {
   previewUri?: string | null;
@@ -67,11 +67,12 @@ export function MsLockedContent({
   return (
     <View style={[styles.container, { height, borderRadius }, style]}>
       {previewUri ? (
-        <Image
-          source={{ uri: previewUri }}
+        <MsMediaLoader
+          uri={previewUri}
           style={[StyleSheet.absoluteFill, { borderRadius }]}
           resizeMode="cover"
           blurRadius={22}
+          accessibleLabel="Locked media preview"
         />
       ) : (
         <View style={[StyleSheet.absoluteFill, { borderRadius, backgroundColor: T.SURFACE_2 }]} />

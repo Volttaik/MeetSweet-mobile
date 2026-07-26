@@ -25,6 +25,7 @@ import Animated, {
 import { ArrowLeft, Play, Pause, ArrowCounterClockwise, ArrowClockwise } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '@/constants/theme';
+import { MsMediaLoader, MsMediaState, type MediaLoadState } from '@/components/MsMediaLoader';
 
 const SEEK_SECONDS = 10;
 
@@ -38,10 +39,11 @@ function formatTime(ms: number): string {
 interface Props {
   visible: boolean;
   uri: string;
+  posterUri?: string | null;
   onClose: () => void;
 }
 
-export function MsVideoPlayer({ visible, uri, onClose }: Props) {
+export function MsVideoPlayer({ visible, uri, posterUri, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const videoRef = useRef<Video>(null);
 
@@ -51,6 +53,8 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
   const [isBuffering, setIsBuffering] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isSeeking, setIsSeeking] = useState(false);
+  const [mediaState, setMediaState] = useState<MediaLoadState>('loading');
+  const [videoAttempt, setVideoAttempt] = useState(0);
 
   // Double-tap indicators
   const rewindOpacity = useSharedValue(0);
@@ -75,6 +79,8 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
       setIsPlaying(false);
       setPosition(0);
       setControlsVisible(true);
+      setMediaState('loading');
+      setVideoAttempt((attempt) => attempt + 1);
     } else {
       resetHideTimer();
     }
@@ -112,6 +118,11 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
     setPosition(clamped);
     await videoRef.current?.setPositionAsync(clamped);
   }, [duration]);
+
+  const skip = useCallback(async (seconds: number) => {
+    resetHideTimer();
+    await seek(position + seconds * 1000);
+  }, [position, resetHideTimer, seek]);
 
   const onScrubStart = useCallback(() => {
     setIsSeeking(true);
@@ -157,6 +168,8 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
         const delta = SEEK_SECONDS * 1000 * (side === 'left' ? -1 : 1);
         await seek(position + delta);
         showSeekIndicator(side);
+      } else if (!controlsVisible) {
+        setControlsVisible(true);
       } else {
         togglePlay();
       }
@@ -191,15 +204,36 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
       <View style={styles.root}>
         <StatusBar hidden />
 
-        {/* Video */}
+        {/* Poster stays behind the stream, preventing a black flash while it buffers. */}
+        {posterUri && (
+          <MsMediaLoader
+            uri={posterUri}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            accessibleLabel="Video poster"
+          />
+        )}
         <Video
+          key={`${uri}:${videoAttempt}`}
           ref={videoRef}
           source={{ uri }}
-          style={StyleSheet.absoluteFill}
+          style={[
+            StyleSheet.absoluteFill,
+            { opacity: mediaState === 'success' ? 1 : 0 },
+          ]}
           resizeMode={ResizeMode.CONTAIN}
           shouldPlay={visible}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           useNativeControls={false}
+          onReadyForDisplay={() => setMediaState('success')}
+          onError={() => setMediaState('error')}
+        />
+        <MsMediaState
+          state={mediaState}
+          onRetry={() => {
+            setMediaState('loading');
+            setVideoAttempt((attempt) => attempt + 1);
+          }}
         />
 
         {/* Left tap zone */}
@@ -245,8 +279,12 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* Centre play/pause */}
-            <TouchableOpacity style={styles.centreBtn} onPress={togglePlay} activeOpacity={0.8}>
+            {/* Centre playback controls */}
+            <View style={styles.centreControls}>
+              <TouchableOpacity style={styles.skipBtn} onPress={() => skip(-SEEK_SECONDS)} activeOpacity={0.8} accessibilityLabel="Skip back 10 seconds">
+                <ArrowCounterClockwise size={22} color="#fff" weight="bold" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.centreBtn} onPress={togglePlay} activeOpacity={0.8}>
               {isBuffering ? (
                 <View style={styles.bufferingRing} />
               ) : isPlaying ? (
@@ -254,10 +292,17 @@ export function MsVideoPlayer({ visible, uri, onClose }: Props) {
               ) : (
                 <Play size={32} color="#fff" weight="fill" />
               )}
-            </TouchableOpacity>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.skipBtn} onPress={() => skip(SEEK_SECONDS)} activeOpacity={0.8} accessibilityLabel="Skip forward 10 seconds">
+                <ArrowClockwise size={22} color="#fff" weight="bold" />
+              </TouchableOpacity>
+            </View>
 
             {/* Bottom controls */}
             <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+              <TouchableOpacity onPress={() => seek(0)} hitSlop={8} accessibilityLabel="Replay video">
+                <ArrowCounterClockwise size={18} color="#fff" weight="bold" />
+              </TouchableOpacity>
               <Text style={styles.timeText}>{formatTime(position)}</Text>
 
               {/* Seek bar */}
@@ -375,6 +420,20 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centreControls: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 28,
+  },
+  skipBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
   },

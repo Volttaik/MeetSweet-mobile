@@ -61,7 +61,7 @@ export const T = {
  */
 export const RoseGradient = {
   // Very top → warm dark rose → near-black
-  colors:    ['#220F1A', '#170C13', '#0D0A0C'] as const,
+  colors:    ['#23101A', '#170C13', '#0D0A0C'] as const,
   locations: [0, 0.45, 1] as const,
 };
 

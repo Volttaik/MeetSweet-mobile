@@ -5,7 +5,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,9 +15,11 @@ import { ResizeMode, Video } from 'expo-av';
 import { LockSimple, Play } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
+import { MsMediaLoader, MsMediaState, type MediaLoadState } from '@/components/MsMediaLoader';
 
 export interface MsPremiumContentProps {
   uri?: string | null;
+  posterUri?: string | null;
   mediaType?: 'image' | 'video';
   locked?: boolean;
   unlocked?: boolean;
@@ -36,6 +37,7 @@ export interface MsPremiumContentProps {
 
 export function MsPremiumContent({
   uri,
+  posterUri,
   mediaType = 'image',
   locked = false,
   unlocked = false,
@@ -50,34 +52,19 @@ export function MsPremiumContent({
   overlayOnly = false,
   showPaymentSheet = false,
 }: MsPremiumContentProps) {
-  const [previewEnded, setPreviewEnded] = useState(false);
   const [paymentVisible, setPaymentVisible] = useState(false);
-
-  // Image loading fade-in
-  const imageFade = useRef(new Animated.Value(0)).current;
-  const [imageLoaded, setImageLoaded] = useState(false);
-
-  // Lock overlay fade-in
-  const lockFade = useRef(new Animated.Value(0)).current;
+  const [videoStarted, setVideoStarted] = useState(false);
 
   // Video buffering state
-  const [videoBuffering, setVideoBuffering] = useState(true);
+  const [videoState, setVideoState] = useState<MediaLoadState>('loading');
   const videoRef = useRef<Video>(null);
 
   useEffect(() => {
-    setPreviewEnded(false);
-    imageFade.setValue(0);
-    lockFade.setValue(0);
-    setImageLoaded(false);
-    setVideoBuffering(true);
+    setVideoStarted(false);
+    setVideoState('loading');
   }, [uri, locked, mediaType]);
 
-  const isLocked = !unlocked && locked && (mediaType !== 'video' || previewEnded);
-
-  const handleImageLoad = () => {
-    setImageLoaded(true);
-    Animated.timing(imageFade, { toValue: 1, duration: 320, useNativeDriver: true }).start();
-  };
+  const isLocked = !unlocked && locked;
 
   const handleUnlock = () => {
     if (showPaymentSheet) {
@@ -105,55 +92,65 @@ export function MsPremiumContent({
           style,
         ]}
       >
-        {/* Image with loading placeholder + fade-in */}
+        {/* Image with shared loading, fade-in and retry states */}
         {!overlayOnly && uri && mediaType === 'image' && (
           <>
-            {/* Skeleton shown while loading */}
-            {!imageLoaded && (
-              <View style={[StyleSheet.absoluteFill, styles.imagePlaceholder]} />
-            )}
-            <Animated.Image
-              source={{ uri }}
-              style={[StyleSheet.absoluteFill, { opacity: imageFade }]}
-              resizeMode={ResizeMode.COVER as any}
+            <MsMediaLoader
+              uri={uri}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
               blurRadius={isLocked ? 20 : 0}
-              onLoad={handleImageLoad}
+              accessibleLabel="Post image"
             />
           </>
         )}
 
-        {/* Video with buffering indicator */}
+        {/* Video: poster first; mount the stream only after an explicit play. */}
         {!overlayOnly && uri && mediaType === 'video' && (
           <>
-            <Video
-              ref={videoRef}
-              source={{ uri }}
-              style={StyleSheet.absoluteFill}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay={!isLocked && !unlocked}
-              isLooping={!locked || unlocked}
-              isMuted
-              onReadyForDisplay={() => setVideoBuffering(false)}
-              onPlaybackStatusUpdate={(status: any) => {
-                if (status?.isLoaded) {
-                  setVideoBuffering(status.isBuffering ?? false);
-                  if (
-                    locked &&
-                    !unlocked &&
-                    status.positionMillis >= previewSeconds * 1000
-                  ) {
-                    setPreviewEnded(true);
-                    Animated.timing(lockFade, { toValue: 1, duration: 420, useNativeDriver: true }).start();
-                  }
-                }
-              }}
-            />
-            {/* Buffering indicator */}
-            {videoBuffering && !isLocked && (
-              <View style={styles.videoBufferingWrap} pointerEvents="none">
-                <View style={styles.videoBufferingRing} />
-              </View>
+            {!videoStarted && (
+              posterUri ? (
+                <MsMediaLoader
+                  uri={posterUri}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                  accessibleLabel="Video poster"
+                />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, styles.videoPosterFallback]} accessible accessibilityLabel="Video poster placeholder" />
+              )
             )}
+            {videoStarted && (
+              <Video
+                ref={videoRef}
+                source={{ uri }}
+                style={StyleSheet.absoluteFill}
+                resizeMode={ResizeMode.COVER}
+                shouldPlay
+                isLooping
+                isMuted
+                onReadyForDisplay={() => setVideoState('success')}
+                onPlaybackStatusUpdate={(status: any) => {
+                  if (status?.isLoaded) setVideoState(status.isBuffering ? 'loading' : 'success');
+                  else if (status?.error) setVideoState('error');
+                }}
+              />
+            )}
+            {!isLocked && !videoStarted && (
+              <TouchableOpacity
+                style={styles.playButton}
+                onPress={() => {
+                  setVideoState('loading');
+                  setVideoStarted(true);
+                }}
+                activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel="Play video"
+              >
+                <Play size={26} color={T.TEXT} weight="fill" />
+              </TouchableOpacity>
+            )}
+            {videoStarted && <MsMediaState state={videoState} />}
           </>
         )}
 
@@ -161,7 +158,7 @@ export function MsPremiumContent({
 
         {/* Lock overlay */}
         {isLocked && (
-          <Animated.View style={[StyleSheet.absoluteFill, { opacity: mediaType === 'video' && previewEnded ? lockFade : 1 }]}>
+          <Animated.View style={StyleSheet.absoluteFill}>
             <View style={styles.scrim} />
             <View style={styles.lockContent}>
               <View style={styles.lockCircle}>
@@ -191,21 +188,22 @@ export function MsPremiumContent({
 
 const styles = StyleSheet.create({
   container: { width: '100%', overflow: 'hidden', backgroundColor: T.SURFACE },
-  imagePlaceholder: { backgroundColor: T.SURFACE_2 },
   emptyMedia: { ...StyleSheet.absoluteFillObject, backgroundColor: T.SURFACE_2 },
 
-  videoBufferingWrap: {
-    ...StyleSheet.absoluteFillObject,
+  playButton: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '50%',
+    marginTop: -28,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.52)',
   },
-  videoBufferingRing: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderTopColor: 'rgba(255,255,255,0.85)',
+  videoPosterFallback: {
+    backgroundColor: T.SURFACE_2,
   },
 
   scrim: {

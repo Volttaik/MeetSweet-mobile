@@ -27,7 +27,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "EXPO_PUBLIC_API_URL=https://meetsweet-server.quizmi.space pnpm run dev"
+args = "PATH=/nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin:$PATH EXPO_PUBLIC_API_URL=https://meetsweet-server.quizmi.space pnpm run dev"
 waitForPort = 5000
 
 [[workflows.workflow]]
