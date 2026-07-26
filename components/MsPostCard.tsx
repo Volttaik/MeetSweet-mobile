@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Alert,
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,7 +12,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play } from 'phosphor-react-native';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, ArrowsOut } from 'phosphor-react-native';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -103,6 +103,7 @@ export function MsPostCard({
   const [bookmarked, setBookmarked] = useState(post.bookmarkedByMe ?? false);
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [videoPlayerVisible, setVideoPlayerVisible] = useState(false);
 
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
 
@@ -265,18 +266,39 @@ export function MsPostCard({
 
       {/* Media — video */}
       {post.mediaUrl && post.mediaType === 'video' && (
-        <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
-          <MsPremiumContent
-            uri={post.mediaUrl}
-            mediaType="video"
-            locked={Boolean(post.isLocked)}
-            unlocked={!post.isLocked}
-            price={post.priceCredits ?? 0}
-            height={260}
-            onUnlock={onPress}
-            style={styles.videoPlaceholder}
-          />
-        </ScalePressable>
+        <View>
+          <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
+            <MsPremiumContent
+              uri={post.mediaUrl}
+              mediaType="video"
+              locked={Boolean(post.isLocked)}
+              unlocked={!post.isLocked}
+              price={post.priceCredits ?? 0}
+              height={260}
+              onUnlock={onPress}
+              style={styles.videoPlaceholder}
+            />
+          </ScalePressable>
+          {/* Expand to fullscreen player */}
+          {!post.isLocked && (
+            <TouchableOpacity
+              style={styles.expandBtn}
+              onPress={() => setVideoPlayerVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.8}
+            >
+              <ArrowsOut size={15} color="#fff" weight="bold" />
+            </TouchableOpacity>
+          )}
+          {/* Fullscreen player modal */}
+          {videoPlayerVisible && post.mediaUrl && (
+            <MsVideoPlayer
+              visible={videoPlayerVisible}
+              uri={post.mediaUrl}
+              onClose={() => setVideoPlayerVisible(false)}
+            />
+          )}
+        </View>
       )}
 
       {/* Actions */}
@@ -429,4 +451,16 @@ const styles = StyleSheet.create({
   actionCountLiked: { color: '#EF4444' },
 
   cardSpacing: { height: 8 },
+
+  expandBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

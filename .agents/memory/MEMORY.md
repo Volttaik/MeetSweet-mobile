@@ -7,8 +7,9 @@
 - [Create-post media flow](create-post-media.md) — upload media first→get id from result→pass media_ids:[id] to createPost; mediaUrl/mediaType/isPremium are not backend fields.
 - [Missing services added](missing-services.md) — creator.ts, subscriptions.ts, settings.ts, search.ts, categories.ts all created; use /creator/* endpoints.
 - [Scoped credentials architecture](scoped-credentials-arch.md) — broker backend at /api/credentials/*; upload flow: requestUploadUrl→PUT directly to R2; object_key stored not URL; services/credentials/index.ts + services/storage/upload.ts.
-- [UI design system](ui-design-system.md) — pill radius (50px) for all interactive elements; no borders on inputs; dark bg shift for focus; T.RADIUS.pill=50 in constants/theme.ts; global CSS removes all outlines.
-- [Messaging rebuild](messaging-rebuild.md) — complete chat screen rebuild with animated input bar, camera slide, mic→send, reply preview, emoji/gif/attachment bottom sheets, SQLite cache (expo-sqlite@16.0.10), offline banner; no avatars beside messages.
+- [UI design system](ui-design-system.md) — pill radius, no borders, dark frosted buttons (not pink), RoseGradient, MsScreenBackground/MsAmbientBackground, input 54px / button 56px.
+- [Messaging rebuild](messaging-rebuild.md) — chat InputBar pill/icon/button sizes scaled up; exact px values + stylesheet location documented.
+- [Shared composer](shared-composer.md) — MsComposer replaces raw TextInput in comments; MsVideoPlayer is fullscreen video modal; JSX spread ban in Metro bundler.
 - [Local server workflow](local-server-workflow.md) — nested API package needs isolated pnpm install; local 3001 is exposed as HTTPS 3000 for Expo.
 - [Voice recording implementation](voice-recording.md) — hold-to-record mic button in chat; VoiceNoteBubble with waveform + expo-av playback; ChatMessage.mediaType extended to 'audio'; audioDuration field added.
 - [Border removal system](border-removal.md) — all white/subtle borders removed from chat header, message bubbles, reply bar, create-post cards, chip selectors, preview meta rows; paid-bubble accent border kept intentionally.

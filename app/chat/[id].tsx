@@ -792,7 +792,7 @@ function InputBar(props: InputBarProps) {
               onPressOut={onVoiceEnd}
               activeOpacity={0.8}
             >
-              <Microphone size={18} color="#fff" weight="fill" />
+              <Microphone size={20} color="#fff" weight="fill" />
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -810,7 +810,7 @@ function InputBar(props: InputBarProps) {
         <View style={ib.pill}>
           {/* Emoji — left inside pill */}
           <TouchableOpacity style={ib.pillIcon} onPress={onEmojiToggle} activeOpacity={0.7}>
-            <Smiley size={20} color={T.TEXT_2} />
+            <Smiley size={22} color={T.TEXT_2} />
           </TouchableOpacity>
 
           {/* Text input — grows, no cap */}
@@ -830,13 +830,13 @@ function InputBar(props: InputBarProps) {
 
           {/* Paperclip — right inside pill */}
           <TouchableOpacity style={ib.pillIcon} onPress={onAttachToggle} activeOpacity={0.7}>
-            <Paperclip size={20} color={T.TEXT_2} />
+            <Paperclip size={22} color={T.TEXT_2} />
           </TouchableOpacity>
 
           {/* Camera — slides out of pill when typing */}
           <Animated.View style={{ width: cameraWidth, overflow: 'hidden', opacity: cameraOpacity }}>
             <TouchableOpacity style={ib.pillIcon} onPress={onCameraPress} activeOpacity={0.7}>
-              <Camera size={20} color={T.TEXT_2} />
+              <Camera size={22} color={T.TEXT_2} />
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -851,7 +851,7 @@ function InputBar(props: InputBarProps) {
               onPressOut={() => { if (isRecording) onVoiceEnd(); }}
               activeOpacity={0.8}
             >
-              <Microphone size={18} color="#fff" weight="fill" />
+              <Microphone size={20} color="#fff" weight="fill" />
             </TouchableOpacity>
           </Animated.View>
           <Animated.View style={[ib.btnAbsolute, { opacity: sendAnim, transform: [{ scale: sendAnim }] }]}>
@@ -861,7 +861,7 @@ function InputBar(props: InputBarProps) {
               activeOpacity={0.8}
               disabled={!hasText || sending}
             >
-              <PaperPlaneRight size={18} color="#fff" weight="fill" />
+              <PaperPlaneRight size={20} color="#fff" weight="fill" />
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -873,14 +873,13 @@ function InputBar(props: InputBarProps) {
 const ib = StyleSheet.create({
   wrapper: {
     backgroundColor: T.BG,
-    // No border — transparent top
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
   },
   // One pill containing all icons + text
   pill: {
@@ -889,32 +888,31 @@ const ib = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.pill,
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-    minHeight: 36,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 50,
   },
   pillIcon: {
-    width: 30,
-    height: 30,
+    width: 38,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   input: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
-    paddingHorizontal: 4,
-    paddingTop: 5,
-    paddingBottom: 5,
-    // Remove Android's extra internal font spacing so text sits centred
+    paddingHorizontal: 6,
+    paddingTop: 8,
+    paddingBottom: 8,
     includeFontPadding: false,
   },
   rightBtn: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -922,26 +920,31 @@ const ib = StyleSheet.create({
   },
   btnAbsolute: { position: 'absolute' },
   actionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: T.ACCENT,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
   },
   actionBtnRecording: {
     backgroundColor: '#EF4444',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   // Recording mode pill
   pillRecording: {
     backgroundColor: T.SURFACE_2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 16,
   },
   recDot: {
     width: 10,
@@ -951,12 +954,12 @@ const ib = StyleSheet.create({
   },
   recText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: T.FONT.medium,
     color: T.TEXT,
   },
   recHint: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
   },

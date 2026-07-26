@@ -7,16 +7,16 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, ChatCircle, DotsThree, Lock, PaperPlaneTilt } from 'phosphor-react-native';
+import { ArrowLeft, ChatCircle, DotsThree, Lock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
+import { MsComposer } from '@/components/MsComposer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   addComment,
@@ -161,8 +161,8 @@ export default function PostDetailScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={insets.top + 48}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+      keyboardVerticalOffset={0}
     >
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable style={styles.iconButton} onPress={() => router.back()} accessibilityLabel="Go back">
@@ -201,7 +201,7 @@ export default function PostDetailScreen() {
         }
         renderItem={({ item }) => (
           <View style={styles.commentRow}>
-            <MsAvatar size={34} initials={initials(item.author.name)} imageUri={item.author.avatarUrl ?? undefined} />
+            <MsAvatar size={36} initials={initials(item.author.name)} imageUri={item.author.avatarUrl ?? undefined} />
             <View style={styles.commentBody}>
               <View style={styles.commentTop}>
                 <Text style={styles.commentAuthor}>{item.author.name}</Text>
@@ -224,33 +224,22 @@ export default function PostDetailScreen() {
         }
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       />
 
-      <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        {replyingTo && (
-          <View style={styles.replyingBar}>
-            <Text style={styles.replyingText}>Replying to {replyingTo.author.name}</Text>
-            <Pressable onPress={() => setReplyingTo(null)}><Text style={styles.cancelReply}>Cancel</Text></Pressable>
-          </View>
-        )}
-        <View style={styles.composer}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={replyingTo ? 'Write a reply…' : 'Add a comment…'}
-            placeholderTextColor={T.TEXT_3}
-            style={styles.input}
-            multiline
-            maxLength={500}
-          />
-          <Pressable
-            style={[styles.sendButton, (!draft.trim() || sending) && styles.sendDisabled]}
-            onPress={submitComment}
-            disabled={!draft.trim() || sending}
-          >
-            <PaperPlaneTilt size={17} color={draft.trim() ? T.BG : T.TEXT_3} weight="fill" />
-          </Pressable>
-        </View>
+      {/* Shared composer — comment mode (no voice, no attachments) */}
+      <View style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
+        <MsComposer
+          mode="comment"
+          value={draft}
+          onChangeText={setDraft}
+          onSend={submitComment}
+          disabled={sending}
+          replyTo={replyingTo ? {
+            authorName: replyingTo.author.name,
+            onDismiss: () => setReplyingTo(null),
+          } : null}
+        />
       </View>
     </KeyboardAvoidingView>
   );
@@ -261,18 +250,16 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   muted: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 14 },
   header: {
-    minHeight: 56,
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
   },
   headerTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 16 },
   iconButton: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
@@ -285,49 +272,20 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 18,
     paddingTop: 18,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
   commentsTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 16 },
   commentsCount: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 14 },
   commentRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
+    paddingVertical: 14,
   },
   commentBody: { flex: 1 },
   commentTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   commentAuthor: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13 },
-  commentText: { color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 20, marginTop: 3 },
-  replyAction: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 12, marginTop: 7 },
-  emptyComments: { alignItems: 'center', gap: 8, paddingVertical: 32 },
-  composerWrap: { backgroundColor: T.SURFACE, paddingHorizontal: 14, paddingTop: 8 },
-  replyingBar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 6 },
-  replyingText: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
-  cancelReply: { color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 12 },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  input: {
-    flex: 1,
-    minHeight: 42,
-    maxHeight: 100,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.lg,
-    color: T.TEXT,
-    fontFamily: T.FONT.regular,
-    fontSize: 14,
-    paddingHorizontal: 14,
-    paddingTop: 11,
-    paddingBottom: 10,
-  },
-  sendButton: {
-    width: 42,
-    height: 42,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendDisabled: { backgroundColor: T.SURFACE_2 },
+  commentText: { color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 21, marginTop: 4 },
+  replyAction: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 12, marginTop: 8 },
+  emptyComments: { alignItems: 'center', gap: 8, paddingVertical: 36 },
 });

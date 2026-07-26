@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   Image,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -10,11 +11,9 @@ import {
 } from 'react-native';
 import {
   Button,
-  Dialog,
   FieldError,
   Input,
   Label,
-  PressableFeedback,
   Spinner,
   TextField,
 } from 'heroui-native';
@@ -29,6 +28,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
 import {
   ArrowLeft,
   At,
@@ -45,9 +45,9 @@ import * as ImagePicker from 'expo-image-picker';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INPUT_BG = '#111111';
+const INPUT_BG = 'rgba(255,255,255,0.07)';
 const INPUT_BORDER = 'transparent';
-const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.25)';
+const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.22)';
 const INPUT_BORDER_ERROR = '#EF4444';
 
 type StepNum = 1 | 2 | 3;
@@ -623,12 +623,17 @@ export default function RegisterScreen() {
   const [step2, setStep2] = useState<Step2Data>({ password: '', confirm: '' });
   const [step3, setStep3] = useState<Step3Data>({ bio: '', avatarUri: null });
 
+  // Named function — required for runOnJS in Reanimated v3 new arch (anonymous fns crash)
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+
   const transitionTo = (nextStep: StepNum) => {
     const dir = nextStep > step ? 1 : -1;
     opacity.value = withTiming(0, { duration: 160, easing: Easing.in(Easing.cubic) });
     slideX.value = withTiming(-dir * 32, { duration: 160 }, () => {
       runOnJS(setStep)(nextStep);
-      runOnJS(() => scrollRef.current?.scrollTo({ y: 0, animated: false }))();
+      runOnJS(scrollToTop)();
       slideX.value = dir * 32;
       opacity.value = withTiming(1, { duration: 240, easing: Easing.out(Easing.cubic) });
       slideX.value = withTiming(0, { duration: 240, easing: Easing.out(Easing.cubic) });
@@ -668,15 +673,16 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={styles.bg}>
+    <MsScreenBackground>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView
         ref={scrollRef}
-        style={styles.scroll}
+        style={styles.flex}
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 24),
-            paddingBottom: insets.bottom + 40,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingBottom: insets.bottom + 48,
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -701,7 +707,7 @@ export default function RegisterScreen() {
         <StepBar current={step} />
 
         {/* Animated step content */}
-        <Animated.View style={[contentStyle, { backgroundColor: '#000000', width: '100%' }]}>
+        <Animated.View style={[contentStyle, { width: '100%' }]}>
           {step === 1 && (
             <Step1
               data={step1}
@@ -740,18 +746,18 @@ export default function RegisterScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
+    </MsScreenBackground>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
-  scroll: { flex: 1 },
+  flex: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 24,
-    gap: 20,
+    paddingHorizontal: 26,
+    gap: 22,
     flexGrow: 1,
   },
 
@@ -820,15 +826,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: INPUT_BG,
     borderRadius: 50,
-    paddingHorizontal: 16,
-    borderWidth: 0,
-    height: 46,
-    gap: 10,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: INPUT_BORDER,
+    height: 54,
+    gap: 12,
   },
   input: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Poppins_400Regular',
     height: '100%',
     backgroundColor: 'transparent',
@@ -943,12 +950,19 @@ const styles = StyleSheet.create({
 
   // Buttons
   primaryBtn: {
-    backgroundColor: '#FF4473',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 50,
-    height: 46,
+    height: 56,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   primaryBtnLoading: {
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   serverError: {
     fontSize: 13,
@@ -959,8 +973,8 @@ const styles = StyleSheet.create({
   },
   btnLabel: {
     fontFamily: 'Poppins_600SemiBold',
-    fontSize: 15,
-    color: '#000000',
+    fontSize: 16,
+    color: '#FFFFFF',
   },
   backLink: {
     alignSelf: 'center',

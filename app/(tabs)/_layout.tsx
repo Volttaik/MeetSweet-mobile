@@ -186,8 +186,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: T.BG,
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: T.BORDER,
+    borderTopWidth: 0,
   },
   tabWrap: {
     flex: 1,

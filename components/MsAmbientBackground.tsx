@@ -1,8 +1,12 @@
 import React, { ReactNode } from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T } from '@/constants/theme';
+import { T, RoseGradient } from '@/constants/theme';
 
+/**
+ * Screen-level background wrapper.
+ * Applies the warm rose gradient behind all content — never competes with UI.
+ */
 export function MsAmbientBackground({
   children,
   style,
@@ -12,9 +16,17 @@ export function MsAmbientBackground({
 }) {
   return (
     <View style={[styles.root, style]}>
+      {/* Full-screen rose gradient backdrop */}
       <LinearGradient
-        colors={[T.AMBIENT, 'rgba(217,106,130,0.025)', 'transparent']}
-        locations={[0, 0.32, 0.8]}
+        colors={RoseGradient.colors}
+        locations={RoseGradient.locations}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      {/* Soft rose glow concentrated at the top */}
+      <LinearGradient
+        colors={[T.AMBIENT, 'transparent']}
+        locations={[0, 0.6]}
         style={styles.glow}
         pointerEvents="none"
       />
@@ -27,6 +39,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: T.BG },
   glow: {
     ...StyleSheet.absoluteFillObject,
-    height: 420,
+    height: 380,
   },
 });

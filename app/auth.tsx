@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import {
-  Button,
   Checkbox,
   FieldError,
   Input,
@@ -22,16 +22,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { At, Eye, EyeSlash, Lock } from 'phosphor-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const INPUT_BG = '#111111';
-const INPUT_BORDER = 'transparent';
-const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.25)';
-const INPUT_BORDER_ERROR = '#EF4444';
-const FORM_MAX_WIDTH = 340;
+import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { T } from '@/constants/theme';
 
 // ─── Input row ────────────────────────────────────────────────────────────────
+
+const INPUT_BG = 'rgba(255,255,255,0.07)';
+const INPUT_BORDER = 'transparent';
+const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.22)';
+const INPUT_BORDER_ERROR = '#EF4444';
 
 function InputRow({
   icon,
@@ -51,7 +50,7 @@ function InputRow({
     : INPUT_BORDER;
   return (
     <View style={[styles.inputWrapper, { borderColor }]}>
-      {icon}
+      <View style={styles.inputIcon}>{icon}</View>
       {children}
     </View>
   );
@@ -102,50 +101,53 @@ export default function AuthScreen() {
   };
 
   return (
-    <View style={styles.bg}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 24),
-            paddingBottom: insets.bottom + 40,
-          },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <MsScreenBackground>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Image
-            source={require('../assets/images/logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-            tintColor="#FFFFFF"
-          />
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Sign in to your account to continue</Text>
-        </View>
-
-        {/* Server error */}
-        {!!serverError && (
-          <View style={styles.serverError}>
-            <Text style={styles.serverErrorText}>{serverError}</Text>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 32),
+              paddingBottom: insets.bottom + 48,
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <Image
+              source={require('../assets/images/logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              tintColor="#FFFFFF"
+            />
+            <Text style={styles.title}>Welcome back</Text>
+            <Text style={styles.subtitle}>Sign in to continue to MeetSweet</Text>
           </View>
-        )}
 
-        {/* Form */}
-        <View style={styles.formOuter}>
+          {/* Server error */}
+          {!!serverError && (
+            <View style={styles.serverError}>
+              <Text style={styles.serverErrorText}>{serverError}</Text>
+            </View>
+          )}
+
+          {/* Form */}
           <View style={styles.form}>
-            {/* Identifier (email / username / phone) */}
+            {/* Email */}
             <TextField isInvalid={!!errors.email}>
               <Label style={styles.fieldLabel}>Email Address</Label>
               <InputRow
                 icon={
                   <At
-                    size={18}
-                    color={focused.email ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
-                   
+                    size={20}
+                    color={focused.email ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)'}
                   />
                 }
                 isError={!!errors.email}
@@ -164,7 +166,7 @@ export default function AuthScreen() {
                   onFocus={() => setFoc('email', true)}
                   onBlur={() => setFoc('email', false)}
                   style={styles.input}
-                  placeholderTextColor="rgba(255,255,255,0.18)"
+                  placeholderTextColor="rgba(255,255,255,0.2)"
                 />
               </InputRow>
               {!!errors.email && (
@@ -178,9 +180,8 @@ export default function AuthScreen() {
               <InputRow
                 icon={
                   <Lock
-                    size={18}
-                    color={focused.password ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
-                   
+                    size={20}
+                    color={focused.password ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)'}
                   />
                 }
                 isError={!!errors.password}
@@ -198,16 +199,17 @@ export default function AuthScreen() {
                   onFocus={() => setFoc('password', true)}
                   onBlur={() => setFoc('password', false)}
                   style={[styles.input, { flex: 1 }]}
-                  placeholderTextColor="rgba(255,255,255,0.18)"
+                  placeholderTextColor="rgba(255,255,255,0.2)"
                 />
                 <TouchableOpacity
                   onPress={() => setShowPw((v) => !v)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={styles.eyeBtn}
                 >
                   {showPw ? (
-                    <EyeSlash size={18} color="rgba(255,255,255,0.35)" />
+                    <EyeSlash size={20} color="rgba(255,255,255,0.4)" />
                   ) : (
-                    <Eye size={18} color="rgba(255,255,255,0.35)" />
+                    <Eye size={20} color="rgba(255,255,255,0.4)" />
                   )}
                 </TouchableOpacity>
               </InputRow>
@@ -228,172 +230,174 @@ export default function AuthScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => router.push('/forgot-password')}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
 
             {/* Login button */}
-            <Button
-              variant="primary"
-              size="lg"
-              onPress={handleLogin}
-              isDisabled={loading}
+            <TouchableOpacity
               style={[styles.submitBtn, loading && styles.submitBtnLoading]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.85}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Button.Label style={styles.submitBtnLabel}>Log In</Button.Label>
+                <Text style={styles.submitBtnLabel}>Log In</Text>
               )}
-            </Button>
+            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Create account link */}
-        <View style={styles.createRow}>
-          <Text style={styles.createText}>Don't have an account? </Text>
-          <TouchableOpacity onPress={() => router.push('/register')} activeOpacity={0.7}>
-            <Text style={styles.createLink}>Create Account</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </View>
+          {/* Create account link */}
+          <View style={styles.createRow}>
+            <Text style={styles.createText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => router.push('/register')} activeOpacity={0.7}>
+              <Text style={styles.createLink}>Create Account</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </MsScreenBackground>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
-  scroll: { flex: 1 },
+  flex: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 24,
-    gap: 24,
+    paddingHorizontal: 28,
+    gap: 28,
     flexGrow: 1,
-    alignItems: 'center',
   },
 
-  header: { alignItems: 'center', gap: 10 },
-  logo: { width: 48, height: 48 },
+  header: { alignItems: 'center', gap: 12 },
+  logo: { width: 52, height: 52 },
   title: {
-    fontSize: 26,
-    fontFamily: 'Poppins_700Bold',
+    fontSize: 28,
+    fontFamily: T.FONT.bold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
     textAlign: 'center',
     marginTop: 4,
   },
   subtitle: {
-    fontSize: 14,
-    fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 15,
+    fontFamily: T.FONT.regular,
+    color: 'rgba(255,255,255,0.42)',
     textAlign: 'center',
   },
 
   serverError: {
-    width: '100%',
-    maxWidth: FORM_MAX_WIDTH,
     backgroundColor: 'rgba(239,68,68,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.3)',
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: T.RADIUS.md,
+    padding: 14,
   },
   serverErrorText: {
     color: '#EF4444',
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: T.FONT.regular,
     fontSize: 13,
     textAlign: 'center',
   },
 
-  formOuter: {
-    width: '100%',
-    maxWidth: FORM_MAX_WIDTH,
-    alignSelf: 'center',
-  },
-  form: { gap: 18 },
+  form: { gap: 20 },
 
   fieldLabel: {
-    fontFamily: 'Poppins_500Medium',
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    marginBottom: 6,
+    fontFamily: T.FONT.medium,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.55)',
+    marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: INPUT_BG,
-    borderRadius: 50,
-    paddingHorizontal: 16,
-    borderWidth: 0,
-    height: 46,
-    gap: 10,
+    borderRadius: T.RADIUS.pill,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: INPUT_BORDER,
+    height: 54,
+    gap: 12,
   },
+  inputIcon: { width: 22, alignItems: 'center' },
   input: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 14,
-    fontFamily: 'Poppins_400Regular',
+    fontSize: 15,
+    fontFamily: T.FONT.regular,
     height: '100%',
     backgroundColor: 'transparent',
     ...(Platform.OS === 'web'
       ? { outlineStyle: 'none' as never, outlineWidth: 0 }
       : {}),
   },
+  eyeBtn: { padding: 4 },
   fieldError: {
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: T.FONT.regular,
     fontSize: 12,
     color: '#EF4444',
-    marginTop: 4,
+    marginTop: 5,
   },
 
   loginMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: -2,
   },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   checkLabel: {
-    fontSize: 13,
-    fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.45)',
+    fontSize: 14,
+    fontFamily: T.FONT.regular,
+    color: 'rgba(255,255,255,0.48)',
   },
   forgotText: {
-    fontSize: 13,
-    fontFamily: 'Poppins_500Medium',
-    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: T.FONT.medium,
+    color: 'rgba(255,255,255,0.7)',
   },
 
   submitBtn: {
-    backgroundColor: '#FF4473',
-    borderRadius: 50,
-    height: 46,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: T.RADIUS.pill,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 4,
   },
   submitBtnLoading: {
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   submitBtnLabel: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 15,
-    color: '#000000',
+    fontFamily: T.FONT.semibold,
+    fontSize: 16,
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 
   createRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 8,
   },
   createText: {
     fontSize: 14,
-    fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.4)',
+    fontFamily: T.FONT.regular,
+    color: 'rgba(255,255,255,0.38)',
   },
   createLink: {
     fontSize: 14,
-    fontFamily: 'Poppins_600SemiBold',
-    color: '#FFFFFF',
+    fontFamily: T.FONT.semibold,
+    color: 'rgba(255,255,255,0.85)',
   },
 });

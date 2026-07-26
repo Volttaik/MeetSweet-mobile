@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Button } from 'heroui-native';
+import { TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -18,12 +18,14 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { T } from '@/constants/theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
 const HIGHLIGHTS = [
   { text: 'Exclusive creator content & communities' },
-  { text: 'Private messaging with your favorite creators' },
+  { text: 'Private messaging with your favourite creators' },
   { text: 'Subscribe & directly support creators you love' },
 ];
 
@@ -55,13 +57,13 @@ export default function WelcomeScreen() {
   const slideX = useSharedValue(0);
   const slideOpacity = useSharedValue(1);
 
+  const navigate = () => router.push('/auth');
+
   const handleGetStarted = () => {
     slideX.value = withTiming(
       -SCREEN_W,
       { duration: 260, easing: Easing.in(Easing.cubic) },
-      () => {
-        runOnJS(router.push)('/auth');
-      },
+      () => { runOnJS(navigate)(); },
     );
     slideOpacity.value = withTiming(0, { duration: 200, easing: Easing.in(Easing.cubic) });
   };
@@ -72,13 +74,13 @@ export default function WelcomeScreen() {
   }));
 
   return (
-    <View style={styles.bg}>
+    <MsScreenBackground>
       <Animated.View
         style={[
           styles.container,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 32),
-            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 40 : 36),
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 40),
+            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 40 : 44),
           },
           slideStyle,
         ]}
@@ -119,14 +121,13 @@ export default function WelcomeScreen() {
         {/* Actions */}
         <View style={styles.actions}>
           <FadeUp delay={220}>
-            <Button
-              variant="primary"
-              size="lg"
-              onPress={handleGetStarted}
+            <TouchableOpacity
               style={styles.primaryBtn}
+              onPress={handleGetStarted}
+              activeOpacity={0.85}
             >
-              <Button.Label style={styles.primaryBtnLabel}>Get Started</Button.Label>
-            </Button>
+              <Text style={styles.primaryBtnLabel}>Get Started</Text>
+            </TouchableOpacity>
           </FadeUp>
 
           <FadeUp delay={300}>
@@ -139,16 +140,11 @@ export default function WelcomeScreen() {
           </FadeUp>
         </View>
       </Animated.View>
-    </View>
+    </MsScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: {
-    flex: 1,
-    backgroundColor: '#000000',
-    overflow: 'hidden',
-  },
   container: {
     flex: 1,
     paddingHorizontal: 32,
@@ -159,32 +155,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  logo: { width: 40, height: 40 },
+  logo: { width: 44, height: 44 },
   logoText: {
     fontSize: 22,
-    fontFamily: 'Poppins_700Bold',
+    fontFamily: T.FONT.bold,
     color: '#FFFFFF',
     letterSpacing: -0.4,
   },
   hero: {
-    gap: 22,
+    gap: 24,
     paddingVertical: 8,
   },
   headline: {
-    fontSize: 44,
-    fontFamily: 'Poppins_700Bold',
+    fontSize: 46,
+    fontFamily: T.FONT.bold,
     color: '#FFFFFF',
-    lineHeight: 54,
+    lineHeight: 56,
     letterSpacing: -1.2,
   },
   description: {
     fontSize: 16,
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: T.FONT.regular,
     color: 'rgba(255,255,255,0.45)',
-    lineHeight: 26,
+    lineHeight: 27,
   },
   highlights: {
-    gap: 12,
+    gap: 14,
     marginTop: 4,
   },
   highlightRow: {
@@ -196,36 +192,44 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.5)',
+    backgroundColor: 'rgba(255,255,255,0.45)',
   },
   highlightText: {
     fontSize: 15,
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: T.FONT.regular,
     color: 'rgba(255,255,255,0.6)',
     flex: 1,
+    lineHeight: 22,
   },
   actions: {
-    gap: 14,
+    gap: 16,
   },
   primaryBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    height: 52,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: T.RADIUS.pill,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
   primaryBtnLabel: {
-    fontFamily: 'Poppins_600SemiBold',
+    fontFamily: T.FONT.semibold,
     fontSize: 16,
-    color: '#000000',
+    color: '#120B10',
+    letterSpacing: 0.2,
   },
   terms: {
     fontSize: 13,
-    fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.25)',
+    fontFamily: T.FONT.regular,
+    color: 'rgba(255,255,255,0.22)',
     textAlign: 'center',
     lineHeight: 20,
-    marginTop: 2,
   },
   termsLink: {
-    color: 'rgba(255,255,255,0.55)',
+    color: 'rgba(255,255,255,0.48)',
   },
 });

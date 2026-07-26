@@ -1,36 +1,33 @@
 ---
 name: UI design system
-description: Pill-shaped interactive elements, no input borders/outlines, dark-only theme, compact sizing.
+description: Design language rules — pill radius, no borders, dark frosted buttons, rose gradient background.
 ---
 
-# UI Design System
+# MeetSweet UI Design System
 
-## The rule — interactive elements
-All buttons, chips, search bars, filters, floating buttons, and action buttons use `borderRadius: T.RADIUS.pill` (50px) — pill shape.
-Cards and content containers use T.RADIUS.lg (16px) or T.RADIUS.md (12px).
+## Color palette
+- `T.ACCENT`: `#C45A72` (muted warm rose)
+- `T.BG`: `#0D0A0C` (near-black charcoal)
+- `T.SURFACE`: `#1E1418` (dark rose-tinted card)
+- `T.SURFACE_2`: `#251A20` (lighter rose-tinted surface)
+- `RoseGradient`: `['#220F1A', '#170C13', '#0D0A0C']` — warm dark rose fading to near-black (exported from `constants/theme.ts`)
 
-## Inputs — zero outline
-- No `borderWidth` on focused inputs
-- No white outlines, focus borders, or browser default outlines
-- Focus is signalled by a subtle background color change (SURFACE → SURFACE_2)
-- All TextInputs need `outlineStyle: 'none'` on web via Platform.OS check
-- `global.css` has `* { outline: none !important }` for web safety net
+## Key rules
+- **Pill radius** (`T.RADIUS.pill = 50`) for ALL interactive elements: inputs, buttons, chips
+- **No borders** on inputs (borderWidth: 0 or transparent)
+- **No top border** on the tab bar
+- **Dark frosted buttons**: `backgroundColor: 'rgba(255,255,255,0.1)'` + `borderColor: 'rgba(255,255,255,0.15)'` + white text (NOT pink/accent)
+- Input focus: shift to darker bg, no outline ring
+- Global CSS removes all browser outlines
 
-## Typography sizes (reduced)
-- Body: 14px (was 15-16px)
-- Captions/meta: 12px (was 13px)
-- Labels: 12px (was 13px)
-- Button text: 15px (was 16px)
+## Background components
+- `MsScreenBackground` (`components/MsScreenBackground.tsx`) — LinearGradient rose bg for auth/onboarding screens
+- `MsAmbientBackground` (`components/MsAmbientBackground.tsx`) — full rose gradient + ambient glow overlay for feed/home tab
 
-## Button heights (reduced)
-- Primary action buttons: 46-50px (was 52-56px)
-- Secondary / compact buttons: 34-40px (was 36-46px)
+## Sizing
+- Input height: 54px (was 46px)
+- Button height: 56px (was 46px)
+- Input font size: 15px (was 14px)
+- Button font size: 16px
 
-## Key files
-- `constants/theme.ts` — T.RADIUS.pill = 50; all radius tokens
-- `components/MsInput.tsx` — reference pill-shaped input implementation
-- `global.css` — web outline removal, dark body background
-
-**Why:** User requested globally reduced visual size, pill-shaped interactives, and zero input outlines.
-
-**How to apply:** New inputs → copy MsInput pattern. New buttons → use borderRadius: T.RADIUS.pill. Never add borderWidth to inputs.
+**Why:** Premium dark-rose aesthetic; no borders keeps the glassy/dark look. Pink buttons felt gaudy against the rose gradient background.
