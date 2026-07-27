@@ -13,7 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,6 +35,8 @@ import { useCreatorProfile, useCreatorReviews, type CreatorReview } from '@/serv
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
+import { ExploreVideoCard, type ExploreVideoCardData } from '@/components/ExploreVideoCard';
+import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -450,16 +451,69 @@ export default function CreatorProfileScreen() {
         {activeTab === 'drops' && (
           <View style={styles.tabContent}>
             {creatorPreviews.length > 0 ? (
-              <View style={styles.previewGrid}>
-                {creatorPreviews.map((preview) => (
-                  <MsPreviewCard
-                    key={preview.id}
-                    preview={preview}
-                    creator={creator}
-                    onPress={() => router.push(`/content/${preview.id}`)}
-                    onLongPress={() => undefined}
-                  />
-                ))}
+              <View style={styles.dropsGrid}>
+                {creatorPreviews.map((preview) => {
+                  const creatorBase = {
+                    creatorId:         creator.id,
+                    creatorName:       creator.name,
+                    creatorHandle:     creator.handle,
+                    creatorInitials:   creator.initials,
+                    creatorIsVerified: creator.isVerified ?? false,
+                    creatorIsOnline:   creator.isOnline  ?? false,
+                    creatorAvatarUrl:  creator.avatarUrl ?? null,
+                  };
+                  const uploadDate = fmtTimeAgo(preview.createdAt ?? null);
+                  const comments   = String(preview.commentCount ?? 0);
+
+                  if (preview.kind === 'video' || preview.kind === 'audio') {
+                    const card: ExploreVideoCardData = {
+                      id:           preview.id,
+                      title:        preview.title || 'Untitled',
+                      duration:     preview.duration,
+                      likes:        preview.likes,
+                      comments,
+                      uploadDate,
+                      gradient:     preview.gradient,
+                      isPremium:    preview.isPremium,
+                      kind:         preview.kind,
+                      lockedLabel:  preview.lockedLabel,
+                      thumbnailUrl: preview.thumbnailUrl ?? null,
+                      mediaUrl:     preview.isPremium ? null : (preview.mediaUrl ?? null),
+                      ...creatorBase,
+                    };
+                    return (
+                      <ExploreVideoCard
+                        key={preview.id}
+                        card={card}
+                        onPress={() => router.push(`/content/${preview.id}`)}
+                        onCreatorPress={() => undefined}
+                        onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                      />
+                    );
+                  }
+
+                  const imgCard: ExploreImageCardData = {
+                    id:           preview.id,
+                    caption:      preview.title || '',
+                    likes:        preview.likes,
+                    comments,
+                    uploadDate,
+                    isPremium:    preview.isPremium,
+                    lockedLabel:  preview.lockedLabel,
+                    imageUrl:     preview.thumbnailUrl ?? preview.mediaUrl ?? null,
+                    gradient:     preview.gradient,
+                    ...creatorBase,
+                  };
+                  return (
+                    <ExploreImageCard
+                      key={preview.id}
+                      card={imgCard}
+                      onPress={() => router.push(`/content/${preview.id}`)}
+                      onCreatorPress={() => undefined}
+                      onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                    />
+                  );
+                })}
               </View>
             ) : (
               <MsEmptyState
@@ -760,4 +814,7 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
   onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   onlineDot: { width: 8, height: 8, borderRadius: 4 },
+
+  // Drops tab — vertical list of full-width content cards
+  dropsGrid: { gap: 16 },
 });

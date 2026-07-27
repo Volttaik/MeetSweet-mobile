@@ -8,6 +8,7 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsContentComments } from '@/components/MsContentComments';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
+import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { getVideo, getVideoRecommendations, likeContent, type LongFormVideo } from '@/services/content';
@@ -22,6 +23,7 @@ export default function VideoDetailsScreen() {
   const [liked, setLiked] = useState(false);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
+  const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -43,7 +45,13 @@ export default function VideoDetailsScreen() {
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}><Pressable style={styles.iconButton} onPress={() => router.back()}><ArrowLeft size={20} color={T.TEXT} /></Pressable><Text style={styles.headerTitle}>Video</Text><Pressable style={styles.iconButton} onPress={() => setShareVisible(true)}><ShareNetwork size={19} color={T.TEXT} /></Pressable></View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <MsLongFormPlayer videoId={video.id} uri={video.videoUrl} posterUri={video.thumbnailUrl} />
+        <MsLongFormPlayer
+          videoId={video.id}
+          uri={video.videoUrl}
+          posterUri={video.thumbnailUrl}
+          isPremium={video.isPremium && !video.subscribedToCreator}
+          onPremiumRequired={() => setPremiumSheetVisible(true)}
+        />
         <View style={styles.titleWrap}><Text style={styles.title}>{video.title || 'Untitled video'}</Text><Text style={styles.meta}>{formatCount(video.viewCount)} views · {timeAgo(video.createdAt)}</Text></View>
         <View style={styles.creatorRow}><MsAvatar size={42} initials={video.creator.name.slice(0, 2).toUpperCase()} imageUri={video.creator.avatarUrl ?? undefined} /><View style={styles.creatorCopy}><Text style={styles.creatorName}>{video.creator.name}{video.creator.isVerified ? '  ✓' : ''}</Text><Text style={styles.creatorHandle}>@{video.creator.username}</Text></View><Pressable style={styles.subscribe}><UserPlus size={14} color={T.BG} /><Text style={styles.subscribeText}>Subscribe</Text></Pressable></View>
         <View style={styles.actions}><Pressable style={styles.action} onPress={toggleLike}><Heart size={18} color={liked ? T.ACCENT : T.TEXT_2} weight={liked ? 'fill' : 'regular'} /><Text style={styles.actionText}>{formatCount(video.likeCount)}</Text></Pressable><Pressable style={styles.action} onPress={() => setCommentsVisible(true)}><ChatCircle size={18} color={T.TEXT_2} /><Text style={styles.actionText}>{formatCount(video.commentCount)}</Text></Pressable><Pressable style={styles.action} onPress={() => setShareVisible(true)}><ShareNetwork size={18} color={T.TEXT_2} /><Text style={styles.actionText}>Share</Text></Pressable></View>
@@ -53,6 +61,12 @@ export default function VideoDetailsScreen() {
       </ScrollView>
       <MsContentComments kind="video" contentId={video.id} visible={commentsVisible} onClose={() => setCommentsVisible(false)} count={video.commentCount} />
       <MsShareSheet visible={shareVisible} contentType="video" contentId={video.id} title={video.title || 'Video'} onClose={() => setShareVisible(false)} />
+      <MsPaymentSheet
+        visible={premiumSheetVisible}
+        amount={0}
+        onClose={() => setPremiumSheetVisible(false)}
+        onConfirm={() => { setPremiumSheetVisible(false); router.push(`/creator/${video.creator.id}`); }}
+      />
     </MsAmbientBackground>
   );
 }

@@ -42,7 +42,6 @@ import {
   MsCollectionCard,
   MsFeaturedCreatorCard,
   MsRecommendedCreatorRow,
-  MsPreviewCard,
 } from '@/components/MsExploreVisual';
 import { ExploreCreatorCard } from '@/components/ExploreCreatorCard';
 import { CreatorImageCard } from '@/components/CreatorImageCard';
@@ -109,7 +108,6 @@ type ViewMode = 'creators' | 'content' | 'albums';
 
 function DiscoveryHubLinks() {
   const links = [
-    { label: 'Posts', detail: 'Photos & carousels', icon: '▦', route: '/(tabs)/index' as const },
     { label: 'Videos', detail: 'Long-form watching', icon: '▶', route: '/videos' as const },
     { label: 'Shorts', detail: 'Swipe to discover', icon: '↕', route: '/shorts' as const },
     { label: 'Albums', detail: 'Curated collections', icon: '▧', route: null },
@@ -1009,25 +1007,79 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* Premium previews */}
+            {/* Creator content discovery — real video/image cards */}
             <MsSectionHeader
-              title="Premium previews"
+              title="Creator content"
               actionLabel="Latest"
               style={styles.sectionHeader}
             />
             {filteredPreviews.length > 0 ? (
-              <View style={styles.previewGrid}>
+              <View style={styles.creatorContentList}>
                 {filteredPreviews.map((preview) => {
                   const creator = catalogCreators.find((c) => c.id === preview.creatorId);
-                  return creator ? (
-                    <MsPreviewCard
-                      key={preview.id}
-                      preview={preview}
-                      creator={creator}
-                      onPress={() => router.push(`/content/${preview.id}`)}
-                      onLongPress={() => setMenuCreator(creator)}
-                    />
-                  ) : null;
+                  if (!creator) return null;
+                  const uploadDate = fmtTimeAgo(preview.createdAt ?? '');
+                  const comments   = String(preview.commentCount ?? 0);
+                  const creatorBase = {
+                    creatorId:          creator.id,
+                    creatorName:        creator.name,
+                    creatorHandle:      creator.handle,
+                    creatorInitials:    creator.initials,
+                    creatorIsVerified:  creator.isVerified ?? false,
+                    creatorIsOnline:    creator.isOnline  ?? false,
+                    creatorAvatarUrl:   creator.avatarUrl ?? null,
+                  };
+
+                  if (preview.kind === 'video' || preview.kind === 'audio') {
+                    const card: ExploreVideoCardData = {
+                      id:          preview.id,
+                      title:       preview.title || 'Untitled',
+                      duration:    preview.duration,
+                      likes:       preview.likes,
+                      comments,
+                      uploadDate,
+                      gradient:    preview.gradient,
+                      isPremium:   preview.isPremium,
+                      kind:        preview.kind,
+                      lockedLabel: preview.lockedLabel,
+                      thumbnailUrl: preview.thumbnailUrl ?? null,
+                      mediaUrl:    preview.isPremium ? null : (preview.mediaUrl ?? null),
+                      ...creatorBase,
+                    };
+                    return (
+                      <View key={preview.id} style={styles.videoItemWrap}>
+                        <ExploreVideoCard
+                          card={card}
+                          onPress={() => router.push(`/content/${preview.id}`)}
+                          onCreatorPress={() => router.push(`/creator/${creator.id}`)}
+                          onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                        />
+                      </View>
+                    );
+                  }
+
+                  const imgCard: ExploreImageCardData = {
+                    id:          preview.id,
+                    caption:     preview.title || '',
+                    likes:       preview.likes,
+                    comments,
+                    uploadDate,
+                    isPremium:   preview.isPremium,
+                    lockedLabel: preview.lockedLabel,
+                    imageUrl:    preview.thumbnailUrl ?? preview.mediaUrl ?? null,
+                    gradient:    preview.gradient,
+                    ...creatorBase,
+                  };
+                  return (
+                    <View key={preview.id} style={styles.feedItemWrap}>
+                      <ExploreImageCard
+                        card={imgCard}
+                        onPress={() => router.push(`/content/${preview.id}`)}
+                        onCreatorPress={() => router.push(`/creator/${creator.id}`)}
+                        onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                      />
+                    </View>
+                  );
                 })}
               </View>
             ) : (
@@ -1274,6 +1326,9 @@ const styles = StyleSheet.create({
 
   // Album highlight row in creators mode — wider cards, more breathing room
   albumHighlightCard: { width: SCREEN_WIDTH - 72 },
+
+  // Creator content cards (full-width video/image cards in creators mode)
+  creatorContentList: { gap: 0 },
 
   // Loading more
   loadMoreWrap: { paddingVertical: 20, alignItems: 'center' },

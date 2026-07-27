@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   Lightning,
   LockSimple,
+  MonitorPlay,
   PlayCircle,
   VideoCamera,
   X,
@@ -30,11 +31,13 @@ import {
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
+import { createShort, createLongFormVideo } from '@/services/content';
 import { getCategories, type Category } from '@/services/categories';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Step = 'onboard' | 'media-picker' | 'preview' | 'uploading' | 'creating' | 'processing' | 'success';
+type VideoContentType = 'short' | 'video';
 
 const VISIBILITY_OPTIONS = [
   { value: 'public' as const,      label: 'Public',      description: 'Visible to everyone' },
@@ -71,6 +74,10 @@ export default function CreatePostScreen() {
   // Media picker modal
   const [pickerVisible, setPickerVisible] = useState(false);
 
+  // Video type selector (Short vs Long-form Video)
+  const [videoContentType,      setVideoContentType]      = useState<VideoContentType | null>(null);
+  const [videoTypeSheetVisible, setVideoTypeSheetVisible] = useState(false);
+
   useEffect(() => {
     getCategories().then(({ categories }) => setCategories(categories)).catch(() => {});
   }, []);
@@ -106,7 +113,12 @@ export default function CreatePostScreen() {
     setMediaType(type);
     setMediaMime(mime);
     setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
-    setStep('preview');
+    // For videos, show the content-type selector before proceeding to preview
+    if (type === 'video') {
+      setVideoTypeSheetVisible(true);
+    } else {
+      setStep('preview');
+    }
   }, []);
 
   const removeMedia = () => { setMediaUri(null); setMediaType(null); setStep('onboard'); };
@@ -135,6 +147,11 @@ export default function CreatePostScreen() {
       setError('Add a caption or select media before publishing.');
       return;
     }
+    // If video but no type chosen yet, prompt the user
+    if (mediaType === 'video' && !videoContentType) {
+      setVideoTypeSheetVisible(true);
+      return;
+    }
 
     setError('');
     setStep('uploading');
@@ -152,14 +169,22 @@ export default function CreatePostScreen() {
 
       setStep('creating');
 
-      await createPost({
+      const baseParams = {
         caption:    caption.trim(),
-        visibility: isPaid ? 'subscribers' : visibility,
+        visibility: isPaid ? 'subscribers' as const : visibility,
         media_ids:  mediaIds,
         categories: selectedCategories,
         tags,
         ...(isPaid ? { unlock_price: parseInt(creditPrice, 10) || 50 } : {}),
-      });
+      };
+
+      if (mediaType === 'video' && videoContentType === 'short') {
+        await createShort(baseParams);
+      } else if (mediaType === 'video' && videoContentType === 'video') {
+        await createLongFormVideo({ ...baseParams, title: caption.trim() });
+      } else {
+        await createPost(baseParams);
+      }
 
       setStep('processing');
       await new Promise((r) => setTimeout(r, 600));
@@ -173,6 +198,11 @@ export default function CreatePostScreen() {
     }
   };
 
+  const contentLabel =
+    videoContentType === 'short' ? 'Short' :
+    videoContentType === 'video' ? 'Video' :
+    'Post';
+
   // ─── Publishing overlay ───────────────────────────────────────────────────
 
   if (step === 'uploading' || step === 'creating' || step === 'processing' || step === 'success') {
@@ -185,7 +215,7 @@ export default function CreatePostScreen() {
                 <Check size={32} color={T.BG} weight="bold" />
               </View>
               <Text style={styles.overlayTitle}>Published!</Text>
-              <Text style={styles.overlaySubtitle}>Your post is now live.</Text>
+              <Text style={styles.overlaySubtitle}>Your {contentLabel.toLowerCase()} is now live.</Text>
             </>
           ) : (
             <>
@@ -310,6 +340,14 @@ export default function CreatePostScreen() {
           onSkipMedia={() => setPickerVisible(false)}
           insets={insets}
         />
+        {/* Video type selector */}
+        <VideoTypeModal
+          visible={videoTypeSheetVisible}
+          onClose={() => setVideoTypeSheetVisible(false)}
+          onSelectShort={() => { setVideoContentType('short'); setVideoTypeSheetVisible(false); setStep('preview'); }}
+          onSelectVideo={() => { setVideoContentType('video'); setVideoTypeSheetVisible(false); setStep('preview'); }}
+          insets={insets}
+        />
       </View>
     );
   }
@@ -327,7 +365,7 @@ export default function CreatePostScreen() {
         >
           <ArrowLeft size={20} color={T.TEXT} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Post</Text>
+        <Text style={styles.headerTitle}>Create {contentLabel}</Text>
         <View style={{ width: 36 }} />
       </View>
 
@@ -518,7 +556,70 @@ export default function CreatePostScreen() {
         onSkipMedia={() => { setPickerVisible(false); setStep('preview'); }}
         insets={insets}
       />
+      {/* Video type selector */}
+      <VideoTypeModal
+        visible={videoTypeSheetVisible}
+        onClose={() => setVideoTypeSheetVisible(false)}
+        onSelectShort={() => { setVideoContentType('short'); setVideoTypeSheetVisible(false); setStep('preview'); }}
+        onSelectVideo={() => { setVideoContentType('video'); setVideoTypeSheetVisible(false); setStep('preview'); }}
+        insets={insets}
+      />
     </View>
+  );
+}
+
+// ─── Video Type Modal ─────────────────────────────────────────────────────────
+
+function VideoTypeModal({
+  visible,
+  onClose,
+  onSelectShort,
+  onSelectVideo,
+  insets,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSelectShort: () => void;
+  onSelectVideo: () => void;
+  insets: { bottom: number };
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>Upload as</Text>
+          <Text style={styles.modalSubtitle}>Choose how to publish this video</Text>
+
+          <TouchableOpacity style={styles.mediaOption} onPress={onSelectShort} activeOpacity={0.8}>
+            <View style={styles.mediaOptionIcon}>
+              <Lightning size={24} color={T.ACCENT} />
+            </View>
+            <View style={styles.mediaOptionText}>
+              <Text style={styles.mediaOptionLabel}>Short</Text>
+              <Text style={styles.mediaOptionDesc}>Vertical short-form · appears in the Shorts feed</Text>
+            </View>
+            <ArrowRight size={16} color={T.TEXT_3} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.mediaOption} onPress={onSelectVideo} activeOpacity={0.8}>
+            <View style={styles.mediaOptionIcon}>
+              <MonitorPlay size={24} color={T.ACCENT} />
+            </View>
+            <View style={styles.mediaOptionText}>
+              <Text style={styles.mediaOptionLabel}>Long-form Video</Text>
+              <Text style={styles.mediaOptionDesc}>Standard video · appears in the Videos feed</Text>
+            </View>
+            <ArrowRight size={16} color={T.TEXT_3} />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    </Modal>
   );
 }
 

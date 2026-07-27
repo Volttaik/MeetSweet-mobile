@@ -246,3 +246,43 @@ export function useShortsFeed() {
 export function useShort(id: string) {
   return useQuery({ queryKey: ['short', id], queryFn: () => getShort(id), enabled: Boolean(id), staleTime: 30_000 });
 }
+
+// ─── Create endpoints (frontend contracts; backend will implement) ─────────────
+
+export interface CreateShortParams {
+  caption: string;
+  visibility: 'public' | 'subscribers' | 'draft';
+  media_ids?: string[];
+  categories?: string[];
+  tags?: string[];
+  unlock_price?: number;
+}
+
+export async function createShort(params: CreateShortParams): Promise<{ id: string }> {
+  const raw = await apiFetch<any>('/shorts', {
+    method: 'POST',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return { id: raw?.id ?? raw?.short?.id ?? '' };
+}
+
+export interface CreateLongFormVideoParams {
+  title?: string;
+  description?: string;
+  caption?: string;
+  visibility: 'public' | 'subscribers' | 'draft';
+  media_ids?: string[];
+  categories?: string[];
+  tags?: string[];
+  unlock_price?: number;
+}
+
+export async function createLongFormVideo(params: CreateLongFormVideoParams): Promise<{ id: string }> {
+  const raw = await apiFetch<any>('/videos', {
+    method: 'POST',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return { id: raw?.id ?? raw?.video?.id ?? '' };
+}
