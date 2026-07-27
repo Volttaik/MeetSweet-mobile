@@ -68,11 +68,12 @@ interface RawPost {
   creator_username: string;
   creator_display_name: string;
   creator_avatar: string | null;
+  creator_avatar_url?: string | null;
   creator_is_verified: boolean;
   caption: string | null;
   unlock_price: number | null;
   like_count: number;
-  media: Array<{ url: string; type: string }>;
+  media: Array<{ url: string; type: string; thumbnail_url?: string | null }>;
   visibility: string;
 }
 
@@ -94,6 +95,7 @@ export async function buildExploreCatalog(): Promise<ExploreCatalog> {
     const { creator_id, creator_display_name, creator_username, creator_is_verified, unlock_price } = post;
     if (!creatorMap.has(creator_id)) {
       const h = hashStr(creator_id);
+      const avatarRaw = post.creator_avatar ?? post.creator_avatar_url ?? null;
       creatorMap.set(creator_id, {
         id: creator_id,
         name: creator_display_name ?? creator_username ?? 'Creator',
@@ -107,6 +109,7 @@ export async function buildExploreCatalog(): Promise<ExploreCatalog> {
         isVerified: creator_is_verified ?? false,
         isOnline: (h % 3) === 0,
         gradient: gradientFor(creator_id),
+        avatarUrl: avatarRaw,
       });
     }
     // Track the highest unlock_price per creator to use as monthlyCredits

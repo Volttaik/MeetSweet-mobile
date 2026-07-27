@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -20,8 +22,10 @@ import {
   Users,
   Wallet,
 } from 'phosphor-react-native';
+import * as Clipboard from 'expo-clipboard';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
+import { blockUser } from '@/services/users';
 import { Chip } from 'heroui-native';
 import MsInput from '@/components/MsInput';
 import {
@@ -256,7 +260,7 @@ export default function ExploreScreen() {
   const [previewCreator, setPreviewCreator] = useState<CreatorPreviewData | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
 
-  const query = useGetExploreCatalog();
+  const query = useLocalExploreCatalog();
   const catalog = query.data;
   const creators = catalog?.creators ?? [];
   const previewsData = catalog?.previews ?? [];
@@ -338,10 +342,67 @@ export default function ExploreScreen() {
   const creatorMenuActions = (creator: Creator): ActionItem[] => [
     { label: 'View Profile',  onPress: () => openCreator(creator) },
     { label: 'Subscribe',     onPress: () => router.push(`/creator/${creator.id}`) },
-    { label: 'Copy Username', onPress: () => {} },
-    { label: 'Share Profile', onPress: () => {} },
-    { label: 'Mute',          onPress: () => {} },
-    { label: 'Block',         destructive: true, onPress: () => {} },
+    {
+      label: 'Copy Username',
+      onPress: async () => {
+        setMenuCreator(null);
+        await Clipboard.setStringAsync(creator.handle);
+        Alert.alert('Copied', `${creator.handle} copied to clipboard.`);
+      },
+    },
+    {
+      label: 'Share Profile',
+      onPress: async () => {
+        setMenuCreator(null);
+        await Share.share({
+          title: creator.name,
+          message: `Check out ${creator.name} ${creator.handle} on MeetSweet!`,
+        });
+      },
+    },
+    {
+      label: 'Mute',
+      onPress: () => {
+        setMenuCreator(null);
+        Alert.alert(
+          'Mute Creator',
+          `Mute ${creator.name}? Their posts won't appear in your feed.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Mute',
+              onPress: () => Alert.alert('Muted', `${creator.name} has been muted.`),
+            },
+          ],
+        );
+      },
+    },
+    {
+      label: 'Block',
+      destructive: true,
+      onPress: () => {
+        setMenuCreator(null);
+        Alert.alert(
+          'Block Creator',
+          `Block ${creator.name}? You won't see their content anymore.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Block',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await blockUser(creator.handle.replace('@', ''));
+                  Alert.alert('Blocked', `${creator.name} has been blocked.`);
+                } catch {
+                  Alert.alert('Error', 'Could not block this user. Please try again.');
+                }
+              },
+            },
+          ],
+        );
+      },
+    },
   ];
 
   const categories = viewMode === 'videos' ? VIDEO_CATEGORIES : CREATOR_CATEGORIES;

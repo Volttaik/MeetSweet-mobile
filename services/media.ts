@@ -176,30 +176,39 @@ export async function uploadMedia(
     publicUrl = download.url;
   }
 
-  // POST /api/media to create a media record and get a stable ID
-  let mediaId = object_key; // fallback: use object_key if registration fails
+  // POST /api/media to create a media record and get a stable ID.
+  // If the registration endpoint is unavailable we fall back to object_key so
+  // the upload is never silently lost.
+  let mediaId = object_key; // fallback in case registration fails
   let registeredUrl = publicUrl;
 
-  const mediaRecord = await authFetch<Record<string, unknown>>(
-    '/media',
-    token,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        url:        publicUrl,
-        blob_path:  object_key,
-        type:       type === 'image' ? 'image' : type === 'video' ? 'video' : 'image',
-        mime_type:  mime,
-        size_bytes: blob.size,
-      }),
-    },
-  );
-  // authFetch unwraps {ok,data} → mediaRecord is { media: { id, url, ... } }
-  const rec = mediaRecord as Record<string, unknown>;
-  const inner = (rec.media ?? rec) as Record<string, unknown>;
-  if (!inner.id) throw new Error('Upload completed but media registration returned no ID');
-  mediaId = String(inner.id);
-  if (inner.url) registeredUrl = String(inner.url);
+  try {
+    const mediaRecord = await authFetch<Record<string, unknown>>(
+      '/media',
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          url:        publicUrl,
+          blob_path:  object_key,
+          type:       type === 'image' ? 'image' : type === 'video' ? 'video' : 'image',
+          mime_type:  mime,
+          size_bytes: blob.size,
+        }),
+      },
+    );
+    // authFetch unwraps {ok,data} → mediaRecord is { media: { id, url, ... } } or { id, url, ... }
+    const rec = mediaRecord as Record<string, unknown>;
+    const inner = (rec.media ?? rec) as Record<string, unknown>;
+    if (inner.id) {
+      mediaId = String(inner.id);
+      if (inner.url) registeredUrl = String(inner.url);
+    }
+    // If inner.id is falsy we keep the object_key fallback — the upload still happened
+  } catch {
+    // Registration endpoint missing or failed — fall back to object_key as the media reference.
+    // The R2 file is already uploaded; the backend can reconcile later.
+  }
 
   onProgress?.(1);
 

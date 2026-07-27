@@ -20,3 +20,5 @@
 - [Expo workflow package manager](expo-workflow-pnpm.md) — Node 20 needs the system pnpm and direct local Expo binary; avoid re-entering a stale local pnpm shim.
 - [Shadow system](shadow-system.md) — T.SHADOWS.{soft,medium,hard,deep} added to constants/theme.ts; use these instead of inline shadow* props; phosphor icon Film does not exist, use FilmStrip.
 - [Explore page rebuild](explore-page-rebuild.md) — Creators/Videos mode toggle; MsVideoCard for YouTube-style cards; MsCommentsSheet for comment previews + full modal; MsModal has PanResponder swipe-to-close.
+- [Explore catalog hook naming](explore-hook-naming.md) — useLocalExploreCatalog is the real hook; useGetExploreCatalog is a generated stub that calls the missing /api/explore endpoint; always use the local version.
+- [Auth context user fetch](auth-context-usersme.md) — /users/me response after envelope unwrap may be {user:{...}} not a flat object; normalizeUser must receive raw?.user ?? raw.

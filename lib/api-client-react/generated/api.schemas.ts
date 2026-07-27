@@ -26,6 +26,8 @@ export interface Creator {
   isVerified: boolean;
   isOnline: boolean;
   gradient: string;
+  /** Avatar image URL (populated from posts feed, optional) */
+  avatarUrl?: string | null;
 }
 
 export interface ContentPreview {

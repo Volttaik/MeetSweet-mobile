@@ -1,13 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -20,9 +23,11 @@ import {
   Users,
   X,
 } from 'phosphor-react-native';
+import { blockUser, reportUser } from '@/services/users';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
+import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsPreviewCard } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -213,8 +218,9 @@ type TabKey = 'drops' | 'reviews' | 'about';
 export default function CreatorProfileScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const query = useGetExploreCatalog();
+  const query = useLocalExploreCatalog();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('drops');
 
   const creator = useMemo(
@@ -259,7 +265,7 @@ export default function CreatorProfileScreen() {
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
         <Text style={styles.headerTitle}>Creator profile</Text>
-        <Pressable style={styles.moreButton}>
+        <Pressable style={styles.moreButton} onPress={() => setMoreSheetOpen(true)}>
           <Sparkle size={17} color={T.TEXT_2} />
         </Pressable>
       </View>
@@ -268,7 +274,7 @@ export default function CreatorProfileScreen() {
         {/* Hero */}
         <View style={styles.profileHero}>
           <View style={styles.avatarWrap}>
-            <MsAvatar size={84} initials={creator.initials} showOnline={creator.isOnline} />
+            <MsAvatar size={84} initials={creator.initials} showOnline={creator.isOnline} imageUri={creator.avatarUrl ?? undefined} />
           </View>
           <View style={styles.nameRow}>
             <Text style={styles.name}>{creator.name}</Text>
@@ -424,6 +430,86 @@ export default function CreatorProfileScreen() {
         onConfirm={() => { setSheetOpen(false); }}
         onWallet={() => { setSheetOpen(false); router.push('/wallet'); }}
         onClose={() => setSheetOpen(false)}
+      />
+
+      {/* More (sparkle) action sheet */}
+      <MsActionSheet
+        visible={moreSheetOpen}
+        title={creator.name}
+        subtitle={creator.handle}
+        actions={[
+          {
+            label: 'Copy Username',
+            onPress: async () => {
+              setMoreSheetOpen(false);
+              await Clipboard.setStringAsync(creator.handle);
+              Alert.alert('Copied', `${creator.handle} copied to clipboard.`);
+            },
+          },
+          {
+            label: 'Share Profile',
+            onPress: async () => {
+              setMoreSheetOpen(false);
+              await Share.share({
+                title: creator.name,
+                message: `Check out ${creator.name} ${creator.handle} on MeetSweet!`,
+              });
+            },
+          },
+          {
+            label: 'Report',
+            onPress: () => {
+              setMoreSheetOpen(false);
+              Alert.alert(
+                'Report Creator',
+                'Are you sure you want to report this creator?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Report',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await reportUser(creator.handle.replace('@', ''), 'inappropriate_content');
+                        Alert.alert('Reported', 'Thank you. We will review this profile.');
+                      } catch {
+                        Alert.alert('Error', 'Could not submit report. Please try again.');
+                      }
+                    },
+                  },
+                ],
+              );
+            },
+          },
+          {
+            label: 'Block',
+            destructive: true,
+            onPress: () => {
+              setMoreSheetOpen(false);
+              Alert.alert(
+                'Block Creator',
+                `Block ${creator.name}? You won't see their content anymore.`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Block',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await blockUser(creator.handle.replace('@', ''));
+                        Alert.alert('Blocked', `${creator.name} has been blocked.`);
+                        router.back();
+                      } catch {
+                        Alert.alert('Error', 'Could not block this user. Please try again.');
+                      }
+                    },
+                  },
+                ],
+              );
+            },
+          },
+        ] satisfies ActionItem[]}
+        onClose={() => setMoreSheetOpen(false)}
       />
     </View>
   );

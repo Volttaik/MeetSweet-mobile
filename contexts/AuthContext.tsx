@@ -140,7 +140,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const raw = await apiFetch<unknown>('/users/me', {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const user = normalizeUser(raw);
+    // Backend may return { user: {...} } or the object directly after envelope unwrap
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = normalizeUser((raw as any)?.user ?? raw);
     setState((s) => ({ ...s, user }));
     await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
     return user;

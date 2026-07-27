@@ -156,7 +156,7 @@ export default function CreatePostScreen() {
         media_ids:  mediaIds,
         categories: selectedCategories,
         tags,
-        ...(isPaid ? { credit_price: parseInt(creditPrice, 10) || 50 } : {}),
+        ...(isPaid ? { unlock_price: parseInt(creditPrice, 10) || 50 } : {}),
       });
 
       setStep('processing');
