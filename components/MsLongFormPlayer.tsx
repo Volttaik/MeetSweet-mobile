@@ -1,14 +1,17 @@
 /**
  * MsLongFormPlayer — improved long-form video player.
  *
- * Improvements over the previous version:
+ * Improvements:
  * - Seekable tap-to-seek progress bar
  * - Skip −10 / +10 s buttons
  * - Controls auto-hide after 3 s of playback
  * - Cleaner buffering indicator (centred spinner)
  * - Premium 3-second preview: pause + call onPremiumRequired after 3 s
  * - Retry on error
- * - Aspect-ratio preserved (16 : 9 default, switches to flex-1 in fullscreen)
+ * - Dynamic aspect-ratio: detects the video's natural dimensions via
+ *   onReadyForDisplay and adjusts the container height accordingly.
+ *   Portrait videos render tall; landscape videos render wide.
+ *   Falls back to 16:9 while loading.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -83,6 +86,9 @@ export function MsLongFormPlayer({
   // Premium gate: true while locked and waiting for user action
   const [premiumGated,  setPremiumGated]  = useState(false);
 
+  // Dynamic aspect ratio — starts at 16/9, updated when video natural size is known
+  const [aspectRatio, setAspectRatio] = useState(16 / 9);
+
   // Restore saved progress on mount
   useEffect(() => {
     let active = true;
@@ -136,6 +142,15 @@ export function MsLongFormPlayer({
     [videoId, isPremium, onPremiumRequired],
   );
 
+  // Capture natural video dimensions to set dynamic aspect ratio
+  const onReadyForDisplay = useCallback((event: { naturalSize?: { width: number; height: number } }) => {
+    const w = event.naturalSize?.width;
+    const h = event.naturalSize?.height;
+    if (w && h && h > 0) {
+      setAspectRatio(w / h);
+    }
+  }, []);
+
   const toggle = async () => {
     if (!ref.current || premiumGated) return;
     showControlsNow();
@@ -158,13 +173,13 @@ export function MsLongFormPlayer({
 
   // ── Player inner JSX (reused in inline + fullscreen Modal) ──────────────────
   const Player = ({ modal = false }: { modal?: boolean }) => (
-    <View style={[styles.player, modal && styles.modalPlayer]}>
+    <View style={[styles.player, modal ? styles.modalPlayer : { aspectRatio }]}>
       {/* Poster */}
       {posterUri ? (
         <MsMediaLoader
           uri={posterUri}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          resizeMode={modal ? 'contain' : 'cover'}
           accessibleLabel="Video thumbnail"
         />
       ) : null}
@@ -179,6 +194,7 @@ export function MsLongFormPlayer({
           shouldPlay={autoPlay && !premiumGated}
           positionMillis={savedPosition ?? 0}
           onPlaybackStatusUpdate={onStatus}
+          onReadyForDisplay={onReadyForDisplay}
           onError={() => { setError(true); setIsPlaying(false); }}
           useNativeControls={false}
         />
@@ -332,13 +348,12 @@ export function MsLongFormPlayer({
 const styles = StyleSheet.create({
   player: {
     width: '100%',
-    aspectRatio: 16 / 9,
+    // aspectRatio is applied dynamically via the style prop in Player
     backgroundColor: '#050506',
     overflow: 'hidden',
     position: 'relative',
   },
   modalPlayer: {
-    aspectRatio: undefined,
     flex: 1,
   },
   video: { zIndex: 1 },

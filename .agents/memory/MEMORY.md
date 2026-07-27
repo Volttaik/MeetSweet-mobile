@@ -23,3 +23,4 @@
 - [Explore catalog hook naming](explore-hook-naming.md) — useLocalExploreCatalog is the real hook; useGetExploreCatalog is a generated stub that calls the missing /api/explore endpoint; always use the local version.
 - [Auth context user fetch](auth-context-usersme.md) — /users/me response after envelope unwrap may be {user:{...}} not a flat object; normalizeUser must receive raw?.user ?? raw.
 - [Explore Phase 3 card architecture](explore-phase3-cards.md) — three separate card components: ExploreImageCard/ExploreVideoCard/ExploreAlbumCard; each has its own data type; commentCount added to ContentPreview schema; video card uses SCREEN_WIDTH-24 (12px padding), image card uses SCREEN_WIDTH-32 (16px padding).
+- [Explore refactor](explore-refactor.md) — ViewMode is now explore/creators/albums/shorts; Discovery Hub and all category chips removed; Shorts tab navigates directly; MsLongFormPlayer uses dynamic aspectRatio from onReadyForDisplay.
