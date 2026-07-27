@@ -20,8 +20,13 @@ import {
 } from '@expo-google-fonts/poppins';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { T } from '@/constants/theme';
+
+// Set native background colour immediately — prevents the white flash
+// that occurs while React Native paints the first frame.
+SystemUI.setBackgroundColorAsync(T.BG);
 
 SplashScreen.preventAutoHideAsync();
 
@@ -44,8 +49,9 @@ function RootLayoutNav() {
         gestureEnabled: true,
         gestureDirection: 'horizontal',
         fullScreenGestureEnabled: true,
-        // Eliminates white flash during navigation transitions in dark mode
+        // Dark background at every layer — prevents white flash during transitions
         contentStyle: { backgroundColor: T.BG },
+        cardStyle:    { backgroundColor: T.BG },
       }}
     >
       {/* Onboarding & Auth */}
@@ -117,7 +123,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1 }}>
+          <GestureHandlerRootView style={{ flex: 1, backgroundColor: T.BG }}>
             <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
