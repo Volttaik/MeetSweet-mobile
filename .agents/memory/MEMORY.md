@@ -22,3 +22,4 @@
 - [Explore page rebuild](explore-page-rebuild.md) — Creators/Videos mode toggle; MsVideoCard for YouTube-style cards; MsCommentsSheet for comment previews + full modal; MsModal has PanResponder swipe-to-close.
 - [Explore catalog hook naming](explore-hook-naming.md) — useLocalExploreCatalog is the real hook; useGetExploreCatalog is a generated stub that calls the missing /api/explore endpoint; always use the local version.
 - [Auth context user fetch](auth-context-usersme.md) — /users/me response after envelope unwrap may be {user:{...}} not a flat object; normalizeUser must receive raw?.user ?? raw.
+- [Explore Phase 3 card architecture](explore-phase3-cards.md) — three separate card components: ExploreImageCard/ExploreVideoCard/ExploreAlbumCard; each has its own data type; commentCount added to ContentPreview schema; video card uses SCREEN_WIDTH-24 (12px padding), image card uses SCREEN_WIDTH-32 (16px padding).

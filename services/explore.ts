@@ -165,6 +165,7 @@ function previewFromPost(post: RawPost): ContentPreview {
     duration: fmtDuration(durationSecs),
     likes: fmtLikes(post.like_count ?? 0),
     likeCount: post.like_count ?? 0,
+    commentCount: post.comment_count ?? 0,
     isPremium,
     gradient: gradientFor(post.id),
     lockedLabel: isPremium ? `${post.unlock_price} credits` : 'Free',

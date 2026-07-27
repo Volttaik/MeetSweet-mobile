@@ -51,6 +51,8 @@ export interface ContentPreview {
   createdAt?: string;
   /** Raw view/like count for display */
   likeCount?: number;
+  /** Raw comment count for display */
+  commentCount?: number;
 }
 
 export interface TrendingCollection {

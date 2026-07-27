@@ -49,9 +49,9 @@ import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsCreatorPreview, type CreatorPreviewData } from '@/components/MsCreatorPreview';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
-import { MsVideoCard, type VideoCardData } from '@/components/MsVideoCard';
-import { MsImageCard, type ImageCardData } from '@/components/MsImageCard';
-import { MsAlbumCard } from '@/components/MsAlbumCard';
+import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
+import { ExploreVideoCard, type ExploreVideoCardData } from '@/components/ExploreVideoCard';
+import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -397,12 +397,11 @@ export default function ExploreScreen() {
     return allCreators.find((c) => c.id === id);
   }
 
-  // ── Feed items — image + video cards with album cards injected every 5 items ─
+  // ── Feed items — image + video cards with album rows injected every 5 items ──
   type FeedItem =
-    | { type: 'video';  data: VideoCardData;  id: string }
-    | { type: 'image';  data: ImageCardData;  id: string }
-    | { type: 'album';  data: AlbumCardData;  id: string }
-    | { type: 'album-row'; albums: AlbumCardData[]; id: string };
+    | { type: 'video';     data: ExploreVideoCardData; id: string }
+    | { type: 'image';     data: ExploreImageCardData; id: string }
+    | { type: 'album-row'; albums: AlbumCardData[];    id: string };
 
   const feedItems = useMemo<FeedItem[]>(() => {
     const needle = search.trim().toLowerCase();
@@ -427,13 +426,15 @@ export default function ExploreScreen() {
       if (needle && !titleSearch.includes(needle)) continue;
 
       const uploadDate = fmtTimeAgo(p.createdAt);
+      const fmtComments = String(p.commentCount ?? 0);
 
       if (p.kind === 'video' || p.kind === 'audio') {
-        const card: VideoCardData = {
+        const card: ExploreVideoCardData = {
           id: p.id,
           title: p.title || 'Untitled',
           duration: p.duration,
-          views: p.likes,
+          likes: p.likes,
+          comments: fmtComments,
           uploadDate,
           gradient: p.gradient,
           isPremium: p.isPremium,
@@ -451,10 +452,12 @@ export default function ExploreScreen() {
         };
         raw.push({ type: 'video', data: card, id: p.id });
       } else {
-        const card: ImageCardData = {
+        // Images — never get video UI, play buttons, or video metadata
+        const card: ExploreImageCardData = {
           id: p.id,
-          title: p.title || '',
+          caption: p.title || '',
           likes: p.likes,
+          comments: fmtComments,
           uploadDate,
           isPremium: p.isPremium,
           lockedLabel: p.lockedLabel,
@@ -708,8 +711,9 @@ export default function ExploreScreen() {
     const renderFeedItem = ({ item }: { item: FeedItem }) => {
       if (item.type === 'image') {
         return (
+          // Image card: 16px horizontal breathing room — photographs need space
           <View style={styles.feedItemWrap}>
-            <MsImageCard
+            <ExploreImageCard
               card={item.data}
               onPress={() => router.push(`/content/${item.id}`)}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
@@ -721,9 +725,10 @@ export default function ExploreScreen() {
 
       if (item.type === 'video') {
         return (
-          <View style={styles.feedItemWrap}>
-            <MsVideoCard
-              video={item.data}
+          // Video card: 12px horizontal padding — wider cinematic presentation
+          <View style={styles.videoItemWrap}>
+            <ExploreVideoCard
+              card={item.data}
               onPress={() => router.push(`/content/${item.id}`)}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
               onUnlockPress={() => router.push(`/content/${item.id}`)}
@@ -737,7 +742,7 @@ export default function ExploreScreen() {
           <View style={styles.albumRowWrap}>
             <View style={styles.albumRowHeader}>
               <Images size={13} color={T.TEXT_2} />
-              <Text style={styles.albumRowLabel}>Albums</Text>
+              <Text style={styles.albumRowLabel}>Premium Albums</Text>
             </View>
             <ScrollView
               horizontal
@@ -746,7 +751,7 @@ export default function ExploreScreen() {
             >
               {item.albums.map((album) => (
                 <View key={album.id} style={styles.albumRowCard}>
-                  <MsAlbumCard
+                  <ExploreAlbumCard
                     album={album}
                     onPress={() => router.push(`/album/${album.id}`)}
                     onCreatorPress={() => router.push(`/creator/${album.creatorId}`)}
@@ -831,7 +836,7 @@ export default function ExploreScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <View style={styles.feedItemWrap}>
-              <MsAlbumCard
+              <ExploreAlbumCard
                 album={item}
                 onPress={() => router.push(`/album/${item.id}`)}
                 onCreatorPress={() => router.push(`/creator/${item.creatorId}`)}
@@ -927,7 +932,7 @@ export default function ExploreScreen() {
                 >
                   {allAlbums.slice(0, 4).map((album) => (
                     <View key={album.id} style={styles.albumHighlightCard}>
-                      <MsAlbumCard
+                      <ExploreAlbumCard
                         album={album}
                         onPress={() => router.push(`/album/${album.id}`)}
                         onCreatorPress={() => router.push(`/creator/${album.creatorId}`)}
@@ -1204,7 +1209,9 @@ const styles = StyleSheet.create({
   bottomSpace: { height: 28 },
 
   // Feed list
-  feedItemWrap: { paddingHorizontal: 16, paddingBottom: 16 },
+  feedItemWrap:  { paddingHorizontal: 16, paddingBottom: 16 },
+  // Video cards get a bit more width — 12px each side instead of 16
+  videoItemWrap: { paddingHorizontal: 12, paddingBottom: 16 },
 
   // Album row injected into content feed
   albumRowWrap: { paddingBottom: 20 },
