@@ -541,7 +541,8 @@ export default function ExploreScreen() {
   const catalogPreviews       = catalog?.previews ?? [];
   const featuredCreatorIds    = catalog?.featuredCreatorIds ?? [];
   const recommendedCreatorIds = catalog?.recommendedCreatorIds ?? [];
-  const trendingSearches      = catalog?.trendingSearches ?? ['slow living', 'new creators', 'exclusive'];
+  // No hardcoded fallback — show an empty chip row until the backend returns real data.
+  const trendingSearches      = catalog?.trendingSearches ?? [];
   const creditBalance         = Number(catalog?.creditBalance ?? 0);
 
   const visibleCreators = useMemo(() => {

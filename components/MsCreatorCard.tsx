@@ -1,36 +1,61 @@
+/**
+ * MsCreatorCard
+ *
+ * A real-data creator card component.  All displayed information must be
+ * passed as props — no fake/hardcoded data is generated internally.
+ */
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Users } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 
-const CREATORS = [
-  { name: 'Alex Rivera',  handle: '@alex.r',     bio: 'Visual storyteller & photographer',  category: 'Photography',  subscribers: '12.4K', price: 450 },
-  { name: 'Sarah Moon',   handle: '@sarah_m',    bio: 'Lifestyle content creator',            category: 'Lifestyle',    subscribers: '8.1K',  price: 350 },
-  { name: 'Dev Studio',   handle: '@devstudio',  bio: 'Tech educator & developer',            category: 'Technology',   subscribers: '21.0K', price: 200 },
-  { name: 'Creative X',   handle: '@creativex',  bio: 'Art director & designer',              category: 'Art',          subscribers: '5.6K',  price: 500 },
-  { name: 'Luna Kim',     handle: '@luna.k',     bio: 'Fitness & wellness coach',             category: 'Fitness',      subscribers: '33.2K', price: 300 },
-  { name: 'Jay Torres',   handle: '@jay.t',      bio: 'Music producer & DJ',                  category: 'Music',        subscribers: '17.8K', price: 400 },
-  { name: 'Mia Chen',     handle: '@mia.c',      bio: 'Travel & adventure creator',           category: 'Travel',       subscribers: '9.3K',  price: 250 },
-];
+export interface MsCreatorCardData {
+  id: string;
+  name: string;
+  handle: string;
+  bio?: string;
+  category?: string;
+  /** Pre-formatted subscriber count string, e.g. "12.4K" */
+  subscriberCount?: string;
+  /** Subscription price in credits per month */
+  subscriptionPrice?: number;
+  isOnline?: boolean;
+  isVerified?: boolean;
+  avatarUrl?: string | null;
+  initials?: string;
+}
 
 interface MsCreatorCardProps {
-  id: number;
+  creator: MsCreatorCardData;
   variant?: 'compact' | 'featured';
   onPress?: () => void;
   onSubscribe?: () => void;
 }
 
-export function MsCreatorCard({ id, variant = 'compact', onPress, onSubscribe }: MsCreatorCardProps) {
-  const idx = (id - 1) % CREATORS.length;
-  const creator = CREATORS[idx];
-  const initials = creator.name.split(' ').map((n) => n[0]).join('').slice(0, 2);
-  const online = id % 3 === 0;
+function deriveInitials(name: string): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (name ?? '??').substring(0, 2).toUpperCase();
+}
+
+export function MsCreatorCard({
+  creator,
+  variant = 'compact',
+  onPress,
+  onSubscribe,
+}: MsCreatorCardProps) {
+  const avatarInitials = creator.initials || deriveInitials(creator.name);
 
   if (variant === 'compact') {
     return (
       <TouchableOpacity style={styles.compact} activeOpacity={0.75} onPress={onPress}>
-        <MsAvatar size={58} initials={initials} showOnline={online} />
+        <MsAvatar
+          size={58}
+          initials={avatarInitials}
+          showOnline={creator.isOnline}
+          imageUri={creator.avatarUrl ?? undefined}
+        />
         <Text style={styles.compactName} numberOfLines={1}>
           {creator.name.split(' ')[0]}
         </Text>
@@ -43,28 +68,43 @@ export function MsCreatorCard({ id, variant = 'compact', onPress, onSubscribe }:
     <TouchableOpacity style={styles.featured} activeOpacity={0.75} onPress={onPress}>
       {/* Top row: avatar + online status */}
       <View style={styles.featuredTop}>
-        <MsAvatar size={50} initials={initials} showOnline={online} />
-        {online && <Text style={styles.onlineLabel}>● Online</Text>}
+        <MsAvatar
+          size={50}
+          initials={avatarInitials}
+          showOnline={creator.isOnline}
+          imageUri={creator.avatarUrl ?? undefined}
+        />
+        {creator.isOnline && <Text style={styles.onlineLabel}>● Online</Text>}
       </View>
 
-      {/* Category tag */}
-      <View style={styles.categoryTag}>
-        <Text style={styles.categoryTagText}>{creator.category.toUpperCase()}</Text>
-      </View>
+      {/* Category tag — only render when available */}
+      {creator.category ? (
+        <View style={styles.categoryTag}>
+          <Text style={styles.categoryTagText}>{creator.category.toUpperCase()}</Text>
+        </View>
+      ) : null}
 
       {/* Name + handle */}
       <Text style={styles.featuredName} numberOfLines={1}>{creator.name}</Text>
       <Text style={styles.featuredHandle} numberOfLines={1}>{creator.handle}</Text>
-      <Text style={styles.featuredBio} numberOfLines={2}>{creator.bio}</Text>
+      {creator.bio ? (
+        <Text style={styles.featuredBio} numberOfLines={2}>{creator.bio}</Text>
+      ) : null}
 
       {/* Metrics: subscribers + price */}
-      <View style={styles.metrics}>
-        <View style={styles.metric}>
-          <Users size={11} color={T.TEXT_3} />
-          <Text style={styles.metricText}>{creator.subscribers}</Text>
+      {(creator.subscriberCount || creator.subscriptionPrice) ? (
+        <View style={styles.metrics}>
+          {creator.subscriberCount ? (
+            <View style={styles.metric}>
+              <Users size={11} color={T.TEXT_3} />
+              <Text style={styles.metricText}>{creator.subscriberCount}</Text>
+            </View>
+          ) : null}
+          {creator.subscriptionPrice ? (
+            <Text style={styles.priceText}>{creator.subscriptionPrice} cr/mo</Text>
+          ) : null}
         </View>
-        <Text style={styles.priceText}>{creator.price} cr/mo</Text>
-      </View>
+      ) : null}
 
       {/* Subscribe button */}
       <TouchableOpacity

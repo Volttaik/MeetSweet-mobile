@@ -249,11 +249,11 @@ export async function fetchExplorePosts(cursor?: string | null): Promise<Explore
     }
   }
 
-  // Backfill monthlyCredits
-  for (const [id, credits] of creatorMaxPrice) {
-    const c = creatorMap.get(id);
-    if (c) creatorMap.set(id, { ...c, monthlyCredits: credits });
-  }
+  // monthlyCredits is intentionally left as 0 here.
+  // The real subscription price will be fetched per-creator from GET /creators/:id
+  // (see services/creators.ts — useCreatorProfile) when the profile screen is opened.
+  // Do not derive this field from post unlock_prices; that is not the subscription price.
+  void creatorMaxPrice; // suppress unused-variable lint warning
 
   const creators = Array.from(creatorMap.values());
   const previews = uniquePosts

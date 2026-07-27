@@ -3,6 +3,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -21,50 +22,47 @@ import {
   Sparkle,
   Star,
   Users,
-  X,
 } from 'phosphor-react-native';
 import { blockUser, reportUser } from '@/services/users';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
+import { useCreatorProfile, useCreatorReviews, type CreatorReview } from '@/services/creators';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsPreviewCard } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { T } from '@/constants/theme';
 
-// ─── Fake reviews (until backend exposes a reviews endpoint) ──────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-interface Review {
-  id: string;
-  authorName: string;
-  authorInitials: string;
-  rating: number;  // 1-5
-  body: string;
-  dateLabel: string;
+function fmtCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
 }
 
-function generateReviews(creator: Creator): Review[] {
-  // Deterministic seed from creator id so they don't flicker
-  const seed = creator.id.charCodeAt(0) + creator.id.charCodeAt(creator.id.length - 1);
-  const banks: Omit<Review, 'id'>[] = [
-    { authorName: 'Alex M.',       authorInitials: 'AM', rating: 5, body: 'Absolutely love the exclusive content! Worth every credit.',   dateLabel: '2 days ago' },
-    { authorName: 'Jordan P.',     authorInitials: 'JP', rating: 5, body: 'One of the best creators on the platform. Always consistent.', dateLabel: '1 week ago' },
-    { authorName: 'Sam K.',        authorInitials: 'SK', rating: 4, body: 'Great content. Would love more frequent drops!',               dateLabel: '2 weeks ago' },
-    { authorName: 'Taylor W.',     authorInitials: 'TW', rating: 5, body: 'Incredible value. The premium posts are stunning.',            dateLabel: '3 weeks ago' },
-    { authorName: 'Riley C.',      authorInitials: 'RC', rating: 4, body: 'Really enjoy the behind-the-scenes content.',                 dateLabel: '1 month ago' },
-    { authorName: 'Morgan B.',     authorInitials: 'MB', rating: 5, body: 'Top-tier creator. Highly recommend subscribing!',             dateLabel: '1 month ago' },
-    { authorName: 'Casey L.',      authorInitials: 'CL', rating: 3, body: 'Good content overall, hoping for more variety soon.',         dateLabel: '2 months ago' },
-    { authorName: 'Drew H.',       authorInitials: 'DH', rating: 5, body: 'The interaction and exclusives make it totally worth it.',    dateLabel: '2 months ago' },
-  ];
-  // Rotate based on seed to give each creator slightly different reviews
-  const rotated = [...banks.slice(seed % banks.length), ...banks.slice(0, seed % banks.length)];
-  return rotated.slice(0, 4).map((r, i) => ({ ...r, id: `rev-${i}` }));
+function fmtTimeAgo(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 0) return 'just now';
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
-function avgRating(reviews: Review[]): number {
-  if (!reviews.length) return 0;
-  return reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+function initials(name: string): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (name ?? '??').substring(0, 2).toUpperCase();
 }
 
 // ─── Star display ─────────────────────────────────────────────────────────────
@@ -84,22 +82,27 @@ function StarRow({ rating, size = 14 }: { rating: number; size?: number }) {
   );
 }
 
-// ─── Review card ─────────────────────────────────────────────────────────────
+// ─── Review card (real data) ──────────────────────────────────────────────────
 
-function ReviewCard({ review }: { review: Review }) {
+function ReviewCard({ review }: { review: CreatorReview }) {
+  const displayName =
+    review.reviewer_display_name?.trim() || review.reviewer_username || 'Subscriber';
+  const reviewInitials = initials(displayName);
+  const dateLabel = fmtTimeAgo(review.created_at);
+
   return (
     <View style={revStyles.card}>
       <View style={revStyles.header}>
         <View style={revStyles.avatar}>
-          <Text style={revStyles.avatarInitial}>{review.authorInitials}</Text>
+          <Text style={revStyles.avatarInitial}>{reviewInitials}</Text>
         </View>
         <View style={revStyles.meta}>
-          <Text style={revStyles.name}>{review.authorName}</Text>
-          <Text style={revStyles.date}>{review.dateLabel}</Text>
+          <Text style={revStyles.name}>{displayName}</Text>
+          {dateLabel ? <Text style={revStyles.date}>{dateLabel}</Text> : null}
         </View>
         <StarRow rating={review.rating} size={13} />
       </View>
-      <Text style={revStyles.body}>{review.body}</Text>
+      {review.body ? <Text style={revStyles.body}>{review.body}</Text> : null}
     </View>
   );
 }
@@ -218,27 +221,101 @@ type TabKey = 'drops' | 'reviews' | 'about';
 export default function CreatorProfileScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const query = useLocalExploreCatalog();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('drops');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const creator = useMemo(
-    () => query.data?.creators?.find((item) => item.id === id),
-    [id, query.data],
+  // ── Data sources ─────────────────────────────────────────────────────────────
+  // 1. Explore catalog: gives us the basic creator shell (name, handle, avatar)
+  //    derived from the posts feed.  Used as a fast-path while the profile loads.
+  const catalogQuery  = useLocalExploreCatalog();
+  // 2. Real profile: GET /creators/:id — bio, category, follower count, etc.
+  //    Gracefully returns null when the backend endpoint is pending.
+  const profileQuery  = useCreatorProfile(id);
+  // 3. Real reviews: GET /creators/:id/reviews
+  //    Returns an empty list when the backend endpoint is pending.
+  const reviewsQuery  = useCreatorReviews(id);
+
+  const catalogCreator = useMemo(
+    () => catalogQuery.data?.creators?.find((item) => item.id === id),
+    [id, catalogQuery.data],
   );
-  const creatorPreviews = query.data?.previews.filter((item) => item.creatorId === id) ?? [];
-  const creditBalance = Number(query.data?.creditBalance ?? 0);
-  const canSubscribe = Boolean(creator && creditBalance >= creator.monthlyCredits);
 
-  const reviews = useMemo(() => (creator ? generateReviews(creator) : []), [creator]);
-  const avg = avgRating(reviews);
+  /**
+   * Merge the explore-catalog shell with the real profile data.
+   * This ensures the screen always has something to show (name, avatar) while
+   * the profile request resolves, and upgrades to real data (bio, followers,
+   * category, subscription price) as soon as it arrives.
+   */
+  const creator: Creator | null = useMemo(() => {
+    if (!catalogCreator && !profileQuery.data) return null;
+    const base = catalogCreator;
+    const profile = profileQuery.data;
 
-  if (query.isLoading) {
+    const resolvedName     = profile?.display_name?.trim() || base?.name || 'Creator';
+    const resolvedHandle   = base?.handle || (profile?.username ? `@${profile.username}` : '');
+    const resolvedInitials = initials(resolvedName);
+    const resolvedBio      = profile?.bio ?? base?.bio ?? '';
+    const resolvedCategory = profile?.category ?? base?.category ?? '';
+    const resolvedFollowers = profile
+      ? fmtCount(profile.follower_count)
+      : (base?.followers ?? '');
+    const resolvedSubscriberCount = profile?.subscriber_count ?? base?.subscriberCount ?? 0;
+    const resolvedMonthlyCredits  = profile?.subscription_price ?? base?.monthlyCredits ?? 0;
+    const resolvedIsVerified = profile?.is_verified ?? base?.isVerified ?? false;
+    const resolvedIsOnline   = profile?.is_online   ?? base?.isOnline   ?? false;
+
+    return {
+      id: id!,
+      name:            resolvedName,
+      handle:          resolvedHandle,
+      initials:        resolvedInitials,
+      bio:             resolvedBio,
+      category:        resolvedCategory,
+      followers:       resolvedFollowers,
+      subscriberCount: resolvedSubscriberCount,
+      monthlyCredits:  resolvedMonthlyCredits,
+      isVerified:      resolvedIsVerified,
+      isOnline:        resolvedIsOnline,
+      gradient:        base?.gradient ?? 'violet',
+      avatarUrl:       profile?.avatar_url ?? base?.avatarUrl,
+      bannerUrl:       profile?.banner_url ?? base?.bannerUrl,
+    };
+  }, [id, catalogCreator, profileQuery.data]);
+
+  const creatorPreviews =
+    catalogQuery.data?.previews.filter((item) => item.creatorId === id) ?? [];
+  const creditBalance = Number(catalogQuery.data?.creditBalance ?? 0);
+  const canSubscribe  = Boolean(creator && creator.monthlyCredits > 0 && creditBalance >= creator.monthlyCredits);
+
+  // Reviews from the live endpoint
+  const reviews       = reviewsQuery.data?.reviews ?? [];
+  const totalReviews  = reviewsQuery.data?.total ?? 0;
+  const avgRating     = reviewsQuery.data?.average_rating ?? null;
+
+  // ── Refresh ───────────────────────────────────────────────────────────────────
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        catalogQuery.refetch(),
+        profileQuery.refetch(),
+        reviewsQuery.refetch(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // ── Loading state ─────────────────────────────────────────────────────────────
+  const isInitialLoading = catalogQuery.isLoading && !catalogCreator;
+
+  if (isInitialLoading) {
     return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
   }
 
-  if (query.isError || !creator) {
+  if ((catalogQuery.isError && !catalogCreator) || (!creator && !catalogQuery.isLoading)) {
     return (
       <View style={styles.center}>
         <MsEmptyState
@@ -251,9 +328,13 @@ export default function CreatorProfileScreen() {
     );
   }
 
+  if (!creator) {
+    return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
+  }
+
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'drops',   label: `Drops (${creatorPreviews.length})` },
-    { key: 'reviews', label: `Reviews (${reviews.length})` },
+    { key: 'reviews', label: `Reviews (${reviewsQuery.isLoading ? '…' : totalReviews})` },
     { key: 'about',   label: 'About' },
   ];
 
@@ -270,35 +351,55 @@ export default function CreatorProfileScreen() {
         </Pressable>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />
+        }
+      >
         {/* Hero */}
         <View style={styles.profileHero}>
           <View style={styles.avatarWrap}>
-            <MsAvatar size={84} initials={creator.initials} showOnline={creator.isOnline} imageUri={creator.avatarUrl ?? undefined} />
+            <MsAvatar
+              size={84}
+              initials={creator.initials}
+              showOnline={creator.isOnline}
+              imageUri={creator.avatarUrl ?? undefined}
+            />
           </View>
           <View style={styles.nameRow}>
             <Text style={styles.name}>{creator.name}</Text>
             {creator.isVerified && <Check size={16} color={T.ACCENT} />}
           </View>
-          <Text style={styles.handle}>{creator.handle} · {creator.category}</Text>
+          <Text style={styles.handle}>
+            {creator.handle}
+            {creator.category ? ` · ${creator.category}` : ''}
+          </Text>
 
-          {/* Rating summary */}
-          <View style={styles.ratingRow}>
-            <StarRow rating={avg} size={15} />
-            <Text style={styles.ratingText}>{avg.toFixed(1)} ({reviews.length} reviews)</Text>
-          </View>
+          {/* Rating summary — only shown when the backend returns real data */}
+          {avgRating != null && (
+            <View style={styles.ratingRow}>
+              <StarRow rating={avgRating} size={15} />
+              <Text style={styles.ratingText}>
+                {avgRating.toFixed(1)} ({totalReviews} {totalReviews === 1 ? 'review' : 'reviews'})
+              </Text>
+            </View>
+          )}
 
-          <Text style={styles.bio}>{creator.bio}</Text>
+          {creator.bio ? <Text style={styles.bio}>{creator.bio}</Text> : null}
 
           {/* Metrics */}
           <View style={styles.metrics}>
             <View>
-              <Text style={styles.metricValue}>{creator.followers}</Text>
+              <Text style={styles.metricValue}>{creator.followers || '—'}</Text>
               <Text style={styles.metricLabel}>Followers</Text>
             </View>
             <View style={styles.metricDivider} />
             <View>
-              <Text style={styles.metricValue}>{creator.monthlyCredits}</Text>
+              <Text style={styles.metricValue}>
+                {creator.monthlyCredits > 0 ? creator.monthlyCredits : '—'}
+              </Text>
               <Text style={styles.metricLabel}>Credits / mo</Text>
             </View>
             <View style={styles.metricDivider} />
@@ -316,9 +417,9 @@ export default function CreatorProfileScreen() {
           >
             <Lock size={16} color={T.BG} />
             <Text style={styles.subscribeBtnLabel}>
-              {canSubscribe
-                ? `Subscribe · ${creator.monthlyCredits} credits`
-                : 'Get more credits to subscribe'}
+              {creator.monthlyCredits > 0
+                ? (canSubscribe ? `Subscribe · ${creator.monthlyCredits} credits` : 'Get more credits to subscribe')
+                : 'Subscribe'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -365,16 +466,32 @@ export default function CreatorProfileScreen() {
 
         {activeTab === 'reviews' && (
           <View style={styles.tabContent}>
-            {/* Rating summary card */}
-            <View style={styles.ratingCard}>
-              <Text style={styles.ratingBig}>{avg.toFixed(1)}</Text>
-              <StarRow rating={avg} size={20} />
-              <Text style={styles.ratingCardSub}>{reviews.length} subscriber reviews</Text>
-            </View>
-
-            {reviews.map((r) => (
-              <ReviewCard key={r.id} review={r} />
-            ))}
+            {reviewsQuery.isLoading ? (
+              <View style={styles.reviewLoading}>
+                <Spinner color="default" size="sm" />
+              </View>
+            ) : reviews.length > 0 ? (
+              <>
+                {/* Rating summary card */}
+                {avgRating != null && (
+                  <View style={styles.ratingCard}>
+                    <Text style={styles.ratingBig}>{avgRating.toFixed(1)}</Text>
+                    <StarRow rating={avgRating} size={20} />
+                    <Text style={styles.ratingCardSub}>
+                      {totalReviews} subscriber {totalReviews === 1 ? 'review' : 'reviews'}
+                    </Text>
+                  </View>
+                )}
+                {reviews.map((r) => (
+                  <ReviewCard key={r.id} review={r} />
+                ))}
+              </>
+            ) : (
+              <MsEmptyState
+                title="No reviews yet"
+                message="Subscribers haven't left reviews for this creator yet."
+              />
+            )}
           </View>
         )}
 
@@ -392,16 +509,24 @@ export default function CreatorProfileScreen() {
             </View>
 
             <View style={styles.infoCard}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Category</Text>
-                <Text style={styles.infoValue}>{creator.category}</Text>
-              </View>
-              <View style={styles.infoDivider} />
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Monthly credits</Text>
-                <Text style={styles.infoValue}>{creator.monthlyCredits} credits</Text>
-              </View>
-              <View style={styles.infoDivider} />
+              {creator.category ? (
+                <>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Category</Text>
+                    <Text style={styles.infoValue}>{creator.category}</Text>
+                  </View>
+                  <View style={styles.infoDivider} />
+                </>
+              ) : null}
+              {creator.monthlyCredits > 0 && (
+                <>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Monthly credits</Text>
+                    <Text style={styles.infoValue}>{creator.monthlyCredits} credits</Text>
+                  </View>
+                  <View style={styles.infoDivider} />
+                </>
+              )}
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Availability</Text>
                 <View style={styles.onlineRow}>
@@ -594,7 +719,8 @@ const styles = StyleSheet.create({
   // Drops
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
 
-  // Reviews rating card
+  // Reviews
+  reviewLoading: { alignItems: 'center', paddingVertical: 40 },
   ratingCard: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg, borderWidth: 1, borderColor: T.BORDER,
