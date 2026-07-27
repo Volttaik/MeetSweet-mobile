@@ -21,6 +21,7 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { T } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -44,7 +45,7 @@ function RootLayoutNav() {
         gestureDirection: 'horizontal',
         fullScreenGestureEnabled: true,
         // Eliminates white flash during navigation transitions in dark mode
-        contentStyle: { backgroundColor: '#0C0C0F' },
+        contentStyle: { backgroundColor: T.BG },
       }}
     >
       {/* Onboarding & Auth */}

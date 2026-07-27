@@ -69,6 +69,18 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+function inferMediaType(raw: any): ChatMessage['mediaType'] {
+  const explicit = raw.mediaType ?? raw.media_type;
+  if (explicit === 'image' || explicit === 'video' || explicit === 'audio' || explicit === 'document') {
+    return explicit;
+  }
+  const source = String(raw.mediaUrl ?? raw.media_url ?? '').toLowerCase().split('?')[0];
+  if (/\.(png|jpe?g|webp|gif|heic)$/.test(source)) return 'image';
+  if (/\.(mp4|mov|m4v|webm|3gp|quicktime)$/.test(source)) return 'video';
+  if (/\.(mp3|m4a|wav|ogg|oga|webm)$/.test(source)) return 'audio';
+  return null;
+}
+
 // ─── Normalizers ───────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,12 +111,12 @@ function normalizeMessage(raw: any): ChatMessage {
     id: raw.id,
     body: raw.body ?? null,
     mediaUrl: raw.mediaUrl ?? raw.media_url ?? null,
-    mediaType: raw.mediaType ?? raw.media_type ?? null,
+    mediaType: inferMediaType(raw),
     audioDuration: raw.audioDuration ?? raw.audio_duration ?? undefined,
     fileName: raw.fileName ?? raw.file_name ?? undefined,
     fileSize: raw.fileSize ?? raw.file_size ?? undefined,
     mimeType: raw.mimeType ?? raw.mime_type ?? undefined,
-    isDeleted: raw.isDeleted ?? raw.is_deleted ?? false,
+    isDeleted: raw.isDeleted ?? raw.is_deleted ?? raw.is_recalled ?? false,
     isEdited: raw.isEdited ?? raw.is_edited ?? false,
     isPaid: raw.isPaid ?? raw.is_paid ?? false,
     isUnlocked: raw.isUnlocked ?? raw.is_unlocked ?? false,
@@ -119,7 +131,7 @@ function normalizeMessage(raw: any): ChatMessage {
           avatarUrl: raw.sender.avatarUrl ?? raw.sender.avatar_url ?? null,
         }
       : { id: '', name: 'Unknown', username: '', avatarUrl: null },
-    isOwn: raw.isOwn ?? false,
+    isOwn: raw.isOwn ?? raw.is_own ?? false,
   };
 }
 
@@ -160,13 +172,13 @@ export async function getMessages(
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const qs = before ? `?before=${encodeURIComponent(before)}` : '';
-  const raw = await apiFetch<{ messages: unknown[]; hasMore: boolean }>(
+  const raw = await apiFetch<{ messages: unknown[]; hasMore?: boolean; has_more?: boolean }>(
     `/conversations/${conversationId}/messages${qs}`,
     { headers: authHeader(token) },
   );
   return {
     messages: Array.isArray(raw?.messages) ? raw.messages.map(normalizeMessage) : [],
-    hasMore: raw?.hasMore ?? false,
+    hasMore: raw?.hasMore ?? raw?.has_more ?? false,
   };
 }
 
@@ -187,6 +199,14 @@ export async function sendMessage(
 ): Promise<{ message: ChatMessage }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+  // The production message route currently validates media_type as image|video.
+  // Do not send a request that is guaranteed to return 422 for audio/documents;
+  // the chat screen turns this into an actionable compatibility message.
+  // The live route currently stores one media URL and validates media_type as
+  // image|video. Audio and documents still use the same upload pipeline; send
+  // them with a null media_type so the URL is accepted instead of returning
+  // 422. The chat preserves the richer local metadata for the current session.
+  const wireMediaType = mediaType === 'image' || mediaType === 'video' ? mediaType : null;
   const raw = await apiFetch<{ message: unknown }>(
     `/conversations/${conversationId}/messages`,
     {
@@ -195,14 +215,7 @@ export async function sendMessage(
       body: JSON.stringify({
         body,
         media_url: mediaUrl,
-        media_type: mediaType,
-        caption: opts?.caption,
-        is_paid: opts?.isPaid,
-        paid_price: opts?.paidPrice,
-        file_name: opts?.fileName,
-        file_size: opts?.fileSize,
-        mime_type: opts?.mimeType,
-        audio_duration: opts?.audioDuration,
+        media_type: wireMediaType,
       }),
     },
   );

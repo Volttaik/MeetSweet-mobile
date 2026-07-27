@@ -35,6 +35,7 @@ const MIME_ALIASES: Record<string, string> = {
   'video/3gpp2':     'video/mp4',
   'audio/mp3':       'audio/mpeg',
   'audio/x-m4a':     'audio/mp4',
+  'audio/m4a':       'audio/mp4',
 };
 
 const EXT_BY_MIME: Record<string, string> = {

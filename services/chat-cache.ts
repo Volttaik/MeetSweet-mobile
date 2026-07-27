@@ -160,6 +160,34 @@ export async function deleteCachedMessage(messageId: string): Promise<void> {
   }
 }
 
+/** Remove a message only from this device; the server copy is unchanged. */
+export async function removeCachedMessage(
+  conversationId: string,
+  messageId: string,
+): Promise<void> {
+  const sqliteDb = await getDb();
+  if (sqliteDb) {
+    try {
+      await sqliteDb.runAsync(
+        'DELETE FROM messages WHERE conversation_id = ? AND id = ?',
+        [conversationId, messageId],
+      );
+    } catch (e) {
+      console.warn('[chat-cache] removeCachedMessage error:', e);
+    }
+    return;
+  }
+
+  const key = `@ms_messages_${conversationId}`;
+  const existing = await AsyncStorage.getItem(key);
+  if (!existing) return;
+  const messages = JSON.parse(existing) as ChatMessage[];
+  await AsyncStorage.setItem(
+    key,
+    JSON.stringify(messages.filter((message) => message.id !== messageId)),
+  );
+}
+
 // ─── Auth cache ────────────────────────────────────────────────────────────────
 
 export async function cacheAuthValue(key: string, value: string): Promise<void> {

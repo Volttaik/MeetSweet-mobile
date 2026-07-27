@@ -31,6 +31,8 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -73,6 +75,8 @@ import { MsAttachmentPreview } from '@/components/MsAttachmentPreview';
 import type { PendingAttachment, ConfirmedAttachment } from '@/components/MsAttachmentPreview';
 import { MsUserProfileSheet } from '@/components/MsUserProfileSheet';
 import type { ProfileSheetUser } from '@/components/MsUserProfileSheet';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getMessages,
@@ -82,11 +86,13 @@ import {
   getConversations,
   type ChatMessage,
 } from '@/services/messages';
+import { getUser, followUser, unfollowUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 import {
   getCachedMessages,
   cacheMessages,
   deleteCachedMessage,
+  removeCachedMessage,
   getCachedConversations,
   cacheConversations,
 } from '@/services/chat-cache';
@@ -431,9 +437,22 @@ interface BubbleProps {
   onUnlockPaid?: () => void;
   showTimestamp?: boolean;
   onTap?: () => void;
+  onImagePress?: (uri: string) => void;
+  onVideoPress?: (uri: string) => void;
 }
 
-function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUnlockPaid, showTimestamp, onTap }: BubbleProps) {
+function MessageBubble({
+  message,
+  reactions,
+  replyTo,
+  onLongPress,
+  onReact,
+  onUnlockPaid,
+  showTimestamp,
+  onTap,
+  onImagePress,
+  onVideoPress,
+}: BubbleProps) {
   const isOwn = message.isOwn;
   const isPaidLocked = !!(message.isPaid) && !(message.isUnlocked) && !isOwn;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -504,14 +523,22 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
                       </Text>
                     </View>
                   )}
-                  <Image
-                    source={{ uri: message.mediaUrl }}
-                    style={[
-                      bs.bubbleImage,
-                      isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
-                    ]}
-                    resizeMode="cover"
-                  />
+                  <TouchableOpacity
+                    activeOpacity={0.92}
+                    onPress={() => onImagePress?.(message.mediaUrl!)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open image fullscreen"
+                  >
+                    <MsMediaLoader
+                      uri={message.mediaUrl}
+                      style={[
+                        bs.bubbleImage,
+                        isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
+                      ]}
+                      resizeMode="cover"
+                      accessibleLabel="Message image"
+                    />
+                  </TouchableOpacity>
                 </View>
               )}
               {/* ── Video ── */}
@@ -525,16 +552,34 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
                       </Text>
                     </View>
                   )}
-                  <Video
-                    source={{ uri: message.mediaUrl }}
-                    style={[
-                      bs.bubbleImage,
-                      isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
-                    ]}
-                    useNativeControls
-                    resizeMode={ResizeMode.COVER}
-                    shouldPlay={false}
-                  />
+                  <TouchableOpacity
+                    activeOpacity={0.92}
+                    onPress={() => onVideoPress?.(message.mediaUrl!)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open video fullscreen"
+                  >
+                    <View
+                      style={[
+                        bs.bubbleImage,
+                        bs.videoBubble,
+                        isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
+                      ]}
+                    >
+                      <Video
+                        source={{ uri: message.mediaUrl }}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode={ResizeMode.COVER}
+                        shouldPlay={false}
+                        useNativeControls={false}
+                        pointerEvents="none"
+                      />
+                      <View style={bs.videoPlayOverlay}>
+                        <View style={bs.videoPlayButton}>
+                          <Play size={22} color="#fff" weight="fill" />
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
                 </View>
               )}
               {/* ── Caption or body ── */}
@@ -608,7 +653,7 @@ const bs = StyleSheet.create({
   replyBody: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
 
   bubble: {
-    borderRadius: 50,
+    borderRadius: 7,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 8,
@@ -624,7 +669,7 @@ const bs = StyleSheet.create({
   },
   bubbleDeleted: {
     backgroundColor: T.SURFACE_2,
-    borderRadius: 50,
+    borderRadius: 7,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
@@ -632,7 +677,7 @@ const bs = StyleSheet.create({
 
   bubblePaid: {
     backgroundColor: T.ACCENT_LIGHT,
-    borderRadius: 50,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: T.ACCENT,
     paddingHorizontal: 20,
@@ -665,7 +710,14 @@ const bs = StyleSheet.create({
     color: '#fff',
   },
 
-  text: { fontSize: 15, lineHeight: 21, fontFamily: T.FONT.regular },
+  text: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: T.FONT.regular,
+    flexShrink: 1,
+    includeFontPadding: false,
+    ...Platform.select({ android: { textBreakStrategy: 'simple' as const } }),
+  },
   textOwn: { color: '#fff' },
   textOther: { color: T.TEXT },
 
@@ -675,7 +727,29 @@ const bs = StyleSheet.create({
   timeOther: { color: T.TEXT_3 },
   editedLabel: { fontSize: 10, fontFamily: T.FONT.regular, fontStyle: 'italic' },
 
-  bubbleImage: { width: Math.min(SCREEN_W * 0.62, 260), height: 200, borderRadius: 50, marginBottom: 3 },
+  bubbleImage: {
+    width: Math.min(SCREEN_W * 0.68, 300),
+    height: 210,
+    borderRadius: 7,
+    marginBottom: 3,
+    overflow: 'hidden',
+    backgroundColor: T.SURFACE_2,
+  },
+  videoBubble: { position: 'relative' },
+  videoPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.14)',
+  },
+  videoPlayButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   timeBelowRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, paddingHorizontal: 4 },
   timeBelow: { fontSize: 10, fontFamily: T.FONT.regular },
@@ -696,7 +770,7 @@ const bs = StyleSheet.create({
   uploadSkeleton: {
     width: Math.min(SCREEN_W * 0.62, 260),
     height: 200,
-    borderRadius: 50,
+     borderRadius: 7,
     borderBottomRightRadius: 6,
     backgroundColor: T.SURFACE,
     overflow: 'hidden',
@@ -796,6 +870,7 @@ interface LPSheetProps {
   onReact: (emoji: string) => void;
   onInfo: () => void;
   onEdit: () => void;
+  onDeleteForMe: () => void;
 }
 
 function LongPressSheet(props: LPSheetProps) {
@@ -857,6 +932,11 @@ function LongPressSheet(props: LPSheetProps) {
         )}
         <LPAction icon={<ArrowUUpRight size={18} color={T.TEXT} />} label="Forward" onPress={() => { props.onForward(); onClose(); }} />
         <LPAction icon={<Info size={18} color={T.TEXT} />} label="Message info" onPress={() => { props.onInfo(); onClose(); }} />
+         <LPAction
+           icon={<Trash size={18} color={T.TEXT_2} />}
+           label="Delete for me"
+           onPress={() => { props.onDeleteForMe(); onClose(); }}
+         />
         {canDelete && (
           <LPAction
             icon={<Trash size={18} color={T.ERROR} />}
@@ -950,6 +1030,7 @@ function InputBar(props: InputBarProps) {
   } = props;
 
   const hasText = text.trim().length > 0;
+  const [inputHeight, setInputHeight] = useState(22);
   const cameraAnim = useRef(new Animated.Value(1)).current;
   const micAnim = useRef(new Animated.Value(1)).current;
   const sendAnim = useRef(new Animated.Value(0)).current;
@@ -1025,7 +1106,11 @@ function InputBar(props: InputBarProps) {
             value={text}
             onChangeText={onChangeText}
             multiline
-            scrollEnabled={false}
+            scrollEnabled={inputHeight >= 116}
+            onContentSizeChange={(event) => {
+              setInputHeight(Math.min(116, Math.max(22, event.nativeEvent.contentSize.height)));
+            }}
+            textAlignVertical="top"
             underlineColorAndroid="transparent"
             selectionColor="#888"
             returnKeyType="default"
@@ -1189,11 +1274,13 @@ export default function ChatScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [text, setText] = useState('');
 
   const [otherUser, setOtherUser] = useState<ProfileSheetUser>({
     id: '', name: '', username: '', avatarUrl: null,
   });
+  const [isFollowing, setIsFollowing] = useState(false);
   const [isOnline] = useState(false);
 
   const [reactions, setReactions] = useState<Record<string, MessageReactions>>({});
@@ -1212,6 +1299,8 @@ export default function ChatScreen() {
 
   // Attachment preview
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
+  const [fullscreenVideoUri, setFullscreenVideoUri] = useState<string | null>(null);
 
   // Upload tracking
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -1259,6 +1348,21 @@ export default function ChatScreen() {
             avatarUrl: found.otherUser.avatarUrl,
             isVerified: found.otherUser.isVerified,
           });
+          if (found.otherUser.username) {
+            try {
+              const profile = await getUser(found.otherUser.username);
+              setOtherUser((current) => ({
+                ...current,
+                bio: profile.user.bio,
+                followerCount: profile.user.followerCount,
+                followingCount: profile.user.followingCount,
+                isVerified: profile.user.isVerified,
+              }));
+              setIsFollowing(profile.isFollowing);
+            } catch {
+              // Conversation data remains a valid fallback when profile lookup fails.
+            }
+          }
         }
         await cacheConversations(data.conversations);
       } catch {}
@@ -1271,9 +1375,21 @@ export default function ChatScreen() {
     try {
       const data = await getMessages(conversationId, before);
       if (before) {
-        setMessages((prev) => [...data.messages, ...prev]);
+        setMessages((prev) => {
+          const byId = new Map<string, ChatMessage>();
+          [...data.messages, ...prev].forEach((message) => byId.set(message.id, message));
+          return [...byId.values()].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          );
+        });
       } else {
-        setMessages(data.messages);
+        const byId = new Map<string, ChatMessage>();
+        data.messages.forEach((message) => byId.set(message.id, message));
+        setMessages(
+          [...byId.values()].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          ),
+        );
       }
       setHasMore(data.hasMore);
       setOffline(false);
@@ -1293,6 +1409,15 @@ export default function ChatScreen() {
   }, [conversationId]);
 
   useEffect(() => { loadMessages(); }, [conversationId]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadMessages();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadMessages]);
 
   const scrollToEnd = (animated = true) => {
     setTimeout(() => flatRef.current?.scrollToEnd({ animated }), 60);
@@ -1350,9 +1475,12 @@ export default function ChatScreen() {
       const { message } = await sendMessage(conversationId, body);
       setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? message : m)));
       await cacheMessages(conversationId, [message]);
-    } catch {
+    } catch (error) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setText(body);
+      if (error instanceof Error && error.message.includes('does not support')) {
+        Alert.alert('Media type unavailable', error.message);
+      }
     } finally {
       setSending(false);
     }
@@ -1452,9 +1580,15 @@ export default function ChatScreen() {
       };
       setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? merged : m)));
       await cacheMessages(conversationId, [merged]);
-    } catch {
+    } catch (error) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      Alert.alert('Upload failed', 'Could not send the attachment. Please try again.');
+      const detail = error instanceof Error ? error.message : '';
+      Alert.alert(
+        'Attachment unavailable',
+        detail.includes('422') || detail.includes('does not support')
+          ? 'The live messaging API does not currently support this attachment type. Images and videos are supported.'
+          : 'Could not send the attachment. Please try again.',
+      );
     } finally {
       setUploadingImage(false);
     }
@@ -1534,6 +1668,14 @@ export default function ChatScreen() {
     setText(menuMsg.body);
   };
 
+  const handleDeleteForMe = async () => {
+    if (!menuMsg) return;
+    const messageId = menuMsg.id;
+    setMenuVisible(false);
+    setMessages((prev) => prev.filter((message) => message.id !== messageId));
+    await removeCachedMessage(conversationId, messageId);
+  };
+
   const handleForward = () => {
     Alert.alert('Forward', 'Forward message: coming soon.');
   };
@@ -1566,6 +1708,28 @@ export default function ChatScreen() {
         },
       ],
     );
+  };
+
+  const handleFollow = async () => {
+    if (!otherUser.username) return;
+    setIsFollowing(true);
+    try {
+      await followUser(otherUser.username);
+    } catch {
+      setIsFollowing(false);
+      Alert.alert('Could not follow', 'Please try again.');
+    }
+  };
+
+  const handleUnfollow = async () => {
+    if (!otherUser.username) return;
+    setIsFollowing(false);
+    try {
+      await unfollowUser(otherUser.username);
+    } catch {
+      setIsFollowing(true);
+      Alert.alert('Could not unfollow', 'Please try again.');
+    }
   };
 
   // ── Voice recording ──────────────────────────────────────────────────────
@@ -1670,11 +1834,13 @@ export default function ChatScreen() {
             onTap={() => handleMsgTap(item.id)}
             showTimestamp={tappedMsgId === item.id}
             onUnlockPaid={() => handleUnlockPaid(item)}
+            onImagePress={setFullscreenImageUri}
+            onVideoPress={setFullscreenVideoUri}
           />
         </View>
       );
     },
-    [messages, reactions, replyTargets, tappedMsgId, handleMsgTap],
+     [messages, reactions, replyTargets, tappedMsgId, handleMsgTap],
   );
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1751,6 +1917,14 @@ export default function ChatScreen() {
             renderItem={renderItem}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={sc.msgList}
+             refreshControl={
+               <RefreshControl
+                 refreshing={refreshing}
+                 onRefresh={handleRefresh}
+                 tintColor={T.TEXT_2}
+                 colors={[T.ACCENT]}
+               />
+             }
             onLayout={() => scrollToEnd(false)}
             onStartReachedThreshold={0.3}
             onStartReached={handleLoadMore}
@@ -1831,7 +2005,53 @@ export default function ChatScreen() {
       <MsUserProfileSheet
         visible={showProfileSheet}
         user={otherUser}
+        isFollowing={isFollowing}
+        onFollow={handleFollow}
+        onUnfollow={handleUnfollow}
         onClose={() => setShowProfileSheet(false)}
+      />
+
+      <Modal
+        visible={!!fullscreenImageUri}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setFullscreenImageUri(null)}
+      >
+        <View style={sc.fullscreenBackdrop}>
+          <TouchableOpacity
+            style={sc.fullscreenClose}
+            onPress={() => setFullscreenImageUri(null)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Close fullscreen image"
+          >
+            <X size={22} color="#fff" />
+          </TouchableOpacity>
+          {fullscreenImageUri && (
+            <ScrollView
+              style={sc.fullscreenScroll}
+              contentContainerStyle={sc.fullscreenImageContent}
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+              centerContent
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+            >
+              <Image
+                source={{ uri: fullscreenImageUri }}
+                style={sc.fullscreenImage}
+                resizeMode="contain"
+              />
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
+
+      <MsVideoPlayer
+        visible={!!fullscreenVideoUri}
+        uri={fullscreenVideoUri ?? ''}
+        onClose={() => setFullscreenVideoUri(null)}
       />
 
       {/* Long-press menu */}
@@ -1842,6 +2062,7 @@ export default function ChatScreen() {
         onReply={handleReply}
         onCopy={handleCopy}
         onDelete={handleDelete}
+        onDeleteForMe={handleDeleteForMe}
         onForward={handleForward}
         onEdit={handleEdit}
         onReact={(emoji) => {
@@ -1905,4 +2126,33 @@ const sc = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 5, borderRadius: 12,
   },
   floatDateText: { fontSize: 11, fontFamily: T.FONT.medium, color: T.TEXT_2, letterSpacing: 0.2 },
+
+  fullscreenBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.96)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenScroll: { flex: 1, width: '100%' },
+  fullscreenImageContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenImage: {
+    width: SCREEN_W,
+    height: Dimensions.get('window').height * 0.82,
+  },
+  fullscreenClose: {
+    position: 'absolute',
+    top: 48,
+    right: 18,
+    zIndex: 4,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

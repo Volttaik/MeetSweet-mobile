@@ -24,6 +24,7 @@ interface MsMediaLoaderProps {
   errorMessage?: string;
   onRetry?: () => void;
   fallback?: React.ReactNode;
+  onLoadError?: () => void;
 }
 
 /**
@@ -39,6 +40,7 @@ export function MsMediaLoader({
   errorMessage = 'Could not load this media',
   onRetry,
   fallback,
+  onLoadError,
 }: MsMediaLoaderProps) {
   const opacity = useRef(new Animated.Value(0)).current;
   const [state, setState] = useState<MediaLoadState>(uri ? 'loading' : 'error');
@@ -73,7 +75,10 @@ export function MsMediaLoader({
           resizeMode={resizeMode}
           blurRadius={blurRadius}
           onLoad={handleLoad}
-          onError={() => setState('error')}
+           onError={() => {
+             setState('error');
+             onLoadError?.();
+           }}
         />
       )}
 

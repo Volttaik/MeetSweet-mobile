@@ -234,7 +234,6 @@ const styles = StyleSheet.create({
     paddingRight: 10,
     paddingLeft: 4,
     paddingVertical: 3,
-    backdropFilter: 'blur(8px)',
   },
   creatorChipText: {
     flexDirection: 'row',
