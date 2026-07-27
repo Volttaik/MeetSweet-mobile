@@ -74,16 +74,38 @@ export function fmtTimeAgo(iso: string | undefined | null): string {
   return `${months}mo ago`;
 }
 
-// ── Static catalog fixtures ───────────────────────────────────────────────────
+// ── Remote catalog fixtures ───────────────────────────────────────────────────
 
-const TRENDING_SEARCHES = ['golden hour', 'exclusive', 'new creators', 'studio', 'lifestyle'];
+/** GET /collections — curated collection tiles shown in Explore. */
+async function fetchCollections(): Promise<TrendingCollection[]> {
+  try {
+    const raw = await apiFetch<{ collections?: unknown[] }>('/collections');
+    if (!Array.isArray(raw?.collections)) return [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return raw.collections.map((c: any) => ({
+      id: c.id ?? '',
+      title: c.title ?? '',
+      subtitle: c.subtitle ?? c.description ?? '',
+      itemCount: c.item_count ?? c.itemCount ?? 0,
+      gradient: c.gradient ?? 'violet',
+    }));
+  } catch {
+    return [];
+  }
+}
 
-const STATIC_COLLECTIONS: TrendingCollection[] = [
-  { id: 'col-1', title: 'Golden Hour',     subtitle: 'Best lighting drops',   itemCount: 24, gradient: 'amber'  },
-  { id: 'col-2', title: 'Studio Sessions', subtitle: 'Behind the lens',       itemCount: 18, gradient: 'violet' },
-  { id: 'col-3', title: 'Exclusive Drops', subtitle: 'Subscribers only',      itemCount: 31, gradient: 'rose'   },
-  { id: 'col-4', title: 'New Creators',    subtitle: 'Fresh faces this week', itemCount: 12, gradient: 'teal'   },
-];
+/** GET /search/trending — trending search terms shown in Explore. */
+async function fetchTrendingSearches(): Promise<string[]> {
+  try {
+    const raw = await apiFetch<{ trending?: unknown[]; searches?: unknown[] }>('/search/trending');
+    const list = raw?.trending ?? raw?.searches ?? [];
+    if (!Array.isArray(list)) return [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return list.map((item: any) => (typeof item === 'string' ? item : item.query ?? item.term ?? '')).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 // ── Raw post shape from GET /api/posts ────────────────────────────────────────
 
@@ -117,7 +139,6 @@ function fmtDuration(secs: number | null | undefined): string {
 }
 
 function creatorFromPost(post: RawPost): Creator {
-  const h = hashStr(post.creator_id);
   const avatarRaw = post.creator_avatar ?? post.creator_avatar_url ?? null;
   const firstMedia = post.media?.[0];
   // Use the first post's image/thumbnail as the creator's banner
@@ -130,13 +151,16 @@ function creatorFromPost(post: RawPost): Creator {
     name: post.creator_display_name ?? post.creator_username ?? 'Creator',
     handle: `@${post.creator_username ?? 'creator'}`,
     initials: initials(post.creator_display_name ?? post.creator_username ?? '??'),
-    bio: 'Exclusive content, behind-the-scenes access, and premium drops.',
-    category: 'Lifestyle',
-    followers: fmtFollowers(500 + (h % 9500)),
-    subscriberCount: 50 + (h % 450),
+    // Fields below are not available from the posts feed.
+    // They will be populated with real values from GET /creators/:id
+    // when the creator profile page is opened.
+    bio: '',
+    category: '',
+    followers: '',
+    subscriberCount: 0,
     monthlyCredits: 0,
     isVerified: post.creator_is_verified ?? false,
-    isOnline: (h % 3) === 0,
+    isOnline: false,
     gradient: gradientFor(post.creator_id),
     avatarUrl: avatarRaw,
     bannerUrl: bannerRaw,
@@ -245,7 +269,11 @@ export async function fetchExplorePosts(cursor?: string | null): Promise<Explore
 // ── Full catalog builder (for single-load screens like content/[id].tsx) ──────
 
 export async function buildExploreCatalog(): Promise<ExploreCatalog> {
-  const page = await fetchExplorePosts(null);
+  const [page, collections, trendingSearches] = await Promise.all([
+    fetchExplorePosts(null),
+    fetchCollections(),
+    fetchTrendingSearches(),
+  ]);
 
   const ids = page.creators.map((c) => c.id);
   const featuredCreatorIds    = ids.slice(0, Math.min(3, ids.length));
@@ -254,12 +282,12 @@ export async function buildExploreCatalog(): Promise<ExploreCatalog> {
   return {
     creditBalance: 0,
     categories: [],
-    trendingSearches: TRENDING_SEARCHES,
+    trendingSearches,
     featuredCreatorIds,
     recommendedCreatorIds,
     creators: page.creators,
     previews: page.previews,
-    collections: STATIC_COLLECTIONS,
+    collections,
   };
 }
 
