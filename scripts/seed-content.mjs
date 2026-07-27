@@ -65,8 +65,9 @@ async function uploadImage(filePath, token) {
     const msg = parsed?.error ?? parsed?.message ?? `HTTP ${res.status}`;
     throw new Error(`Upload failed: ${msg}`);
   }
-  if (parsed && 'ok' in parsed && 'data' in parsed) return parsed.data;
-  return parsed;
+  // Response shape: { ok, data: { media: { id, url, ... } } }
+  const data = (parsed?.data ?? parsed);
+  return data?.media ?? data;
 }
 
 /**
@@ -87,7 +88,8 @@ async function uploadImageR2(filePath, token) {
     const cred = await apiFetch(`/credentials/upload-url?${qs}`, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
-    const { upload_url, object_key } = cred;
+    const upload_url = cred.uploadUrl ?? cred.upload_url;
+    const object_key = cred.key ?? cred.object_key;
 
     // Step 2 — PUT directly to R2
     const blob = new Blob([bytes], { type: mime });
@@ -122,11 +124,13 @@ async function updateAvatar(avatarUrl, token) {
 }
 
 async function createPost(data, token) {
-  return apiFetch('/posts', {
+  const result = await apiFetch('/posts', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
+  // Response shape: { post: { id, ... } }
+  return result?.post ?? result;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
