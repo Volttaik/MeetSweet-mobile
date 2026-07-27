@@ -7,7 +7,7 @@
  * Usage:
  *   <MsCommentsSection postId="…" previewCount={2} />
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -25,8 +25,12 @@ import { MsComposer } from '@/components/MsComposer';
 import { MsAvatar } from '@/components/MsAvatar';
 import { T } from '@/constants/theme';
 
-// ─── Mock data helpers ────────────────────────────────────────────────────────
-// In production these would come from your API (GET /posts/:id/comments)
+// ─── Comment data ─────────────────────────────────────────────────────────────
+// Fetches real comments from GET /api/posts/:id/comments.
+// Falls back to an empty list with a graceful empty state.
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '@/services/api';
 
 interface Comment {
   id: string;
@@ -39,61 +43,74 @@ interface Comment {
   likedByMe: boolean;
 }
 
+function fmtTimeAgo(iso: string | undefined | null): string {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 0) return 'just now';
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
+function nameInitials(name: string): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (name ?? '??').substring(0, 2).toUpperCase();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeComment(raw: any): Comment {
+  const name = raw.author?.full_name ?? raw.author?.name ?? raw.authorName ?? 'User';
+  const username = raw.author?.username ?? raw.authorHandle?.replace('@', '') ?? '';
+  return {
+    id: raw.id ?? String(Math.random()),
+    authorName: name,
+    authorHandle: username ? `@${username}` : '',
+    authorInitials: nameInitials(name),
+    text: raw.body ?? raw.text ?? raw.content ?? '',
+    timestamp: fmtTimeAgo(raw.created_at ?? raw.createdAt),
+    likes: raw.like_count ?? raw.likes ?? 0,
+    likedByMe: raw.liked_by_me ?? raw.likedByMe ?? false,
+  };
+}
+
 function useComments(postId: string) {
-  // Placeholder — swap with your real query hook
-  const [comments] = useState<Comment[]>([
-    {
-      id: '1',
-      authorName: 'Alex Rivera',
-      authorHandle: '@alexrivera',
-      authorInitials: 'AR',
-      text: 'Absolutely stunning content! Can\'t wait to see what comes next 🔥',
-      timestamp: '2h ago',
-      likes: 14,
-      likedByMe: false,
-    },
-    {
-      id: '2',
-      authorName: 'Jordan Kim',
-      authorHandle: '@jordankim',
-      authorInitials: 'JK',
-      text: 'This is exactly what I needed today. Amazing work as always!',
-      timestamp: '5h ago',
-      likes: 8,
-      likedByMe: true,
-    },
-    {
-      id: '3',
-      authorName: 'Sam Chen',
-      authorHandle: '@samchen',
-      authorInitials: 'SC',
-      text: 'Been following for a while and the quality just keeps getting better 👏',
-      timestamp: '1d ago',
-      likes: 22,
-      likedByMe: false,
-    },
-    {
-      id: '4',
-      authorName: 'Taylor Moss',
-      authorHandle: '@taylormoss',
-      authorInitials: 'TM',
-      text: 'Premium subscription was 100% worth it. This drop is insane.',
-      timestamp: '1d ago',
-      likes: 31,
-      likedByMe: false,
-    },
-    {
-      id: '5',
-      authorName: 'Morgan Lee',
-      authorHandle: '@morganlee',
-      authorInitials: 'ML',
-      text: 'New to the platform but already in love with the aesthetic here.',
-      timestamp: '2d ago',
-      likes: 5,
-      likedByMe: false,
-    },
-  ]);
-  return { comments, isLoading: false };
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await AsyncStorage.getItem('@ms_access_token');
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const raw = await apiFetch<{ comments: unknown[] }>(
+          `/posts/${postId}/comments`,
+          { headers },
+        );
+        if (cancelled) return;
+        const list = Array.isArray(raw?.comments) ? raw.comments.map(normalizeComment) : [];
+        setComments(list);
+      } catch {
+        // Backend may not have this endpoint yet — show empty state
+        if (!cancelled) setComments([]);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [postId]);
+
+  return { comments, isLoading };
 }
 
 // ─── Single comment row ───────────────────────────────────────────────────────
@@ -311,9 +328,9 @@ export function MsCommentsSection({
   postId,
   previewCount = 2,
 }: MsCommentsSectionProps) {
-  const { comments } = useComments(postId);
+  const { comments, isLoading } = useComments(postId);
   const [modalOpen, setModalOpen] = useState(false);
-  const totalCount = comments.length + 119; // placeholder total
+  const totalCount = comments.length;
 
   const preview = comments.slice(0, previewCount);
 

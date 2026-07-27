@@ -43,6 +43,8 @@ function RootLayoutNav() {
         gestureEnabled: true,
         gestureDirection: 'horizontal',
         fullScreenGestureEnabled: true,
+        // Eliminates white flash during navigation transitions in dark mode
+        contentStyle: { backgroundColor: '#0C0C0F' },
       }}
     >
       {/* Onboarding & Auth */}

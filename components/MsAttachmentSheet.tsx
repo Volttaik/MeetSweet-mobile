@@ -1,6 +1,7 @@
 /**
  * MsAttachmentSheet — animated attachment menu bottom sheet.
- * All options are functional (image/video via ImagePicker, camera via camera launch).
+ * All options are functional. Location and audio placeholders removed.
+ * Audio files are picked via DocumentPicker. Images/videos via ImagePicker.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -22,19 +23,19 @@ import {
   Video,
   File,
   Camera,
-  Microphone,
-  MapPin,
+  Waveform,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
 const { height: SCREEN_H } = Dimensions.get('window');
-const SHEET_H = 280;
 
 export interface AttachmentResult {
-  type: 'image' | 'video' | 'audio';
+  type: 'image' | 'video' | 'audio' | 'document';
   uri: string;
   mimeType: string;
   fileName: string;
+  fileSize?: number;
+  duration?: number; // seconds
 }
 
 interface Props {
@@ -45,7 +46,7 @@ interface Props {
 
 export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
   const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(SHEET_H + 40)).current;
+  const slideAnim = useRef(new Animated.Value(320)).current;
 
   useEffect(() => {
     if (visible) {
@@ -57,7 +58,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
       }).start();
     } else {
       Animated.timing(slideAnim, {
-        toValue: SHEET_H + 40,
+        toValue: 320,
         duration: 220,
         useNativeDriver: true,
       }).start();
@@ -83,6 +84,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
         uri: asset.uri,
         mimeType: asset.mimeType ?? 'image/jpeg',
         fileName: asset.fileName ?? 'photo.jpg',
+        fileSize: asset.fileSize,
       });
     }
   };
@@ -107,6 +109,8 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
         uri: asset.uri,
         mimeType: asset.mimeType ?? 'video/mp4',
         fileName: asset.fileName ?? 'video.mp4',
+        fileSize: asset.fileSize,
+        duration: asset.duration ? Math.round(asset.duration / 1000) : undefined,
       });
     }
   };
@@ -130,57 +134,61 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
         uri: asset.uri,
         mimeType: asset.mimeType ?? 'image/jpeg',
         fileName: asset.fileName ?? 'photo.jpg',
+        fileSize: asset.fileSize,
       });
     }
   };
 
+  const pickAudio = async () => {
+    onClose();
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      onResult({
+        type: 'audio',
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'audio/mpeg',
+        fileName: asset.name ?? 'audio',
+        fileSize: asset.size,
+      });
+    } catch {
+      Alert.alert('Error', 'Could not open the audio picker.');
+    }
+  };
+
+  const pickDocument = async () => {
+    onClose();
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      onResult({
+        type: 'document',
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'application/octet-stream',
+        fileName: asset.name ?? 'document',
+        fileSize: asset.size,
+      });
+    } catch {
+      Alert.alert('Error', 'Could not open the document picker.');
+    }
+  };
+
   const OPTIONS = [
-    { icon: ImageIcon, label: 'Images', color: '#4CAF82', onPress: pickImage },
-    { icon: Video, label: 'Videos', color: '#9B6ECA', onPress: pickVideo },
-    { icon: Camera, label: 'Camera', color: T.ACCENT, onPress: launchCamera },
-    {
-      icon: Microphone,
-      label: 'Audio',
-      color: '#FF9800',
-      onPress: () => {
-        onClose();
-        Alert.alert('Audio', 'Voice recording is coming soon.');
-      },
-    },
-    {
-      icon: File,
-      label: 'Document',
-      color: '#2196F3',
-      onPress: async () => {
-        onClose();
-        await new Promise((r) => setTimeout(r, 300));
-        try {
-          const result = await DocumentPicker.getDocumentAsync({
-            type: '*/*',
-            copyToCacheDirectory: true,
-          });
-          if (result.canceled || !result.assets?.[0]) return;
-          const asset = result.assets[0];
-          onResult({
-            type: 'image', // use image slot so upload pipeline handles it
-            uri: asset.uri,
-            mimeType: asset.mimeType ?? 'application/octet-stream',
-            fileName: asset.name ?? 'document',
-          });
-        } catch {
-          Alert.alert('Error', 'Could not open the document picker.');
-        }
-      },
-    },
-    {
-      icon: MapPin,
-      label: 'Location',
-      color: '#607D8B',
-      onPress: () => {
-        onClose();
-        Alert.alert('Location', 'Location sharing coming soon.');
-      },
-    },
+    { icon: ImageIcon,  label: 'Photo',    color: '#4CAF82', onPress: pickImage    },
+    { icon: Video,      label: 'Video',    color: '#9B6ECA', onPress: pickVideo    },
+    { icon: Camera,     label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
+    { icon: Waveform,   label: 'Audio',    color: '#FF9800', onPress: pickAudio    },
+    { icon: File,       label: 'Document', color: '#2196F3', onPress: pickDocument },
   ];
 
   return (

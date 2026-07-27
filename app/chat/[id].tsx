@@ -1,7 +1,16 @@
 /**
- * MeetSweet Chat Screen — complete rebuild.
- * WhatsApp-quality UX: animated input bar, voice→send, camera slide,
- * reply preview, full bottom sheets, SQLite caching, offline support.
+ * MeetSweet Chat Screen — production-ready rebuild.
+ *
+ * Features:
+ * - Text, image, video, audio, voice note, document messages
+ * - Attachment preview composer before sending (MsAttachmentPreview)
+ * - Voice note: record → preview → cancel/re-record/send
+ * - Paid media with lock overlay and unlock flow
+ * - Message editing + deletion (for everyone)
+ * - Profile bottom sheet on header tap
+ * - 50px pill bubble radius, comfortable spacing
+ * - Optimistic sends, offline cache, upload progress
+ * - Reactions, reply, long-press menu
  */
 
 import React, {
@@ -29,13 +38,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Video, ResizeMode } from 'expo-av';
 import {
   ArrowLeft,
   Camera,
   DotsThree,
   Paperclip,
   PaperPlaneRight,
-  Phone,
   Smiley,
   Microphone,
   LockSimple,
@@ -44,10 +53,12 @@ import {
   Trash,
   ArrowUUpRight,
   Info,
-  VideoCamera,
   X,
   Play,
   Pause,
+  File,
+  PencilSimple,
+  CheckCircle,
 } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ExpoClipboard from 'expo-clipboard';
@@ -58,11 +69,16 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmojiPicker } from '@/components/MsEmojiPicker';
 import { MsAttachmentSheet } from '@/components/MsAttachmentSheet';
 import type { AttachmentResult } from '@/components/MsAttachmentSheet';
+import { MsAttachmentPreview } from '@/components/MsAttachmentPreview';
+import type { PendingAttachment, ConfirmedAttachment } from '@/components/MsAttachmentPreview';
+import { MsUserProfileSheet } from '@/components/MsUserProfileSheet';
+import type { ProfileSheetUser } from '@/components/MsUserProfileSheet';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getMessages,
   sendMessage,
   deleteMessage,
+  editMessage,
   getConversations,
   type ChatMessage,
 } from '@/services/messages';
@@ -81,7 +97,7 @@ const SCREEN_W = Dimensions.get('window').width;
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '👏'];
 const ICON_ANIM_DURATION = 200;
 
-// Pre-computed pseudo-random bar heights for voice note waveform (avoids re-renders)
+// Pre-computed waveform bar heights
 const VOICE_BARS = Array.from({ length: 22 }, (_, i) =>
   4 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 14,
 );
@@ -128,6 +144,12 @@ function initials(name: string): string {
     .join('');
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // ─── Voice note bubble ────────────────────────────────────────────────────────
 
 function VoiceNoteBubble({
@@ -140,13 +162,11 @@ function VoiceNoteBubble({
   isOwn: boolean;
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [position, setPosition] = useState(0); // seconds
+  const [position, setPosition] = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync().catch(() => {});
-    };
+    return () => { soundRef.current?.unloadAsync().catch(() => {}); };
   }, []);
 
   const togglePlayback = async () => {
@@ -221,18 +241,18 @@ const vn = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 18,
-    minWidth: 190,
-    maxWidth: 250,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 50,
+    minWidth: 200,
+    maxWidth: 260,
   },
-  wrapOwn: { backgroundColor: T.ACCENT, borderBottomRightRadius: 4 },
-  wrapOther: { backgroundColor: T.SURFACE, borderBottomLeftRadius: 4 },
+  wrapOwn: { backgroundColor: T.ACCENT, borderBottomRightRadius: 6 },
+  wrapOther: { backgroundColor: T.SURFACE, borderBottomLeftRadius: 6 },
   playBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(0,0,0,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -253,6 +273,64 @@ const vn = StyleSheet.create({
   dur: { fontSize: 11, fontFamily: T.FONT.regular, flexShrink: 0 },
   durOwn: { color: 'rgba(255,255,255,0.7)' },
   durOther: { color: T.TEXT_3 },
+});
+
+// ─── Document bubble ──────────────────────────────────────────────────────────
+
+function DocumentBubble({
+  message,
+  isOwn,
+}: {
+  message: ChatMessage;
+  isOwn: boolean;
+}) {
+  const ext = message.fileName?.split('.').pop()?.toUpperCase() ?? 'FILE';
+  return (
+    <View style={[doc.wrap, isOwn ? doc.wrapOwn : doc.wrapOther]}>
+      <View style={doc.iconBox}>
+        <File size={20} color={isOwn ? '#fff' : T.ACCENT} weight="duotone" />
+      </View>
+      <View style={doc.info}>
+        <Text style={[doc.name, isOwn ? doc.textOwn : doc.textOther]} numberOfLines={2}>
+          {message.fileName ?? 'Document'}
+        </Text>
+        <Text style={[doc.meta, isOwn ? doc.metaOwn : doc.metaOther]}>
+          {ext}
+          {message.fileSize ? `  ·  ${formatFileSize(message.fileSize)}` : ''}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const doc = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 50,
+    minWidth: 180,
+    maxWidth: 260,
+  },
+  wrapOwn: { backgroundColor: T.ACCENT, borderBottomRightRadius: 6 },
+  wrapOther: { backgroundColor: T.SURFACE, borderBottomLeftRadius: 6 },
+  iconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  info: { flex: 1 },
+  name: { fontSize: 13, fontFamily: T.FONT.semibold, lineHeight: 18 },
+  meta: { fontSize: 11, fontFamily: T.FONT.regular, marginTop: 2 },
+  textOwn: { color: '#fff' },
+  textOther: { color: T.TEXT },
+  metaOwn: { color: 'rgba(255,255,255,0.65)' },
+  metaOther: { color: T.TEXT_3 },
 });
 
 // ─── Reaction row ─────────────────────────────────────────────────────────────
@@ -286,7 +364,7 @@ function ReactionRow({
 }
 
 const rs = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3, marginHorizontal: 12 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3, marginHorizontal: 16 },
   own: { justifyContent: 'flex-end' },
   other: { justifyContent: 'flex-start' },
   pill: {
@@ -321,6 +399,27 @@ const ds = StyleSheet.create({
   text: { fontSize: 11, fontFamily: T.FONT.medium, color: T.TEXT_3, letterSpacing: 0.3 },
 });
 
+// ─── Sending skeleton ─────────────────────────────────────────────────────────
+
+function UploadingBubble() {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, []);
+  return (
+    <View style={[bs.wrap, bs.wrapOwn]}>
+      <Animated.View style={[bs.uploadSkeleton, { opacity: pulse }]}>
+        <View style={bs.uploadSkeletonInner} />
+      </Animated.View>
+    </View>
+  );
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 interface BubbleProps {
@@ -330,15 +429,13 @@ interface BubbleProps {
   onLongPress: () => void;
   onReact: (emoji: string) => void;
   onUnlockPaid?: () => void;
-  /** When true, show the full date+time label below the bubble (tap-to-reveal) */
   showTimestamp?: boolean;
-  /** Called on a normal tap to toggle the timestamp */
   onTap?: () => void;
 }
 
 function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUnlockPaid, showTimestamp, onTap }: BubbleProps) {
   const isOwn = message.isOwn;
-  const isPaidLocked = !!(message as any).isPaid && !(message as any).isUnlocked;
+  const isPaidLocked = !!(message.isPaid) && !(message.isUnlocked) && !isOwn;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
@@ -376,52 +473,104 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
               <Text style={bs.deletedText}>🚫 Message deleted</Text>
             </View>
           ) : isPaidLocked ? (
+            /* ── Locked paid content (receiver) ── */
             <TouchableOpacity style={bs.bubblePaid} onPress={onUnlockPaid} activeOpacity={0.8}>
-              <View><LockSimple size={18} color={T.ACCENT} /></View>
+              <View><LockSimple size={20} color={T.ACCENT} /></View>
               <Text style={bs.paidLabel}>Paid content</Text>
-              <Text style={bs.paidSub}>Tap to unlock with credits</Text>
+              <Text style={bs.paidSub}>
+                {message.paidPrice ? `${message.paidPrice} credits to unlock` : 'Tap to unlock with credits'}
+              </Text>
             </TouchableOpacity>
           ) : message.mediaType === 'audio' && message.mediaUrl ? (
+            /* ── Voice note ── */
             <VoiceNoteBubble
               uri={message.mediaUrl}
               duration={message.audioDuration ?? 0}
               isOwn={isOwn}
             />
+          ) : message.mediaType === 'document' ? (
+            /* ── Document ── */
+            <DocumentBubble message={message} isOwn={isOwn} />
           ) : (
             <>
+              {/* ── Image ── */}
               {message.mediaUrl && message.mediaType === 'image' && (
-                <Image
-                  source={{ uri: message.mediaUrl }}
-                  style={[
-                    bs.bubbleImage,
-                    isOwn ? { borderTopRightRadius: 4 } : { borderTopLeftRadius: 4 },
-                  ]}
-                  resizeMode="cover"
-                />
+                <View style={[bs.mediaCap, isOwn ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
+                  {(message.isPaid && isOwn) && (
+                    <View style={bs.paidBadge}>
+                      <LockSimple size={11} color="#fff" />
+                      <Text style={bs.paidBadgeText}>
+                        {message.paidPrice ? `${message.paidPrice} cr` : 'Paid'}
+                      </Text>
+                    </View>
+                  )}
+                  <Image
+                    source={{ uri: message.mediaUrl }}
+                    style={[
+                      bs.bubbleImage,
+                      isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
+                    ]}
+                    resizeMode="cover"
+                  />
+                </View>
               )}
-              {message.body ? (
+              {/* ── Video ── */}
+              {message.mediaUrl && message.mediaType === 'video' && (
+                <View style={[bs.mediaCap, isOwn ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
+                  {(message.isPaid && isOwn) && (
+                    <View style={bs.paidBadge}>
+                      <LockSimple size={11} color="#fff" />
+                      <Text style={bs.paidBadgeText}>
+                        {message.paidPrice ? `${message.paidPrice} cr` : 'Paid'}
+                      </Text>
+                    </View>
+                  )}
+                  <Video
+                    source={{ uri: message.mediaUrl }}
+                    style={[
+                      bs.bubbleImage,
+                      isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
+                    ]}
+                    useNativeControls
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={false}
+                  />
+                </View>
+              )}
+              {/* ── Caption or body ── */}
+              {(message.body || message.caption) ? (
                 <View style={[bs.bubble, isOwn ? bs.bubbleOwn : bs.bubbleOther]}>
                   <Text style={[bs.text, isOwn ? bs.textOwn : bs.textOther]}>
-                    {message.body}
+                    {message.body ?? message.caption}
                   </Text>
-                  {/* Timestamp inside bubble */}
-                  <Text style={[bs.timeInline, isOwn ? bs.timeOwn : bs.timeOther]}>
-                    {formatTime(message.createdAt)}
-                    {isOwn ? '  ✓✓' : ''}
-                  </Text>
+                  <View style={bs.timeRow}>
+                    {message.isEdited && (
+                      <Text style={[bs.editedLabel, isOwn ? bs.timeOwn : bs.timeOther]}>edited · </Text>
+                    )}
+                    <Text style={[bs.timeInline, isOwn ? bs.timeOwn : bs.timeOther]}>
+                      {formatTime(message.createdAt)}
+                      {isOwn ? '  ✓✓' : ''}
+                    </Text>
+                  </View>
                 </View>
               ) : null}
             </>
           )}
 
-          {/* Timestamp below image messages */}
-          {message.mediaUrl && !message.body && (
-            <Text style={[bs.timeBelow, isOwn ? bs.timeBelowOwn : bs.timeBelowOther]}>
-              {formatTime(message.createdAt)}{isOwn ? '  ✓✓' : ''}
-            </Text>
+          {/* Timestamp below standalone media */}
+          {message.mediaUrl && !message.body && !message.caption &&
+           message.mediaType !== 'audio' && message.mediaType !== 'document' && (
+            <View style={bs.timeBelowRow}>
+              {message.isEdited && (
+                <Text style={[bs.editedLabel, isOwn ? bs.timeBelowOwn : bs.timeBelowOther]}>edited · </Text>
+              )}
+              <Text style={[bs.timeBelow, isOwn ? bs.timeBelowOwn : bs.timeBelowOther]}>
+                {formatTime(message.createdAt)}{isOwn ? '  ✓✓' : ''}
+              </Text>
+            </View>
           )}
 
-          {/* Tap-to-reveal full date+time (rn-chat feature) */}
+          {/* Tap-to-reveal full date+time */}
           {showTimestamp && (
             <Text style={[bs.fullTimestamp, isOwn ? bs.fullTimestampOwn : bs.fullTimestampOther]}>
               {new Date(message.createdAt).toLocaleString('en-US', {
@@ -439,16 +588,16 @@ function MessageBubble({ message, reactions, replyTo, onLongPress, onReact, onUn
 }
 
 const bs = StyleSheet.create({
-  wrap: { flexDirection: 'row', alignItems: 'flex-end', marginVertical: 2, paddingHorizontal: 12 },
+  wrap: { flexDirection: 'row', alignItems: 'flex-end', marginVertical: 3, paddingHorizontal: 16 },
   wrapOwn: { justifyContent: 'flex-end' },
   wrapOther: { justifyContent: 'flex-start' },
 
   replyQuote: {
     flexDirection: 'row',
-    borderRadius: 10,
-    marginBottom: 3,
+    borderRadius: 16,
+    marginBottom: 4,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
     overflow: 'hidden',
     gap: 8,
   },
@@ -459,56 +608,80 @@ const bs = StyleSheet.create({
   replyBody: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
 
   bubble: {
-    borderRadius: 18,
-    paddingHorizontal: 13,
-    paddingTop: 8,
-    paddingBottom: 5,
+    borderRadius: 50,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 8,
     maxWidth: '100%',
   },
   bubbleOwn: {
     backgroundColor: T.ACCENT,
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 6,
   },
   bubbleOther: {
     backgroundColor: T.SURFACE,
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 6,
   },
   bubbleDeleted: {
     backgroundColor: T.SURFACE_2,
-    borderRadius: 18,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
+    borderRadius: 50,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   deletedText: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_3, fontStyle: 'italic' },
 
   bubblePaid: {
     backgroundColor: T.ACCENT_LIGHT,
-    borderRadius: 18,
+    borderRadius: 50,
     borderWidth: 1,
     borderColor: T.ACCENT,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     alignItems: 'center',
-    gap: 4,
-    minWidth: 150,
+    gap: 5,
+    minWidth: 160,
   },
   paidLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.ACCENT },
-  paidSub: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+  paidSub: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center' },
+
+  // Paid badge on sender's view
+  mediaCap: { position: 'relative' },
+  paidBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: T.RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  paidBadgeText: {
+    fontSize: 10,
+    fontFamily: T.FONT.semibold,
+    color: '#fff',
+  },
 
   text: { fontSize: 15, lineHeight: 21, fontFamily: T.FONT.regular },
   textOwn: { color: '#fff' },
   textOther: { color: T.TEXT },
 
-  timeInline: { fontSize: 10, fontFamily: T.FONT.regular, marginTop: 3, alignSelf: 'flex-end' },
+  timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 3 },
+  timeInline: { fontSize: 10, fontFamily: T.FONT.regular, alignSelf: 'flex-end' },
   timeOwn: { color: 'rgba(255,255,255,0.6)' },
   timeOther: { color: T.TEXT_3 },
+  editedLabel: { fontSize: 10, fontFamily: T.FONT.regular, fontStyle: 'italic' },
 
-  bubbleImage: { width: Math.min(SCREEN_W * 0.62, 260), height: 200, borderRadius: 18, marginBottom: 3 },
-  timeBelow: { fontSize: 10, fontFamily: T.FONT.regular, marginTop: 2, paddingHorizontal: 4 },
+  bubbleImage: { width: Math.min(SCREEN_W * 0.62, 260), height: 200, borderRadius: 50, marginBottom: 3 },
+
+  timeBelowRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, paddingHorizontal: 4 },
+  timeBelow: { fontSize: 10, fontFamily: T.FONT.regular },
   timeBelowOwn: { color: T.TEXT_3, textAlign: 'right' },
   timeBelowOther: { color: T.TEXT_3 },
 
-  // Tap-to-reveal full timestamp
   fullTimestamp: {
     fontSize: 10,
     fontFamily: T.FONT.regular,
@@ -518,6 +691,24 @@ const bs = StyleSheet.create({
   },
   fullTimestampOwn: { textAlign: 'right' },
   fullTimestampOther: { textAlign: 'left' },
+
+  // Upload skeleton
+  uploadSkeleton: {
+    width: Math.min(SCREEN_W * 0.62, 260),
+    height: 200,
+    borderRadius: 50,
+    borderBottomRightRadius: 6,
+    backgroundColor: T.SURFACE,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadSkeletonInner: {
+    width: '60%',
+    height: 3,
+    backgroundColor: T.BORDER_2,
+    borderRadius: 2,
+  },
 });
 
 // ─── Reply preview bar ────────────────────────────────────────────────────────
@@ -573,6 +764,25 @@ const rbs = StyleSheet.create({
   closeBtn: { padding: 4 },
 });
 
+// ─── Edit bar ─────────────────────────────────────────────────────────────────
+
+function EditBar({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <View style={[rbs.wrap]}>
+      <View>
+        <PencilSimple size={16} color={T.ACCENT} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={rbs.name}>Editing message</Text>
+        <Text style={rbs.body} numberOfLines={1}>Make your changes and press send</Text>
+      </View>
+      <TouchableOpacity onPress={onDismiss} style={rbs.closeBtn} activeOpacity={0.7}>
+        <X size={14} color={T.TEXT_2} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ─── Long-press action sheet ──────────────────────────────────────────────────
 
 interface LPSheetProps {
@@ -585,6 +795,7 @@ interface LPSheetProps {
   onForward: () => void;
   onReact: (emoji: string) => void;
   onInfo: () => void;
+  onEdit: () => void;
 }
 
 function LongPressSheet(props: LPSheetProps) {
@@ -605,6 +816,7 @@ function LongPressSheet(props: LPSheetProps) {
   if (!message) return null;
 
   const canDelete = message.isOwn && !message.isDeleted;
+  const canEdit = message.isOwn && !message.isDeleted && !!message.body;
   const canCopy = !!(message.body && !message.isDeleted);
 
   return (
@@ -636,19 +848,26 @@ function LongPressSheet(props: LPSheetProps) {
 
         <View style={lps.divider} />
 
-        {/* Actions */}
         <LPAction icon={<ArrowBendUpLeft size={18} color={T.TEXT} />} label="Reply" onPress={() => { props.onReply(); onClose(); }} />
+        {canEdit && (
+          <LPAction icon={<PencilSimple size={18} color={T.TEXT} />} label="Edit" onPress={() => { props.onEdit(); onClose(); }} />
+        )}
         {canCopy && (
           <LPAction icon={<CopyIcon size={18} color={T.TEXT} />} label="Copy" onPress={() => { props.onCopy(); onClose(); }} />
         )}
         <LPAction icon={<ArrowUUpRight size={18} color={T.TEXT} />} label="Forward" onPress={() => { props.onForward(); onClose(); }} />
         <LPAction icon={<Info size={18} color={T.TEXT} />} label="Message info" onPress={() => { props.onInfo(); onClose(); }} />
         {canDelete && (
-          <LPAction icon={<Trash size={18} color={T.ERROR} />} label="Delete" labelColor={T.ERROR} onPress={() => { props.onDelete(); onClose(); }} />
+          <LPAction
+            icon={<Trash size={18} color={T.ERROR} />}
+            label="Delete for everyone"
+            labelColor={T.ERROR}
+            onPress={() => { props.onDelete(); onClose(); }}
+          />
         )}
         {!message.isOwn && (
           <LPAction
-            icon={<Trash size={18} color={T.ERROR} />}
+            icon={<Info size={18} color={T.ERROR} />}
             label="Report"
             labelColor={T.ERROR}
             onPress={() => { Alert.alert('Reported', 'Message reported. Our team will review it.'); onClose(); }}
@@ -717,6 +936,8 @@ interface InputBarProps {
   recordingDuration: number;
   onVoiceStart: () => void;
   onVoiceEnd: () => void;
+  isEditing: boolean;
+  onDismissEdit: () => void;
 }
 
 function InputBar(props: InputBarProps) {
@@ -725,35 +946,20 @@ function InputBar(props: InputBarProps) {
     onEmojiToggle, onAttachToggle, onCameraPress,
     sending, reply, onDismissReply, paddingBottom,
     isRecording, recordingDuration, onVoiceStart, onVoiceEnd,
+    isEditing, onDismissEdit,
   } = props;
 
   const hasText = text.trim().length > 0;
-
-  // Camera slides out of the pill when typing
-  const cameraAnim = useRef(new Animated.Value(1)).current; // 1 = visible
-  // Mic → Send transition (outside pill)
+  const cameraAnim = useRef(new Animated.Value(1)).current;
   const micAnim = useRef(new Animated.Value(1)).current;
   const sendAnim = useRef(new Animated.Value(0)).current;
-  // Recording pulse
   const recordingPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(cameraAnim, {
-        toValue: hasText ? 0 : 1,
-        duration: ICON_ANIM_DURATION,
-        useNativeDriver: false, // drives width
-      }),
-      Animated.timing(micAnim, {
-        toValue: hasText ? 0 : 1,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-      Animated.timing(sendAnim, {
-        toValue: hasText ? 1 : 0,
-        duration: 160,
-        useNativeDriver: true,
-      }),
+      Animated.timing(cameraAnim, { toValue: hasText ? 0 : 1, duration: ICON_ANIM_DURATION, useNativeDriver: false }),
+      Animated.timing(micAnim, { toValue: hasText ? 0 : 1, duration: 160, useNativeDriver: true }),
+      Animated.timing(sendAnim, { toValue: hasText ? 1 : 0, duration: 160, useNativeDriver: true }),
     ]).start();
   }, [hasText]);
 
@@ -774,7 +980,6 @@ function InputBar(props: InputBarProps) {
   const cameraWidth = cameraAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 34] });
   const cameraOpacity = cameraAnim;
 
-  // While recording, show a compact recording indicator instead of the normal bar
   if (isRecording) {
     return (
       <View style={ib.wrapper}>
@@ -784,7 +989,7 @@ function InputBar(props: InputBarProps) {
               <View style={ib.recDot} />
             </Animated.View>
             <Text style={ib.recText}>Recording… {formatDuration(recordingDuration)}</Text>
-            <Text style={ib.recHint}>Release to send</Text>
+            <Text style={ib.recHint}>Release to stop</Text>
           </View>
           <Animated.View style={{ transform: [{ scale: recordingPulse }] }}>
             <TouchableOpacity
@@ -803,20 +1008,19 @@ function InputBar(props: InputBarProps) {
   return (
     <View style={ib.wrapper}>
       {/* Reply preview */}
-      <ReplyBar reply={reply} onDismiss={onDismissReply} />
+      {reply && !isEditing && <ReplyBar reply={reply} onDismiss={onDismissReply} />}
+      {/* Edit indicator */}
+      {isEditing && <EditBar onDismiss={onDismissEdit} />}
 
       <View style={[ib.row, { paddingBottom }]}>
-        {/* ── Pill: emoji | input | paperclip | camera ── */}
         <View style={ib.pill}>
-          {/* Emoji — left inside pill */}
           <TouchableOpacity style={ib.pillIcon} onPress={onEmojiToggle} activeOpacity={0.7}>
             <Smiley size={22} color={T.TEXT_2} />
           </TouchableOpacity>
 
-          {/* Text input — grows, no cap */}
           <TextInput
             style={ib.input}
-            placeholder="Message…"
+            placeholder={isEditing ? 'Edit message…' : 'Message…'}
             placeholderTextColor={T.TEXT_3}
             value={text}
             onChangeText={onChangeText}
@@ -828,12 +1032,12 @@ function InputBar(props: InputBarProps) {
             blurOnSubmit={false}
           />
 
-          {/* Paperclip — right inside pill */}
-          <TouchableOpacity style={ib.pillIcon} onPress={onAttachToggle} activeOpacity={0.7}>
-            <Paperclip size={22} color={T.TEXT_2} />
-          </TouchableOpacity>
+          {!isEditing && (
+            <TouchableOpacity style={ib.pillIcon} onPress={onAttachToggle} activeOpacity={0.7}>
+              <Paperclip size={22} color={T.TEXT_2} />
+            </TouchableOpacity>
+          )}
 
-          {/* Camera — slides out of pill when typing */}
           <Animated.View style={{ width: cameraWidth, overflow: 'hidden', opacity: cameraOpacity }}>
             <TouchableOpacity style={ib.pillIcon} onPress={onCameraPress} activeOpacity={0.7}>
               <Camera size={22} color={T.TEXT_2} />
@@ -841,27 +1045,34 @@ function InputBar(props: InputBarProps) {
           </Animated.View>
         </View>
 
-        {/* ── Mic ↔ Send (outside the pill) ── */}
         <View style={ib.rightBtn}>
-          <Animated.View style={[ib.btnAbsolute, { opacity: micAnim, transform: [{ scale: micAnim }] }]}>
+          {!isEditing && (
+            <Animated.View style={[ib.btnAbsolute, { opacity: micAnim, transform: [{ scale: micAnim }] }]}>
+              <TouchableOpacity
+                style={ib.actionBtn}
+                onLongPress={onVoiceStart}
+                delayLongPress={150}
+                onPressOut={() => { if (isRecording) onVoiceEnd(); }}
+                activeOpacity={0.8}
+              >
+                <Microphone size={20} color="#fff" weight="fill" />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+          <Animated.View style={[ib.btnAbsolute, {
+            opacity: isEditing ? 1 : sendAnim,
+            transform: [{ scale: isEditing ? 1 : sendAnim }],
+          }]}>
             <TouchableOpacity
-              style={ib.actionBtn}
-              onLongPress={onVoiceStart}
-              delayLongPress={150}
-              onPressOut={() => { if (isRecording) onVoiceEnd(); }}
-              activeOpacity={0.8}
-            >
-              <Microphone size={20} color="#fff" weight="fill" />
-            </TouchableOpacity>
-          </Animated.View>
-          <Animated.View style={[ib.btnAbsolute, { opacity: sendAnim, transform: [{ scale: sendAnim }] }]}>
-            <TouchableOpacity
-              style={ib.actionBtn}
+              style={[ib.actionBtn, isEditing && ib.actionBtnEdit]}
               onPress={onSend}
               activeOpacity={0.8}
               disabled={!hasText || sending}
             >
-              <PaperPlaneRight size={20} color="#fff" weight="fill" />
+              {isEditing
+                ? <CheckCircle size={20} color="#fff" weight="fill" />
+                : <PaperPlaneRight size={20} color="#fff" weight="fill" />
+              }
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -871,9 +1082,7 @@ function InputBar(props: InputBarProps) {
 }
 
 const ib = StyleSheet.create({
-  wrapper: {
-    backgroundColor: T.BG,
-  },
+  wrapper: { backgroundColor: T.BG },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -881,7 +1090,6 @@ const ib = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
   },
-  // One pill containing all icons + text
   pill: {
     flex: 1,
     flexDirection: 'row',
@@ -938,7 +1146,9 @@ const ib = StyleSheet.create({
     height: 48,
     borderRadius: 24,
   },
-  // Recording mode pill
+  actionBtnEdit: {
+    backgroundColor: T.SUCCESS,
+  },
   pillRecording: {
     backgroundColor: T.SURFACE_2,
     flexDirection: 'row',
@@ -981,9 +1191,10 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [text, setText] = useState('');
 
-  const [otherUserName, setOtherUserName] = useState('');
-  const [otherUserAvatar, setOtherUserAvatar] = useState<string | null>(null);
-  const [isOnline] = useState(false); // future: real presence
+  const [otherUser, setOtherUser] = useState<ProfileSheetUser>({
+    id: '', name: '', username: '', avatarUrl: null,
+  });
+  const [isOnline] = useState(false);
 
   const [reactions, setReactions] = useState<Record<string, MessageReactions>>({});
   const [replyTargets] = useState<Record<string, { body: string | null; senderName: string }>>({});
@@ -993,11 +1204,16 @@ export default function ChatScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
 
-  // Reply
+  // Reply / Edit
   const [replyTarget, setReplyTarget] = useState<ReplyTarget>(null);
+  const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
 
-  // Image uploading
+  // Attachment preview
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+
+  // Upload tracking
   const [uploadingImage, setUploadingImage] = useState(false);
 
   // Voice recording
@@ -1006,43 +1222,50 @@ export default function ChatScreen() {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Floating scroll-date (rn-chat feature) ─────────────────────────────────
+  // Floating scroll-date badge
   const [scrollDateLabel, setScrollDateLabel] = useState('');
   const [scrollDateVisible, setScrollDateVisible] = useState(false);
   const scrollHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Tap-to-reveal full timestamp ───────────────────────────────────────────
+  // Tap-to-reveal timestamp
   const [tappedMsgId, setTappedMsgId] = useState<string | null>(null);
-
   const handleMsgTap = useCallback((id: string) => {
     setTappedMsgId((prev) => (prev === id ? null : id));
   }, []);
 
-  // ── Load conversations to get other user info ──────────────────────────────
+  // ── Load other user info ─────────────────────────────────────────────────
 
   useEffect(() => {
     (async () => {
-      // Try cache first
       const cached = await getCachedConversations();
       const conv = cached.find((c) => c.id === conversationId);
       if (conv) {
-        setOtherUserName(conv.otherUser.name);
-        setOtherUserAvatar(conv.otherUser.avatarUrl);
+        setOtherUser({
+          id: conv.otherUser.id,
+          name: conv.otherUser.name,
+          username: conv.otherUser.username,
+          avatarUrl: conv.otherUser.avatarUrl,
+          isVerified: conv.otherUser.isVerified,
+        });
       }
-      // Then server
       try {
         const data = await getConversations('all');
         const found = data.conversations.find((c) => c.id === conversationId);
         if (found) {
-          setOtherUserName(found.otherUser.name);
-          setOtherUserAvatar(found.otherUser.avatarUrl);
+          setOtherUser({
+            id: found.otherUser.id,
+            name: found.otherUser.name,
+            username: found.otherUser.username,
+            avatarUrl: found.otherUser.avatarUrl,
+            isVerified: found.otherUser.isVerified,
+          });
         }
         await cacheConversations(data.conversations);
       } catch {}
     })();
   }, [conversationId]);
 
-  // ── Load messages ──────────────────────────────────────────────────────────
+  // ── Load messages ────────────────────────────────────────────────────────
 
   const loadMessages = useCallback(async (before?: string) => {
     try {
@@ -1057,7 +1280,6 @@ export default function ChatScreen() {
       await cacheMessages(conversationId, data.messages);
     } catch {
       if (!before) {
-        // Fall back to cache
         const cached = await getCachedMessages(conversationId);
         if (cached.length > 0) {
           setMessages(cached);
@@ -1076,11 +1298,31 @@ export default function ChatScreen() {
     setTimeout(() => flatRef.current?.scrollToEnd({ animated }), 60);
   };
 
-  // ── Send text ──────────────────────────────────────────────────────────────
+  // ── Send / Edit ──────────────────────────────────────────────────────────
 
   const handleSend = async () => {
     const body = text.trim();
     if (!body || sending) return;
+
+    // ─ Editing mode ─
+    if (editingMsg) {
+      const id = editingMsg.id;
+      setText('');
+      setEditingMsg(null);
+      setMessages((prev) => prev.map((m) => m.id === id ? { ...m, body, isEdited: true } : m));
+      try {
+        await editMessage(id, body);
+      } catch {
+        // Revert on failure
+        setMessages((prev) => prev.map((m) => m.id === id ? editingMsg : m));
+        setText(body);
+        setEditingMsg(editingMsg);
+        Alert.alert('Error', 'Could not edit the message. Please try again.');
+      }
+      return;
+    }
+
+    // ─ New message ─
     setText('');
     setSending(true);
     setReplyTarget(null);
@@ -1116,38 +1358,109 @@ export default function ChatScreen() {
     }
   };
 
-  // ── Attachment result ──────────────────────────────────────────────────────
+  // ── Attachment result from sheet ─────────────────────────────────────────
+  // We no longer send immediately — show the preview composer first.
 
-  const handleAttachmentResult = async (result: AttachmentResult) => {
+  const handleAttachmentResult = (result: AttachmentResult) => {
+    setPendingAttachment({
+      type: result.type,
+      uri: result.uri,
+      mimeType: result.mimeType,
+      fileName: result.fileName,
+      fileSize: result.fileSize,
+      duration: result.duration,
+    });
+  };
+
+  // ── Confirmed send from attachment preview ───────────────────────────────
+
+  const handleConfirmedAttachment = async (confirmed: ConfirmedAttachment) => {
+    setPendingAttachment(null);
     setUploadingImage(true);
+
+    // Map our internal type to the ChatMessage mediaType
+    const msgMediaType: ChatMessage['mediaType'] =
+      confirmed.type === 'image'    ? 'image' :
+      confirmed.type === 'video'    ? 'video' :
+      confirmed.type === 'audio'    ? 'audio' :
+      confirmed.type === 'voice'    ? 'audio' :
+      confirmed.type === 'document' ? 'document' : null;
+
     const optimistic: ChatMessage = {
       id: `opt-att-${Date.now()}`,
-      body: null,
-      mediaUrl: result.uri,
-      mediaType: result.type === 'image' ? 'image' : 'video',
+      body: confirmed.caption ?? null,
+      mediaUrl: confirmed.uri,
+      mediaType: msgMediaType,
+      audioDuration: confirmed.duration,
+      fileName: confirmed.fileName,
+      fileSize: confirmed.fileSize,
+      mimeType: confirmed.mimeType,
+      isPaid: confirmed.isPaid,
+      isUnlocked: true, // sender always sees their own content
+      paidPrice: confirmed.paidPrice,
       isDeleted: false,
       createdAt: new Date().toISOString(),
-      sender: { id: user?.id ?? '', name: user?.name ?? '', username: user?.username ?? '', avatarUrl: user?.avatarUrl ?? null },
+      sender: {
+        id: user?.id ?? '',
+        name: user?.name ?? '',
+        username: user?.username ?? '',
+        avatarUrl: user?.avatarUrl ?? null,
+      },
       isOwn: true,
     };
+
     setMessages((prev) => [...prev, optimistic]);
     scrollToEnd();
 
     try {
-      const uploaded = await uploadMedia(result.uri, result.mimeType, result.fileName);
-      const mediaType = result.type === 'image' ? 'image' : 'video';
-      const { message } = await sendMessage(conversationId, undefined, uploaded.url ?? result.uri, mediaType);
-      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? message : m)));
-      await cacheMessages(conversationId, [message]);
+      const apiMimeType = confirmed.type === 'voice' ? 'audio/m4a' : confirmed.mimeType;
+      const apiFileName = confirmed.type === 'voice'
+        ? `voice-${Date.now()}.m4a`
+        : confirmed.fileName;
+
+      const uploaded = await uploadMedia(confirmed.uri, apiMimeType, apiFileName);
+      const remoteUrl = uploaded.url ?? confirmed.uri;
+
+      const { message } = await sendMessage(
+        conversationId,
+        confirmed.caption,
+        remoteUrl,
+        msgMediaType ?? undefined,
+        {
+          caption: confirmed.caption,
+          isPaid: confirmed.isPaid,
+          paidPrice: confirmed.paidPrice,
+          fileName: confirmed.fileName,
+          fileSize: confirmed.fileSize,
+          mimeType: confirmed.mimeType,
+          audioDuration: confirmed.duration,
+        },
+      );
+
+      // Merge back local fields the backend may not echo
+      const merged: ChatMessage = {
+        ...message,
+        mediaType: msgMediaType,
+        audioDuration: confirmed.duration,
+        fileName: confirmed.fileName,
+        fileSize: confirmed.fileSize,
+        mimeType: confirmed.mimeType,
+        isPaid: confirmed.isPaid,
+        isUnlocked: true,
+        paidPrice: confirmed.paidPrice,
+        caption: confirmed.caption,
+      };
+      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? merged : m)));
+      await cacheMessages(conversationId, [merged]);
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      Alert.alert('Upload failed', 'Could not send media. Please try again.');
+      Alert.alert('Upload failed', 'Could not send the attachment. Please try again.');
     } finally {
       setUploadingImage(false);
     }
   };
 
-  // ── Camera quick photo ─────────────────────────────────────────────────────
+  // ── Camera quick photo ───────────────────────────────────────────────────
 
   const handleCamera = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -1158,16 +1471,17 @@ export default function ChatScreen() {
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      await handleAttachmentResult({
+      setPendingAttachment({
         type: 'image',
         uri: asset.uri,
         mimeType: asset.mimeType ?? 'image/jpeg',
         fileName: asset.fileName ?? 'photo.jpg',
+        fileSize: asset.fileSize,
       });
     }
   };
 
-  // ── Reactions ──────────────────────────────────────────────────────────────
+  // ── Reactions ────────────────────────────────────────────────────────────
 
   const handleReact = (messageId: string, emoji: string) => {
     setReactions((prev) => {
@@ -1182,7 +1496,7 @@ export default function ChatScreen() {
     });
   };
 
-  // ── Long press ─────────────────────────────────────────────────────────────
+  // ── Long press ───────────────────────────────────────────────────────────
 
   const handleLongPress = (msg: ChatMessage) => {
     setMenuMsg(msg);
@@ -1214,11 +1528,47 @@ export default function ChatScreen() {
     });
   };
 
+  const handleEdit = () => {
+    if (!menuMsg?.body) return;
+    setEditingMsg(menuMsg);
+    setText(menuMsg.body);
+  };
+
   const handleForward = () => {
     Alert.alert('Forward', 'Forward message: coming soon.');
   };
 
-  // ── Voice recording ────────────────────────────────────────────────────────
+  const handleInfo = () => {
+    Alert.alert(
+      'Message Info',
+      `Sent: ${menuMsg ? formatTime(menuMsg.createdAt) : '—'}`,
+    );
+  };
+
+  // ── Paid unlock ──────────────────────────────────────────────────────────
+
+  const handleUnlockPaid = (msg: ChatMessage) => {
+    const price = msg.paidPrice ?? 0;
+    Alert.alert(
+      'Unlock Content',
+      price > 0
+        ? `Spend ${price} credits to unlock this content?`
+        : 'Spend credits to unlock this content?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Unlock${price > 0 ? ` (${price} cr)` : ''}`,
+          onPress: () => {
+            setMessages((prev) =>
+              prev.map((m) => m.id === msg.id ? { ...m, isUnlocked: true } : m),
+            );
+          },
+        },
+      ],
+    );
+  };
+
+  // ── Voice recording ──────────────────────────────────────────────────────
 
   const startVoiceRecording = async () => {
     try {
@@ -1256,48 +1606,21 @@ export default function ChatScreen() {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
       const uri = recording.getURI();
       if (!uri || duration < 1) return; // ignore sub-second clips
-      await handleSendVoiceNote(uri, duration);
+
+      // Show preview instead of sending immediately
+      setPendingAttachment({
+        type: 'voice',
+        uri,
+        mimeType: 'audio/m4a',
+        fileName: `voice-${Date.now()}.m4a`,
+        duration,
+      });
     } catch {
-      Alert.alert('Error', 'Could not send voice message. Please try again.');
+      Alert.alert('Error', 'Could not process the voice recording. Please try again.');
     }
   };
 
-  const handleSendVoiceNote = async (uri: string, duration: number) => {
-    const optimistic: ChatMessage = {
-      id: `opt-voice-${Date.now()}`,
-      body: null,
-      mediaUrl: uri,
-      mediaType: 'audio',
-      audioDuration: duration,
-      isDeleted: false,
-      createdAt: new Date().toISOString(),
-      sender: { id: user?.id ?? '', name: user?.name ?? '', username: user?.username ?? '', avatarUrl: user?.avatarUrl ?? null },
-      isOwn: true,
-    };
-    setMessages((prev) => [...prev, optimistic]);
-    scrollToEnd();
-
-    try {
-      const uploaded = await uploadMedia(uri, 'audio/m4a', `voice-${Date.now()}.m4a`);
-      const { message } = await sendMessage(conversationId, undefined, uploaded.url ?? uri, 'audio');
-      // Preserve local duration since backend won't echo it
-      const withDuration: ChatMessage = { ...message, mediaType: 'audio', audioDuration: duration };
-      setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? withDuration : m)));
-      await cacheMessages(conversationId, [withDuration]);
-    } catch {
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      Alert.alert('Error', 'Could not send voice message. Please try again.');
-    }
-  };
-
-  const handleInfo = () => {
-    Alert.alert(
-      'Message Info',
-      `Sent: ${menuMsg ? formatTime(menuMsg.createdAt) : '—'}`,
-    );
-  };
-
-  // ── Viewability — drives the floating scroll-date badge ───────────────────
+  // ── Viewability — floating scroll-date badge ─────────────────────────────
 
   const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 60 }), []);
 
@@ -1311,7 +1634,7 @@ export default function ChatScreen() {
     }
   }).current;
 
-  // ── Load more ──────────────────────────────────────────────────────────────
+  // ── Load more ────────────────────────────────────────────────────────────
 
   const handleLoadMore = () => {
     if (loadingMore || !hasMore || messages.length === 0) return;
@@ -1319,14 +1642,14 @@ export default function ChatScreen() {
     loadMessages(messages[0]?.createdAt);
   };
 
-  // ── Emoji insert ───────────────────────────────────────────────────────────
+  // ── Emoji insert ─────────────────────────────────────────────────────────
 
   const handleEmojiSelect = (emoji: string) => {
     setText((prev) => prev + emoji);
     setShowEmoji(false);
   };
 
-  // ── Render item ────────────────────────────────────────────────────────────
+  // ── Render item ──────────────────────────────────────────────────────────
 
   const renderItem = useCallback(
     ({ item, index }: { item: ChatMessage; index: number }) => {
@@ -1346,12 +1669,7 @@ export default function ChatScreen() {
             onReact={(emoji) => handleReact(item.id, emoji)}
             onTap={() => handleMsgTap(item.id)}
             showTimestamp={tappedMsgId === item.id}
-            onUnlockPaid={() =>
-              Alert.alert('Unlock', 'Spend credits to unlock this content?', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Unlock', onPress: () => {} },
-              ])
-            }
+            onUnlockPaid={() => handleUnlockPaid(item)}
           />
         </View>
       );
@@ -1365,40 +1683,42 @@ export default function ChatScreen() {
     <View style={[sc.screen, { paddingTop: insets.top }]}>
       {/* ── Header ── */}
       <View style={sc.header}>
-        <TouchableOpacity style={sc.backBtn} onPress={() => router.back()} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          style={sc.backBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <ArrowLeft size={20} color={T.TEXT} />
         </TouchableOpacity>
 
-        <MsAvatar
-          size={38}
-          initials={initials(otherUserName || '?')}
-          imageUri={otherUserAvatar ?? undefined}
-        />
-
-        <View style={sc.headerInfo}>
-          <Text style={sc.headerName} numberOfLines={1}>
-            {otherUserName || '…'}
-          </Text>
-          <Text style={sc.headerStatus}>
-            {isOnline ? '🟢 Online' : 'Tap for info'}
-          </Text>
-        </View>
+        {/* Tappable avatar + name → opens profile sheet */}
+        <TouchableOpacity
+          style={sc.headerUser}
+          onPress={() => setShowProfileSheet(true)}
+          activeOpacity={0.75}
+        >
+          <MsAvatar
+            size={38}
+            initials={initials(otherUser.name || '?')}
+            imageUri={otherUser.avatarUrl ?? undefined}
+          />
+          <View style={sc.headerInfo}>
+            <View style={sc.headerNameRow}>
+              <Text style={sc.headerName} numberOfLines={1}>
+                {otherUser.name || '…'}
+              </Text>
+              {otherUser.isVerified && (
+                <CheckCircle size={14} color={T.ACCENT} weight="fill" />
+              )}
+            </View>
+            <Text style={sc.headerStatus}>
+              {isOnline ? '🟢 Online' : 'Tap to view profile'}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
         <View style={sc.headerActions}>
-          <TouchableOpacity
-            style={sc.headerActionBtn}
-            activeOpacity={0.7}
-            onPress={() => Alert.alert('Voice call', 'Voice calls are coming soon.')}
-          >
-            <Phone size={20} color={T.TEXT} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={sc.headerActionBtn}
-            activeOpacity={0.7}
-            onPress={() => Alert.alert('Video call', 'Video calls are coming soon.')}
-          >
-            <VideoCamera size={20} color={T.TEXT} />
-          </TouchableOpacity>
           <TouchableOpacity style={sc.headerActionBtn} activeOpacity={0.7}>
             <DotsThree size={20} color={T.TEXT} />
           </TouchableOpacity>
@@ -1409,7 +1729,6 @@ export default function ChatScreen() {
 
       {/* ── Messages ── */}
       <View style={{ flex: 1 }}>
-        {/* Floating scroll-date badge (rn-chat feature) */}
         {scrollDateVisible && scrollDateLabel ? (
           <View style={sc.floatDateWrap}>
             <View style={sc.floatDateBadge}>
@@ -1448,16 +1767,19 @@ export default function ChatScreen() {
               <View style={sc.emptyWrap}>
                 <MsAvatar
                   size={70}
-                  initials={initials(otherUserName || '?')}
-                  imageUri={otherUserAvatar ?? undefined}
+                  initials={initials(otherUser.name || '?')}
+                  imageUri={otherUser.avatarUrl ?? undefined}
                 />
-                <Text style={sc.emptyName}>{otherUserName}</Text>
+                <Text style={sc.emptyName}>{otherUser.name}</Text>
                 <Text style={sc.emptyHint}>No messages yet — say hello! 👋</Text>
               </View>
             }
             keyboardShouldPersistTaps="handled"
           />
         )}
+
+        {/* Upload skeleton */}
+        {uploadingImage && <UploadingBubble />}
       </View>
 
       {/* ── Input bar ── */}
@@ -1476,6 +1798,8 @@ export default function ChatScreen() {
         recordingDuration={recordingDuration}
         onVoiceStart={startVoiceRecording}
         onVoiceEnd={stopVoiceRecording}
+        isEditing={!!editingMsg}
+        onDismissEdit={() => { setEditingMsg(null); setText(''); }}
       />
 
       {/* ── Sheets ── */}
@@ -1491,7 +1815,26 @@ export default function ChatScreen() {
         onResult={handleAttachmentResult}
       />
 
-      {/* ── Long-press menu ── */}
+      {/* Attachment preview composer */}
+      <MsAttachmentPreview
+        attachment={pendingAttachment}
+        onSend={handleConfirmedAttachment}
+        onCancel={() => setPendingAttachment(null)}
+        onReRecord={() => {
+          setPendingAttachment(null);
+          // Small delay to ensure state is clear before starting new recording
+          setTimeout(startVoiceRecording, 300);
+        }}
+      />
+
+      {/* Profile bottom sheet */}
+      <MsUserProfileSheet
+        visible={showProfileSheet}
+        user={otherUser}
+        onClose={() => setShowProfileSheet(false)}
+      />
+
+      {/* Long-press menu */}
       <LongPressSheet
         visible={menuVisible}
         message={menuMsg}
@@ -1500,9 +1843,10 @@ export default function ChatScreen() {
         onCopy={handleCopy}
         onDelete={handleDelete}
         onForward={handleForward}
+        onEdit={handleEdit}
         onReact={(emoji) => {
           if (menuMsg) {
-            if (emoji === 'picker') return; // future: open full picker
+            if (emoji === 'picker') return;
             handleReact(menuMsg.id, emoji);
           }
         }}
@@ -1528,11 +1872,19 @@ const sc = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: T.SURFACE,
     alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  headerUser: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   headerInfo: { flex: 1 },
-  headerName: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  headerName: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT, flexShrink: 1 },
   headerStatus: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 1 },
-  headerActions: { flexDirection: 'row', gap: 2 },
+  headerActions: { flexDirection: 'row', gap: 2, flexShrink: 0 },
   headerActionBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
 
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -1545,25 +1897,12 @@ const sc = StyleSheet.create({
   emptyName: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, marginTop: 4 },
   emptyHint: { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2 },
 
-  // Floating scroll-date badge (from rn-chat library)
   floatDateWrap: {
-    position: 'absolute',
-    top: 8,
-    left: 0,
-    right: 0,
-    zIndex: 9,
-    alignItems: 'center',
+    position: 'absolute', top: 8, left: 0, right: 0, zIndex: 9, alignItems: 'center',
   },
   floatDateBadge: {
     backgroundColor: 'rgba(20,17,40,0.88)',
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 5, borderRadius: 12,
   },
-  floatDateText: {
-    fontSize: 11,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT_2,
-    letterSpacing: 0.2,
-  },
+  floatDateText: { fontSize: 11, fontFamily: T.FONT.medium, color: T.TEXT_2, letterSpacing: 0.2 },
 });

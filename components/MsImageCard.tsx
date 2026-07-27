@@ -216,7 +216,6 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     // Dark gradient scrim
     backgroundColor: 'rgba(0,0,0,0)',
-    background: undefined,
   },
   imageFooterScrim: {
     position: 'absolute',
