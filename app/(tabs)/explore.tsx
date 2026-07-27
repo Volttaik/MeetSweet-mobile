@@ -48,6 +48,7 @@ import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsCreatorPreview, type CreatorPreviewData } from '@/components/MsCreatorPreview';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsVideoCard, type VideoCardData } from '@/components/MsVideoCard';
+import { MsImageCard, type ImageCardData } from '@/components/MsImageCard';
 import { T } from '@/constants/theme';
 
 // ─── Category lists ────────────────────────────────────────────────────────────
@@ -230,24 +231,49 @@ export default function ExploreScreen() {
     return allCreators.find((c) => c.id === id);
   }
 
-  // ── Video cards ─────────────────────────────────────────────────────────────
-  const videoCards = useMemo<VideoCardData[]>(() => {
+  // ── Feed items — image cards + video cards depending on post kind ───────────
+  type FeedItem =
+    | { type: 'video'; data: VideoCardData; id: string }
+    | { type: 'image'; data: ImageCardData; id: string };
+
+  const feedItems = useMemo<FeedItem[]>(() => {
     const needle = search.trim().toLowerCase();
-    return allPreviews
-      .map((p) => {
-        const creator = findCreatorInFeed(p.creatorId);
-        if (!creator) return null;
+    const items: FeedItem[] = [];
+
+    for (const p of allPreviews) {
+      const creator = findCreatorInFeed(p.creatorId);
+      if (!creator) continue;
+
+      // Category filter
+      if (activeCategory === 'premium' && !p.isPremium) continue;
+      if (activeCategory === 'free' && p.isPremium) continue;
+      if (
+        activeCategory !== 'all' &&
+        activeCategory !== 'premium' &&
+        activeCategory !== 'free' &&
+        activeCategory !== 'trending'
+      ) {
+        if (p.kind.toLowerCase() !== activeCategory) continue;
+      }
+
+      const titleSearch = `${p.title} ${creator.name} ${p.kind}`.toLowerCase();
+      if (needle && !titleSearch.includes(needle)) continue;
+
+      const uploadDate = fmtTimeAgo(p.createdAt);
+
+      if (p.kind === 'video' || p.kind === 'audio') {
         const card: VideoCardData = {
           id: p.id,
           title: p.title || 'Untitled',
           duration: p.duration,
           views: p.likes,
-          uploadDate: fmtTimeAgo(p.createdAt),
+          uploadDate,
           gradient: p.gradient,
           isPremium: p.isPremium,
           kind: p.kind,
           lockedLabel: p.lockedLabel,
           thumbnailUrl: p.thumbnailUrl,
+          mediaUrl: p.isPremium ? null : (p.mediaUrl ?? null),
           creatorId: creator.id,
           creatorName: creator.name,
           creatorHandle: creator.handle,
@@ -256,25 +282,30 @@ export default function ExploreScreen() {
           creatorIsOnline: creator.isOnline,
           creatorAvatarUrl: creator.avatarUrl,
         };
-        return card;
-      })
-      .filter((v): v is VideoCardData => {
-        if (!v) return false;
-        if (activeCategory === 'premium' && !v.isPremium) return false;
-        if (activeCategory === 'free' && v.isPremium) return false;
-        if (
-          activeCategory !== 'all' &&
-          activeCategory !== 'premium' &&
-          activeCategory !== 'free' &&
-          activeCategory !== 'trending'
-        ) {
-          if (v.kind.toLowerCase() !== activeCategory) return false;
-        }
-        if (needle && !`${v.title} ${v.creatorName} ${v.kind}`.toLowerCase().includes(needle)) {
-          return false;
-        }
-        return true;
-      });
+        items.push({ type: 'video', data: card, id: p.id });
+      } else {
+        // photo / image
+        const card: ImageCardData = {
+          id: p.id,
+          title: p.title || '',
+          likes: p.likes,
+          uploadDate,
+          isPremium: p.isPremium,
+          lockedLabel: p.lockedLabel,
+          imageUrl: p.thumbnailUrl ?? p.mediaUrl ?? null,
+          gradient: p.gradient,
+          creatorId: creator.id,
+          creatorName: creator.name,
+          creatorHandle: creator.handle,
+          creatorInitials: creator.initials,
+          creatorIsVerified: creator.isVerified,
+          creatorIsOnline: creator.isOnline,
+          creatorAvatarUrl: creator.avatarUrl,
+        };
+        items.push({ type: 'image', data: card, id: p.id });
+      }
+    }
+    return items;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allPreviews, allCreators, activeCategory, search]);
 
@@ -533,25 +564,30 @@ export default function ExploreScreen() {
       }
     };
 
-    const renderVideoItem = ({ item }: { item: VideoCardData }) => (
-      <MsVideoCard
-        video={item}
-        onPress={() => {
-          if (!item.id) return;
-          router.push(`/content/${item.id}`);
-        }}
-        onCreatorPress={() => {
-          if (!item.creatorId) return;
-          router.push(`/creator/${item.creatorId}`);
-        }}
-      />
-    );
+    const renderFeedItem = ({ item }: { item: FeedItem }) => {
+      if (item.type === 'image') {
+        return (
+          <MsImageCard
+            card={item.data}
+            onPress={() => router.push(`/content/${item.id}`)}
+            onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
+          />
+        );
+      }
+      return (
+        <MsVideoCard
+          video={item.data}
+          onPress={() => router.push(`/content/${item.id}`)}
+          onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
+        />
+      );
+    };
 
     const renderEmpty = () => {
       if (isLoading) return null;
       return (
         <MsEmptyState
-          title="No videos found"
+          title="No posts found"
           message="Try a different filter or check back later for new content."
           actionLabel={activeCategory !== 'all' ? 'Show all' : undefined}
           onAction={activeCategory !== 'all' ? () => setActiveCategory('all') : undefined}
@@ -584,9 +620,9 @@ export default function ExploreScreen() {
         </View>
 
         <FlatList
-          data={videoCards}
+          data={feedItems}
           keyExtractor={(item) => item.id}
-          renderItem={renderVideoItem}
+          renderItem={renderFeedItem}
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={renderEmpty}
           ListFooterComponent={
@@ -607,11 +643,6 @@ export default function ExploreScreen() {
           windowSize={5}
           maxToRenderPerBatch={5}
           initialNumToRender={6}
-          getItemLayout={(_data, index) => ({
-            length: 290,
-            offset: 290 * index,
-            index,
-          })}
         />
 
         {/* Creator long-press sheet */}

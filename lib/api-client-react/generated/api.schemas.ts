@@ -28,6 +28,8 @@ export interface Creator {
   gradient: string;
   /** Avatar image URL (populated from posts feed, optional) */
   avatarUrl?: string | null;
+  /** Banner / cover image URL — first post thumbnail for this creator */
+  bannerUrl?: string | null;
 }
 
 export interface ContentPreview {
@@ -43,6 +45,8 @@ export interface ContentPreview {
   lockedLabel: string;
   /** Real thumbnail URL from media (populated from posts feed) */
   thumbnailUrl?: string | null;
+  /** Full media URL — video source for playback, full image URL for photos */
+  mediaUrl?: string | null;
   /** ISO timestamp of the post (populated from posts feed) */
   createdAt?: string;
   /** Raw view/like count for display */

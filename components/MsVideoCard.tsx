@@ -1,10 +1,10 @@
 /**
  * MsVideoCard — YouTube-style video card for the Explore feed.
  *
- * Shows a real thumbnail (via MsMediaLoader) with a play/lock overlay,
- * creator avatar, title, and metadata. All data comes from the backend.
+ * Shows a real thumbnail with a tappable play button that opens the
+ * full MsVideoPlayer. Premium posts show a lock overlay instead.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -15,6 +15,7 @@ import {
 import { Check, Clock, Heart, Lock, Play } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
 
 export interface VideoCardData {
@@ -30,8 +31,10 @@ export interface VideoCardData {
   isPremium: boolean;
   kind: string;
   lockedLabel?: string;
-  /** Real thumbnail URL from media — shown in the card header */
+  /** Thumbnail shown in the card before play */
   thumbnailUrl?: string | null;
+  /** Full video URL for playback — null means locked/unavailable */
+  mediaUrl?: string | null;
   /** Creator info */
   creatorId: string;
   creatorName: string;
@@ -39,7 +42,6 @@ export interface VideoCardData {
   creatorInitials: string;
   creatorIsVerified: boolean;
   creatorIsOnline: boolean;
-  /** Real avatar URL for the creator */
   creatorAvatarUrl?: string | null;
 }
 
@@ -50,8 +52,7 @@ interface MsVideoCardProps {
   onLongPress?: () => void;
 }
 
-// Fallback solid tones when no real thumbnail is available
-const TONE: Record<string, string> = {
+const FALLBACK: Record<string, string> = {
   violet:  '#1B1128',
   rose:    '#1C0E13',
   amber:   '#1C1508',
@@ -62,8 +63,8 @@ const TONE: Record<string, string> = {
   fuchsia: '#1A0E1C',
 };
 
-function fallbackBg(gradient: string) {
-  return TONE[gradient] ?? T.SURFACE_2;
+function bg(gradient: string) {
+  return FALLBACK[gradient] ?? T.SURFACE_2;
 }
 
 export function MsVideoCard({
@@ -72,123 +73,147 @@ export function MsVideoCard({
   onCreatorPress,
   onLongPress,
 }: MsVideoCardProps) {
+  const [playerVisible, setPlayerVisible] = useState(false);
+
+  const canPlay = Boolean(video.mediaUrl) && !video.isPremium;
+
+  const handlePlayPress = () => {
+    if (canPlay) {
+      setPlayerVisible(true);
+    } else {
+      // Locked/premium — navigate to the content/creator page
+      onPress();
+    }
+  };
+
   return (
-    <Pressable
-      style={styles.card}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={400}
-      accessibilityRole="button"
-      accessibilityLabel={`${video.title} by ${video.creatorName}`}
-    >
-      {/* ── Thumbnail ─────────────────────────────────────── */}
-      <View style={[styles.thumbnail, { backgroundColor: fallbackBg(video.gradient) }]}>
-        {/* Real thumbnail image — fades in when loaded */}
-        {video.thumbnailUrl ? (
-          <MsMediaLoader
-            uri={video.thumbnailUrl}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            accessibleLabel={`Thumbnail for ${video.title}`}
-            errorMessage=""
-            fallback={null}
-          />
-        ) : null}
+    <>
+      <Pressable
+        style={styles.card}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={400}
+        accessibilityRole="button"
+        accessibilityLabel={`${video.title} by ${video.creatorName}`}
+      >
+        {/* ── Thumbnail ─────────────────────────────────────── */}
+        <View style={[styles.thumbnail, { backgroundColor: bg(video.gradient) }]}>
+          {/* Real thumbnail — fades in when loaded */}
+          {video.thumbnailUrl ? (
+            <MsMediaLoader
+              uri={video.thumbnailUrl}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+              accessibleLabel={`Thumbnail for ${video.title}`}
+              errorMessage=""
+              fallback={null}
+            />
+          ) : null}
 
-        {/* Duration badge — bottom right */}
-        {video.duration ? (
-          <View style={styles.durationBadge}>
-            <Clock size={9} color={T.TEXT} />
-            <Text style={styles.durationText}>{video.duration}</Text>
+          {/* Duration badge */}
+          {video.duration ? (
+            <View style={styles.durationBadge}>
+              <Clock size={9} color={T.TEXT} />
+              <Text style={styles.durationText}>{video.duration}</Text>
+            </View>
+          ) : null}
+
+          {/* Kind badge */}
+          <View style={styles.kindBadge}>
+            <Text style={styles.kindText}>{video.kind.toUpperCase()}</Text>
           </View>
-        ) : null}
 
-        {/* Kind badge — top left */}
-        <View style={styles.kindBadge}>
-          <Text style={styles.kindText}>{video.kind.toUpperCase()}</Text>
+          {/* Play button (free + has media) or subscribe prompt */}
+          {!video.isPremium ? (
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={handlePlayPress}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Play video"
+              hitSlop={8}
+            >
+              <Play size={20} color={T.BG} weight="fill" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.lockOverlay}>
+              <View style={styles.lockCircle}>
+                <Lock size={14} color={T.TEXT} weight="bold" />
+              </View>
+              <Text style={styles.lockLabel}>Subscribe to view</Text>
+            </View>
+          )}
         </View>
 
-        {/* Play button (free) */}
-        {!video.isPremium && (
-          <View style={styles.playButton}>
-            <Play size={18} color={T.BG} weight="fill" />
-          </View>
-        )}
-
-        {/* Lock overlay (premium) */}
-        {video.isPremium && (
-          <View style={styles.lockOverlay}>
-            <View style={styles.lockCircle}>
-              <Lock size={14} color={T.TEXT} weight="bold" />
-            </View>
-            <Text style={styles.lockLabel}>Subscribe to view</Text>
-          </View>
-        )}
-      </View>
-
-      {/* ── Info Row ──────────────────────────────────────── */}
-      <View style={styles.infoRow}>
-        {/* Creator avatar */}
-        <TouchableOpacity
-          onPress={onCreatorPress ?? onPress}
-          hitSlop={6}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={`View ${video.creatorName}'s profile`}
-        >
-          <MsAvatar
-            size={34}
-            initials={video.creatorInitials}
-            imageUri={video.creatorAvatarUrl ?? undefined}
-            showOnline={video.creatorIsOnline}
-          />
-        </TouchableOpacity>
-
-        {/* Title + meta */}
-        <View style={styles.textGroup}>
-          <Text style={styles.title} numberOfLines={2}>
-            {video.title}
-          </Text>
-
-          {/* Creator name + verified */}
+        {/* ── Info Row ──────────────────────────────────────── */}
+        <View style={styles.infoRow}>
           <TouchableOpacity
             onPress={onCreatorPress ?? onPress}
+            hitSlop={6}
             activeOpacity={0.8}
-            style={styles.creatorRow}
             accessibilityRole="button"
+            accessibilityLabel={`View ${video.creatorName}'s profile`}
           >
-            <Text style={styles.creatorName} numberOfLines={1}>
-              {video.creatorName}
-            </Text>
-            {video.creatorIsVerified && (
-              <Check size={11} color={T.TEXT_3} weight="fill" />
-            )}
+            <MsAvatar
+              size={34}
+              initials={video.creatorInitials}
+              imageUri={video.creatorAvatarUrl ?? undefined}
+              showOnline={video.creatorIsOnline}
+            />
           </TouchableOpacity>
 
-          {/* Metadata */}
-          <View style={styles.metaRow}>
-            {video.views ? (
-              <View style={styles.metaItem}>
-                <Heart size={10} color={T.TEXT_3} />
-                <Text style={styles.metaText}>{video.views}</Text>
-              </View>
-            ) : null}
-            {video.views && video.uploadDate ? (
-              <Text style={styles.metaDot}>·</Text>
-            ) : null}
-            {video.uploadDate ? (
-              <Text style={styles.metaText}>{video.uploadDate}</Text>
-            ) : null}
-            {video.isPremium && (
-              <>
+          <View style={styles.textGroup}>
+            <Text style={styles.title} numberOfLines={2}>
+              {video.title}
+            </Text>
+
+            <TouchableOpacity
+              onPress={onCreatorPress ?? onPress}
+              activeOpacity={0.8}
+              style={styles.creatorRow}
+            >
+              <Text style={styles.creatorName} numberOfLines={1}>
+                {video.creatorName}
+              </Text>
+              {video.creatorIsVerified && (
+                <Check size={11} color={T.TEXT_3} weight="fill" />
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.metaRow}>
+              {video.views ? (
+                <View style={styles.metaItem}>
+                  <Heart size={10} color={T.TEXT_3} />
+                  <Text style={styles.metaText}>{video.views}</Text>
+                </View>
+              ) : null}
+              {video.views && video.uploadDate ? (
                 <Text style={styles.metaDot}>·</Text>
-                <Text style={styles.premiumBadge}>PREMIUM</Text>
-              </>
-            )}
+              ) : null}
+              {video.uploadDate ? (
+                <Text style={styles.metaText}>{video.uploadDate}</Text>
+              ) : null}
+              {video.isPremium && (
+                <>
+                  <Text style={styles.metaDot}>·</Text>
+                  <Text style={styles.premiumBadge}>PREMIUM</Text>
+                </>
+              )}
+            </View>
           </View>
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+
+      {/* Fullscreen video player — mounted only when open */}
+      {playerVisible && video.mediaUrl ? (
+        <MsVideoPlayer
+          visible={playerVisible}
+          uri={video.mediaUrl}
+          posterUri={video.thumbnailUrl}
+          onClose={() => setPlayerVisible(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -200,9 +225,8 @@ const styles = StyleSheet.create({
     ...T.SHADOWS.medium,
   },
 
-  // Thumbnail
   thumbnail: {
-    height: 196,
+    height: 210,
     justifyContent: 'flex-end',
     padding: 12,
     position: 'relative',
@@ -240,15 +264,18 @@ const styles = StyleSheet.create({
 
   playButton: {
     position: 'absolute',
-    right: 12,
-    bottom: 30,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    // centre the button on the thumbnail
+    top: '50%',
+    left: '50%',
+    marginTop: -26,
+    marginLeft: -26,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
-    ...T.SHADOWS.soft,
+    ...T.SHADOWS.medium,
   },
 
   lockOverlay: {
@@ -273,7 +300,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // Info row
   infoRow: {
     flexDirection: 'row',
     gap: 10,
@@ -281,7 +307,6 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   textGroup: { flex: 1, gap: 3 },
-
   title: {
     color: T.TEXT,
     fontFamily: T.FONT.semibold,
@@ -289,24 +314,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     letterSpacing: -0.1,
   },
-
-  creatorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  creatorName: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.regular,
-    fontSize: 11,
-  },
-
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    flexWrap: 'wrap',
-  },
+  creatorRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  creatorName: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   metaText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
   metaDot:  { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },

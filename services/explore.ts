@@ -119,6 +119,12 @@ function fmtDuration(secs: number | null | undefined): string {
 function creatorFromPost(post: RawPost): Creator {
   const h = hashStr(post.creator_id);
   const avatarRaw = post.creator_avatar ?? post.creator_avatar_url ?? null;
+  const firstMedia = post.media?.[0];
+  // Use the first post's image/thumbnail as the creator's banner
+  const bannerRaw =
+    firstMedia?.thumbnail_url ??
+    (firstMedia?.type === 'image' ? firstMedia?.url : null) ??
+    null;
   return {
     id: post.creator_id,
     name: post.creator_display_name ?? post.creator_username ?? 'Creator',
@@ -133,6 +139,7 @@ function creatorFromPost(post: RawPost): Creator {
     isOnline: (h % 3) === 0,
     gradient: gradientFor(post.creator_id),
     avatarUrl: avatarRaw,
+    bannerUrl: bannerRaw,
   };
 }
 
@@ -141,11 +148,13 @@ function previewFromPost(post: RawPost): ContentPreview {
   const kind = firstMedia ? (KIND[firstMedia.type] ?? 'photo') : 'photo';
   const isPremium = (post.unlock_price ?? 0) > 0;
   const durationSecs = firstMedia?.duration_secs ?? null;
-  // Prefer thumbnail_url for images/videos; fall back to the full media url for photos
+  // Thumbnail: prefer explicit thumbnail_url; for images the full url doubles as thumbnail
   const thumbnailUrl =
     firstMedia?.thumbnail_url ??
     (firstMedia?.type === 'image' ? firstMedia?.url : null) ??
     null;
+  // mediaUrl: the full-resolution source — used for video playback and image lightbox
+  const mediaUrl = firstMedia?.url ?? null;
 
   return {
     id: post.id,
@@ -160,6 +169,7 @@ function previewFromPost(post: RawPost): ContentPreview {
     gradient: gradientFor(post.id),
     lockedLabel: isPremium ? `${post.unlock_price} credits` : 'Free',
     thumbnailUrl,
+    mediaUrl,
     createdAt: post.created_at ?? post.published_at,
   };
 }

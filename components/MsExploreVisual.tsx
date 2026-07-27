@@ -86,6 +86,23 @@ export function MsFeaturedCreatorCard({
       accessibilityRole="button"
       accessibilityLabel={`View ${creator.name}'s profile`}
     >
+      {/* Banner image — real photo behind card content */}
+      {creator.bannerUrl ? (
+        <MsMediaLoader
+          uri={creator.bannerUrl}
+          style={featuredStyles.banner}
+          resizeMode="cover"
+          accessibleLabel={`${creator.name} banner`}
+          errorMessage=""
+          fallback={null}
+        />
+      ) : null}
+
+      {/* Dark scrim so text stays legible over the banner */}
+      {creator.bannerUrl ? (
+        <View style={featuredStyles.bannerScrim} pointerEvents="none" />
+      ) : null}
+
       <View style={featuredStyles.mark}>
         <Sparkle size={14} color={T.TEXT} />
         <Text style={featuredStyles.markText}>FEATURED</Text>
@@ -347,6 +364,15 @@ const featuredStyles = StyleSheet.create({
     justifyContent: 'space-between',
     overflow: 'hidden',
     ...T.SHADOWS.medium,
+  },
+  banner: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: T.RADIUS.xl,
+  },
+  bannerScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(8,5,12,0.58)',
+    borderRadius: T.RADIUS.xl,
   },
   mark: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   markText: { color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1.2 },
