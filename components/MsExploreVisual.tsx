@@ -86,7 +86,7 @@ export function MsFeaturedCreatorCard({
       accessibilityRole="button"
       accessibilityLabel={`View ${creator.name}'s profile`}
     >
-      {/* Banner image — real photo behind card content */}
+      {/* Banner image */}
       {creator.bannerUrl ? (
         <MsMediaLoader
           uri={creator.bannerUrl}
@@ -98,7 +98,7 @@ export function MsFeaturedCreatorCard({
         />
       ) : null}
 
-      {/* Dark scrim so text stays legible over the banner */}
+      {/* Scrim over banner */}
       {creator.bannerUrl ? (
         <View style={featuredStyles.bannerScrim} pointerEvents="none" />
       ) : null}
@@ -146,7 +146,6 @@ export function MsFeaturedCreatorCard({
         )}
       </View>
 
-      {/* Subscribe button */}
       <View style={featuredStyles.subscribeBtn}>
         <Text style={featuredStyles.subscribeBtnLabel}>Subscribe</Text>
       </View>
@@ -232,11 +231,10 @@ export function MsPreviewCard({
       accessibilityLabel={preview.title}
     >
       <View style={[previewStyles.art, { backgroundColor: tone(preview.gradient) }]}>
-        {/* Real thumbnail */}
         {preview.thumbnailUrl ? (
           <MsMediaLoader
             uri={preview.thumbnailUrl}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, preview.isPremium && previewStyles.dimmedArt]}
             resizeMode="cover"
             accessibleLabel={`Thumbnail for ${preview.title}`}
             errorMessage=""
@@ -282,7 +280,9 @@ export function MsPreviewCard({
         </Text>
         <View style={previewStyles.footer}>
           <Text style={previewStyles.likes}>{preview.likes} likes</Text>
-          <Text style={previewStyles.locked}>{preview.lockedLabel}</Text>
+          <Text style={[previewStyles.locked, preview.isPremium && previewStyles.lockedPremium]}>
+            {preview.lockedLabel}
+          </Text>
         </View>
       </View>
     </Pressable>
@@ -388,8 +388,7 @@ const featuredStyles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 14,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: T.BORDER_2,
+    // No visible border — depth comes from contrast
   },
   metric: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   metricText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
@@ -397,7 +396,7 @@ const featuredStyles = StyleSheet.create({
   subscribeBtn: {
     marginTop: 12,
     height: 36,
-    borderRadius: T.RADIUS.sm,
+    borderRadius: T.RADIUS.full,
     backgroundColor: T.TEXT,
     alignItems: 'center',
     justifyContent: 'center',
@@ -411,9 +410,8 @@ const recommendedStyles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
+    paddingVertical: 13,
+    // No divider line — spacing and elevation provide separation
   },
   info: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -441,7 +439,8 @@ const previewStyles = StyleSheet.create({
     overflow: 'hidden',
     ...T.SHADOWS.medium,
   },
-  art: { height: 126, padding: 12, justifyContent: 'space-between' },
+  art: { height: 130, padding: 12, justifyContent: 'space-between' },
+  dimmedArt: { opacity: 0.2 },
   artLines: { gap: 7, marginTop: 30 },
   lineWide: { height: 5, width: '70%', backgroundColor: 'rgba(255,255,255,0.23)', borderRadius: 3 },
   lineShort: { height: 5, width: '42%', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 3 },
@@ -469,21 +468,24 @@ const previewStyles = StyleSheet.create({
     borderRadius: 4,
   },
   previewBadgeText: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 0.8 },
-  body: { padding: 12 },
+  body: { padding: 12, gap: 4 },
   title: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12, lineHeight: 17 },
-  creator: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10, marginTop: 4 },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, marginTop: 12 },
+  creator: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10 },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, marginTop: 10 },
   likes: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 9 },
   locked: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 9, flexShrink: 1, textAlign: 'right' },
+  lockedPremium: { color: T.ACCENT },
 });
 
 const collectionStyles = StyleSheet.create({
   card: {
     width: 222,
     height: 126,
-    borderRadius: T.RADIUS.lg,
+    borderRadius: T.RADIUS.xl,
     padding: 14,
     justifyContent: 'space-between',
+    overflow: 'hidden',
+    ...T.SHADOWS.soft,
   },
   icon: {
     width: 30,

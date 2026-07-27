@@ -1,22 +1,28 @@
 /**
  * MsVideoCard — YouTube-style video card for the Explore feed.
  *
- * Shows a real thumbnail with a tappable play button that opens the
- * full MsVideoPlayer. Premium posts show a lock overlay instead.
+ * Shows a real thumbnail with duration, creator info, and engagement stats.
+ * Premium posts show a blurred thumbnail, the credit price, and an Unlock
+ * button — the actual media URL is never passed for premium content.
  */
 import React, { useState } from 'react';
 import {
+  Dimensions,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Check, Clock, Heart, Lock, Play } from 'phosphor-react-native';
+import { Check, Clock, Heart, Lock, Play, Star } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH - 32;
+const THUMB_HEIGHT = Math.round(CARD_WIDTH * 0.58);
 
 export interface VideoCardData {
   id: string;
@@ -49,6 +55,7 @@ interface MsVideoCardProps {
   video: VideoCardData;
   onPress: () => void;
   onCreatorPress?: () => void;
+  onUnlockPress?: () => void;
   onLongPress?: () => void;
 }
 
@@ -67,10 +74,17 @@ function bg(gradient: string) {
   return FALLBACK[gradient] ?? T.SURFACE_2;
 }
 
+function priceLabel(lockedLabel?: string): string {
+  if (!lockedLabel) return '';
+  const match = lockedLabel.match(/(\d+)/);
+  return match ? `${match[1]} cr` : lockedLabel;
+}
+
 export function MsVideoCard({
   video,
   onPress,
   onCreatorPress,
+  onUnlockPress,
   onLongPress,
 }: MsVideoCardProps) {
   const [playerVisible, setPlayerVisible] = useState(false);
@@ -81,7 +95,6 @@ export function MsVideoCard({
     if (canPlay) {
       setPlayerVisible(true);
     } else {
-      // Locked/premium — navigate to the content/creator page
       onPress();
     }
   };
@@ -98,19 +111,25 @@ export function MsVideoCard({
       >
         {/* ── Thumbnail ─────────────────────────────────────── */}
         <View style={[styles.thumbnail, { backgroundColor: bg(video.gradient) }]}>
-          {/* Real thumbnail — fades in when loaded */}
+
+          {/* Real thumbnail — dimmed if premium */}
           {video.thumbnailUrl ? (
             <MsMediaLoader
               uri={video.thumbnailUrl}
-              style={StyleSheet.absoluteFill}
+              style={[StyleSheet.absoluteFill, video.isPremium && styles.dimmedThumb]}
               resizeMode="cover"
-              accessibleLabel={`Thumbnail for ${video.title}`}
+              accessibleLabel={video.isPremium ? 'Locked video' : `Thumbnail for ${video.title}`}
               errorMessage=""
               fallback={null}
             />
           ) : null}
 
-          {/* Duration badge */}
+          {/* Kind badge — top left */}
+          <View style={styles.kindBadge}>
+            <Text style={styles.kindText}>{video.kind.toUpperCase()}</Text>
+          </View>
+
+          {/* Duration badge — bottom right */}
           {video.duration ? (
             <View style={styles.durationBadge}>
               <Clock size={9} color={T.TEXT} />
@@ -118,12 +137,7 @@ export function MsVideoCard({
             </View>
           ) : null}
 
-          {/* Kind badge */}
-          <View style={styles.kindBadge}>
-            <Text style={styles.kindText}>{video.kind.toUpperCase()}</Text>
-          </View>
-
-          {/* Play button (free + has media) or subscribe prompt */}
+          {/* Free: centred play button */}
           {!video.isPremium ? (
             <TouchableOpacity
               style={styles.playButton}
@@ -133,14 +147,33 @@ export function MsVideoCard({
               accessibilityLabel="Play video"
               hitSlop={8}
             >
-              <Play size={20} color={T.BG} weight="fill" />
+              <Play size={22} color={T.BG} weight="fill" />
             </TouchableOpacity>
           ) : (
+            /* Premium: lock overlay with price + unlock button */
             <View style={styles.lockOverlay}>
               <View style={styles.lockCircle}>
-                <Lock size={14} color={T.TEXT} weight="bold" />
+                <Lock size={18} color={T.TEXT} weight="bold" />
               </View>
-              <Text style={styles.lockLabel}>Subscribe to view</Text>
+              <View style={styles.lockInfo}>
+                <Text style={styles.lockTitle}>Premium Video</Text>
+                {video.lockedLabel && video.lockedLabel !== 'Free' ? (
+                  <View style={styles.lockPriceRow}>
+                    <Star size={11} color={T.ACCENT} weight="fill" />
+                    <Text style={styles.lockPrice}>{priceLabel(video.lockedLabel)}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                style={styles.unlockButton}
+                onPress={onUnlockPress ?? onPress}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Unlock this video"
+              >
+                <Lock size={11} color={T.BG} weight="bold" />
+                <Text style={styles.unlockText}>Unlock</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -155,7 +188,7 @@ export function MsVideoCard({
             accessibilityLabel={`View ${video.creatorName}'s profile`}
           >
             <MsAvatar
-              size={34}
+              size={36}
               initials={video.creatorInitials}
               imageUri={video.creatorAvatarUrl ?? undefined}
               showOnline={video.creatorIsOnline}
@@ -193,12 +226,13 @@ export function MsVideoCard({
               {video.uploadDate ? (
                 <Text style={styles.metaText}>{video.uploadDate}</Text>
               ) : null}
-              {video.isPremium && (
+              {video.isPremium && video.lockedLabel && video.lockedLabel !== 'Free' ? (
                 <>
                   <Text style={styles.metaDot}>·</Text>
-                  <Text style={styles.premiumBadge}>PREMIUM</Text>
+                  <Star size={9} color={T.ACCENT} weight="fill" />
+                  <Text style={styles.priceTag}>{priceLabel(video.lockedLabel)}</Text>
                 </>
-              )}
+              ) : null}
             </View>
           </View>
         </View>
@@ -220,16 +254,20 @@ export function MsVideoCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.lg,
+    borderRadius: T.RADIUS.xl,
     overflow: 'hidden',
     ...T.SHADOWS.medium,
   },
 
   thumbnail: {
-    height: 210,
+    height: THUMB_HEIGHT,
     justifyContent: 'flex-end',
     padding: 12,
     position: 'relative',
+  },
+
+  dimmedThumb: {
+    opacity: 0.22,
   },
 
   durationBadge: {
@@ -241,7 +279,7 @@ const styles = StyleSheet.create({
     gap: 4,
     backgroundColor: 'rgba(0,0,0,0.72)',
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: T.RADIUS.xs,
   },
   durationText: { color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 10 },
@@ -251,8 +289,8 @@ const styles = StyleSheet.create({
     left: 10,
     top: 10,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: T.RADIUS.xs,
   },
   kindText: {
@@ -264,14 +302,13 @@ const styles = StyleSheet.create({
 
   playButton: {
     position: 'absolute',
-    // centre the button on the thumbnail
     top: '50%',
     left: '50%',
-    marginTop: -26,
-    marginLeft: -26,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    marginTop: -28,
+    marginLeft: -28,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -280,50 +317,79 @@ const styles = StyleSheet.create({
 
   lockOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10,6,14,0.76)',
+    backgroundColor: 'rgba(8,5,14,0.64)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
   lockCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
     ...T.SHADOWS.soft,
   },
-  lockLabel: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.medium,
-    fontSize: 12,
+  lockInfo: {
+    alignItems: 'center',
+    gap: 5,
+  },
+  lockTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 14,
+  },
+  lockPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  lockPrice: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.bold,
+    fontSize: 15,
+  },
+  unlockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: T.TEXT,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: T.RADIUS.full,
+    marginTop: 4,
+    ...T.SHADOWS.soft,
+  },
+  unlockText: {
+    color: T.BG,
+    fontFamily: T.FONT.bold,
+    fontSize: 13,
   },
 
   infoRow: {
     flexDirection: 'row',
     gap: 10,
-    padding: 12,
-    paddingTop: 10,
+    padding: 14,
+    paddingTop: 12,
   },
-  textGroup: { flex: 1, gap: 3 },
+  textGroup: { flex: 1, gap: 4 },
   title: {
     color: T.TEXT,
     fontFamily: T.FONT.semibold,
-    fontSize: 13,
-    lineHeight: 18,
-    letterSpacing: -0.1,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.2,
   },
   creatorRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  creatorName: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11 },
+  creatorName: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metaText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
-  metaDot:  { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
-  premiumBadge: {
+  metaText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 11 },
+  metaDot:  { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 11 },
+  priceTag: {
     color: T.ACCENT,
     fontFamily: T.FONT.semibold,
-    fontSize: 9,
-    letterSpacing: 0.5,
+    fontSize: 11,
   },
 });

@@ -1,21 +1,27 @@
 /**
- * MsImageCard — wide image card for photo posts in the Explore feed.
+ * MsImageCard — Wide image card for photo posts in the Explore feed.
  *
- * Shows the actual photo prominently (full-width, 4:3), creator identity
- * overlaid at the bottom, caption below. No play button — images don't play.
+ * Full-width 4:3 image preview with creator identity overlaid at the bottom.
+ * Premium posts show a blurred image, a lock overlay, the credit price,
+ * and an Unlock button — never exposing the protected image.
  */
 import React from 'react';
 import {
+  Dimensions,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Check, Heart, Lock } from 'phosphor-react-native';
+import { Check, Heart, Lock, Star } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { T } from '@/constants/theme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH - 32;
+const IMAGE_HEIGHT = Math.round(CARD_WIDTH * 0.72);
 
 export interface ImageCardData {
   id: string;
@@ -41,6 +47,7 @@ interface MsImageCardProps {
   card: ImageCardData;
   onPress: () => void;
   onCreatorPress?: () => void;
+  onUnlockPress?: () => void;
   onLongPress?: () => void;
 }
 
@@ -59,10 +66,18 @@ function bg(gradient: string) {
   return FALLBACK[gradient] ?? T.SURFACE_2;
 }
 
+/** Extract numeric price from lockedLabel like "50 credits" → "50cr" */
+function priceLabel(lockedLabel?: string): string {
+  if (!lockedLabel) return '';
+  const match = lockedLabel.match(/(\d+)/);
+  return match ? `${match[1]} cr` : lockedLabel;
+}
+
 export function MsImageCard({
   card,
   onPress,
   onCreatorPress,
+  onUnlockPress,
   onLongPress,
 }: MsImageCardProps) {
   return (
@@ -76,30 +91,51 @@ export function MsImageCard({
     >
       {/* ── Image area ─────────────────────────────────────── */}
       <View style={[styles.imageWrap, { backgroundColor: bg(card.gradient) }]}>
-        {/* Real image */}
+
+        {/* Real image — dimmed if premium so shape is visible but content protected */}
         {card.imageUrl ? (
           <MsMediaLoader
             uri={card.imageUrl}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, card.isPremium && styles.dimmedImage]}
             resizeMode="cover"
-            accessibleLabel={card.title}
+            accessibleLabel={card.isPremium ? 'Locked image' : card.title}
             errorMessage=""
             fallback={null}
           />
         ) : null}
 
+        {/* Gradient scrim — bottom fade for legibility */}
+        <View style={styles.bottomScrim} pointerEvents="none" />
+
         {/* Premium lock overlay */}
         {card.isPremium && (
           <View style={styles.lockOverlay}>
             <View style={styles.lockCircle}>
-              <Lock size={18} color={T.TEXT} weight="bold" />
+              <Lock size={20} color={T.TEXT} weight="bold" />
             </View>
-            <Text style={styles.lockLabel}>Subscribe to view</Text>
+            <View style={styles.lockInfo}>
+              <Text style={styles.lockTitle}>Premium Content</Text>
+              {card.lockedLabel && card.lockedLabel !== 'Free' ? (
+                <View style={styles.lockPriceRow}>
+                  <Star size={11} color={T.ACCENT} weight="fill" />
+                  <Text style={styles.lockPrice}>{priceLabel(card.lockedLabel)}</Text>
+                </View>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              style={styles.unlockButton}
+              onPress={onUnlockPress ?? onPress}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Unlock this content"
+            >
+              <Lock size={11} color={T.BG} weight="bold" />
+              <Text style={styles.unlockText}>Unlock</Text>
+            </TouchableOpacity>
           </View>
         )}
 
-        {/* Bottom scrim + creator identity (overlaid on image) */}
-        <View style={styles.scrim} pointerEvents="none" />
+        {/* Bottom: creator chip + premium badge */}
         <View style={styles.imageFooter}>
           <TouchableOpacity
             style={styles.creatorChip}
@@ -108,7 +144,7 @@ export function MsImageCard({
             hitSlop={6}
           >
             <MsAvatar
-              size={28}
+              size={26}
               initials={card.creatorInitials}
               imageUri={card.creatorAvatarUrl ?? undefined}
               showOnline={card.creatorIsOnline}
@@ -123,9 +159,9 @@ export function MsImageCard({
             </View>
           </TouchableOpacity>
 
-          {/* Premium badge */}
           {card.isPremium && (
             <View style={styles.premiumPill}>
+              <Star size={8} color="#fff" weight="fill" />
               <Text style={styles.premiumText}>PREMIUM</Text>
             </View>
           )}
@@ -146,11 +182,15 @@ export function MsImageCard({
               <Text style={styles.metaText}>{card.likes}</Text>
             </View>
           ) : null}
-          {card.uploadDate ? (
-            <Text style={styles.metaDot}>·</Text>
-          ) : null}
+          {card.likes && card.uploadDate ? <Text style={styles.metaDot}>·</Text> : null}
           {card.uploadDate ? (
             <Text style={styles.metaText}>{card.uploadDate}</Text>
+          ) : null}
+          {card.isPremium && card.lockedLabel && card.lockedLabel !== 'Free' ? (
+            <>
+              <Text style={styles.metaDot}>·</Text>
+              <Text style={styles.priceTag}>{priceLabel(card.lockedLabel)}</Text>
+            </>
           ) : null}
         </View>
       </View>
@@ -158,12 +198,10 @@ export function MsImageCard({
   );
 }
 
-const IMAGE_HEIGHT = 240;
-
 const styles = StyleSheet.create({
   card: {
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.lg,
+    borderRadius: T.RADIUS.xl,
     overflow: 'hidden',
     ...T.SHADOWS.medium,
   },
@@ -174,35 +212,72 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
 
+  dimmedImage: {
+    opacity: 0.25,
+  },
+
+  bottomScrim: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 80,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+
   lockOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10,6,14,0.76)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     zIndex: 2,
+    backgroundColor: 'rgba(8,5,14,0.62)',
   },
   lockCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
     ...T.SHADOWS.soft,
   },
-  lockLabel: {
-    color: 'rgba(255,255,255,0.7)',
-    fontFamily: T.FONT.medium,
+  lockInfo: {
+    alignItems: 'center',
+    gap: 5,
+  },
+  lockTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 14,
+  },
+  lockPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  lockPrice: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.bold,
+    fontSize: 15,
+  },
+  unlockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: T.TEXT,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: T.RADIUS.full,
+    marginTop: 4,
+    ...T.SHADOWS.soft,
+  },
+  unlockText: {
+    color: T.BG,
+    fontFamily: T.FONT.bold,
     fontSize: 13,
   },
 
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    // Gradient-like bottom scrim via a semi-transparent bottom portion
-    backgroundColor: 'transparent',
-    // We simulate the scrim with a bottom-aligned view below
-  },
   imageFooter: {
     position: 'absolute',
     bottom: 0,
@@ -213,23 +288,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    paddingTop: 28,
-    // Dark gradient scrim
-    backgroundColor: 'rgba(0,0,0,0)',
+    zIndex: 3,
   },
-  imageFooterScrim: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 80,
-  },
-
   creatorChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    backgroundColor: 'rgba(0,0,0,0.48)',
+    backgroundColor: 'rgba(0,0,0,0.52)',
     borderRadius: T.RADIUS.full,
     paddingRight: 10,
     paddingLeft: 4,
@@ -244,13 +309,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontFamily: T.FONT.semibold,
     fontSize: 12,
-    maxWidth: 120,
+    maxWidth: 130,
   },
 
   premiumPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: T.ACCENT,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: T.RADIUS.full,
   },
   premiumText: {
@@ -261,14 +329,14 @@ const styles = StyleSheet.create({
   },
 
   body: {
-    padding: 12,
-    gap: 5,
+    padding: 14,
+    gap: 6,
   },
   caption: {
     color: T.TEXT,
     fontFamily: T.FONT.medium,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 19,
     letterSpacing: -0.1,
   },
   metaRow: {
@@ -278,5 +346,10 @@ const styles = StyleSheet.create({
   },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   metaText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 11 },
-  metaDot: { color: T.TEXT_3, fontSize: 11 },
+  metaDot:  { color: T.TEXT_3, fontSize: 11 },
+  priceTag: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 11,
+  },
 });

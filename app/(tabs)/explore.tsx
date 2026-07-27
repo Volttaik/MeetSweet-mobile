@@ -2,9 +2,8 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -21,6 +20,7 @@ import {
   CaretRight,
   CreditCard,
   FilmStrip,
+  Images,
   MagnifyingGlass as SearchIcon,
   Users,
   Wallet,
@@ -32,6 +32,8 @@ import {
   useLocalExploreCatalog,
   fmtTimeAgo,
 } from '@/services/explore';
+import { useLocalAlbumCatalog } from '@/services/albums';
+import type { AlbumCardData } from '@/services/albums';
 import { blockUser } from '@/services/users';
 import { Chip } from 'heroui-native';
 import MsInput from '@/components/MsInput';
@@ -49,14 +51,17 @@ import { MsCreatorPreview, type CreatorPreviewData } from '@/components/MsCreato
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsVideoCard, type VideoCardData } from '@/components/MsVideoCard';
 import { MsImageCard, type ImageCardData } from '@/components/MsImageCard';
+import { MsAlbumCard } from '@/components/MsAlbumCard';
 import { T } from '@/constants/theme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ─── Category lists ────────────────────────────────────────────────────────────
 
 const CREATOR_CATEGORIES = [
   { id: 'all',               label: 'All' },
   { id: 'trending',          label: 'Trending' },
-  { id: 'new',               label: 'New Creators' },
+  { id: 'new',               label: 'New' },
   { id: 'premium',           label: 'Premium' },
   { id: 'lifestyle',         label: 'Lifestyle' },
   { id: 'fashion',           label: 'Fashion' },
@@ -77,7 +82,7 @@ const CREATOR_CATEGORIES = [
   { id: 'behind-the-scenes', label: 'Behind the Scenes' },
 ];
 
-const VIDEO_CATEGORIES = [
+const CONTENT_CATEGORIES = [
   { id: 'all',      label: 'All' },
   { id: 'trending', label: 'Trending' },
   { id: 'premium',  label: 'Premium' },
@@ -87,9 +92,16 @@ const VIDEO_CATEGORIES = [
   { id: 'audio',    label: 'Audio' },
 ];
 
+const ALBUM_CATEGORIES = [
+  { id: 'all',      label: 'All' },
+  { id: 'premium',  label: 'Premium' },
+  { id: 'free',     label: 'Free' },
+  { id: 'trending', label: 'Trending' },
+];
+
 // ─── View mode toggle ─────────────────────────────────────────────────────────
 
-type ViewMode = 'creators' | 'videos';
+type ViewMode = 'creators' | 'content' | 'albums';
 
 function ModeToggle({
   mode,
@@ -98,30 +110,31 @@ function ModeToggle({
   mode: ViewMode;
   onChange: (m: ViewMode) => void;
 }) {
+  const tabs: { id: ViewMode; label: string; Icon: React.ComponentType<{ size: number; color: string }> }[] = [
+    { id: 'creators', label: 'Creators', Icon: Users },
+    { id: 'content',  label: 'Feed',     Icon: FilmStrip },
+    { id: 'albums',   label: 'Albums',   Icon: Images },
+  ];
+
   return (
     <View style={toggleStyles.wrap}>
-      <Pressable
-        style={[toggleStyles.tab, mode === 'creators' && toggleStyles.tabActive]}
-        onPress={() => onChange('creators')}
-        accessibilityRole="button"
-        accessibilityState={{ selected: mode === 'creators' }}
-      >
-        <Users size={14} color={mode === 'creators' ? T.BG : T.TEXT_2} />
-        <Text style={[toggleStyles.label, mode === 'creators' && toggleStyles.labelActive]}>
-          Creators
-        </Text>
-      </Pressable>
-      <Pressable
-        style={[toggleStyles.tab, mode === 'videos' && toggleStyles.tabActive]}
-        onPress={() => onChange('videos')}
-        accessibilityRole="button"
-        accessibilityState={{ selected: mode === 'videos' }}
-      >
-        <FilmStrip size={14} color={mode === 'videos' ? T.BG : T.TEXT_2} />
-        <Text style={[toggleStyles.label, mode === 'videos' && toggleStyles.labelActive]}>
-          Videos
-        </Text>
-      </Pressable>
+      {tabs.map(({ id, label, Icon }) => {
+        const active = mode === id;
+        return (
+          <Pressable
+            key={id}
+            style={[toggleStyles.tab, active && toggleStyles.tabActive]}
+            onPress={() => onChange(id)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+          >
+            <Icon size={13} color={active ? T.BG : T.TEXT_2} />
+            <Text style={[toggleStyles.label, active && toggleStyles.labelActive]}>
+              {label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -140,7 +153,7 @@ const toggleStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 5,
     paddingVertical: 9,
     borderRadius: T.RADIUS.full,
   },
@@ -151,7 +164,7 @@ const toggleStyles = StyleSheet.create({
   label: {
     color: T.TEXT_2,
     fontFamily: T.FONT.semibold,
-    fontSize: 13,
+    fontSize: 12,
   },
   labelActive: {
     color: T.BG,
@@ -185,6 +198,156 @@ function toPreviewData(creator: Creator): CreatorPreviewData {
   };
 }
 
+// ─── Shared header component ───────────────────────────────────────────────────
+
+interface HeaderProps {
+  search: string;
+  onSearchChange: (v: string) => void;
+  trendingSearches: string[];
+  onTrendingPress: (t: string) => void;
+  viewMode: ViewMode;
+  onModeChange: (m: ViewMode) => void;
+  activeCategory: string;
+  onCategoryChange: (c: string) => void;
+  isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
+  creditBalance: number;
+  categories: typeof CREATOR_CATEGORIES;
+}
+
+function ExploreHeader({
+  search,
+  onSearchChange,
+  trendingSearches,
+  onTrendingPress,
+  viewMode,
+  onModeChange,
+  activeCategory,
+  onCategoryChange,
+  isLoading,
+  isError,
+  onRetry,
+  creditBalance,
+  categories,
+}: HeaderProps) {
+  return (
+    <>
+      {/* Search */}
+      <View style={styles.searchField}>
+        <SearchIcon size={16} color={T.TEXT_2} />
+        <MsInput
+          value={search}
+          onChangeText={onSearchChange}
+          placeholder={
+            viewMode === 'albums'
+              ? 'Search albums, creators'
+              : viewMode === 'content'
+              ? 'Search videos, images, creators'
+              : 'Search creators, categories, content'
+          }
+          style={styles.searchInput}
+          compact
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => onSearchChange('')} hitSlop={10}>
+            <Text style={styles.clearSearch}>×</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Trending tags */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.trendingRow}
+      >
+        {trendingSearches.map((tag) => (
+          <Chip
+            key={tag}
+            variant="soft"
+            color="default"
+            size="sm"
+            onPress={() => onTrendingPress(tag)}
+            style={styles.trendChip}
+          >
+            <Chip.Label style={styles.trendLabel}>#{tag.replaceAll(' ', '')}</Chip.Label>
+          </Chip>
+        ))}
+      </ScrollView>
+
+      {/* Mode toggle */}
+      <ModeToggle mode={viewMode} onChange={onModeChange} />
+
+      {/* Loading skeleton */}
+      {isLoading && (
+        <View style={styles.loadingWrap}>
+          <MsCatalogSkeleton />
+        </View>
+      )}
+
+      {/* Error state */}
+      {isError && (
+        <MsEmptyState
+          title="Explore is taking a moment"
+          message="We couldn't load content. Pull down to try again."
+          actionLabel="Retry"
+          onAction={onRetry}
+        />
+      )}
+
+      {/* Wallet banner + categories */}
+      {!isLoading && !isError && (
+        <>
+          <Pressable style={styles.creditBanner} onPress={() => router.push('/wallet')}>
+            <View style={styles.creditIcon}>
+              <CreditCard size={18} color={T.BG} />
+            </View>
+            <View style={styles.creditCopy}>
+              <Text style={styles.creditEyebrow}>YOUR CREATOR WALLET</Text>
+              <Text style={styles.creditBalance}>
+                {creditBalance.toLocaleString()}
+                <Text style={styles.creditUnit}> credits</Text>
+              </Text>
+            </View>
+            <View style={styles.creditAction}>
+              <Text style={styles.creditActionText}>Top up</Text>
+              <CaretRight size={15} color={T.BG} />
+            </View>
+          </Pressable>
+
+          <View style={styles.categoryHeader}>
+            <Text style={styles.sectionTitle}>Browse by category</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryRow}
+          >
+            {categories.map((category) => {
+              const active = category.id === activeCategory;
+              return (
+                <Chip
+                  key={category.id}
+                  variant={active ? 'primary' : 'soft'}
+                  color="default"
+                  size="sm"
+                  onPress={() => onCategoryChange(category.id)}
+                  style={[styles.categoryChip, active && styles.categoryChipActive]}
+                >
+                  <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
+                    {category.label}
+                  </Chip.Label>
+                </Chip>
+              );
+            })}
+          </ScrollView>
+        </>
+      )}
+    </>
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ExploreScreen() {
@@ -194,19 +357,18 @@ export default function ExploreScreen() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Context menus
   const [menuCreator, setMenuCreator] = useState<Creator | null>(null);
   const [previewCreator, setPreviewCreator] = useState<CreatorPreviewData | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
 
-  // ── Single-load catalog for creators mode ──────────────────────────────────
+  // ── Data hooks ───────────────────────────────────────────────────────────────
   const catalogQuery = useLocalExploreCatalog();
+  const feedQuery    = useExploreFeed();
+  const albumsQuery  = useLocalAlbumCatalog();
+
   const catalog = catalogQuery.data;
 
-  // ── Infinite feed for videos mode ──────────────────────────────────────────
-  const feedQuery = useExploreFeed();
-
-  // Merge all feed pages, deduplicate by id
+  // Merge all feed pages — deduplicate by id
   const { allCreators, allPreviews } = useMemo(() => {
     const pages = feedQuery.data?.pages ?? [];
     const creatorMap = new Map<string, Creator>();
@@ -231,20 +393,21 @@ export default function ExploreScreen() {
     return allCreators.find((c) => c.id === id);
   }
 
-  // ── Feed items — image cards + video cards depending on post kind ───────────
+  // ── Feed items — image + video cards with album cards injected every 5 items ─
   type FeedItem =
-    | { type: 'video'; data: VideoCardData; id: string }
-    | { type: 'image'; data: ImageCardData; id: string };
+    | { type: 'video';  data: VideoCardData;  id: string }
+    | { type: 'image';  data: ImageCardData;  id: string }
+    | { type: 'album';  data: AlbumCardData;  id: string }
+    | { type: 'album-row'; albums: AlbumCardData[]; id: string };
 
   const feedItems = useMemo<FeedItem[]>(() => {
     const needle = search.trim().toLowerCase();
-    const items: FeedItem[] = [];
+    const raw: (FeedItem & { type: 'video' | 'image' })[] = [];
 
     for (const p of allPreviews) {
       const creator = findCreatorInFeed(p.creatorId);
       if (!creator) continue;
 
-      // Category filter
       if (activeCategory === 'premium' && !p.isPremium) continue;
       if (activeCategory === 'free' && p.isPremium) continue;
       if (
@@ -282,9 +445,8 @@ export default function ExploreScreen() {
           creatorIsOnline: creator.isOnline,
           creatorAvatarUrl: creator.avatarUrl,
         };
-        items.push({ type: 'video', data: card, id: p.id });
+        raw.push({ type: 'video', data: card, id: p.id });
       } else {
-        // photo / image
         const card: ImageCardData = {
           id: p.id,
           title: p.title || '',
@@ -302,20 +464,43 @@ export default function ExploreScreen() {
           creatorIsOnline: creator.isOnline,
           creatorAvatarUrl: creator.avatarUrl,
         };
-        items.push({ type: 'image', data: card, id: p.id });
+        raw.push({ type: 'image', data: card, id: p.id });
       }
     }
-    return items;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allPreviews, allCreators, activeCategory, search]);
 
-  // ── Catalog-mode data ───────────────────────────────────────────────────────
-  const catalogCreators    = catalog?.creators ?? [];
-  const catalogPreviews    = catalog?.previews ?? [];
-  const featuredCreatorIds = catalog?.featuredCreatorIds ?? [];
+    // Inject album rows every 5 content items for visual variety
+    const albums = albumsQuery.data ?? [];
+    const result: FeedItem[] = [];
+    let albumIdx = 0;
+
+    for (let i = 0; i < raw.length; i++) {
+      result.push(raw[i]);
+
+      // After every 5th item, inject a horizontal album row (2 albums)
+      if ((i + 1) % 5 === 0 && albumIdx < albums.length) {
+        const rowAlbums = albums.slice(albumIdx, albumIdx + 2);
+        if (rowAlbums.length > 0) {
+          result.push({
+            type: 'album-row',
+            albums: rowAlbums,
+            id: `album-row-${albumIdx}`,
+          });
+          albumIdx += 2;
+        }
+      }
+    }
+
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPreviews, allCreators, activeCategory, search, albumsQuery.data]);
+
+  // ── Catalog-mode data ─────────────────────────────────────────────────────────
+  const catalogCreators       = catalog?.creators ?? [];
+  const catalogPreviews       = catalog?.previews ?? [];
+  const featuredCreatorIds    = catalog?.featuredCreatorIds ?? [];
   const recommendedCreatorIds = catalog?.recommendedCreatorIds ?? [];
-  const trendingSearches   = catalog?.trendingSearches ?? ['slow living', 'new creators', 'exclusive'];
-  const creditBalance      = Number(catalog?.creditBalance ?? 0);
+  const trendingSearches      = catalog?.trendingSearches ?? ['slow living', 'new creators', 'exclusive'];
+  const creditBalance         = Number(catalog?.creditBalance ?? 0);
 
   const visibleCreators = useMemo(() => {
     if (!catalog) return [];
@@ -347,7 +532,22 @@ export default function ExploreScreen() {
     );
   });
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
+  // ── Albums mode data ──────────────────────────────────────────────────────────
+  const allAlbums = albumsQuery.data ?? [];
+  const visibleAlbums = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return allAlbums.filter((a) => {
+      if (activeCategory === 'premium' && !a.isPremium) return false;
+      if (activeCategory === 'free' && a.isPremium) return false;
+      if (needle) {
+        const text = `${a.title} ${a.creatorName} ${a.description}`.toLowerCase();
+        return text.includes(needle);
+      }
+      return true;
+    });
+  }, [allAlbums, activeCategory, search]);
+
+  // ── Actions ────────────────────────────────────────────────────────────────────
   const openCreator = (creator: Creator) => router.push(`/creator/${creator.id}`);
 
   const openAvatarPreview = (creator: Creator) => {
@@ -358,11 +558,15 @@ export default function ExploreScreen() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([catalogQuery.refetch(), feedQuery.refetch()]);
+      await Promise.all([
+        catalogQuery.refetch(),
+        feedQuery.refetch(),
+        albumsQuery.refetch(),
+      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [catalogQuery, feedQuery]);
+  }, [catalogQuery, feedQuery, albumsQuery]);
 
   const handleModeChange = (m: ViewMode) => {
     setViewMode(m);
@@ -432,130 +636,63 @@ export default function ExploreScreen() {
     },
   ];
 
-  const isLoading = viewMode === 'creators' ? catalogQuery.isLoading : feedQuery.isLoading;
-  const isError   = viewMode === 'creators' ? catalogQuery.isError   : feedQuery.isError;
-  const categories = viewMode === 'videos' ? VIDEO_CATEGORIES : CREATOR_CATEGORIES;
+  const isLoading =
+    viewMode === 'creators' ? catalogQuery.isLoading
+    : viewMode === 'albums'  ? albumsQuery.isLoading
+    : feedQuery.isLoading;
 
-  // ── Shared header rendered above both modes ─────────────────────────────────
-  const renderHeader = () => (
-    <>
-      {/* Search */}
-      <View style={styles.searchField}>
-        <SearchIcon size={16} color={T.TEXT_2} />
-        <MsInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder={
-            viewMode === 'videos'
-              ? 'Search videos, creators, categories'
-              : 'Search creators, categories, content'
-          }
-          style={styles.searchInput}
-          compact
-        />
-        {search.length > 0 && (
-          <Pressable onPress={() => setSearch('')} hitSlop={10}>
-            <Text style={styles.clearSearch}>×</Text>
-          </Pressable>
-        )}
+  const isError =
+    viewMode === 'creators' ? catalogQuery.isError
+    : viewMode === 'albums'  ? albumsQuery.isError
+    : feedQuery.isError;
+
+  const categories =
+    viewMode === 'creators' ? CREATOR_CATEGORIES
+    : viewMode === 'albums'  ? ALBUM_CATEGORIES
+    : CONTENT_CATEGORIES;
+
+  // ── Shared page header ────────────────────────────────────────────────────────
+  const pageHeader = (
+    <View style={styles.header}>
+      <View>
+        <Text style={styles.eyebrow}>DISCOVER</Text>
+        <Text style={styles.title}>Explore</Text>
       </View>
-
-      {/* Trending tags */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.trendingRow}
-      >
-        {trendingSearches.map((tag) => (
-          <Chip
-            key={tag}
-            variant="soft"
-            color="default"
-            size="sm"
-            onPress={() => setSearch(tag)}
-            style={styles.trendChip}
-          >
-            <Chip.Label style={styles.trendLabel}>#{tag.replaceAll(' ', '')}</Chip.Label>
-          </Chip>
-        ))}
-      </ScrollView>
-
-      {/* Mode toggle */}
-      <ModeToggle mode={viewMode} onChange={handleModeChange} />
-
-      {/* Loading skeleton */}
-      {isLoading && (
-        <View style={styles.loadingWrap}>
-          <MsCatalogSkeleton />
-        </View>
-      )}
-
-      {/* Error state */}
-      {isError && (
-        <MsEmptyState
-          title="Explore is taking a moment"
-          message="We couldn't load content. Pull down to try again."
-          actionLabel="Retry"
-          onAction={() => {
-            catalogQuery.refetch();
-            feedQuery.refetch();
-          }}
-        />
-      )}
-
-      {/* Wallet banner + categories — only when data is loaded */}
-      {!isLoading && !isError && (
-        <>
-          <Pressable style={styles.creditBanner} onPress={() => router.push('/wallet')}>
-            <View style={styles.creditIcon}>
-              <CreditCard size={18} color={T.BG} />
-            </View>
-            <View style={styles.creditCopy}>
-              <Text style={styles.creditEyebrow}>YOUR CREATOR WALLET</Text>
-              <Text style={styles.creditBalance}>
-                {creditBalance.toLocaleString()}{' '}
-                <Text style={styles.creditUnit}>credits</Text>
-              </Text>
-            </View>
-            <View style={styles.creditAction}>
-              <Text style={styles.creditActionText}>Top up</Text>
-              <CaretRight size={15} color={T.BG} />
-            </View>
-          </Pressable>
-
-          <View style={styles.categoryHeader}>
-            <Text style={styles.sectionTitle}>Browse by category</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryRow}
-          >
-            {categories.map((category) => {
-              const active = category.id === activeCategory;
-              return (
-                <Chip
-                  key={category.id}
-                  variant={active ? 'primary' : 'soft'}
-                  color="default"
-                  size="sm"
-                  onPress={() => setActiveCategory(category.id)}
-                  style={[styles.categoryChip, active && styles.categoryChipActive]}
-                >
-                  <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
-                    {category.label}
-                  </Chip.Label>
-                </Chip>
-              );
-            })}
-          </ScrollView>
-        </>
-      )}
-    </>
+      <View style={styles.headerActions}>
+        <Pressable
+          style={styles.iconButton}
+          onPress={() => router.push('/notifications')}
+          accessibilityLabel="Notifications"
+        >
+          <Bell size={19} color={T.TEXT} />
+          <View style={styles.notificationDot} />
+        </Pressable>
+        <Pressable style={styles.walletButton} onPress={() => router.push('/wallet')}>
+          <Wallet size={16} color={T.BG} />
+          <Text style={styles.walletButtonText}>{creditBalance.toLocaleString()}</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 
-  // ── VIDEO MODE — virtualized FlatList ────────────────────────────────────────
-  if (viewMode === 'videos') {
+  const headerProps: HeaderProps = {
+    search,
+    onSearchChange: setSearch,
+    trendingSearches,
+    onTrendingPress: setSearch,
+    viewMode,
+    onModeChange: handleModeChange,
+    activeCategory,
+    onCategoryChange: setActiveCategory,
+    isLoading,
+    isError,
+    onRetry: () => { catalogQuery.refetch(); feedQuery.refetch(); albumsQuery.refetch(); },
+    creditBalance,
+    categories,
+  };
+
+  // ── CONTENT MODE — mixed FlatList ─────────────────────────────────────────────
+  if (viewMode === 'content') {
     const loadingMore = feedQuery.isFetchingNextPage;
 
     const handleEndReached = () => {
@@ -567,64 +704,79 @@ export default function ExploreScreen() {
     const renderFeedItem = ({ item }: { item: FeedItem }) => {
       if (item.type === 'image') {
         return (
-          <MsImageCard
-            card={item.data}
-            onPress={() => router.push(`/content/${item.id}`)}
-            onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-          />
+          <View style={styles.feedItemWrap}>
+            <MsImageCard
+              card={item.data}
+              onPress={() => router.push(`/content/${item.id}`)}
+              onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
+              onUnlockPress={() => router.push(`/content/${item.id}`)}
+            />
+          </View>
         );
       }
-      return (
-        <MsVideoCard
-          video={item.data}
-          onPress={() => router.push(`/content/${item.id}`)}
-          onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-        />
-      );
-    };
 
-    const renderEmpty = () => {
-      if (isLoading) return null;
-      return (
-        <MsEmptyState
-          title="No posts found"
-          message="Try a different filter or check back later for new content."
-          actionLabel={activeCategory !== 'all' ? 'Show all' : undefined}
-          onAction={activeCategory !== 'all' ? () => setActiveCategory('all') : undefined}
-        />
-      );
+      if (item.type === 'video') {
+        return (
+          <View style={styles.feedItemWrap}>
+            <MsVideoCard
+              video={item.data}
+              onPress={() => router.push(`/content/${item.id}`)}
+              onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
+              onUnlockPress={() => router.push(`/content/${item.id}`)}
+            />
+          </View>
+        );
+      }
+
+      if (item.type === 'album-row') {
+        return (
+          <View style={styles.albumRowWrap}>
+            <View style={styles.albumRowHeader}>
+              <Images size={13} color={T.TEXT_2} />
+              <Text style={styles.albumRowLabel}>Albums</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.albumRowScroll}
+            >
+              {item.albums.map((album) => (
+                <View key={album.id} style={styles.albumRowCard}>
+                  <MsAlbumCard
+                    album={album}
+                    onPress={() => router.push(`/album/${album.id}`)}
+                    onCreatorPress={() => router.push(`/creator/${album.creatorId}`)}
+                    onUnlockPress={() => router.push(`/album/${album.id}`)}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        );
+      }
+
+      return null;
     };
 
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>DISCOVER</Text>
-            <Text style={styles.title}>Explore</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => router.push('/notifications')}
-              accessibilityLabel="Notifications"
-            >
-              <Bell size={19} color={T.TEXT} />
-              <View style={styles.notificationDot} />
-            </Pressable>
-            <Pressable style={styles.walletButton} onPress={() => router.push('/wallet')}>
-              <Wallet size={16} color={T.BG} />
-              <Text style={styles.walletButtonText}>{creditBalance.toLocaleString()}</Text>
-            </Pressable>
-          </View>
-        </View>
+        {pageHeader}
 
         <FlatList
           data={feedItems}
           keyExtractor={(item) => item.id}
           renderItem={renderFeedItem}
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={renderEmpty}
+          ListHeaderComponent={<ExploreHeader {...headerProps} />}
+          ListEmptyComponent={
+            isLoading ? null : (
+              <MsEmptyState
+                title="No posts found"
+                message="Try a different filter or check back later for new content."
+                actionLabel={activeCategory !== 'all' ? 'Show all' : undefined}
+                onAction={activeCategory !== 'all' ? () => setActiveCategory('all') : undefined}
+              />
+            )
+          }
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.loadMoreWrap}>
@@ -634,18 +786,17 @@ export default function ExploreScreen() {
           }
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.4}
-          contentContainerStyle={styles.videoListContent}
+          contentContainerStyle={styles.feedListContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />
           }
           removeClippedSubviews
           windowSize={5}
-          maxToRenderPerBatch={5}
-          initialNumToRender={6}
+          maxToRenderPerBatch={4}
+          initialNumToRender={5}
         />
 
-        {/* Creator long-press sheet */}
         <MsActionSheet
           visible={!!menuCreator}
           title={menuCreator?.name}
@@ -658,41 +809,65 @@ export default function ExploreScreen() {
           visible={previewVisible}
           creator={previewCreator}
           onClose={() => setPreviewVisible(false)}
-          onViewProfile={() => {
-            if (previewCreator) router.push(`/creator/${previewCreator.id}`);
-          }}
-          onSubscribe={() => {
-            if (previewCreator) router.push(`/creator/${previewCreator.id}`);
-          }}
+          onViewProfile={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
+          onSubscribe={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
         />
       </MsAmbientBackground>
     );
   }
 
-  // ── CREATORS MODE — ScrollView ───────────────────────────────────────────────
+  // ── ALBUMS MODE — flat grid of album cards ────────────────────────────────────
+  if (viewMode === 'albums') {
+    return (
+      <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+        {pageHeader}
+
+        <FlatList
+          data={visibleAlbums}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View style={styles.feedItemWrap}>
+              <MsAlbumCard
+                album={item}
+                onPress={() => router.push(`/album/${item.id}`)}
+                onCreatorPress={() => router.push(`/creator/${item.creatorId}`)}
+                onUnlockPress={() => router.push(`/album/${item.id}`)}
+              />
+            </View>
+          )}
+          ListHeaderComponent={<ExploreHeader {...headerProps} />}
+          ListEmptyComponent={
+            isLoading ? null : (
+              <MsEmptyState
+                title={search ? 'No albums match that search' : 'No albums yet'}
+                message={
+                  search
+                    ? 'Try clearing your search or filter.'
+                    : 'Albums are curated collections from your favourite creators.'
+                }
+                actionLabel={search || activeCategory !== 'all' ? 'Clear filters' : undefined}
+                onAction={() => { setSearch(''); setActiveCategory('all'); }}
+              />
+            )
+          }
+          contentContainerStyle={styles.feedListContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />
+          }
+          removeClippedSubviews
+          windowSize={5}
+          maxToRenderPerBatch={4}
+          initialNumToRender={4}
+        />
+      </MsAmbientBackground>
+    );
+  }
+
+  // ── CREATORS MODE — ScrollView ────────────────────────────────────────────────
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>DISCOVER</Text>
-          <Text style={styles.title}>Explore</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable
-            style={styles.iconButton}
-            onPress={() => router.push('/notifications')}
-            accessibilityLabel="Notifications"
-          >
-            <Bell size={19} color={T.TEXT} />
-            <View style={styles.notificationDot} />
-          </Pressable>
-          <Pressable style={styles.walletButton} onPress={() => router.push('/wallet')}>
-            <Wallet size={16} color={T.BG} />
-            <Text style={styles.walletButtonText}>{creditBalance.toLocaleString()}</Text>
-          </Pressable>
-        </View>
-      </View>
+      {pageHeader}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -701,7 +876,7 @@ export default function ExploreScreen() {
         }
         contentContainerStyle={styles.scrollContent}
       >
-        {renderHeader()}
+        <ExploreHeader {...headerProps} />
 
         {!isLoading && !isError && catalog && (
           <>
@@ -732,7 +907,35 @@ export default function ExploreScreen() {
               </>
             )}
 
-            {/* Recommended */}
+            {/* Albums highlight row */}
+            {allAlbums.length > 0 && (
+              <>
+                <MsSectionHeader
+                  title="Premium albums"
+                  actionLabel="See all"
+                  onAction={() => handleModeChange('albums')}
+                  style={styles.sectionHeader}
+                />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.featuredRow}
+                >
+                  {allAlbums.slice(0, 4).map((album) => (
+                    <View key={album.id} style={styles.albumHighlightCard}>
+                      <MsAlbumCard
+                        album={album}
+                        onPress={() => router.push(`/album/${album.id}`)}
+                        onCreatorPress={() => router.push(`/creator/${album.creatorId}`)}
+                        onUnlockPress={() => router.push(`/album/${album.id}`)}
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+
+            {/* Recommended creators */}
             {recommended.length > 0 && (
               <>
                 <MsSectionHeader
@@ -741,7 +944,7 @@ export default function ExploreScreen() {
                   onAction={() => setSearch('')}
                   style={styles.sectionHeader}
                 />
-                <View>
+                <View style={styles.recommendedWrap}>
                   {recommended.map((creator) => (
                     <MsRecommendedCreatorRow
                       key={creator.id}
@@ -785,7 +988,7 @@ export default function ExploreScreen() {
               />
             )}
 
-            {/* Collections */}
+            {/* Trending collections */}
             <MsSectionHeader
               title="Trending collections"
               actionLabel="Explore all"
@@ -812,24 +1015,23 @@ export default function ExploreScreen() {
               style={styles.sectionHeader}
             />
             {visibleCreators.length > 0 ? (
-              visibleCreators.slice(-3).map((creator) => (
-                <MsRecommendedCreatorRow
-                  key={creator.id}
-                  creator={creator}
-                  onPress={() => openCreator(creator)}
-                  onLongPress={() => setMenuCreator(creator)}
-                  onAvatarPress={() => openAvatarPreview(creator)}
-                />
-              ))
+              <View style={styles.recommendedWrap}>
+                {visibleCreators.slice(-3).map((creator) => (
+                  <MsRecommendedCreatorRow
+                    key={creator.id}
+                    creator={creator}
+                    onPress={() => openCreator(creator)}
+                    onLongPress={() => setMenuCreator(creator)}
+                    onAvatarPress={() => openAvatarPreview(creator)}
+                  />
+                ))}
+              </View>
             ) : (
               <MsEmptyState
                 title="No creators match that search"
                 message="Try a trending tag or clear your filters to keep discovering."
                 actionLabel="Clear search"
-                onAction={() => {
-                  setSearch('');
-                  setActiveCategory('all');
-                }}
+                onAction={() => { setSearch(''); setActiveCategory('all'); }}
               />
             )}
           </>
@@ -838,7 +1040,6 @@ export default function ExploreScreen() {
         <View style={styles.bottomSpace} />
       </ScrollView>
 
-      {/* Creator long-press action sheet */}
       <MsActionSheet
         visible={!!menuCreator}
         title={menuCreator?.name}
@@ -847,24 +1048,22 @@ export default function ExploreScreen() {
         onClose={() => setMenuCreator(null)}
       />
 
-      {/* Creator avatar-tap preview card */}
       <MsCreatorPreview
         visible={previewVisible}
         creator={previewCreator}
         onClose={() => setPreviewVisible(false)}
-        onViewProfile={() => {
-          if (previewCreator) router.push(`/creator/${previewCreator.id}`);
-        }}
-        onSubscribe={() => {
-          if (previewCreator) router.push(`/creator/${previewCreator.id}`);
-        }}
+        onViewProfile={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
+        onSubscribe={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
       />
     </MsAmbientBackground>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.BG },
+
   header: {
     minHeight: 72,
     paddingHorizontal: 20,
@@ -905,7 +1104,8 @@ const styles = StyleSheet.create({
   },
   walletButtonText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
 
-  scrollContent: { paddingTop: 16, gap: 0 },
+  scrollContent: { paddingTop: 16, paddingBottom: 0 },
+  feedListContent: { paddingTop: 16, paddingBottom: 24 },
 
   searchField: {
     marginHorizontal: 20,
@@ -987,14 +1187,36 @@ const styles = StyleSheet.create({
   categoryLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
   categoryLabelActive: { color: T.BG },
 
-  sectionHeader: { paddingTop: 22, paddingBottom: 11 },
+  sectionHeader: { paddingTop: 24, paddingBottom: 12 },
   featuredRow: { gap: 12, paddingHorizontal: 20, paddingBottom: 3 },
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 20 },
   collectionRow: { gap: 12, paddingHorizontal: 20 },
-  bottomSpace: { height: 24 },
+  recommendedWrap: { backgroundColor: T.SURFACE, marginHorizontal: 20, borderRadius: T.RADIUS.xl, overflow: 'hidden', ...T.SHADOWS.soft },
+  bottomSpace: { height: 28 },
 
-  // Video FlatList
-  videoListContent: { paddingTop: 16, paddingBottom: 24 },
-  videoItemWrap: { paddingHorizontal: 16, paddingBottom: 16 },
+  // Feed list
+  feedItemWrap: { paddingHorizontal: 16, paddingBottom: 16 },
+
+  // Album row injected into content feed
+  albumRowWrap: { paddingBottom: 16 },
+  albumRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  albumRowLabel: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.semibold,
+    fontSize: 13,
+  },
+  albumRowScroll: { paddingHorizontal: 16, gap: 12 },
+  albumRowCard: { width: SCREEN_WIDTH - 64 },
+
+  // Album highlight row in creators mode
+  albumHighlightCard: { width: SCREEN_WIDTH - 64 },
+
+  // Loading more
   loadMoreWrap: { paddingVertical: 20, alignItems: 'center' },
 });
