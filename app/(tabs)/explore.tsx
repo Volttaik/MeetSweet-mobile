@@ -41,9 +41,10 @@ import {
   MsCatalogSkeleton,
   MsCollectionCard,
   MsFeaturedCreatorCard,
-  MsPreviewCard,
   MsRecommendedCreatorRow,
 } from '@/components/MsExploreVisual';
+import { ExploreCreatorCard } from '@/components/ExploreCreatorCard';
+import { CreatorImageCard } from '@/components/CreatorImageCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -55,6 +56,8 @@ import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Half-width image cards: 12px outer padding each side, 10px gap between the two
+const CREATOR_IMG_WIDTH = Math.floor((SCREEN_WIDTH - 24 - 10) / 2);
 
 // ─── Category lists ────────────────────────────────────────────────────────────
 
@@ -396,6 +399,101 @@ export default function ExploreScreen() {
   function findCreatorInFeed(id: string) {
     return allCreators.find((c) => c.id === id);
   }
+
+  // ── Creators mode mixed feed — creator cards + videos + image pairs ─────────
+  type CreatorsFeedItem =
+    | { type: 'creator-card'; creator: Creator; imageCount: number; videoCount: number; id: string }
+    | { type: 'video';        data: ExploreVideoCardData; id: string }
+    | { type: 'image-pair';   left: ExploreImageCardData; right: ExploreImageCardData | null; id: string };
+
+  const creatorsModeFeedItems = useMemo<CreatorsFeedItem[]>(() => {
+    const result: CreatorsFeedItem[] = [];
+
+    for (const creator of visibleCreators) {
+      const creatorPreviews = filteredPreviews.filter((p) => p.creatorId === creator.id);
+
+      const videos: ExploreVideoCardData[] = [];
+      const images: ExploreImageCardData[] = [];
+
+      for (const p of creatorPreviews) {
+        const uploadDate = fmtTimeAgo(p.createdAt);
+        const comments   = String(p.commentCount ?? 0);
+
+        if (p.kind === 'video' || p.kind === 'audio') {
+          videos.push({
+            id:                p.id,
+            title:             p.title || 'Untitled',
+            duration:          p.duration,
+            likes:             p.likes,
+            comments,
+            uploadDate,
+            gradient:          p.gradient,
+            isPremium:         p.isPremium,
+            kind:              p.kind,
+            lockedLabel:       p.lockedLabel,
+            thumbnailUrl:      p.thumbnailUrl,
+            mediaUrl:          p.isPremium ? null : (p.mediaUrl ?? null),
+            creatorId:         creator.id,
+            creatorName:       creator.name,
+            creatorHandle:     creator.handle,
+            creatorInitials:   creator.initials,
+            creatorIsVerified: creator.isVerified,
+            creatorIsOnline:   creator.isOnline,
+            creatorAvatarUrl:  creator.avatarUrl,
+          });
+        } else {
+          images.push({
+            id:                p.id,
+            caption:           p.title || '',
+            likes:             p.likes,
+            comments,
+            uploadDate,
+            isPremium:         p.isPremium,
+            lockedLabel:       p.lockedLabel,
+            imageUrl:          p.thumbnailUrl ?? p.mediaUrl ?? null,
+            gradient:          p.gradient,
+            creatorId:         creator.id,
+            creatorName:       creator.name,
+            creatorHandle:     creator.handle,
+            creatorInitials:   creator.initials,
+            creatorIsVerified: creator.isVerified,
+            creatorIsOnline:   creator.isOnline,
+            creatorAvatarUrl:  creator.avatarUrl,
+          });
+        }
+      }
+
+      // Creator card — always first in the group
+      result.push({
+        type:       'creator-card',
+        creator,
+        imageCount: images.length,
+        videoCount: videos.length,
+        id:         `creator-${creator.id}`,
+      });
+
+      // Pair up images into 2-column rows
+      const imagePairs: CreatorsFeedItem[] = [];
+      for (let i = 0; i < images.length; i += 2) {
+        imagePairs.push({
+          type:  'image-pair',
+          left:  images[i],
+          right: images[i + 1] ?? null,
+          id:    `pair-${images[i].id}`,
+        });
+      }
+
+      // Interleave: video → image-pair → video → image-pair → …
+      const maxLen = Math.max(videos.length, imagePairs.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < videos.length)   result.push({ type: 'video',      data: videos[i],     id: `cv-${videos[i].id}` });
+        if (i < imagePairs.length) result.push(imagePairs[i]);
+      }
+    }
+
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleCreators, filteredPreviews]);
 
   // ── Feed items — image + video cards with album rows injected every 5 items ──
   type FeedItem =
