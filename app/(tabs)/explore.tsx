@@ -355,32 +355,37 @@ function ExploreHeader({
             </View>
           </Pressable>
 
-          <View style={styles.categoryHeader}>
-            <Text style={styles.sectionTitle}>Browse by category</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryRow}
-          >
-            {categories.map((category) => {
-              const active = category.id === activeCategory;
-              return (
-                <Chip
-                  key={category.id}
-                  variant={active ? 'primary' : 'soft'}
-                  color="default"
-                  size="sm"
-                  onPress={() => onCategoryChange(category.id)}
-                  style={[styles.categoryChip, active && styles.categoryChipActive]}
-                >
-                  <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
-                    {category.label}
-                  </Chip.Label>
-                </Chip>
-              );
-            })}
-          </ScrollView>
+          {/* Category chips — hidden in content/video mode since videos don't need a filter */}
+          {viewMode !== 'content' && (
+            <>
+              <View style={styles.categoryHeader}>
+                <Text style={styles.sectionTitle}>Browse by category</Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.categoryRow}
+              >
+                {categories.map((category) => {
+                  const active = category.id === activeCategory;
+                  return (
+                    <Chip
+                      key={category.id}
+                      variant={active ? 'primary' : 'soft'}
+                      color="default"
+                      size="sm"
+                      onPress={() => onCategoryChange(category.id)}
+                      style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    >
+                      <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
+                        {category.label}
+                      </Chip.Label>
+                    </Chip>
+                  );
+                })}
+              </ScrollView>
+            </>
+          )}
         </>
       )}
     </>

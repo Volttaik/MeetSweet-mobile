@@ -181,6 +181,8 @@ export interface CreatePostData {
   expires_at?: string;
   categories?: string[];
   tags?: string[];
+  /** Distinguishes a short-form vertical video from a long-form video post */
+  post_type?: 'short' | 'video';
 }
 
 export async function createPost(data: CreatePostData): Promise<{ id: string }> {

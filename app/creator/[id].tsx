@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import {
   Alert,
+  Dimensions,
+  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -11,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,21 +21,24 @@ import {
   ArrowLeft,
   CaretRight,
   Check,
+  Clock,
   Lock,
+  Play,
   Sparkle,
   Star,
   Users,
 } from 'phosphor-react-native';
 import { blockUser, reportUser } from '@/services/users';
 import { Spinner } from 'heroui-native';
-import type { Creator } from '@/lib/api-client-react';
+import type { Creator, ContentPreview } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
 import { useCreatorProfile, useCreatorReviews, type CreatorReview } from '@/services/creators';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
-import { MsPreviewCard } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { T } from '@/constants/theme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

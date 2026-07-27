@@ -21,7 +21,9 @@ import {
   Check,
   FilmStrip,
   Image as ImageIcon,
+  Lightning,
   LockSimple,
+  PlayCircle,
   VideoCamera,
   X,
 } from 'phosphor-react-native';

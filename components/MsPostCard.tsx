@@ -274,7 +274,7 @@ export function MsPostCard({
               locked={Boolean(post.isLocked)}
               unlocked={!post.isLocked}
               price={post.priceCredits ?? 0}
-              height={260}
+              aspectRatio={16 / 9}
               onUnlock={onPress}
               style={styles.videoPlaceholder}
             />

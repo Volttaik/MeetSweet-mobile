@@ -104,7 +104,7 @@ function ShortPage({ item, active, topInset, onComment, onShare, onViewProgress 
       <View style={[styles.topBar, { paddingTop: topInset + 12 }]}>
         <Pressable style={styles.topButton} onPress={() => router.back()} accessibilityLabel="Close Shorts"><ArrowLeft size={21} color="#fff" /></Pressable>
         <View style={styles.topTitle}><Text style={styles.topEyebrow}>MEETSWEET</Text><Text style={styles.topText}>Shorts</Text></View>
-        <Pressable style={styles.topButton} onPress={() => router.push('/videos')}><Text style={styles.videosLabel}>Videos</Text></Pressable>
+        <View style={{ minWidth: 40 }} />
       </View>
       <View style={styles.content}>
         {item.isPremium ? <View style={styles.upgradePill}><Lock size={12} color="#fff" /><Text style={styles.upgradeText}>Upgrade your account to watch</Text></View> : null}
