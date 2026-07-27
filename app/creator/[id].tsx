@@ -21,7 +21,8 @@ import {
   X,
 } from 'phosphor-react-native';
 import { Spinner } from 'heroui-native';
-import { useGetExploreCatalog, type Creator } from '@/lib/api-client-react';
+import type { Creator } from '@/lib/api-client-react';
+import { useLocalExploreCatalog } from '@/services/explore';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsPreviewCard } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -217,7 +218,7 @@ export default function CreatorProfileScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>('drops');
 
   const creator = useMemo(
-    () => query.data?.creators.find((item) => item.id === id),
+    () => query.data?.creators?.find((item) => item.id === id),
     [id, query.data],
   );
   const creatorPreviews = query.data?.previews.filter((item) => item.creatorId === id) ?? [];

@@ -20,7 +20,8 @@ import {
   Users,
   Wallet,
 } from 'phosphor-react-native';
-import { useGetExploreCatalog, type Creator } from '@/lib/api-client-react';
+import type { Creator } from '@/lib/api-client-react';
+import { useLocalExploreCatalog } from '@/services/explore';
 import { Chip } from 'heroui-native';
 import MsInput from '@/components/MsInput';
 import {

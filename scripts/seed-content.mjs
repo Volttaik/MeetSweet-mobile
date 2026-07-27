@@ -1,10 +1,11 @@
 /**
- * seed-content.mjs
+ * seed-content.mjs  (v2 — presigned R2 flow with download URLs)
  *
- * Seeds the MeetSweet platform with AI-generated creator content.
- * - Logs into 5 existing creator accounts
- * - Uploads AI-generated avatar + post images
- * - Creates a mix of free and paid posts for each creator
+ * For each creator:
+ *   1. Login
+ *   2. Upload avatar → get 7-day download URL → PATCH /users/me
+ *   3. Upload post image → get 7-day download URL
+ *   4. POST /api/posts with inline media object (url + blob_path + type)
  *
  * Run: node scripts/seed-content.mjs
  */
@@ -15,9 +16,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-const API = 'https://meetsweet-server.quizmi.space/api';
+const API  = 'https://meetsweet-server.quizmi.space/api';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── API helpers ───────────────────────────────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
   const url = `${API}${path.startsWith('/') ? path : '/' + path}`;
@@ -28,10 +29,12 @@ async function apiFetch(path, options = {}) {
     const msg = parsed?.error ?? parsed?.message ?? `HTTP ${res.status}`;
     throw new Error(`${res.status} ${msg} [${path}]`);
   }
-  if (parsed && typeof parsed === 'object' && 'ok' in parsed && 'data' in parsed) {
-    return parsed.data;
-  }
+  if (parsed && typeof parsed === 'object' && 'ok' in parsed && 'data' in parsed) return parsed.data;
   return parsed;
+}
+
+function authHeaders(token) {
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
 async function login(email, password) {
@@ -43,93 +46,85 @@ async function login(email, password) {
   return data.access_token ?? data.accessToken;
 }
 
-/**
- * Upload an image file via the server-side proxy endpoint.
- * Returns the media record: { id, url, ... }
- */
-async function uploadImage(filePath, token) {
-  const bytes = readFileSync(filePath);
-  const blob = new Blob([bytes], { type: 'image/jpeg' });
-  const form = new FormData();
-  const fileName = filePath.split('/').pop();
-  form.append('file', blob, fileName);
-
-  const res = await fetch(`${API}/media/upload`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
+/** Step 1 of R2 flow: get presigned PUT URL + object key */
+async function getUploadUrl(mimeType, folder, token) {
+  const qs = new URLSearchParams({ mime_type: mimeType, folder });
+  const data = await apiFetch(`/credentials/upload-url?${qs}`, {
+    headers: authHeaders(token),
   });
-  let parsed;
-  try { parsed = await res.json(); } catch { parsed = null; }
-  if (!res.ok) {
-    const msg = parsed?.error ?? parsed?.message ?? `HTTP ${res.status}`;
-    throw new Error(`Upload failed: ${msg}`);
-  }
-  // Response shape: { ok, data: { media: { id, url, ... } } }
-  const data = (parsed?.data ?? parsed);
-  return data?.media ?? data;
+  // API returns uploadUrl + key (camelCase)
+  const uploadUrl = data.uploadUrl ?? data.upload_url;
+  const key = data.key ?? data.object_key;
+  if (!uploadUrl || !key) throw new Error('credentials/upload-url returned unexpected shape');
+  return { uploadUrl, key };
+}
+
+/** Step 2 of R2 flow: PUT file bytes directly to R2 */
+async function putToR2(uploadUrl, filePath, mimeType) {
+  const bytes = readFileSync(filePath);
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': mimeType },
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`R2 PUT failed: ${res.status}`);
+  return bytes.length;
+}
+
+/** Step 3 of R2 flow: get 7-day presigned download URL */
+async function getDownloadUrl(key, token) {
+  const qs = new URLSearchParams({ key });
+  const data = await apiFetch(`/credentials/download-url?${qs}`, {
+    headers: authHeaders(token),
+  });
+  const url = data.url ?? data.downloadUrl;
+  if (!url) throw new Error('credentials/download-url returned no url');
+  return url;
 }
 
 /**
- * Try to upload via presigned R2 URL flow (3-step):
- *   1. GET /credentials/upload-url
- *   2. PUT to R2
- *   3. POST /media to register
- * Falls back to proxy upload on failure.
+ * Full R2 upload: PUT → get download URL.
+ * Returns { url (https presigned), key, sizeBytes }.
  */
-async function uploadImageR2(filePath, token) {
-  const bytes = readFileSync(filePath);
-  const sizeBytes = bytes.length;
-  const mime = 'image/jpeg';
-
-  try {
-    // Step 1 — get presigned PUT URL
-    const qs = new URLSearchParams({ mime_type: mime, folder: 'posts', size_bytes: String(sizeBytes) });
-    const cred = await apiFetch(`/credentials/upload-url?${qs}`, {
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    });
-    const upload_url = cred.uploadUrl ?? cred.upload_url;
-    const object_key = cred.key ?? cred.object_key;
-
-    // Step 2 — PUT directly to R2
-    const blob = new Blob([bytes], { type: mime });
-    const putRes = await fetch(upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': mime, 'Content-Length': String(sizeBytes) },
-      body: blob,
-    });
-    if (!putRes.ok) throw new Error(`R2 PUT failed: ${putRes.status}`);
-
-    // Step 3 — register with API server
-    const media = await apiFetch('/media', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ object_key, mime_type: mime, size_bytes: sizeBytes }),
-    });
-    if (!media?.id) throw new Error('No ID from /media registration');
-    console.log(`  ✓ R2 upload: ${filePath.split('/').pop()} → id=${media.id}`);
-    return media;
-  } catch (err) {
-    console.log(`  ⚠ R2 flow failed (${err.message}), trying proxy upload…`);
-    return uploadImage(filePath, token);
-  }
+async function uploadViaR2(filePath, mimeType, folder, token) {
+  const { uploadUrl, key } = await getUploadUrl(mimeType, folder, token);
+  const sizeBytes = await putToR2(uploadUrl, filePath, mimeType);
+  const url = await getDownloadUrl(key, token);
+  return { url, key, sizeBytes };
 }
 
 async function updateAvatar(avatarUrl, token) {
   return apiFetch('/users/me', {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: authHeaders(token),
     body: JSON.stringify({ avatar_url: avatarUrl }),
   });
 }
 
-async function createPost(data, token) {
+/**
+ * Create a post with an inline media object (url + blob_path + type).
+ * This bypasses the broken media_ids update path on the live server.
+ */
+async function createPost(data, mediaObj, token) {
+  const body = {
+    caption: data.caption,
+    visibility: data.visibility,
+    ...(data.unlock_price ? { unlock_price: data.unlock_price } : {}),
+    ...(mediaObj ? {
+      media: [{
+        url: mediaObj.url,
+        blob_path: mediaObj.key,
+        type: 'image',
+        mime_type: 'image/jpeg',
+        size_bytes: mediaObj.sizeBytes,
+      }],
+    } : {}),
+  };
   const result = await apiFetch('/posts', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
   });
-  // Response shape: { post: { id, ... } }
   return result?.post ?? result;
 }
 
@@ -148,18 +143,15 @@ const CREATORS = [
       {
         caption: '✨ Golden hour magic — the light hit different today. Shot this between takes on set 🎬 #BehindTheScenes #GoldenHour #ContentCreator',
         visibility: 'public',
-        paid: false,
       },
       {
         caption: '🔐 Exclusive: full unedited shoot from this weekend. Every angle, every take. Subscribers only 💕 #Exclusive #Subscribers',
         visibility: 'subscribers',
-        paid: true,
         unlock_price: 150,
       },
       {
         caption: 'Morning ritual 🌅 coffee, journaling, and a quick selfie before the chaos begins. How do you start your day?',
         visibility: 'public',
-        paid: false,
       },
     ],
   },
@@ -173,23 +165,19 @@ const CREATORS = [
       {
         caption: '🎨 New mood board drop — colour palette for the Spring collection. Obsessed with how this came together 🌸 #Aesthetic #MoodBoard #Creative',
         visibility: 'public',
-        paid: false,
       },
       {
         caption: "💎 Premium look book: 24 photos from the studio session last Friday. These are the ones I almost didn't post 👀 #LookBook #Premium",
         visibility: 'subscribers',
-        paid: true,
         unlock_price: 200,
       },
       {
-        caption: 'Studio session day 3 ✏️ building something big — teaser incoming this weekend. Who\'s excited? #ComingSoon #Studio',
+        caption: "Studio session day 3 ✏️ building something big — teaser incoming this weekend. Who's excited? #ComingSoon #Studio",
         visibility: 'public',
-        paid: false,
       },
       {
         caption: '🌿 Slow living content for my inner peace era. No hustle, just vibes today 🧘‍♀️ #SlowLiving #Mindful',
         visibility: 'public',
-        paid: false,
       },
     ],
   },
@@ -203,18 +191,15 @@ const CREATORS = [
       {
         caption: 'The dress. The light. The moment 💫 Sometimes everything just aligns perfectly. #OOTD #Fashion #Vibes',
         visibility: 'public',
-        paid: false,
       },
       {
         caption: '🔒 Intimate Q&A session + 30 exclusive photos from my boudoir shoot. Only for my inner circle 🌹',
         visibility: 'subscribers',
-        paid: true,
         unlock_price: 300,
       },
       {
         caption: 'Rainy day, cozy fits, and way too much matcha 🍵 this is my reset routine #CosyVibes #RainyDay',
         visibility: 'public',
-        paid: false,
       },
     ],
   },
@@ -226,25 +211,21 @@ const CREATORS = [
     postFile: 'emma_post.jpg',
     posts: [
       {
-        caption: '📸 Paris trip photo dump — 3 days, 40 rolls (digital, don\'t worry lol). Thread below 🗼 #Paris #Wanderlust #PhotoDump',
+        caption: '📸 Paris trip photo dump — 3 days, 40 rolls (digital, worry not lol). Thread below 🗼 #Paris #Wanderlust #PhotoDump',
         visibility: 'public',
-        paid: false,
       },
       {
-        caption: '✈️ Full Paris vlog + 50 behind-the-scenes photos. The ones that didn\'t make Instagram 😈 #Exclusive #BTS #Paris',
+        caption: '✈️ Full Paris vlog + 50 behind-the-scenes photos. The ones that never made Instagram 😈 #Exclusive #BTS #Paris',
         visibility: 'subscribers',
-        paid: true,
         unlock_price: 250,
       },
       {
         caption: 'Self-portrait study 🪞 experimenting with mirrors and natural light. What do you think of this direction? #Photography #SelfPortrait',
         visibility: 'public',
-        paid: false,
       },
       {
         caption: '🌊 Beach content is always the move. Summer never really ends when you manifest correctly ☀️ #BeachVibes #SummerForever',
         visibility: 'public',
-        paid: false,
       },
     ],
   },
@@ -258,23 +239,19 @@ const CREATORS = [
       {
         caption: 'New era, new content 🦋 so happy to finally be creating what I actually want to make. This is the rebrand 💪 #NewEra #Authentic',
         visibility: 'public',
-        paid: false,
       },
       {
         caption: '💌 Full body of work from the Malibu shoot — 45 photos, 3 outfits. My best work yet and it\'s all here for you 🌴',
         visibility: 'subscribers',
-        paid: true,
         unlock_price: 350,
       },
       {
-        caption: 'Caught in the act of not caring 😂 real life > curated feed any day #Authentic #RealLife #NoFilter',
+        caption: 'Caught in the act of not caring 😂 real life beats curated feed any day #Authentic #RealLife #NoFilter',
         visibility: 'public',
-        paid: false,
       },
       {
         caption: '🎬 Short film teaser I\'ve been working on for 3 months. Drop a 🎬 if you want the full cut this Friday #ShortFilm #Creative',
         visibility: 'public',
-        paid: false,
       },
     ],
   },
@@ -287,7 +264,7 @@ async function seedCreator(creator) {
   const avatarPath = resolve(ROOT, 'assets/generated', creator.avatarFile);
   const postPath   = resolve(ROOT, 'assets/generated', creator.postFile);
 
-  console.log(`\n┌── ${username} (${email})`);
+  console.log(`\n┌── ${username}`);
 
   // 1. Login
   let token;
@@ -299,43 +276,31 @@ async function seedCreator(creator) {
     return;
   }
 
-  // 2. Upload avatar
-  let avatarUrl = null;
+  // 2. Upload avatar → update profile
   try {
-    const avatarMedia = await uploadImageR2(avatarPath, token);
-    avatarUrl = avatarMedia?.url ?? null;
-    if (avatarUrl) {
-      await updateAvatar(avatarUrl, token);
-      console.log(`│  ✓ Avatar updated`);
-    }
+    const { url: avatarUrl } = await uploadViaR2(avatarPath, 'image/jpeg', 'avatars', token);
+    await updateAvatar(avatarUrl, token);
+    console.log(`│  ✓ Avatar updated`);
   } catch (err) {
-    console.warn(`│  ⚠ Avatar upload skipped: ${err.message}`);
+    console.warn(`│  ⚠ Avatar skipped: ${err.message}`);
   }
 
-  // 3. Upload post image (shared by all posts from this creator this session)
-  let mediaId = null;
+  // 3. Upload post image ONCE (all posts share this image)
+  let postMedia = null;
   try {
-    const postMedia = await uploadImageR2(postPath, token);
-    mediaId = postMedia?.id ?? null;
-    if (mediaId) console.log(`│  ✓ Post image uploaded → id=${mediaId}`);
+    postMedia = await uploadViaR2(postPath, 'image/jpeg', 'posts', token);
+    console.log(`│  ✓ Post image uploaded`);
   } catch (err) {
-    console.warn(`│  ⚠ Post image upload failed: ${err.message} — creating text-only posts`);
+    console.warn(`│  ⚠ Post image upload failed: ${err.message} — text-only posts`);
   }
 
   // 4. Create posts
   for (const postDef of creator.posts) {
-    await sleep(400); // be gentle with the API
+    await sleep(400);
     try {
-      const postData = {
-        caption: postDef.caption,
-        visibility: postDef.visibility,
-        ...(mediaId ? { media_ids: [mediaId] } : {}),
-        ...(postDef.paid && postDef.unlock_price ? { unlock_price: postDef.unlock_price } : {}),
-      };
-      const result = await createPost(postData, token);
-      const price = postDef.unlock_price ? `💰 ${postDef.unlock_price} credits` : '🆓 free';
-      const vis   = postDef.visibility;
-      console.log(`│  ✓ Post created [${vis}][${price}] id=${result?.id ?? '?'}`);
+      const result = await createPost(postDef, postMedia, token);
+      const price  = postDef.unlock_price ? `💰 ${postDef.unlock_price} credits` : '🆓 free';
+      console.log(`│  ✓ [${postDef.visibility}][${price}] id=${result?.id ?? '?'}`);
     } catch (err) {
       console.error(`│  ✗ Post failed: ${err.message}`);
     }
@@ -345,16 +310,12 @@ async function seedCreator(creator) {
 }
 
 async function main() {
-  console.log('🌱 MeetSweet content seeder');
+  console.log('🌱 MeetSweet content seeder v2 (R2 presigned + inline media)');
   console.log(`   API: ${API}`);
-  console.log(`   Creators: ${CREATORS.length}`);
-  console.log('');
-
   for (const creator of CREATORS) {
     await seedCreator(creator);
     await sleep(800);
   }
-
   console.log('\n✅ Seeding complete!\n');
 }
 
