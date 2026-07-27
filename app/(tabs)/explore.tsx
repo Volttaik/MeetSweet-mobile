@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,7 +19,6 @@ import { router } from 'expo-router';
 import {
   Bell,
   CaretRight,
-  CreditCard,
   FilmStrip,
   Images,
   MagnifyingGlass as SearchIcon,
@@ -301,7 +301,11 @@ function ExploreHeader({
         <>
           <Pressable style={styles.creditBanner} onPress={() => router.push('/wallet')}>
             <View style={styles.creditIcon}>
-              <CreditCard size={18} color={T.BG} />
+              <Image
+                source={require('../../assets/images/logo.png')}
+                style={styles.creditLogo}
+                resizeMode="contain"
+              />
             </View>
             <View style={styles.creditCopy}>
               <Text style={styles.creditEyebrow}>YOUR CREATOR WALLET</Text>
@@ -1147,12 +1151,17 @@ const styles = StyleSheet.create({
     ...T.SHADOWS.medium,
   },
   creditIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: T.BG,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  creditLogo: {
+    width: 30,
+    height: 30,
   },
   creditCopy: { flex: 1 },
   creditEyebrow: {
@@ -1198,24 +1207,24 @@ const styles = StyleSheet.create({
   feedItemWrap: { paddingHorizontal: 16, paddingBottom: 16 },
 
   // Album row injected into content feed
-  albumRowWrap: { paddingBottom: 16 },
+  albumRowWrap: { paddingBottom: 20 },
   albumRowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
     paddingHorizontal: 20,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   albumRowLabel: {
     color: T.TEXT_2,
     fontFamily: T.FONT.semibold,
     fontSize: 13,
   },
-  albumRowScroll: { paddingHorizontal: 16, gap: 12 },
-  albumRowCard: { width: SCREEN_WIDTH - 64 },
+  albumRowScroll: { paddingHorizontal: 20, gap: 16, paddingRight: 20 },
+  albumRowCard: { width: SCREEN_WIDTH - 80 },
 
-  // Album highlight row in creators mode
-  albumHighlightCard: { width: SCREEN_WIDTH - 64 },
+  // Album highlight row in creators mode — wider cards, more breathing room
+  albumHighlightCard: { width: SCREEN_WIDTH - 72 },
 
   // Loading more
   loadMoreWrap: { paddingVertical: 20, alignItems: 'center' },

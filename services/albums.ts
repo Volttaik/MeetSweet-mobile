@@ -7,8 +7,10 @@
  * these types and build the matching API routes.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
 import { fetchExplorePosts } from './explore';
+import { apiFetch } from './api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -177,6 +179,41 @@ export async function buildLocalAlbum(albumId: string): Promise<Album | null> {
   }));
 
   return { ...card, items, createdAt: creatorPreviews[0]?.createdAt };
+}
+
+// ── Album creation ────────────────────────────────────────────────────────────
+
+async function getToken(): Promise<string | null> {
+  return AsyncStorage.getItem('@ms_access_token');
+}
+
+function authHeader(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
+export interface CreateAlbumData {
+  title: string;
+  description?: string;
+  visibility?: 'public' | 'subscribers' | 'draft';
+  unlock_price?: number;
+  cover_media_id?: string;
+  media_ids?: string[];
+  categories?: string[];
+}
+
+/**
+ * Create a new album via the backend.
+ * POST /albums — may 404 until backend implements it; error is surfaced to user.
+ */
+export async function createAlbum(data: CreateAlbumData): Promise<{ id: string }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ id: string }>('/albums', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify(data),
+  });
+  return raw;
 }
 
 // ── React Query hooks ─────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native';
 import { Tabs, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -8,7 +8,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { House, MagnifyingGlass, ChatCircle, User, type Icon } from 'phosphor-react-native';
+import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, X, type Icon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
 const TAB_HEIGHT = 60;
@@ -101,13 +101,138 @@ function TabBtn({
   );
 }
 
+// ─── Create Action Sheet ───────────────────────────────────────────────────────
+
+function CreateActionSheet({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={sheetStyles.overlay} onPress={onClose}>
+        <View style={[sheetStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={sheetStyles.handle} />
+          <Text style={sheetStyles.title}>Create</Text>
+          <Text style={sheetStyles.subtitle}>What would you like to share?</Text>
+
+          <TouchableOpacity
+            style={sheetStyles.option}
+            activeOpacity={0.8}
+            onPress={() => { onClose(); setTimeout(() => router.push('/create-post'), 150); }}
+          >
+            <View style={sheetStyles.optionIcon}>
+              <FilmStrip size={24} color={T.ACCENT} />
+            </View>
+            <View style={sheetStyles.optionText}>
+              <Text style={sheetStyles.optionLabel}>Create Post</Text>
+              <Text style={sheetStyles.optionDesc}>Share a single photo or video</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={sheetStyles.option}
+            activeOpacity={0.8}
+            onPress={() => { onClose(); setTimeout(() => router.push('/create-album'), 150); }}
+          >
+            <View style={sheetStyles.optionIcon}>
+              <Images size={24} color={T.ACCENT} />
+            </View>
+            <View style={sheetStyles.optionText}>
+              <Text style={sheetStyles.optionLabel}>Create Album</Text>
+              <Text style={sheetStyles.optionDesc}>Curate a premium collection of media</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={sheetStyles.cancelBtn} onPress={onClose} activeOpacity={0.75}>
+            <Text style={sheetStyles.cancelLabel}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: T.SURFACE,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    gap: 4,
+  },
+  handle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: T.BORDER_2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    letterSpacing: -0.4,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 13,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+    marginBottom: 12,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 16,
+  },
+  optionIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionText: { flex: 1 },
+  optionLabel: { fontSize: 16, fontFamily: T.FONT.semibold, color: T.TEXT },
+  optionDesc: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginTop: 4,
+  },
+  cancelLabel: {
+    fontSize: 14,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
+  },
+});
+
+// ─── Custom tab bar ────────────────────────────────────────────────────────────
+
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const insets = useSafeAreaInsets();
+  const [createSheetVisible, setCreateSheetVisible] = useState(false);
 
   const handlePress = useCallback(
     (tab: VisualTab) => {
       if (tab.routeName === undefined) {
-        router.push('/create-post');
+        setCreateSheetVisible(true);
         return;
       }
       const route = state.routes.find(
@@ -121,24 +246,31 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   );
 
   return (
-    <View
-      style={[
-        styles.bar,
-        { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 0) },
-      ]}
-    >
-      {VISUAL_TABS.map((tab, i) => (
-        <TabBtn
-          key={i}
-          tab={tab}
-          isActive={
-            tab.routeName !== undefined &&
-            state.routes[state.index]?.name === tab.routeName
-          }
-          onPress={() => handlePress(tab)}
-        />
-      ))}
-    </View>
+    <>
+      <View
+        style={[
+          styles.bar,
+          { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 0) },
+        ]}
+      >
+        {VISUAL_TABS.map((tab, i) => (
+          <TabBtn
+            key={i}
+            tab={tab}
+            isActive={
+              tab.routeName !== undefined &&
+              state.routes[state.index]?.name === tab.routeName
+            }
+            onPress={() => handlePress(tab)}
+          />
+        ))}
+      </View>
+
+      <CreateActionSheet
+        visible={createSheetVisible}
+        onClose={() => setCreateSheetVisible(false)}
+      />
+    </>
   );
 }
 
