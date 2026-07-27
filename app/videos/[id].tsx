@@ -8,6 +8,7 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsContentComments } from '@/components/MsContentComments';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { getVideo, getVideoRecommendations, likeContent, type LongFormVideo } from '@/services/content';
 import { T } from '@/constants/theme';
@@ -48,7 +49,7 @@ export default function VideoDetailsScreen() {
         <View style={styles.actions}><Pressable style={styles.action} onPress={toggleLike}><Heart size={18} color={liked ? T.ACCENT : T.TEXT_2} weight={liked ? 'fill' : 'regular'} /><Text style={styles.actionText}>{formatCount(video.likeCount)}</Text></Pressable><Pressable style={styles.action} onPress={() => setCommentsVisible(true)}><ChatCircle size={18} color={T.TEXT_2} /><Text style={styles.actionText}>{formatCount(video.commentCount)}</Text></Pressable><Pressable style={styles.action} onPress={() => setShareVisible(true)}><ShareNetwork size={18} color={T.TEXT_2} /><Text style={styles.actionText}>Share</Text></Pressable></View>
         {video.description ? <Text style={styles.description}>{video.description}</Text> : null}
         <Text style={styles.sectionTitle}>Recommended videos</Text>
-        {recommendations.map((item) => <Pressable key={item.id} style={styles.recommendation} onPress={() => router.push(`/videos/${item.id}`)}><View style={styles.recThumb}>{item.thumbnailUrl ? <View style={StyleSheet.absoluteFill}><Text /></View> : null}</View><View style={styles.recCopy}><Text style={styles.recTitle} numberOfLines={2}>{item.title}</Text><Text style={styles.recMeta}>{item.creator.name} · {formatCount(item.viewCount)} views</Text></View></Pressable>)}
+        {recommendations.map((item) => <Pressable key={item.id} style={styles.recommendation} onPress={() => router.push(`/videos/${item.id}`)}><View style={styles.recThumb}>{item.thumbnailUrl ? <MsMediaLoader uri={item.thumbnailUrl} style={StyleSheet.absoluteFill} resizeMode="cover" accessibleLabel={item.title} errorMessage="" fallback={null} /> : null}</View><View style={styles.recCopy}><Text style={styles.recTitle} numberOfLines={2}>{item.title}</Text><Text style={styles.recMeta}>{item.creator.name} · {formatCount(item.viewCount)} views</Text></View></Pressable>)}
       </ScrollView>
       <MsContentComments kind="video" contentId={video.id} visible={commentsVisible} onClose={() => setCommentsVisible(false)} count={video.commentCount} />
       <MsShareSheet visible={shareVisible} contentType="video" contentId={video.id} title={video.title || 'Video'} onClose={() => setShareVisible(false)} />

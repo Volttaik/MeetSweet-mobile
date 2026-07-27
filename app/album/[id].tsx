@@ -34,7 +34,7 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { T } from '@/constants/theme';
-import { useAlbum } from '@/services/albums';
+import { useAlbum, unlockAlbum } from '@/services/albums';
 import type { AlbumItem } from '@/services/albums';
 import { MsShareSheet } from '@/components/MsShareSheet';
 
@@ -61,10 +61,15 @@ function tone(gradient: string) {
 export default function AlbumScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockedOverride, setUnlockedOverride] = useState<boolean | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
 
   const { data: album, isLoading, isError } = useAlbum(id ?? '');
+
+  // isUnlockedByMe from the backend is the source of truth; unlockedOverride
+  // reflects a successful unlock within the current session without a refetch.
+  const isUnlockedByMe = unlockedOverride ?? album?.isUnlockedByMe ?? false;
 
   const handleUnlock = () => {
     if (!album) return;
@@ -75,10 +80,18 @@ export default function AlbumScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: `Unlock · ${album.priceCredits}cr`,
-          onPress: () => {
-            // TODO: wire to payment flow when backend ships
-            setUnlocked(true);
-            Alert.alert('Unlocked!', `You now have full access to "${album.title}".`);
+          style: 'default',
+          onPress: async () => {
+            setUnlocking(true);
+            try {
+              await unlockAlbum(album.id);
+              setUnlockedOverride(true);
+              Alert.alert('Unlocked!', `You now have full access to "${album.title}".`);
+            } catch (err) {
+              Alert.alert('Could not unlock', (err as Error).message ?? 'Please try again.');
+            } finally {
+              setUnlocking(false);
+            }
           },
         },
       ],
@@ -117,7 +130,7 @@ export default function AlbumScreen() {
     );
   }
 
-  const isLocked = album.isPremium && !unlocked;
+  const isLocked = album.isPremium && !isUnlockedByMe;
   const visibleItems = isLocked ? album.items.slice(0, 3) : album.items;
 
   // ── Grid item renderer ───────────────────────────────────────────────────────
@@ -189,14 +202,15 @@ export default function AlbumScreen() {
           <View style={styles.heroScrim} pointerEvents="none" />
 
           {/* Back button */}
-          <View style={[styles.backRow, { marginTop: 0 }]}>
+          <View style={styles.backRow}>
             <Pressable style={styles.backButton} onPress={() => router.back()}>
               <ArrowLeft size={20} color={T.TEXT} />
             </Pressable>
-            <Pressable style={styles.backButton} onPress={() => setShareVisible(true)} accessibilityLabel="Share album">
-              <ShareNetwork size={18} color={T.TEXT} />
-            </Pressable>
           </View>
+          {/* Share button */}
+          <Pressable style={styles.shareButton} onPress={() => setShareVisible(true)} accessibilityLabel="Share album">
+            <ShareNetwork size={18} color={T.TEXT} />
+          </Pressable>
 
           {/* Collection badge */}
           <View style={styles.heroBadge}>
@@ -286,12 +300,14 @@ export default function AlbumScreen() {
               </Text>
             </View>
             <TouchableOpacity
-              style={styles.unlockButton}
+              style={[styles.unlockButton, unlocking && { opacity: 0.6 }]}
               onPress={handleUnlock}
               activeOpacity={0.85}
+              disabled={unlocking}
             >
-              <Star size={13} color={T.BG} weight="fill" />
-              <Text style={styles.unlockButtonText}>Unlock</Text>
+              {unlocking
+                ? <ActivityIndicator size="small" color={T.BG} />
+                : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Unlock</Text></>}
             </TouchableOpacity>
           </View>
         )}
@@ -402,6 +418,19 @@ const styles = StyleSheet.create({
     top: 16,
     left: 16,
     zIndex: 10,
+  },
+  shareButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...T.SHADOWS.soft,
   },
   backButton: {
     width: 38,

@@ -156,7 +156,7 @@ export default function NotificationsScreen() {
       markNotificationRead(n.id).catch(() => {});
     }
     if (n.postId) {
-      router.push(`/content/${n.postId}`);
+      router.push(`/post/${n.postId}`);
     }
   };
 

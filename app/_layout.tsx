@@ -90,6 +90,11 @@ function RootLayoutNav() {
       <Stack.Screen name="videos/index" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="videos/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="shorts/index" options={{ animation: 'slide_from_bottom', headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="creator/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="content/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="album/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="create-album" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+      <Stack.Screen name="creator-payout" options={{ animation: 'slide_from_right', headerShown: false }} />
 
       {/* Authenticated modal screens */}
       <Stack.Screen
