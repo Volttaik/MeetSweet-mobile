@@ -12,8 +12,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, ArrowsOut } from 'phosphor-react-native';
-import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -27,6 +26,7 @@ import {
   deletePost,
   reportPost,
 } from '@/services/posts';
+import { MsShareSheet } from '@/components/MsShareSheet';
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -103,7 +103,7 @@ export function MsPostCard({
   const [bookmarked, setBookmarked] = useState(post.bookmarkedByMe ?? false);
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [videoPlayerVisible, setVideoPlayerVisible] = useState(false);
+  const [shareVisible, setShareVisible] = useState(false);
 
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
 
@@ -178,8 +178,7 @@ export function MsPostCard({
   // Guest post actions
   const guestActions: ActionItem[] = [
     { label: 'Save Post', onPress: () => handleBookmark() },
-    { label: 'Copy Link', onPress: () => {} },
-    { label: 'Share Profile', onPress: () => onAuthorPress?.() },
+    { label: 'Share Post', onPress: () => setShareVisible(true) },
     { label: 'Not Interested', onPress: () => {} },
     { label: 'Hide Creator', onPress: () => {} },
     { label: 'Report', destructive: true, onPress: () => doReport('inappropriate') },
@@ -280,26 +279,6 @@ export function MsPostCard({
               style={styles.videoPlaceholder}
             />
           </ScalePressable>
-          {/* Expand to fullscreen player */}
-          {!post.isLocked && (
-            <TouchableOpacity
-              style={styles.expandBtn}
-              onPress={() => setVideoPlayerVisible(true)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.8}
-            >
-              <ArrowsOut size={15} color="#fff" weight="bold" />
-            </TouchableOpacity>
-          )}
-          {/* Fullscreen player modal */}
-          {videoPlayerVisible && post.mediaUrl && (
-            <MsVideoPlayer
-              visible={videoPlayerVisible}
-              uri={post.mediaUrl}
-              posterUri={post.thumbnailUrl}
-              onClose={() => setVideoPlayerVisible(false)}
-            />
-          )}
         </View>
       )}
 
@@ -348,6 +327,13 @@ export function MsPostCard({
         subtitle={isOwn ? undefined : `@${post.author.username}`}
         actions={isOwn ? ownActions : guestActions}
         onClose={() => setSheetVisible(false)}
+      />
+      <MsShareSheet
+        visible={shareVisible}
+        contentType="post"
+        contentId={post.id}
+        title={post.caption || 'MeetSweet post'}
+        onClose={() => setShareVisible(false)}
       />
     </View>
   );

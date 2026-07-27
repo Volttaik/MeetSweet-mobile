@@ -42,6 +42,7 @@ import {
   MsCollectionCard,
   MsFeaturedCreatorCard,
   MsRecommendedCreatorRow,
+  MsPreviewCard,
 } from '@/components/MsExploreVisual';
 import { ExploreCreatorCard } from '@/components/ExploreCreatorCard';
 import { CreatorImageCard } from '@/components/CreatorImageCard';
@@ -105,6 +106,37 @@ const ALBUM_CATEGORIES = [
 // ─── View mode toggle ─────────────────────────────────────────────────────────
 
 type ViewMode = 'creators' | 'content' | 'albums';
+
+function DiscoveryHubLinks() {
+  const links = [
+    { label: 'Posts', detail: 'Photos & carousels', icon: '▦', route: '/(tabs)/index' as const },
+    { label: 'Videos', detail: 'Long-form watching', icon: '▶', route: '/videos' as const },
+    { label: 'Shorts', detail: 'Swipe to discover', icon: '↕', route: '/shorts' as const },
+    { label: 'Albums', detail: 'Curated collections', icon: '▧', route: null },
+  ];
+  return (
+    <View style={hubStyles.wrap}>
+      <Text style={hubStyles.eyebrow}>DISCOVERY HUB</Text>
+      <Text style={hubStyles.title}>Choose your experience</Text>
+      <Text style={hubStyles.copy}>Posts, long-form videos, Shorts, albums, and creators each have their own way to explore.</Text>
+      <View style={hubStyles.grid}>
+        {links.map((link) => (
+          <Pressable
+            key={link.label}
+            style={hubStyles.card}
+            onPress={() => link.route ? router.push(link.route as any) : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={`Explore ${link.label}`}
+          >
+            <Text style={hubStyles.icon}>{link.icon}</Text>
+            <Text style={hubStyles.label}>{link.label}</Text>
+            <Text style={hubStyles.detail}>{link.detail}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function ModeToggle({
   mode,
@@ -493,7 +525,7 @@ export default function ExploreScreen() {
 
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleCreators, filteredPreviews]);
+  }, []);
 
   // ── Feed items — image + video cards with album rows injected every 5 items ──
   type FeedItem =
@@ -987,6 +1019,7 @@ export default function ExploreScreen() {
 
         {!isLoading && !isError && catalog && (
           <>
+            <DiscoveryHubLinks />
             {/* Featured creators */}
             {featured.length > 0 && (
               <>
@@ -1333,4 +1366,16 @@ const styles = StyleSheet.create({
 
   // Loading more
   loadMoreWrap: { paddingVertical: 20, alignItems: 'center' },
+});
+
+const hubStyles = StyleSheet.create({
+  wrap: { marginHorizontal: 20, marginTop: 6, marginBottom: 8, padding: 16, borderRadius: T.RADIUS.xl, backgroundColor: T.SURFACE, ...T.SHADOWS.soft },
+  eyebrow: { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1.3 },
+  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18, marginTop: 4 },
+  copy: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  card: { width: '48%', minHeight: 78, padding: 11, borderRadius: T.RADIUS.lg, backgroundColor: T.SURFACE_2 },
+  icon: { color: T.ACCENT, fontFamily: T.FONT.bold, fontSize: 16 },
+  label: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13, marginTop: 5 },
+  detail: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10, marginTop: 2 },
 });

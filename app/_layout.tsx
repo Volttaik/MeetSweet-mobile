@@ -51,7 +51,6 @@ function RootLayoutNav() {
         fullScreenGestureEnabled: true,
         // Dark background at every layer — prevents white flash during transitions
         contentStyle: { backgroundColor: T.BG },
-        cardStyle:    { backgroundColor: T.BG },
       }}
     >
       {/* Onboarding & Auth */}
@@ -88,6 +87,9 @@ function RootLayoutNav() {
       <Stack.Screen name="wallet"                options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="videos/index" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="videos/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="shorts/index" options={{ animation: 'slide_from_bottom', headerShown: false, gestureEnabled: false }} />
 
       {/* Authenticated modal screens */}
       <Stack.Screen

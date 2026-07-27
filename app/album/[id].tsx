@@ -28,6 +28,7 @@ import {
   Play,
   Star,
   UserCircle,
+  ShareNetwork,
 } from 'phosphor-react-native';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -35,6 +36,7 @@ import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { T } from '@/constants/theme';
 import { useAlbum } from '@/services/albums';
 import type { AlbumItem } from '@/services/albums';
+import { MsShareSheet } from '@/components/MsShareSheet';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 3;
@@ -60,6 +62,7 @@ export default function AlbumScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const [unlocked, setUnlocked] = useState(false);
+  const [shareVisible, setShareVisible] = useState(false);
 
   const { data: album, isLoading, isError } = useAlbum(id ?? '');
 
@@ -189,6 +192,9 @@ export default function AlbumScreen() {
           <View style={[styles.backRow, { marginTop: 0 }]}>
             <Pressable style={styles.backButton} onPress={() => router.back()}>
               <ArrowLeft size={20} color={T.TEXT} />
+            </Pressable>
+            <Pressable style={styles.backButton} onPress={() => setShareVisible(true)} accessibilityLabel="Share album">
+              <ShareNetwork size={18} color={T.TEXT} />
             </Pressable>
           </View>
 
@@ -330,6 +336,13 @@ export default function AlbumScreen() {
 
         <View style={styles.bottomSpace} />
       </ScrollView>
+      <MsShareSheet
+        visible={shareVisible}
+        contentType="album"
+        contentId={album.id}
+        title={album.title}
+        onClose={() => setShareVisible(false)}
+      />
     </MsAmbientBackground>
   );
 }

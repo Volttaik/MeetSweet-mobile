@@ -9,7 +9,7 @@
  * Premium videos blur the preview and show unlock price.
  * Tapping unlocks navigation to the content detail screen.
  */
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Dimensions,
   Pressable,
@@ -30,7 +30,6 @@ import {
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -100,12 +99,11 @@ export function ExploreVideoCard({
   onUnlockPress,
   onLongPress,
 }: ExploreVideoCardProps) {
-  const [playerVisible, setPlayerVisible] = useState(false);
   const canPlay = Boolean(card.mediaUrl) && !card.isPremium;
 
   const handlePlayPress = () => {
     if (canPlay) {
-      setPlayerVisible(true);
+      onPress();
     } else {
       onUnlockPress?.() ?? onPress();
     }
@@ -283,15 +281,6 @@ export function ExploreVideoCard({
         </View>
       </Pressable>
 
-      {/* Fullscreen player — only mounted when open */}
-      {playerVisible && card.mediaUrl ? (
-        <MsVideoPlayer
-          visible={playerVisible}
-          uri={card.mediaUrl}
-          posterUri={card.thumbnailUrl}
-          onClose={() => setPlayerVisible(false)}
-        />
-      ) : null}
     </>
   );
 }
