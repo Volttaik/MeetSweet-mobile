@@ -3,21 +3,23 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, Lock, Play, Sparkle, Users } from 'phosphor-react-native';
 import type { ContentPreview, Creator, TrendingCollection } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { T } from '@/constants/theme';
 
-const toneMap: Record<string, string> = {
-  'mono-sand': '#343434',
-  'mono-mist': '#242424',
-  'mono-slate': '#1D2227',
-  'mono-ink': '#151515',
-  'mono-cloud': '#3B3B3B',
-  'mono-charcoal': '#202020',
-  'mono-stone': '#2C2A28',
-  'mono-fog': '#292929',
+// Fallback solid tones when no real thumbnail
+const TONE: Record<string, string> = {
+  violet:  '#1B1128',
+  rose:    '#1C0E13',
+  amber:   '#1C1508',
+  teal:    '#091A18',
+  indigo:  '#0E0F1E',
+  emerald: '#0B1A12',
+  sky:     '#091520',
+  fuchsia: '#1A0E1C',
 };
 
 function tone(gradient: string) {
-  return toneMap[gradient] ?? T.SURFACE_2;
+  return TONE[gradient] ?? T.SURFACE_2;
 }
 
 // ─── Creator Identity (avatar + name + handle row) ────────────────────────────
@@ -36,6 +38,7 @@ export function MsCreatorIdentity({
       <MsAvatar
         size={size}
         initials={creator.initials}
+        imageUri={creator.avatarUrl ?? undefined}
         showOnline={creator.isOnline}
       />
       <View style={identityStyles.copy}>
@@ -80,6 +83,8 @@ export function MsFeaturedCreatorCard({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
+      accessibilityRole="button"
+      accessibilityLabel={`View ${creator.name}'s profile`}
     >
       <View style={featuredStyles.mark}>
         <Sparkle size={14} color={T.TEXT} />
@@ -94,6 +99,7 @@ export function MsFeaturedCreatorCard({
         <MsAvatar
           size={56}
           initials={creator.initials}
+          imageUri={creator.avatarUrl ?? undefined}
           showOnline={creator.isOnline}
         />
       </Pressable>
@@ -118,7 +124,9 @@ export function MsFeaturedCreatorCard({
           <Users size={13} color={T.TEXT_2} />
           <Text style={featuredStyles.metricText}>{creator.followers}</Text>
         </View>
-        <Text style={featuredStyles.credits}>{creator.monthlyCredits} credits / mo</Text>
+        {creator.monthlyCredits > 0 && (
+          <Text style={featuredStyles.credits}>{creator.monthlyCredits} credits / mo</Text>
+        )}
       </View>
 
       {/* Subscribe button */}
@@ -148,9 +156,16 @@ export function MsRecommendedCreatorRow({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
+      accessibilityRole="button"
+      accessibilityLabel={`View ${creator.name}'s profile`}
     >
       <Pressable onPress={onAvatarPress ?? onPress} hitSlop={6}>
-        <MsAvatar size={46} initials={creator.initials} showOnline={creator.isOnline} />
+        <MsAvatar
+          size={46}
+          initials={creator.initials}
+          imageUri={creator.avatarUrl ?? undefined}
+          showOnline={creator.isOnline}
+        />
       </Pressable>
 
       <View style={recommendedStyles.info}>
@@ -166,7 +181,7 @@ export function MsRecommendedCreatorRow({
       </View>
 
       <View style={recommendedStyles.meta}>
-        <Text style={recommendedStyles.category}>{creator.category.toUpperCase()}</Text>
+        <Text style={recommendedStyles.category}>{(creator.category ?? '').toUpperCase()}</Text>
         <Text style={recommendedStyles.followers}>{creator.followers} followers</Text>
       </View>
 
@@ -196,13 +211,37 @@ export function MsPreviewCard({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
+      accessibilityRole="button"
+      accessibilityLabel={preview.title}
     >
       <View style={[previewStyles.art, { backgroundColor: tone(preview.gradient) }]}>
-        <View style={previewStyles.artLines}>
-          <View style={previewStyles.lineWide} />
-          <View style={previewStyles.lineShort} />
-          <View style={previewStyles.lineWide} />
+        {/* Real thumbnail */}
+        {preview.thumbnailUrl ? (
+          <MsMediaLoader
+            uri={preview.thumbnailUrl}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            accessibleLabel={`Thumbnail for ${preview.title}`}
+            errorMessage=""
+            fallback={null}
+          />
+        ) : (
+          <View style={previewStyles.artLines}>
+            <View style={previewStyles.lineWide} />
+            <View style={previewStyles.lineShort} />
+            <View style={previewStyles.lineWide} />
+          </View>
+        )}
+
+        {/* Creator avatar overlaid bottom-left */}
+        <View style={previewStyles.creatorChip}>
+          <MsAvatar
+            size={18}
+            initials={creator.initials}
+            imageUri={creator.avatarUrl ?? undefined}
+          />
         </View>
+
         <View style={previewStyles.typeMark}>
           {preview.isPremium ? (
             <Lock size={13} color={T.TEXT} />
@@ -218,11 +257,11 @@ export function MsPreviewCard({
         </View>
       </View>
       <View style={previewStyles.body}>
-        <Text style={previewStyles.title} numberOfLines={1}>
+        <Text style={previewStyles.title} numberOfLines={2}>
           {preview.title}
         </Text>
         <Text style={previewStyles.creator} numberOfLines={1}>
-          {creator.name} · {preview.duration}
+          {creator.name}{preview.duration ? ` · ${preview.duration}` : ''}
         </Text>
         <View style={previewStyles.footer}>
           <Text style={previewStyles.likes}>{preview.likes} likes</Text>
@@ -246,6 +285,8 @@ export function MsCollectionCard({
     <Pressable
       style={[collectionStyles.card, { backgroundColor: tone(collection.gradient) }]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={collection.title}
     >
       <View style={collectionStyles.icon}>
         <Sparkle size={16} color={T.TEXT} />
@@ -367,11 +408,22 @@ const recommendedStyles = StyleSheet.create({
 });
 
 const previewStyles = StyleSheet.create({
-  card: { width: 164, backgroundColor: T.SURFACE, borderRadius: T.RADIUS.lg, overflow: 'hidden', ...T.SHADOWS.medium },
+  card: {
+    width: 164,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    overflow: 'hidden',
+    ...T.SHADOWS.medium,
+  },
   art: { height: 126, padding: 12, justifyContent: 'space-between' },
   artLines: { gap: 7, marginTop: 30 },
   lineWide: { height: 5, width: '70%', backgroundColor: 'rgba(255,255,255,0.23)', borderRadius: 3 },
   lineShort: { height: 5, width: '42%', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 3 },
+  creatorChip: {
+    position: 'absolute',
+    left: 10,
+    bottom: 32,
+  },
   typeMark: {
     position: 'absolute',
     left: 12,
@@ -385,14 +437,14 @@ const previewStyles = StyleSheet.create({
     position: 'absolute',
     right: 10,
     top: 10,
-    backgroundColor: 'rgba(0,0,0,0.32)',
+    backgroundColor: 'rgba(0,0,0,0.42)',
     paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 4,
   },
   previewBadgeText: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 0.8 },
   body: { padding: 12 },
-  title: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12 },
+  title: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12, lineHeight: 17 },
   creator: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10, marginTop: 4 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, marginTop: 12 },
   likes: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 9 },

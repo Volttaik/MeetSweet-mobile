@@ -1,9 +1,8 @@
 /**
  * MsVideoCard — YouTube-style video card for the Explore feed.
  *
- * Shows a thumbnail area (with play button or lock overlay for premium),
- * creator identity, and metadata row. Tapping calls onPress; tapping
- * the creator avatar/name calls onCreatorPress.
+ * Shows a real thumbnail (via MsMediaLoader) with a play/lock overlay,
+ * creator avatar, title, and metadata. All data comes from the backend.
  */
 import React from 'react';
 import {
@@ -13,35 +12,26 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Check, Clock, Eye, Lock, Play } from 'phosphor-react-native';
+import { Check, Clock, Heart, Lock, Play } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { T } from '@/constants/theme';
-
-const TONE: Record<string, string> = {
-  'mono-sand':    '#343434',
-  'mono-mist':    '#242424',
-  'mono-slate':   '#1D2227',
-  'mono-ink':     '#151515',
-  'mono-cloud':   '#3B3B3B',
-  'mono-charcoal':'#202020',
-  'mono-stone':   '#2C2A28',
-  'mono-fog':     '#292929',
-};
-
-function tone(gradient: string) {
-  return TONE[gradient] ?? T.SURFACE_2;
-}
 
 export interface VideoCardData {
   id: string;
   title: string;
   duration: string;
+  /** Formatted like count e.g. "1.2K" */
   views: string;
+  /** Relative time string e.g. "2h ago" */
   uploadDate: string;
+  /** Colour gradient key — used as bg fallback when no thumbnail */
   gradient: string;
   isPremium: boolean;
   kind: string;
   lockedLabel?: string;
+  /** Real thumbnail URL from media — shown in the card header */
+  thumbnailUrl?: string | null;
   /** Creator info */
   creatorId: string;
   creatorName: string;
@@ -49,6 +39,8 @@ export interface VideoCardData {
   creatorInitials: string;
   creatorIsVerified: boolean;
   creatorIsOnline: boolean;
+  /** Real avatar URL for the creator */
+  creatorAvatarUrl?: string | null;
 }
 
 interface MsVideoCardProps {
@@ -56,6 +48,22 @@ interface MsVideoCardProps {
   onPress: () => void;
   onCreatorPress?: () => void;
   onLongPress?: () => void;
+}
+
+// Fallback solid tones when no real thumbnail is available
+const TONE: Record<string, string> = {
+  violet:  '#1B1128',
+  rose:    '#1C0E13',
+  amber:   '#1C1508',
+  teal:    '#091A18',
+  indigo:  '#0E0F1E',
+  emerald: '#0B1A12',
+  sky:     '#091520',
+  fuchsia: '#1A0E1C',
+};
+
+function fallbackBg(gradient: string) {
+  return TONE[gradient] ?? T.SURFACE_2;
 }
 
 export function MsVideoCard({
@@ -70,24 +78,32 @@ export function MsVideoCard({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
+      accessibilityRole="button"
+      accessibilityLabel={`${video.title} by ${video.creatorName}`}
     >
       {/* ── Thumbnail ─────────────────────────────────────── */}
-      <View style={[styles.thumbnail, { backgroundColor: tone(video.gradient) }]}>
-        {/* Abstract "video" lines */}
-        <View style={styles.thumbLines}>
-          <View style={styles.lineWide} />
-          <View style={styles.lineShort} />
-          <View style={styles.lineWide} />
-          <View style={styles.lineShort2} />
-        </View>
+      <View style={[styles.thumbnail, { backgroundColor: fallbackBg(video.gradient) }]}>
+        {/* Real thumbnail image — fades in when loaded */}
+        {video.thumbnailUrl ? (
+          <MsMediaLoader
+            uri={video.thumbnailUrl}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            accessibleLabel={`Thumbnail for ${video.title}`}
+            errorMessage=""
+            fallback={null}
+          />
+        ) : null}
 
-        {/* Duration badge */}
-        <View style={styles.durationBadge}>
-          <Clock size={9} color={T.TEXT} />
-          <Text style={styles.durationText}>{video.duration}</Text>
-        </View>
+        {/* Duration badge — bottom right */}
+        {video.duration ? (
+          <View style={styles.durationBadge}>
+            <Clock size={9} color={T.TEXT} />
+            <Text style={styles.durationText}>{video.duration}</Text>
+          </View>
+        ) : null}
 
-        {/* Kind badge (top-left) */}
+        {/* Kind badge — top left */}
         <View style={styles.kindBadge}>
           <Text style={styles.kindText}>{video.kind.toUpperCase()}</Text>
         </View>
@@ -117,10 +133,13 @@ export function MsVideoCard({
           onPress={onCreatorPress ?? onPress}
           hitSlop={6}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`View ${video.creatorName}'s profile`}
         >
           <MsAvatar
             size={34}
             initials={video.creatorInitials}
+            imageUri={video.creatorAvatarUrl ?? undefined}
             showOnline={video.creatorIsOnline}
           />
         </TouchableOpacity>
@@ -131,11 +150,12 @@ export function MsVideoCard({
             {video.title}
           </Text>
 
-          {/* Creator name */}
+          {/* Creator name + verified */}
           <TouchableOpacity
             onPress={onCreatorPress ?? onPress}
             activeOpacity={0.8}
             style={styles.creatorRow}
+            accessibilityRole="button"
           >
             <Text style={styles.creatorName} numberOfLines={1}>
               {video.creatorName}
@@ -147,12 +167,18 @@ export function MsVideoCard({
 
           {/* Metadata */}
           <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Eye size={10} color={T.TEXT_3} />
-              <Text style={styles.metaText}>{video.views} views</Text>
-            </View>
-            <Text style={styles.metaDot}>·</Text>
-            <Text style={styles.metaText}>{video.uploadDate}</Text>
+            {video.views ? (
+              <View style={styles.metaItem}>
+                <Heart size={10} color={T.TEXT_3} />
+                <Text style={styles.metaText}>{video.views}</Text>
+              </View>
+            ) : null}
+            {video.views && video.uploadDate ? (
+              <Text style={styles.metaDot}>·</Text>
+            ) : null}
+            {video.uploadDate ? (
+              <Text style={styles.metaText}>{video.uploadDate}</Text>
+            ) : null}
             {video.isPremium && (
               <>
                 <Text style={styles.metaDot}>·</Text>
@@ -181,16 +207,6 @@ const styles = StyleSheet.create({
     padding: 12,
     position: 'relative',
   },
-  thumbLines: {
-    position: 'absolute',
-    top: 48,
-    left: 24,
-    right: 24,
-    gap: 8,
-  },
-  lineWide:  { height: 6, width: '72%', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 3 },
-  lineShort: { height: 6, width: '44%', backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 3 },
-  lineShort2:{ height: 6, width: '58%', backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 3 },
 
   durationBadge: {
     position: 'absolute',
@@ -199,7 +215,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: 'rgba(0,0,0,0.72)',
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: T.RADIUS.xs,
@@ -210,7 +226,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 10,
     top: 10,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: T.RADIUS.xs,
@@ -229,7 +245,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: T.TEXT,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
     ...T.SHADOWS.soft,
@@ -237,7 +253,7 @@ const styles = StyleSheet.create({
 
   lockOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(12,8,15,0.72)',
+    backgroundColor: 'rgba(10,6,14,0.76)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,

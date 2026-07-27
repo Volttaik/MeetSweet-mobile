@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -24,7 +27,11 @@ import {
 } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
 import type { Creator } from '@/lib/api-client-react';
-import { useLocalExploreCatalog } from '@/services/explore';
+import {
+  useExploreFeed,
+  useLocalExploreCatalog,
+  fmtTimeAgo,
+} from '@/services/explore';
 import { blockUser } from '@/services/users';
 import { Chip } from 'heroui-native';
 import MsInput from '@/components/MsInput';
@@ -43,7 +50,7 @@ import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsVideoCard, type VideoCardData } from '@/components/MsVideoCard';
 import { T } from '@/constants/theme';
 
-// ─── Category list ────────────────────────────────────────────────────────────
+// ─── Category lists ────────────────────────────────────────────────────────────
 
 const CREATOR_CATEGORIES = [
   { id: 'all',               label: 'All' },
@@ -70,13 +77,13 @@ const CREATOR_CATEGORIES = [
 ];
 
 const VIDEO_CATEGORIES = [
-  { id: 'all',       label: 'All' },
-  { id: 'trending',  label: 'Trending' },
-  { id: 'premium',   label: 'Premium' },
-  { id: 'free',      label: 'Free' },
-  { id: 'video',     label: 'Video' },
-  { id: 'photo',     label: 'Photo' },
-  { id: 'audio',     label: 'Audio' },
+  { id: 'all',      label: 'All' },
+  { id: 'trending', label: 'Trending' },
+  { id: 'premium',  label: 'Premium' },
+  { id: 'free',     label: 'Free' },
+  { id: 'video',    label: 'Video' },
+  { id: 'photo',    label: 'Photo' },
+  { id: 'audio',    label: 'Audio' },
 ];
 
 // ─── View mode toggle ─────────────────────────────────────────────────────────
@@ -95,6 +102,8 @@ function ModeToggle({
       <Pressable
         style={[toggleStyles.tab, mode === 'creators' && toggleStyles.tabActive]}
         onPress={() => onChange('creators')}
+        accessibilityRole="button"
+        accessibilityState={{ selected: mode === 'creators' }}
       >
         <Users size={14} color={mode === 'creators' ? T.BG : T.TEXT_2} />
         <Text style={[toggleStyles.label, mode === 'creators' && toggleStyles.labelActive]}>
@@ -104,6 +113,8 @@ function ModeToggle({
       <Pressable
         style={[toggleStyles.tab, mode === 'videos' && toggleStyles.tabActive]}
         onPress={() => onChange('videos')}
+        accessibilityRole="button"
+        accessibilityState={{ selected: mode === 'videos' }}
       >
         <FilmStrip size={14} color={mode === 'videos' ? T.BG : T.TEXT_2} />
         <Text style={[toggleStyles.label, mode === 'videos' && toggleStyles.labelActive]}>
@@ -148,37 +159,6 @@ const toggleStyles = StyleSheet.create({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const UPLOAD_DATES = ['2h ago', '5h ago', '1d ago', '2d ago', '3d ago', '1w ago'];
-const VIEW_COUNTS  = ['1.2K', '3.4K', '842', '12.1K', '4.7K', '927', '6.3K', '2.1K'];
-
-function makeVideoCard(
-  preview: { id: string; creatorId: string; title: string; kind: string; duration: string; likes: string; isPremium: boolean; gradient: string; lockedLabel: string },
-  creator: Creator,
-  index: number,
-): VideoCardData {
-  return {
-    id: preview.id,
-    title: preview.title,
-    duration: preview.duration,
-    views: VIEW_COUNTS[index % VIEW_COUNTS.length],
-    uploadDate: UPLOAD_DATES[index % UPLOAD_DATES.length],
-    gradient: preview.gradient,
-    isPremium: preview.isPremium,
-    kind: preview.kind,
-    lockedLabel: preview.lockedLabel,
-    creatorId: creator.id,
-    creatorName: creator.name,
-    creatorHandle: creator.handle,
-    creatorInitials: creator.initials,
-    creatorIsVerified: creator.isVerified,
-    creatorIsOnline: creator.isOnline,
-  };
-}
-
-function findCreator(creators: Creator[], id: string) {
-  return creators.find((c) => c.id === id);
-}
-
 function creatorMatchesCategory(creator: Creator, categoryId: string): boolean {
   if (categoryId === 'all') return true;
   if (categoryId === 'trending') return true;
@@ -204,48 +184,6 @@ function toPreviewData(creator: Creator): CreatorPreviewData {
   };
 }
 
-// ─── Video Feed ───────────────────────────────────────────────────────────────
-
-function VideoFeed({
-  videos,
-  onVideoPress,
-  onCreatorPress,
-}: {
-  videos: VideoCardData[];
-  onVideoPress: (v: VideoCardData) => void;
-  onCreatorPress: (v: VideoCardData) => void;
-}) {
-  if (videos.length === 0) {
-    return (
-      <MsEmptyState
-        title="No videos found"
-        message="Try a different filter or check back later for new content."
-      />
-    );
-  }
-
-  return (
-    <View style={feedStyles.wrap}>
-      {videos.map((video) => (
-        <MsVideoCard
-          key={video.id}
-          video={video}
-          onPress={() => onVideoPress(video)}
-          onCreatorPress={() => onCreatorPress(video)}
-        />
-      ))}
-    </View>
-  );
-}
-
-const feedStyles = StyleSheet.create({
-  wrap: {
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-});
-
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ExploreScreen() {
@@ -260,20 +198,98 @@ export default function ExploreScreen() {
   const [previewCreator, setPreviewCreator] = useState<CreatorPreviewData | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
 
-  const query = useLocalExploreCatalog();
-  const catalog = query.data;
-  const creators = catalog?.creators ?? [];
-  const previewsData = catalog?.previews ?? [];
+  // ── Single-load catalog for creators mode ──────────────────────────────────
+  const catalogQuery = useLocalExploreCatalog();
+  const catalog = catalogQuery.data;
+
+  // ── Infinite feed for videos mode ──────────────────────────────────────────
+  const feedQuery = useExploreFeed();
+
+  // Merge all feed pages, deduplicate by id
+  const { allCreators, allPreviews } = useMemo(() => {
+    const pages = feedQuery.data?.pages ?? [];
+    const creatorMap = new Map<string, Creator>();
+    const previewIds = new Set<string>();
+    const previews: typeof pages[0]['previews'] = [];
+
+    for (const page of pages) {
+      for (const c of page.creators) {
+        if (!creatorMap.has(c.id)) creatorMap.set(c.id, c);
+      }
+      for (const p of page.previews) {
+        if (!previewIds.has(p.id)) {
+          previewIds.add(p.id);
+          previews.push(p);
+        }
+      }
+    }
+    return { allCreators: Array.from(creatorMap.values()), allPreviews: previews };
+  }, [feedQuery.data]);
+
+  function findCreatorInFeed(id: string) {
+    return allCreators.find((c) => c.id === id);
+  }
+
+  // ── Video cards ─────────────────────────────────────────────────────────────
+  const videoCards = useMemo<VideoCardData[]>(() => {
+    const needle = search.trim().toLowerCase();
+    return allPreviews
+      .map((p) => {
+        const creator = findCreatorInFeed(p.creatorId);
+        if (!creator) return null;
+        const card: VideoCardData = {
+          id: p.id,
+          title: p.title || 'Untitled',
+          duration: p.duration,
+          views: p.likes,
+          uploadDate: fmtTimeAgo(p.createdAt),
+          gradient: p.gradient,
+          isPremium: p.isPremium,
+          kind: p.kind,
+          lockedLabel: p.lockedLabel,
+          thumbnailUrl: p.thumbnailUrl,
+          creatorId: creator.id,
+          creatorName: creator.name,
+          creatorHandle: creator.handle,
+          creatorInitials: creator.initials,
+          creatorIsVerified: creator.isVerified,
+          creatorIsOnline: creator.isOnline,
+          creatorAvatarUrl: creator.avatarUrl,
+        };
+        return card;
+      })
+      .filter((v): v is VideoCardData => {
+        if (!v) return false;
+        if (activeCategory === 'premium' && !v.isPremium) return false;
+        if (activeCategory === 'free' && v.isPremium) return false;
+        if (
+          activeCategory !== 'all' &&
+          activeCategory !== 'premium' &&
+          activeCategory !== 'free' &&
+          activeCategory !== 'trending'
+        ) {
+          if (v.kind.toLowerCase() !== activeCategory) return false;
+        }
+        if (needle && !`${v.title} ${v.creatorName} ${v.kind}`.toLowerCase().includes(needle)) {
+          return false;
+        }
+        return true;
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPreviews, allCreators, activeCategory, search]);
+
+  // ── Catalog-mode data ───────────────────────────────────────────────────────
+  const catalogCreators    = catalog?.creators ?? [];
+  const catalogPreviews    = catalog?.previews ?? [];
   const featuredCreatorIds = catalog?.featuredCreatorIds ?? [];
   const recommendedCreatorIds = catalog?.recommendedCreatorIds ?? [];
-  const trendingSearches = catalog?.trendingSearches ?? ['slow living', 'new creators', 'exclusive'];
-  const creditBalance = Number(catalog?.creditBalance ?? 0);
+  const trendingSearches   = catalog?.trendingSearches ?? ['slow living', 'new creators', 'exclusive'];
+  const creditBalance      = Number(catalog?.creditBalance ?? 0);
 
-  // ── Creator filtering ──────────────────────────────────────────────────────
   const visibleCreators = useMemo(() => {
     if (!catalog) return [];
     const needle = search.trim().toLowerCase();
-    return creators.filter((creator) => {
+    return catalogCreators.filter((creator) => {
       const categoryMatch = creatorMatchesCategory(creator, activeCategory);
       const searchMatch =
         !needle ||
@@ -282,58 +298,41 @@ export default function ExploreScreen() {
           .includes(needle);
       return categoryMatch && searchMatch;
     });
-  }, [activeCategory, catalog, creators, search]);
+  }, [activeCategory, catalog, catalogCreators, search]);
 
   const featured = featuredCreatorIds
-    .map((id) => findCreator(creators, id))
+    .map((id) => catalogCreators.find((c) => c.id === id))
     .filter(Boolean) as Creator[];
 
   const recommended = recommendedCreatorIds
-    .map((id) => findCreator(creators, id))
+    .map((id) => catalogCreators.find((c) => c.id === id))
     .filter(Boolean) as Creator[];
 
-  const previews = previewsData.filter((preview) => {
-    const creator = findCreator(creators, preview.creatorId);
+  const filteredPreviews = catalogPreviews.filter((preview) => {
+    const creator = catalogCreators.find((c) => c.id === preview.creatorId);
     return (
       creator &&
       (activeCategory === 'all' || creatorMatchesCategory(creator, activeCategory))
     );
   });
 
-  // ── Video filtering ────────────────────────────────────────────────────────
-  const videoCards = useMemo<VideoCardData[]>(() => {
-    if (!catalog) return [];
-    const needle = search.trim().toLowerCase();
-    return previewsData
-      .map((p, i) => {
-        const creator = findCreator(creators, p.creatorId);
-        if (!creator) return null;
-        return makeVideoCard(p, creator, i);
-      })
-      .filter((v): v is VideoCardData => {
-        if (!v) return false;
-        if (activeCategory === 'premium' && !v.isPremium) return false;
-        if (activeCategory === 'free' && v.isPremium) return false;
-        if (activeCategory !== 'all' && activeCategory !== 'premium' && activeCategory !== 'free') {
-          if (activeCategory !== 'trending' && v.kind.toLowerCase() !== activeCategory) return false;
-        }
-        if (needle && !`${v.title} ${v.creatorName} ${v.kind}`.toLowerCase().includes(needle)) return false;
-        return true;
-      });
-  }, [activeCategory, catalog, creators, previewsData, search]);
-
+  // ── Actions ─────────────────────────────────────────────────────────────────
   const openCreator = (creator: Creator) => router.push(`/creator/${creator.id}`);
+
   const openAvatarPreview = (creator: Creator) => {
     setPreviewCreator(toPreviewData(creator));
     setPreviewVisible(true);
   };
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setRefreshing(true);
-    try { await query.refetch(); } finally { setRefreshing(false); }
-  };
+    try {
+      await Promise.all([catalogQuery.refetch(), feedQuery.refetch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [catalogQuery, feedQuery]);
 
-  // Reset category when switching modes
   const handleModeChange = (m: ViewMode) => {
     setViewMode(m);
     setActiveCategory('all');
@@ -369,10 +368,7 @@ export default function ExploreScreen() {
           `Mute ${creator.name}? Their posts won't appear in your feed.`,
           [
             { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Mute',
-              onPress: () => Alert.alert('Muted', `${creator.name} has been muted.`),
-            },
+            { text: 'Mute', onPress: () => Alert.alert('Muted', `${creator.name} has been muted.`) },
           ],
         );
       },
@@ -405,11 +401,247 @@ export default function ExploreScreen() {
     },
   ];
 
+  const isLoading = viewMode === 'creators' ? catalogQuery.isLoading : feedQuery.isLoading;
+  const isError   = viewMode === 'creators' ? catalogQuery.isError   : feedQuery.isError;
   const categories = viewMode === 'videos' ? VIDEO_CATEGORIES : CREATOR_CATEGORIES;
 
+  // ── Shared header rendered above both modes ─────────────────────────────────
+  const renderHeader = () => (
+    <>
+      {/* Search */}
+      <View style={styles.searchField}>
+        <SearchIcon size={16} color={T.TEXT_2} />
+        <MsInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder={
+            viewMode === 'videos'
+              ? 'Search videos, creators, categories'
+              : 'Search creators, categories, content'
+          }
+          style={styles.searchInput}
+          compact
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')} hitSlop={10}>
+            <Text style={styles.clearSearch}>×</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Trending tags */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.trendingRow}
+      >
+        {trendingSearches.map((tag) => (
+          <Chip
+            key={tag}
+            variant="soft"
+            color="default"
+            size="sm"
+            onPress={() => setSearch(tag)}
+            style={styles.trendChip}
+          >
+            <Chip.Label style={styles.trendLabel}>#{tag.replaceAll(' ', '')}</Chip.Label>
+          </Chip>
+        ))}
+      </ScrollView>
+
+      {/* Mode toggle */}
+      <ModeToggle mode={viewMode} onChange={handleModeChange} />
+
+      {/* Loading skeleton */}
+      {isLoading && (
+        <View style={styles.loadingWrap}>
+          <MsCatalogSkeleton />
+        </View>
+      )}
+
+      {/* Error state */}
+      {isError && (
+        <MsEmptyState
+          title="Explore is taking a moment"
+          message="We couldn't load content. Pull down to try again."
+          actionLabel="Retry"
+          onAction={() => {
+            catalogQuery.refetch();
+            feedQuery.refetch();
+          }}
+        />
+      )}
+
+      {/* Wallet banner + categories — only when data is loaded */}
+      {!isLoading && !isError && (
+        <>
+          <Pressable style={styles.creditBanner} onPress={() => router.push('/wallet')}>
+            <View style={styles.creditIcon}>
+              <CreditCard size={18} color={T.BG} />
+            </View>
+            <View style={styles.creditCopy}>
+              <Text style={styles.creditEyebrow}>YOUR CREATOR WALLET</Text>
+              <Text style={styles.creditBalance}>
+                {creditBalance.toLocaleString()}{' '}
+                <Text style={styles.creditUnit}>credits</Text>
+              </Text>
+            </View>
+            <View style={styles.creditAction}>
+              <Text style={styles.creditActionText}>Top up</Text>
+              <CaretRight size={15} color={T.BG} />
+            </View>
+          </Pressable>
+
+          <View style={styles.categoryHeader}>
+            <Text style={styles.sectionTitle}>Browse by category</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryRow}
+          >
+            {categories.map((category) => {
+              const active = category.id === activeCategory;
+              return (
+                <Chip
+                  key={category.id}
+                  variant={active ? 'primary' : 'soft'}
+                  color="default"
+                  size="sm"
+                  onPress={() => setActiveCategory(category.id)}
+                  style={[styles.categoryChip, active && styles.categoryChipActive]}
+                >
+                  <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
+                    {category.label}
+                  </Chip.Label>
+                </Chip>
+              );
+            })}
+          </ScrollView>
+        </>
+      )}
+    </>
+  );
+
+  // ── VIDEO MODE — virtualized FlatList ────────────────────────────────────────
+  if (viewMode === 'videos') {
+    const loadingMore = feedQuery.isFetchingNextPage;
+
+    const handleEndReached = () => {
+      if (feedQuery.hasNextPage && !feedQuery.isFetchingNextPage) {
+        feedQuery.fetchNextPage();
+      }
+    };
+
+    const renderVideoItem = ({ item }: { item: VideoCardData }) => (
+      <MsVideoCard
+        video={item}
+        onPress={() => {
+          if (!item.id) return;
+          router.push(`/content/${item.id}`);
+        }}
+        onCreatorPress={() => {
+          if (!item.creatorId) return;
+          router.push(`/creator/${item.creatorId}`);
+        }}
+      />
+    );
+
+    const renderEmpty = () => {
+      if (isLoading) return null;
+      return (
+        <MsEmptyState
+          title="No videos found"
+          message="Try a different filter or check back later for new content."
+          actionLabel={activeCategory !== 'all' ? 'Show all' : undefined}
+          onAction={activeCategory !== 'all' ? () => setActiveCategory('all') : undefined}
+        />
+      );
+    };
+
+    return (
+      <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.eyebrow}>DISCOVER</Text>
+            <Text style={styles.title}>Explore</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.iconButton}
+              onPress={() => router.push('/notifications')}
+              accessibilityLabel="Notifications"
+            >
+              <Bell size={19} color={T.TEXT} />
+              <View style={styles.notificationDot} />
+            </Pressable>
+            <Pressable style={styles.walletButton} onPress={() => router.push('/wallet')}>
+              <Wallet size={16} color={T.BG} />
+              <Text style={styles.walletButtonText}>{creditBalance.toLocaleString()}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <FlatList
+          data={videoCards}
+          keyExtractor={(item) => item.id}
+          renderItem={renderVideoItem}
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={renderEmpty}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.loadMoreWrap}>
+                <ActivityIndicator size="small" color={T.TEXT_2} />
+              </View>
+            ) : null
+          }
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.4}
+          contentContainerStyle={styles.videoListContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />
+          }
+          removeClippedSubviews
+          windowSize={5}
+          maxToRenderPerBatch={5}
+          initialNumToRender={6}
+          getItemLayout={(_data, index) => ({
+            length: 290,
+            offset: 290 * index,
+            index,
+          })}
+        />
+
+        {/* Creator long-press sheet */}
+        <MsActionSheet
+          visible={!!menuCreator}
+          title={menuCreator?.name}
+          subtitle={menuCreator?.handle}
+          actions={menuCreator ? creatorMenuActions(menuCreator) : []}
+          onClose={() => setMenuCreator(null)}
+        />
+
+        <MsCreatorPreview
+          visible={previewVisible}
+          creator={previewCreator}
+          onClose={() => setPreviewVisible(false)}
+          onViewProfile={() => {
+            if (previewCreator) router.push(`/creator/${previewCreator.id}`);
+          }}
+          onSubscribe={() => {
+            if (previewCreator) router.push(`/creator/${previewCreator.id}`);
+          }}
+        />
+      </MsAmbientBackground>
+    );
+  }
+
+  // ── CREATORS MODE — ScrollView ───────────────────────────────────────────────
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* ── Header ───────────────────────────────────────── */}
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>DISCOVER</Text>
@@ -438,242 +670,48 @@ export default function ExploreScreen() {
         }
         contentContainerStyle={styles.scrollContent}
       >
-        {/* ── Search ───────────────────────────────────────── */}
-        <View style={styles.searchField}>
-          <SearchIcon size={16} color={T.TEXT_2} />
-          <MsInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder={
-              viewMode === 'videos'
-                ? 'Search videos, creators, categories'
-                : 'Search creators, categories, content'
-            }
-            style={styles.searchInput}
-            compact
-          />
-          {search.length > 0 && (
-            <Pressable onPress={() => setSearch('')} hitSlop={10}>
-              <Text style={styles.clearSearch}>×</Text>
-            </Pressable>
-          )}
-        </View>
+        {renderHeader()}
 
-        {/* ── Trending tags ─────────────────────────────────── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.trendingRow}
-        >
-          {trendingSearches.map((tag) => (
-            <Chip
-              key={tag}
-              variant="soft"
-              color="default"
-              size="sm"
-              onPress={() => setSearch(tag)}
-              style={styles.trendChip}
-            >
-              <Chip.Label style={styles.trendLabel}>#{tag.replaceAll(' ', '')}</Chip.Label>
-            </Chip>
-          ))}
-        </ScrollView>
-
-        {/* ── Mode toggle ───────────────────────────────────── */}
-        <ModeToggle mode={viewMode} onChange={handleModeChange} />
-
-        {/* ── Loading ───────────────────────────────────────── */}
-        {query.isLoading && (
-          <View style={styles.loadingWrap}>
-            <MsCatalogSkeleton />
-          </View>
-        )}
-
-        {/* ── Error ─────────────────────────────────────────── */}
-        {query.isError && (
-          <MsEmptyState
-            title="Explore is taking a moment"
-            message="We couldn't load content. Pull down to try again."
-            actionLabel="Retry"
-            onAction={() => query.refetch()}
-          />
-        )}
-
-        {/* ── Content ───────────────────────────────────────── */}
-        {!query.isLoading && !query.isError && catalog && (
+        {!isLoading && !isError && catalog && (
           <>
-            {/* Wallet banner */}
-            <Pressable style={styles.creditBanner} onPress={() => router.push('/wallet')}>
-              <View style={styles.creditIcon}>
-                <CreditCard size={18} color={T.BG} />
-              </View>
-              <View style={styles.creditCopy}>
-                <Text style={styles.creditEyebrow}>YOUR CREATOR WALLET</Text>
-                <Text style={styles.creditBalance}>
-                  {creditBalance.toLocaleString()}{' '}
-                  <Text style={styles.creditUnit}>credits</Text>
-                </Text>
-              </View>
-              <View style={styles.creditAction}>
-                <Text style={styles.creditActionText}>Top up</Text>
-                <CaretRight size={15} color={T.TEXT} />
-              </View>
-            </Pressable>
-
-            {/* Categories */}
-            <View style={styles.categoryHeader}>
-              <Text style={styles.sectionTitle}>Browse by category</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoryRow}
-            >
-              {categories.map((category) => {
-                const active = category.id === activeCategory;
-                return (
-                  <Chip
-                    key={category.id}
-                    variant={active ? 'primary' : 'soft'}
-                    color="default"
-                    size="sm"
-                    onPress={() => setActiveCategory(category.id)}
-                    style={[styles.categoryChip, active && styles.categoryChipActive]}
-                  >
-                    <Chip.Label style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
-                      {category.label}
-                    </Chip.Label>
-                  </Chip>
-                );
-              })}
-            </ScrollView>
-
-            {/* ═══════ VIDEO FEED MODE ═══════ */}
-            {viewMode === 'videos' && (
+            {/* Featured creators */}
+            {featured.length > 0 && (
               <>
                 <MsSectionHeader
-                  title="Video Feed"
-                  style={styles.sectionHeader}
-                />
-                <VideoFeed
-                  videos={videoCards}
-                  onVideoPress={(v) => router.push(`/content/${v.id}`)}
-                  onCreatorPress={(v) => router.push(`/creator/${v.creatorId}`)}
-                />
-              </>
-            )}
-
-            {/* ═══════ CREATORS MODE ═══════ */}
-            {viewMode === 'creators' && (
-              <>
-                {/* Featured creators */}
-                {featured.length > 0 && (
-                  <>
-                    <MsSectionHeader
-                      title="Featured creators"
-                      actionLabel="View all"
-                      onAction={() => setActiveCategory('all')}
-                      style={styles.sectionHeader}
-                    />
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.featuredRow}
-                    >
-                      {featured.map((creator) => (
-                        <MsFeaturedCreatorCard
-                          key={creator.id}
-                          creator={creator}
-                          onPress={() => openCreator(creator)}
-                          onLongPress={() => setMenuCreator(creator)}
-                          onAvatarPress={() => openAvatarPreview(creator)}
-                        />
-                      ))}
-                    </ScrollView>
-                  </>
-                )}
-
-                {/* Recommended */}
-                {recommended.length > 0 && (
-                  <>
-                    <MsSectionHeader
-                      title="Recommended for you"
-                      actionLabel="See all"
-                      onAction={() => setSearch('')}
-                      style={styles.sectionHeader}
-                    />
-                    <View>
-                      {recommended.map((creator) => (
-                        <MsRecommendedCreatorRow
-                          key={creator.id}
-                          creator={creator}
-                          onPress={() => openCreator(creator)}
-                          onLongPress={() => setMenuCreator(creator)}
-                          onAvatarPress={() => openAvatarPreview(creator)}
-                        />
-                      ))}
-                    </View>
-                  </>
-                )}
-
-                {/* Premium previews */}
-                <MsSectionHeader
-                  title="Premium previews"
-                  actionLabel="Latest"
-                  style={styles.sectionHeader}
-                />
-                {previews.length > 0 ? (
-                  <View style={styles.previewGrid}>
-                    {previews.map((preview) => {
-                      const creator = findCreator(catalog.creators, preview.creatorId);
-                      return creator ? (
-                        <MsPreviewCard
-                          key={preview.id}
-                          preview={preview}
-                          creator={creator}
-                          onPress={() => router.push(`/content/${preview.id}`)}
-                          onLongPress={() => setMenuCreator(creator)}
-                        />
-                      ) : null;
-                    })}
-                  </View>
-                ) : (
-                  <MsEmptyState
-                    title="Discover creators you'll love"
-                    message="Try a different category or search to find your next favourite creator."
-                    actionLabel="Show all"
-                    onAction={() => setActiveCategory('all')}
-                  />
-                )}
-
-                {/* Collections */}
-                <MsSectionHeader
-                  title="Trending collections"
-                  actionLabel="Explore all"
+                  title="Featured creators"
+                  actionLabel="View all"
+                  onAction={() => setActiveCategory('all')}
                   style={styles.sectionHeader}
                 />
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.collectionRow}
+                  contentContainerStyle={styles.featuredRow}
                 >
-                  {(catalog.collections ?? []).map((collection) => (
-                    <MsCollectionCard
-                      key={collection.id}
-                      collection={collection}
-                      onPress={() => setSearch(collection.title)}
+                  {featured.map((creator) => (
+                    <MsFeaturedCreatorCard
+                      key={creator.id}
+                      creator={creator}
+                      onPress={() => openCreator(creator)}
+                      onLongPress={() => setMenuCreator(creator)}
+                      onAvatarPress={() => openAvatarPreview(creator)}
                     />
                   ))}
                 </ScrollView>
+              </>
+            )}
 
-                {/* Recently joined */}
+            {/* Recommended */}
+            {recommended.length > 0 && (
+              <>
                 <MsSectionHeader
-                  title="Recently joined"
-                  actionLabel="Meet the newest"
+                  title="Recommended for you"
+                  actionLabel="See all"
+                  onAction={() => setSearch('')}
                   style={styles.sectionHeader}
                 />
-                {visibleCreators.length > 0 ? (
-                  visibleCreators.slice(-3).map((creator) => (
+                <View>
+                  {recommended.map((creator) => (
                     <MsRecommendedCreatorRow
                       key={creator.id}
                       creator={creator}
@@ -681,24 +719,92 @@ export default function ExploreScreen() {
                       onLongPress={() => setMenuCreator(creator)}
                       onAvatarPress={() => openAvatarPreview(creator)}
                     />
-                  ))
-                ) : (
-                  <MsEmptyState
-                    title="No creators match that search"
-                    message="Try a trending tag or clear your filters to keep discovering."
-                    actionLabel="Clear search"
-                    onAction={() => {
-                      setSearch('');
-                      setActiveCategory('all');
-                    }}
-                  />
-                )}
+                  ))}
+                </View>
               </>
             )}
 
-            <View style={styles.bottomSpace} />
+            {/* Premium previews */}
+            <MsSectionHeader
+              title="Premium previews"
+              actionLabel="Latest"
+              style={styles.sectionHeader}
+            />
+            {filteredPreviews.length > 0 ? (
+              <View style={styles.previewGrid}>
+                {filteredPreviews.map((preview) => {
+                  const creator = catalogCreators.find((c) => c.id === preview.creatorId);
+                  return creator ? (
+                    <MsPreviewCard
+                      key={preview.id}
+                      preview={preview}
+                      creator={creator}
+                      onPress={() => router.push(`/content/${preview.id}`)}
+                      onLongPress={() => setMenuCreator(creator)}
+                    />
+                  ) : null;
+                })}
+              </View>
+            ) : (
+              <MsEmptyState
+                title="Discover creators you'll love"
+                message="Try a different category or search to find your next favourite creator."
+                actionLabel="Show all"
+                onAction={() => setActiveCategory('all')}
+              />
+            )}
+
+            {/* Collections */}
+            <MsSectionHeader
+              title="Trending collections"
+              actionLabel="Explore all"
+              style={styles.sectionHeader}
+            />
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.collectionRow}
+            >
+              {(catalog.collections ?? []).map((collection) => (
+                <MsCollectionCard
+                  key={collection.id}
+                  collection={collection}
+                  onPress={() => setSearch(collection.title)}
+                />
+              ))}
+            </ScrollView>
+
+            {/* Recently joined */}
+            <MsSectionHeader
+              title="Recently joined"
+              actionLabel="Meet the newest"
+              style={styles.sectionHeader}
+            />
+            {visibleCreators.length > 0 ? (
+              visibleCreators.slice(-3).map((creator) => (
+                <MsRecommendedCreatorRow
+                  key={creator.id}
+                  creator={creator}
+                  onPress={() => openCreator(creator)}
+                  onLongPress={() => setMenuCreator(creator)}
+                  onAvatarPress={() => openAvatarPreview(creator)}
+                />
+              ))
+            ) : (
+              <MsEmptyState
+                title="No creators match that search"
+                message="Try a trending tag or clear your filters to keep discovering."
+                actionLabel="Clear search"
+                onAction={() => {
+                  setSearch('');
+                  setActiveCategory('all');
+                }}
+              />
+            )}
           </>
         )}
+
+        <View style={styles.bottomSpace} />
       </ScrollView>
 
       {/* Creator long-press action sheet */}
@@ -754,7 +860,7 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.ACCENT,
   },
   walletButton: {
     height: 38,
@@ -767,7 +873,9 @@ const styles = StyleSheet.create({
     ...T.SHADOWS.soft,
   },
   walletButtonText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
+
   scrollContent: { paddingTop: 16, gap: 0 },
+
   searchField: {
     marginHorizontal: 20,
     height: 46,
@@ -788,10 +896,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   clearSearch: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 22, lineHeight: 22 },
+
   trendingRow: { gap: 8, paddingHorizontal: 20, paddingVertical: 13 },
   trendChip: { backgroundColor: T.SURFACE },
   trendLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
+
   loadingWrap: { paddingTop: 12 },
+
   creditBanner: {
     marginHorizontal: 20,
     marginTop: 16,
@@ -829,6 +940,7 @@ const styles = StyleSheet.create({
   creditUnit: { fontFamily: T.FONT.medium, fontSize: 11 },
   creditAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   creditActionText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
+
   categoryHeader: {
     paddingHorizontal: 20,
     paddingTop: 20,
@@ -843,9 +955,15 @@ const styles = StyleSheet.create({
   categoryChipActive: { backgroundColor: T.TEXT },
   categoryLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
   categoryLabelActive: { color: T.BG },
+
   sectionHeader: { paddingTop: 22, paddingBottom: 11 },
   featuredRow: { gap: 12, paddingHorizontal: 20, paddingBottom: 3 },
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 20 },
   collectionRow: { gap: 12, paddingHorizontal: 20 },
   bottomSpace: { height: 24 },
+
+  // Video FlatList
+  videoListContent: { paddingTop: 16, paddingBottom: 24 },
+  videoItemWrap: { paddingHorizontal: 16, paddingBottom: 16 },
+  loadMoreWrap: { paddingVertical: 20, alignItems: 'center' },
 });

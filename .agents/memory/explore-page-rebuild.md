@@ -1,25 +1,38 @@
 ---
 name: Explore page rebuild
-description: YouTube-style video feed, mode toggle, new components, swipe-to-close modal.
+description: Architecture and data flow of the overhauled Explore page — hooks, data wiring, component changes, and the crash root cause.
 ---
 
-# Explore page rebuild
+## Root cause of "View Preview" crash
+`app/content/[id].tsx` was using `useGetExploreCatalog` — the generated stub that hits
+the non-existent `/api/explore` backend endpoint. Fixed by switching to `useLocalExploreCatalog`.
+**Never import `useGetExploreCatalog` anywhere in the app.**
 
-## Mode toggle
-`app/(tabs)/explore.tsx` has a `ViewMode = 'creators' | 'videos'` state.
-- **Creators mode** — existing marketplace (featured, recommended, premium previews, collections, recently joined).
-- **Videos mode** — vertical feed of `MsVideoCard` components built from `ContentPreview` API data + matched `Creator`.
+## Two hooks exported from `services/explore.ts`
+- `useLocalExploreCatalog()` — single `useQuery`, fetches 50 posts once. Used by `content/[id].tsx`
+  for id→preview/creator lookups. Keeps working even without auth.
+- `useExploreFeed()` — `useInfiniteQuery` with cursor pagination. Used by the Explore tab
+  video-mode FlatList. Calls `fetchExplorePosts(cursor?)` internally.
 
-## New components
-- `components/MsVideoCard.tsx` — YouTube-style card: thumbnail area (gradient + abstract lines), play button or lock overlay (for `isPremium`), duration badge, kind badge, creator identity row, metadata row (views, upload date). Accepts `VideoCardData` interface.
-- `components/MsCommentsSheet.tsx` — inline preview (`MsCommentsSection`) shows first 2 comments + "View all" button. Full `CommentsModal` is a bottom-sheet with `FlatList` + pinned `MsComposer` in comment mode.
+## Data wiring that was missing (now fixed)
+- `ContentPreview` type extended with `thumbnailUrl`, `createdAt`, `likeCount` in `api.schemas.ts`
+- `buildExploreCatalog` / `fetchExplorePosts` now populate these from raw post `media[0]`
+- `VideoCardData` in `MsVideoCard.tsx` now has `thumbnailUrl` and `creatorAvatarUrl`
+- `MsMediaLoader` renders the real thumbnail in video cards and preview cards
+- `MsAvatar` receives `imageUri={creator.avatarUrl}` everywhere in `MsExploreVisual.tsx`
+- `fmtTimeAgo(iso)` exported from `services/explore.ts` — use for all relative timestamps
 
-## MsModal swipe-to-close
-`components/MsModal.tsx` uses `PanResponder` + `Animated.Value` translateY on the sheet surface. Drag > 80px triggers a snap-down animation then `onClose()`. Drag < 80px springs back. Center-presentation modals skip the gesture.
+## Video feed architecture (Videos mode)
+- Entire screen is a `FlatList` when `viewMode === 'videos'`
+- Header (search, trending, toggle, wallet, categories) is `ListHeaderComponent`
+- `onEndReached` calls `feedQuery.fetchNextPage()` when `hasNextPage && !isFetchingNextPage`
+- `removeClippedSubviews`, `windowSize=5`, `maxToRenderPerBatch=5` for smooth scrolling
+- Creators mode keeps existing `ScrollView` with multiple sections
 
-## VideoCardData to ContentPreview mapping
-`makeVideoCard(preview, creator, index)` in explore.tsx enriches ContentPreview with mock view counts and upload dates (round-robin from static arrays) since the API doesn't return these fields.
+## Deduplication
+- `fetchExplorePosts` deduplicates posts by id before processing
+- Feed hook merges pages in the screen with a `Set<string>` guard on preview ids
+- Creator map prevents duplicate creator entries per page
 
-**Why:** ContentPreview has no viewCount or uploadDate; these are placeholder values until the API adds them.
-
-**How to apply:** When the API adds real view/date fields, update `makeVideoCard` to read them directly instead of the round-robin arrays.
+**Why:** The backend can return the same post across pages; the same creator appears in
+many posts. Without deduplication the feed showed repeated cards.

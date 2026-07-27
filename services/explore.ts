@@ -1,12 +1,17 @@
 /**
  * Local explore catalog service.
  *
- * The live backend does not yet have a GET /api/explore endpoint.
- * This module builds an equivalent ExploreCatalog by fetching public posts
- * and deriving creator and preview data from them.
+ * The live backend does not have a GET /api/explore endpoint.
+ * This module builds equivalent data by fetching public posts from /api/posts
+ * and deriving creator and content-card data from them.
+ *
+ * Two hooks are exported:
+ *   useLocalExploreCatalog  — single-page, for screens that need a lookup map
+ *                             (e.g. content/[id].tsx)
+ *   useExploreFeed          — infinite-query, for the paginated video feed
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { apiFetch } from './api';
 import type {
   ExploreCatalog,
@@ -39,14 +44,34 @@ function initials(name: string): string {
 }
 
 function fmtFollowers(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
 }
 
 function fmtLikes(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   if (n === 0) return '0';
   return String(n);
+}
+
+/** Returns a relative time string like "2h ago", "3d ago", "just now". */
+export function fmtTimeAgo(iso: string | undefined | null): string {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 0) return 'just now';
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
 // ── Static catalog fixtures ───────────────────────────────────────────────────
@@ -54,13 +79,13 @@ function fmtLikes(n: number): string {
 const TRENDING_SEARCHES = ['golden hour', 'exclusive', 'new creators', 'studio', 'lifestyle'];
 
 const STATIC_COLLECTIONS: TrendingCollection[] = [
-  { id: 'col-1', title: 'Golden Hour',     subtitle: 'Best lighting drops',  itemCount: 24, gradient: 'amber'   },
-  { id: 'col-2', title: 'Studio Sessions', subtitle: 'Behind the lens',      itemCount: 18, gradient: 'violet'  },
-  { id: 'col-3', title: 'Exclusive Drops', subtitle: 'Subscribers only',     itemCount: 31, gradient: 'rose'    },
+  { id: 'col-1', title: 'Golden Hour',     subtitle: 'Best lighting drops',   itemCount: 24, gradient: 'amber'  },
+  { id: 'col-2', title: 'Studio Sessions', subtitle: 'Behind the lens',       itemCount: 18, gradient: 'violet' },
+  { id: 'col-3', title: 'Exclusive Drops', subtitle: 'Subscribers only',      itemCount: 31, gradient: 'rose'   },
   { id: 'col-4', title: 'New Creators',    subtitle: 'Fresh faces this week', itemCount: 12, gradient: 'teal'   },
 ];
 
-// ── Raw post shape from GET /api/posts ───────────────────────────────────────
+// ── Raw post shape from GET /api/posts ────────────────────────────────────────
 
 interface RawPost {
   id: string;
@@ -73,85 +98,146 @@ interface RawPost {
   caption: string | null;
   unlock_price: number | null;
   like_count: number;
-  media: Array<{ url: string; type: string; thumbnail_url?: string | null }>;
+  comment_count?: number;
+  created_at?: string;
+  published_at?: string;
+  media: Array<{ url: string; type: string; thumbnail_url?: string | null; duration_secs?: number | null }>;
   visibility: string;
 }
 
-// ── Builder ───────────────────────────────────────────────────────────────────
+// ── Builder helpers ───────────────────────────────────────────────────────────
 
-export async function buildExploreCatalog(): Promise<ExploreCatalog> {
-  const token = await AsyncStorage.getItem('@ms_access_token');
+const KIND: Record<string, string> = { image: 'photo', video: 'video', audio: 'audio' };
+
+function fmtDuration(secs: number | null | undefined): string {
+  if (!secs || secs <= 0) return '';
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function creatorFromPost(post: RawPost): Creator {
+  const h = hashStr(post.creator_id);
+  const avatarRaw = post.creator_avatar ?? post.creator_avatar_url ?? null;
+  return {
+    id: post.creator_id,
+    name: post.creator_display_name ?? post.creator_username ?? 'Creator',
+    handle: `@${post.creator_username ?? 'creator'}`,
+    initials: initials(post.creator_display_name ?? post.creator_username ?? '??'),
+    bio: 'Exclusive content, behind-the-scenes access, and premium drops.',
+    category: 'Lifestyle',
+    followers: fmtFollowers(500 + (h % 9500)),
+    subscriberCount: 50 + (h % 450),
+    monthlyCredits: 0,
+    isVerified: post.creator_is_verified ?? false,
+    isOnline: (h % 3) === 0,
+    gradient: gradientFor(post.creator_id),
+    avatarUrl: avatarRaw,
+  };
+}
+
+function previewFromPost(post: RawPost): ContentPreview {
+  const firstMedia = post.media?.[0];
+  const kind = firstMedia ? (KIND[firstMedia.type] ?? 'photo') : 'photo';
+  const isPremium = (post.unlock_price ?? 0) > 0;
+  const durationSecs = firstMedia?.duration_secs ?? null;
+  // Prefer thumbnail_url for images/videos; fall back to the full media url for photos
+  const thumbnailUrl =
+    firstMedia?.thumbnail_url ??
+    (firstMedia?.type === 'image' ? firstMedia?.url : null) ??
+    null;
+
+  return {
+    id: post.id,
+    creatorId: post.creator_id,
+    title: (post.caption ?? 'Exclusive drop').substring(0, 80),
+    category: 'Lifestyle',
+    kind,
+    duration: fmtDuration(durationSecs),
+    likes: fmtLikes(post.like_count ?? 0),
+    likeCount: post.like_count ?? 0,
+    isPremium,
+    gradient: gradientFor(post.id),
+    lockedLabel: isPremium ? `${post.unlock_price} credits` : 'Free',
+    thumbnailUrl,
+    createdAt: post.created_at ?? post.published_at,
+  };
+}
+
+async function getToken(): Promise<string | null> {
+  return AsyncStorage.getItem('@ms_access_token');
+}
+
+// ── Paginated post fetcher ────────────────────────────────────────────────────
+
+export interface ExploreFeedPage {
+  creators: Creator[];
+  previews: ContentPreview[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export async function fetchExplorePosts(cursor?: string | null): Promise<ExploreFeedPage> {
+  const token = await getToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const raw = await apiFetch<{ posts: RawPost[] }>('/posts?limit=50', { headers });
+  const qs = cursor
+    ? `?cursor=${encodeURIComponent(cursor)}&limit=20`
+    : '?limit=50'; // bigger first load
+
+  const raw = await apiFetch<{ posts: RawPost[]; next_cursor?: string | null }>(
+    `/posts${qs}`,
+    { headers },
+  );
+
   const posts: RawPost[] = Array.isArray(raw?.posts) ? raw.posts : [];
 
-  // ── Build unique creator map ──────────────────────────────────────────────
+  // Deduplicate posts by id (guard against server sending duplicates)
+  const seen = new Set<string>();
+  const uniquePosts = posts.filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+
+  // Build creator map (unique per page)
   const creatorMap = new Map<string, Creator>();
   const creatorMaxPrice = new Map<string, number>();
 
-  for (const post of posts) {
-    const { creator_id, creator_display_name, creator_username, creator_is_verified, unlock_price } = post;
-    if (!creatorMap.has(creator_id)) {
-      const h = hashStr(creator_id);
-      const avatarRaw = post.creator_avatar ?? post.creator_avatar_url ?? null;
-      creatorMap.set(creator_id, {
-        id: creator_id,
-        name: creator_display_name ?? creator_username ?? 'Creator',
-        handle: `@${creator_username ?? 'creator'}`,
-        initials: initials(creator_display_name ?? creator_username ?? '??'),
-        bio: 'Exclusive content, behind-the-scenes access, and premium drops.',
-        category: 'Lifestyle',
-        followers: fmtFollowers(500 + (h % 9500)),
-        subscriberCount: 50 + (h % 450),
-        monthlyCredits: 0,
-        isVerified: creator_is_verified ?? false,
-        isOnline: (h % 3) === 0,
-        gradient: gradientFor(creator_id),
-        avatarUrl: avatarRaw,
-      });
+  for (const post of uniquePosts) {
+    if (!creatorMap.has(post.creator_id)) {
+      creatorMap.set(post.creator_id, creatorFromPost(post));
     }
-    // Track the highest unlock_price per creator to use as monthlyCredits
-    if (unlock_price && unlock_price > (creatorMaxPrice.get(creator_id) ?? 0)) {
-      creatorMaxPrice.set(creator_id, unlock_price);
+    if (post.unlock_price && post.unlock_price > (creatorMaxPrice.get(post.creator_id) ?? 0)) {
+      creatorMaxPrice.set(post.creator_id, post.unlock_price);
     }
   }
 
-  // Backfill monthlyCredits from posts
+  // Backfill monthlyCredits
   for (const [id, credits] of creatorMaxPrice) {
     const c = creatorMap.get(id);
     if (c) creatorMap.set(id, { ...c, monthlyCredits: credits });
   }
 
   const creators = Array.from(creatorMap.values());
-
-  // ── Build content previews ────────────────────────────────────────────────
-  const KIND: Record<string, string> = { image: 'photo', video: 'video', audio: 'audio' };
-
-  const previews: ContentPreview[] = posts
+  const previews = uniquePosts
     .filter((p) => creatorMap.has(p.creator_id))
-    .map((p) => {
-      const firstMedia = p.media?.[0];
-      const kind = firstMedia ? (KIND[firstMedia.type] ?? 'photo') : 'photo';
-      const isPremium = (p.unlock_price ?? 0) > 0;
-      return {
-        id: p.id,
-        creatorId: p.creator_id,
-        title: (p.caption ?? 'Exclusive drop').substring(0, 60),
-        category: 'Lifestyle',
-        kind,
-        duration: '0:30',
-        likes: fmtLikes(p.like_count ?? 0),
-        isPremium,
-        gradient: gradientFor(p.id),
-        lockedLabel: isPremium ? `${p.unlock_price} credits` : 'Free',
-      };
-    });
+    .map(previewFromPost);
 
-  // ── Featured / recommended splits ────────────────────────────────────────
-  const ids = creators.map((c) => c.id);
-  const featuredCreatorIds   = ids.slice(0, Math.min(3, ids.length));
+  const nextCursor = raw?.next_cursor ?? null;
+  const hasMore = Boolean(nextCursor) || posts.length >= 20;
+
+  return { creators, previews, nextCursor, hasMore };
+}
+
+// ── Full catalog builder (for single-load screens like content/[id].tsx) ──────
+
+export async function buildExploreCatalog(): Promise<ExploreCatalog> {
+  const page = await fetchExplorePosts(null);
+
+  const ids = page.creators.map((c) => c.id);
+  const featuredCreatorIds    = ids.slice(0, Math.min(3, ids.length));
   const recommendedCreatorIds = ids.slice(Math.min(3, ids.length));
 
   return {
@@ -160,20 +246,35 @@ export async function buildExploreCatalog(): Promise<ExploreCatalog> {
     trendingSearches: TRENDING_SEARCHES,
     featuredCreatorIds,
     recommendedCreatorIds,
-    creators,
-    previews,
+    creators: page.creators,
+    previews: page.previews,
     collections: STATIC_COLLECTIONS,
   };
 }
 
-// ── React Query hook ──────────────────────────────────────────────────────────
+// ── React Query hooks ─────────────────────────────────────────────────────────
 
 export const EXPLORE_CATALOG_KEY = ['explore-catalog-local'] as const;
+export const EXPLORE_FEED_KEY    = ['explore-feed'] as const;
 
+/** Single-load catalog — used by content/[id].tsx for id→preview/creator lookups. */
 export function useLocalExploreCatalog() {
   return useQuery({
     queryKey: EXPLORE_CATALOG_KEY,
     queryFn: buildExploreCatalog,
+    staleTime: 2 * 60 * 1000,
+    retry: 2,
+  });
+}
+
+/** Infinite-scroll feed — used by the Explore tab video feed and creator grid. */
+export function useExploreFeed() {
+  return useInfiniteQuery({
+    queryKey: EXPLORE_FEED_KEY,
+    queryFn: ({ pageParam }) => fetchExplorePosts(pageParam as string | null),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
     staleTime: 2 * 60 * 1000,
     retry: 2,
   });

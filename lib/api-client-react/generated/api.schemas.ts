@@ -41,6 +41,12 @@ export interface ContentPreview {
   isPremium: boolean;
   gradient: string;
   lockedLabel: string;
+  /** Real thumbnail URL from media (populated from posts feed) */
+  thumbnailUrl?: string | null;
+  /** ISO timestamp of the post (populated from posts feed) */
+  createdAt?: string;
+  /** Raw view/like count for display */
+  likeCount?: number;
 }
 
 export interface TrendingCollection {
