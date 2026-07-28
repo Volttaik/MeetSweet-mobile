@@ -2,7 +2,7 @@
  * MsPremiumContent — one component for premium/locked media in feed, posts, messages.
  * Added: image fade-in loading state, video poster frame + buffering indicator.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react'; // useRef kept for videoRef
 import {
   Animated,
   StyleSheet,
@@ -15,7 +15,7 @@ import { ResizeMode, Video } from 'expo-av';
 import { LockSimple, Play } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
-import { MsMediaLoader, MsMediaState, type MediaLoadState } from '@/components/MsMediaLoader';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 
 export interface MsPremiumContentProps {
@@ -66,13 +66,10 @@ export function MsPremiumContent({
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [videoStarted, setVideoStarted] = useState(false);
 
-  // Video buffering state
-  const [videoState, setVideoState] = useState<MediaLoadState>('loading');
   const videoRef = useRef<Video>(null);
 
   useEffect(() => {
     setVideoStarted(false);
-    setVideoState('loading');
   }, [uri, locked, mediaType]);
 
   const isLocked = !unlocked && locked;
@@ -143,15 +140,9 @@ export function MsPremiumContent({
                 ref={videoRef}
                 source={{ uri }}
                 style={StyleSheet.absoluteFill}
-                resizeMode={ResizeMode.COVER}
+                resizeMode={ResizeMode.CONTAIN}
                 shouldPlay
-                isLooping
-                isMuted
-                onReadyForDisplay={() => setVideoState('success')}
-                onPlaybackStatusUpdate={(status: any) => {
-                  if (status?.isLoaded) setVideoState(status.isBuffering ? 'loading' : 'success');
-                  else if (status?.error) setVideoState('error');
-                }}
+                useNativeControls
               />
             )}
             {!isLocked && !videoStarted && (
@@ -162,7 +153,6 @@ export function MsPremiumContent({
                     // Navigate to dedicated player — no inline playback in card mode
                     onPlayPress();
                   } else {
-                    setVideoState('loading');
                     setVideoStarted(true);
                   }
                 }}
@@ -173,7 +163,7 @@ export function MsPremiumContent({
                 <Play size={26} color={T.TEXT} weight="fill" />
               </TouchableOpacity>
             )}
-            {videoStarted && <MsMediaState state={videoState} />}
+            {/* Native player handles loading state; no custom spinner needed */}
           </>
         )}
 

@@ -289,6 +289,7 @@ export default function HomeScreen() {
           renderItem={({ item }) => (
             <MsPostCard
               post={item}
+              doubleTapToOpen
               onPress={() => {
                 if (item.contentType === 'short') {
                   router.push({ pathname: '/shorts', params: { startId: item.id } });

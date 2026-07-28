@@ -192,6 +192,12 @@ interface MsPostCardProps {
   currentUserId?: string;
   onEditPress?: (post: Post) => void;
   onAnalyticsPress?: (post: Post) => void;
+  /**
+   * Home-Feed mode: double-tap anywhere on the post opens Full View;
+   * single tap on media does NOT navigate (play button still works inline).
+   * All other screens leave this false / undefined for single-tap behaviour.
+   */
+  doubleTapToOpen?: boolean;
 }
 
 export function MsPostCard({
@@ -203,6 +209,7 @@ export function MsPostCard({
   currentUserId,
   onEditPress,
   onAnalyticsPress,
+  doubleTapToOpen = false,
 }: MsPostCardProps) {
   const [liked, setLiked] = useState(post.likedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
@@ -362,26 +369,45 @@ export function MsPostCard({
         </View>
       </View>
 
-      {/* Caption */}
+      {/* Caption
+          feedMode (doubleTapToOpen): double-tap navigates, single tap = nothing.
+          Other screens: single tap navigates (original behaviour).
+      */}
       {!!post.caption && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={onPress}
-          onLongPress={openSheet}
-          delayLongPress={400}
-        >
-          <Text style={styles.caption} numberOfLines={3}>
-            {post.caption}
-          </Text>
-        </TouchableOpacity>
+        doubleTapToOpen ? (
+          <ScalePressable
+            onPress={undefined}
+            onDoubleTap={onPress}
+            onLongPress={openSheet}
+            style={styles.captionPressable}
+          >
+            <Text style={styles.caption} numberOfLines={3}>
+              {post.caption}
+            </Text>
+          </ScalePressable>
+        ) : (
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={onPress}
+            onLongPress={openSheet}
+            delayLongPress={400}
+          >
+            <Text style={styles.caption} numberOfLines={3}>
+              {post.caption}
+            </Text>
+          </TouchableOpacity>
+        )
       )}
 
-      {/* Media — image */}
+      {/* Media — image
+          feedMode: single tap = nothing, double-tap = open Full View.
+          Other screens: single tap = open Full View, double-tap = like.
+      */}
       {post.mediaUrl && post.mediaType === 'image' && (
         <ScalePressable
-          onPress={onMediaPress ?? onPress}
+          onPress={doubleTapToOpen ? undefined : (onMediaPress ?? onPress)}
           onLongPress={openSheet}
-          onDoubleTap={handleLike}
+          onDoubleTap={doubleTapToOpen ? (onMediaPress ?? onPress) : handleLike}
         >
           <MsPremiumContent
             uri={post.mediaUrl}
@@ -398,15 +424,15 @@ export function MsPostCard({
       )}
 
       {/* Media — video
-          Play button tap  → inline playback inside MsPremiumContent (no onPlayPress = inline)
-          Video area tap   → inline play (same ScalePressable onPress)
-          Caption/author   → Full View (separate TouchableOpacity handlers above)
+          feedMode: single tap on play button = inline playback; double-tap = Full View.
+          Other screens: single tap = inline playback (onPress=undefined means no nav).
+          Double-tap: feedMode → open Full View; otherwise → like.
       */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <ScalePressable
           onPress={undefined}
           onLongPress={openSheet}
-          onDoubleTap={handleLike}
+          onDoubleTap={doubleTapToOpen ? (onMediaPress ?? onPress) : handleLike}
         >
           <MsPremiumContent
             uri={post.mediaUrl}
@@ -528,6 +554,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  captionPressable: {
+    // Allows the ScalePressable wrapper for caption double-tap to fill width
+  },
   caption: {
     fontSize: 14,
     fontFamily: T.FONT.regular,
