@@ -36,6 +36,12 @@ export interface MsPremiumContentProps {
   style?: ViewStyle;
   overlayOnly?: boolean;
   showPaymentSheet?: boolean;
+  /**
+   * When provided, tapping the play button on a video card calls this instead
+   * of starting inline playback — use in feed/card contexts to navigate to the
+   * dedicated player so there is only one active playback controller.
+   */
+  onPlayPress?: () => void;
 }
 
 export function MsPremiumContent({
@@ -55,6 +61,7 @@ export function MsPremiumContent({
   style,
   overlayOnly = false,
   showPaymentSheet = false,
+  onPlayPress,
 }: MsPremiumContentProps) {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [videoStarted, setVideoStarted] = useState(false);
@@ -151,8 +158,13 @@ export function MsPremiumContent({
               <TouchableOpacity
                 style={styles.playButton}
                 onPress={() => {
-                  setVideoState('loading');
-                  setVideoStarted(true);
+                  if (onPlayPress) {
+                    // Navigate to dedicated player — no inline playback in card mode
+                    onPlayPress();
+                  } else {
+                    setVideoState('loading');
+                    setVideoStarted(true);
+                  }
                 }}
                 activeOpacity={0.82}
                 accessibilityRole="button"

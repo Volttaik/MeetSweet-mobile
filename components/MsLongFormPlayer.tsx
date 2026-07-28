@@ -58,6 +58,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -169,10 +170,11 @@ export function MsLongFormPlayer({
   const positionRef  = useRef(0);
 
   // Refs kept in sync for use inside stable PanResponder closure
-  const trackWidthRef  = useRef(1);
-  const durationRef    = useRef(0);
-  const isDraggingRef  = useRef(false);
-  const hasEndedRef    = useRef(false);
+  const trackWidthRef   = useRef(1);
+  const trackOriginXRef = useRef(0); // page-absolute left edge of scrubber track
+  const durationRef     = useRef(0);
+  const isDraggingRef   = useRef(false);
+  const hasEndedRef     = useRef(false);
 
   const [isPlaying,     setIsPlaying]     = useState(autoPlay);
   const [isBuffering,   setIsBuffering]   = useState(false);
@@ -213,7 +215,7 @@ export function MsLongFormPlayer({
 
   // ── Auto-hide timer ──────────────────────────────────────────────────────
 
-  const scheduleHide = useCallback((delayMs = 3000) => {
+  const scheduleHide = useCallback((delayMs = 2000) => {
     if (isDraggingRef.current) return; // never hide during scrub
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
@@ -237,14 +239,14 @@ export function MsLongFormPlayer({
 
   useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
-  // Auto-show controls on play-start, fade after 1.5 s
+  // Auto-show controls on play-start, fade after 2 s
   useEffect(() => {
-    if (isPlaying) revealControls(true, 1500);
+    if (isPlaying) revealControls(true, 2000);
   }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-show on mount
   useEffect(() => {
-    revealControls(true, 1500);
+    revealControls(true, 2000);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Restore saved progress ───────────────────────────────────────────────
@@ -365,36 +367,64 @@ export function MsLongFormPlayer({
 
   const panResponder = useRef(
     PanResponder.create({
+      // Claim every touch that starts inside the hit area immediately, before
+      // the parent Pressable has a chance to interpret it as a tap.
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder:  () => true,
       onPanResponderGrant: (evt) => {
         isDraggingRef.current = true;
+        // Store the page-absolute left edge of the track so we can compute
+        // accurate positions from pageX throughout the drag gesture — even
+        // when the finger moves outside the view's local coordinate space.
+        trackOriginXRef.current =
+          evt.nativeEvent.pageX - evt.nativeEvent.locationX;
         // Keep controls visible during scrub
         if (hideTimer.current) clearTimeout(hideTimer.current);
         controlsOpacity.value = withTiming(1, { duration: 100 });
-        const x   = Math.max(0, Math.min(evt.nativeEvent.locationX, trackWidthRef.current));
-        const ms  = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
+        const x  = Math.max(
+          0,
+          Math.min(
+            evt.nativeEvent.pageX - trackOriginXRef.current,
+            trackWidthRef.current,
+          ),
+        );
+        const ms = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
         setPosition(ms);
+        positionRef.current = ms;
         ref.current?.setPositionAsync(ms).catch(() => {});
       },
       onPanResponderMove: (evt) => {
-        const x  = Math.max(0, Math.min(evt.nativeEvent.locationX, trackWidthRef.current));
+        const x  = Math.max(
+          0,
+          Math.min(
+            evt.nativeEvent.pageX - trackOriginXRef.current,
+            trackWidthRef.current,
+          ),
+        );
         const ms = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
         setPosition(ms);
+        positionRef.current = ms;
         ref.current?.setPositionAsync(ms).catch(() => {});
       },
       onPanResponderRelease: (evt) => {
         isDraggingRef.current = false;
-        const x  = Math.max(0, Math.min(evt.nativeEvent.locationX, trackWidthRef.current));
+        const x  = Math.max(
+          0,
+          Math.min(
+            evt.nativeEvent.pageX - trackOriginXRef.current,
+            trackWidthRef.current,
+          ),
+        );
         const ms = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
         setPosition(ms);
+        positionRef.current = ms;
         ref.current?.setPositionAsync(ms).catch(() => {});
-        // Re-arm hide timer
+        // Re-arm hide timer after scrub ends
         if (hideTimer.current) clearTimeout(hideTimer.current);
         hideTimer.current = setTimeout(() => {
           controlsOpacity.value = withTiming(0, { duration: 350 });
           setShowControls(false);
-        }, 3000);
+        }, 2000);
       },
       onPanResponderTerminate: () => {
         isDraggingRef.current = false;
@@ -648,7 +678,7 @@ export function MsLongFormPlayer({
           {/* Centre playback controls */}
           <View style={styles.centreRow} pointerEvents="box-none">
             <Pressable
-              onPress={() => seek(position - 10_000)}
+              onPress={() => seek(positionRef.current - 10_000)}
               style={styles.skipBtn}
               accessibilityLabel="Skip back 10 seconds"
               hitSlop={12}
@@ -672,7 +702,7 @@ export function MsLongFormPlayer({
             </Pressable>
 
             <Pressable
-              onPress={() => seek(position + 10_000)}
+              onPress={() => seek(positionRef.current + 10_000)}
               style={styles.skipBtn}
               accessibilityLabel="Skip forward 10 seconds"
               hitSlop={12}
@@ -767,6 +797,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050506',
     overflow: 'hidden',
     position: 'relative',
+    borderRadius: T.RADIUS.xl,
   },
   playerFill: {
     flex: 1,
@@ -862,8 +893,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingBottom: 10,
-    // gradient scrim at top
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'transparent',
   },
   topBtn: {
     minWidth: 38,
@@ -932,7 +962,7 @@ const styles = StyleSheet.create({
   // Bottom section: creator strip + progress
   bottomSection: {
     paddingHorizontal: 0,
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    backgroundColor: 'transparent',
     paddingBottom: 12,
   },
 

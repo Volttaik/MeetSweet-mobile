@@ -289,6 +289,7 @@ export function MsPostCard({
               price={post.priceCredits ?? 0}
               aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
               onUnlock={onMediaPress ?? onPress}
+              onPlayPress={onMediaPress ?? onPress}
               style={styles.videoPlaceholder}
             />
           </ScalePressable>
