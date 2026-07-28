@@ -160,6 +160,8 @@ export default function ShortsScreen() {
         windowSize={3}
         initialNumToRender={2}
         maxToRenderPerBatch={2}
+        bounces
+        overScrollMode="always"
       />
       {commentsId ? (
         <MsContentComments

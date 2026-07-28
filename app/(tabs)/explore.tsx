@@ -50,7 +50,7 @@ import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
-import { ExploreVideoCard, type ExploreVideoCardData } from '@/components/ExploreVideoCard';
+import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
 import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { T } from '@/constants/theme';
 
@@ -280,7 +280,7 @@ export default function ExploreScreen() {
 
   // ── Feed items — image + video cards with album rows injected every 5 items ──
   type FeedItem =
-    | { type: 'video';     data: ExploreVideoCardData; id: string }
+    | { type: 'video';     data: MsFeedVideoCardData; id: string }
     | { type: 'image';     data: ExploreImageCardData; id: string }
     | { type: 'album-row'; albums: AlbumCardData[];    id: string };
 
@@ -299,7 +299,7 @@ export default function ExploreScreen() {
       const fmtComments = String(p.commentCount ?? 0);
 
       if (p.kind === 'video' || p.kind === 'audio') {
-        const card: ExploreVideoCardData = {
+        const card: MsFeedVideoCardData = {
           id: p.id,
           title: p.title || 'Untitled',
           duration: p.duration,
@@ -565,7 +565,7 @@ export default function ExploreScreen() {
       if (item.type === 'video') {
         return (
           <View style={styles.videoItemWrap}>
-            <ExploreVideoCard
+            <MsFeedVideoCard
               card={item.data}
               onPress={() => router.push(`/videos/${item.id}`)}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
@@ -825,7 +825,7 @@ export default function ExploreScreen() {
                   };
 
                   if (preview.kind === 'video' || preview.kind === 'audio') {
-                    const card: ExploreVideoCardData = {
+                    const card: MsFeedVideoCardData = {
                       id:          preview.id,
                       title:       preview.title || 'Untitled',
                       duration:    preview.duration,
@@ -842,7 +842,7 @@ export default function ExploreScreen() {
                     };
                     return (
                       <View key={preview.id} style={styles.videoItemWrap}>
-                        <ExploreVideoCard
+                        <MsFeedVideoCard
                           card={card}
                           onPress={() => router.push(`/videos/${preview.id}`)}
                           onCreatorPress={() => router.push(`/creator/${creator.id}`)}

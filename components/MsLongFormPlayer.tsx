@@ -1,38 +1,40 @@
 /**
- * MsLongFormPlayer — improved long-form video player.
+ * MsLongFormPlayer — seekable long-form video player.
  *
- * Improvements:
- * - Seekable tap-to-seek progress bar
- * - Skip −10 / +10 s buttons
- * - Controls auto-hide after 3 s of playback
- * - Cleaner buffering indicator (centred spinner)
- * - Premium 3-second preview: pause + call onPremiumRequired after 3 s
- * - Retry on error
- * - Dynamic aspect-ratio: detects the video's natural dimensions via
- *   onReadyForDisplay and adjusts the container height accordingly.
- *   Portrait videos render tall; landscape videos render wide.
- *   Falls back to 16:9 while loading.
+ * Architecture note:
+ *   The Video component is mounted ONCE and never remounts during playback.
+ *   All player state (controls, position, buffering) is managed via refs/state
+ *   at the parent level. No inner component is defined — doing so would cause
+ *   React to unmount/remount the Video subtree on every state change, producing
+ *   the flashing and flickering that plagued the previous implementation.
+ *
+ * Fullscreen:
+ *   Uses expo-av's presentFullscreenPlayer() / dismissFullscreenPlayer() rather
+ *   than a React Modal. This keeps the same Video instance alive in both modes.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { ResizeMode, Video, type AVPlaybackStatus } from 'expo-av';
+import {
+  ResizeMode,
+  Video,
+  VideoFullscreenUpdate,
+  type AVPlaybackStatus,
+} from 'expo-av';
 import {
   ArrowCounterClockwise,
   ArrowsOut,
-  ArrowsIn,
+  Lock,
   Pause,
   Play,
   SkipBack,
   SkipForward,
-  Lock,
 } from 'phosphor-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
@@ -45,21 +47,16 @@ interface Props {
   uri: string | null;
   posterUri?: string | null;
   autoPlay?: boolean;
-  /** If true, playback pauses at 3 s and fires onPremiumRequired */
   isPremium?: boolean;
   onPremiumRequired?: () => void;
 }
 
 const progressKey = (id: string) => `@ms_video_progress:${id}`;
 
-// ─── Formatting ───────────────────────────────────────────────────────────────
-
 function formatTime(ms: number): string {
   const total = Math.floor(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export function MsLongFormPlayer({
   videoId,
@@ -69,24 +66,24 @@ export function MsLongFormPlayer({
   isPremium = false,
   onPremiumRequired,
 }: Props) {
-  const ref        = useRef<Video>(null);
-  const trackRef   = useRef<View>(null);
-  const hideTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const premiumFired = useRef(false);
+  const ref            = useRef<Video>(null);
+  const hideTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const premiumFired   = useRef(false);
+  // Track position in a ref so onStatus callback never goes stale
+  const positionRef    = useRef(0);
 
   const [isPlaying,     setIsPlaying]     = useState(autoPlay);
   const [isBuffering,   setIsBuffering]   = useState(false);
   const [position,      setPosition]      = useState(0);
   const [duration,      setDuration]      = useState(0);
   const [error,         setError]         = useState(false);
-  const [fullscreen,    setFullscreen]    = useState(false);
   const [showControls,  setShowControls]  = useState(true);
   const [savedPosition, setSavedPosition] = useState<number | null>(null);
   const [trackWidth,    setTrackWidth]    = useState(1);
-  // Premium gate: true while locked and waiting for user action
   const [premiumGated,  setPremiumGated]  = useState(false);
+  const [isFullscreen,  setIsFullscreen]  = useState(false);
 
-  // Dynamic aspect ratio — starts at 16/9, updated when video natural size is known
+  // Dynamic aspect ratio — 16:9 until the video reports its natural size
   const [aspectRatio, setAspectRatio] = useState(16 / 9);
 
   // Restore saved progress on mount
@@ -98,19 +95,23 @@ export function MsLongFormPlayer({
     return () => { active = false; };
   }, [videoId]);
 
-  // Reset premium gate when URI changes
+  // Reset premium gate when videoId / uri changes
   useEffect(() => {
     premiumFired.current = false;
     setPremiumGated(false);
+    setError(false);
+    setPosition(0);
+    setDuration(0);
+    positionRef.current = 0;
   }, [videoId, uri]);
 
-  // Auto-hide controls after 3 s of playback
+  // Auto-hide controls
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setShowControls(false), 3000);
   }, []);
 
-  const showControlsNow = useCallback(() => {
+  const revealControls = useCallback(() => {
     setShowControls(true);
     scheduleHide();
   }, [scheduleHide]);
@@ -119,18 +120,22 @@ export function MsLongFormPlayer({
 
   const onStatus = useCallback(
     (status: AVPlaybackStatus) => {
-      if (!status.isLoaded) { setIsBuffering(true); return; }
+      if (!status.isLoaded) {
+        setIsBuffering(true);
+        return;
+      }
       setIsBuffering(status.isBuffering ?? false);
       setIsPlaying(status.isPlaying);
       const pos = status.positionMillis;
       setPosition(pos);
       setDuration(status.durationMillis ?? 0);
-      // Persist every 5 s
-      if (pos > 0 && Math.floor(pos / 5000) !== Math.floor((position || 0) / 5000)) {
+      // Persist progress every 5 s using the ref so this callback never goes stale
+      if (pos > 0 && Math.floor(pos / 5000) !== Math.floor(positionRef.current / 5000)) {
         AsyncStorage.setItem(progressKey(videoId), String(pos)).catch(() => {});
       }
+      positionRef.current = pos;
       if (status.didJustFinish) setIsPlaying(false);
-      // Premium gate: pause at 3 s
+      // Premium gate
       if (isPremium && !premiumFired.current && pos >= 3000) {
         premiumFired.current = true;
         ref.current?.pauseAsync().catch(() => {});
@@ -138,53 +143,83 @@ export function MsLongFormPlayer({
         onPremiumRequired?.();
       }
     },
+    // videoId & isPremium are the only truly external deps; onPremiumRequired is stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [videoId, isPremium, onPremiumRequired],
   );
 
-  // Capture natural video dimensions to set dynamic aspect ratio
-  const onReadyForDisplay = useCallback((event: { naturalSize?: { width: number; height: number } }) => {
-    const w = event.naturalSize?.width;
-    const h = event.naturalSize?.height;
-    if (w && h && h > 0) {
-      setAspectRatio(w / h);
-    }
-  }, []);
+  const onReadyForDisplay = useCallback(
+    (event: { naturalSize?: { width: number; height: number } }) => {
+      const w = event.naturalSize?.width;
+      const h = event.naturalSize?.height;
+      if (w && h && h > 0) setAspectRatio(w / h);
+    },
+    [],
+  );
 
-  const toggle = async () => {
+  const onFullscreenUpdate = useCallback(
+    ({ fullscreenUpdate }: { fullscreenUpdate: VideoFullscreenUpdate }) => {
+      if (
+        fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_DISMISS ||
+        fullscreenUpdate === VideoFullscreenUpdate.PLAYER_WILL_DISMISS
+      ) {
+        setIsFullscreen(false);
+      } else if (
+        fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_PRESENT ||
+        fullscreenUpdate === VideoFullscreenUpdate.PLAYER_WILL_PRESENT
+      ) {
+        setIsFullscreen(true);
+      }
+    },
+    [],
+  );
+
+  const toggle = useCallback(async () => {
     if (!ref.current || premiumGated) return;
-    showControlsNow();
+    revealControls();
     if (isPlaying) await ref.current.pauseAsync();
     else           await ref.current.playAsync();
-  };
+  }, [isPlaying, premiumGated, revealControls]);
 
-  const seek = async (ms: number) => {
+  const seek = useCallback(async (ms: number) => {
     const clamped = Math.max(0, Math.min(duration || 0, ms));
     setPosition(clamped);
     await ref.current?.setPositionAsync(clamped);
-    showControlsNow();
-  };
+    revealControls();
+  }, [duration, revealControls]);
 
-  const seekByTrackTap = (evt: { nativeEvent: { locationX: number } }) => {
-    if (!duration) return;
-    const ratio = Math.max(0, Math.min(1, evt.nativeEvent.locationX / trackWidth));
-    seek(ratio * duration);
-  };
+  const seekByTrackTap = useCallback(
+    (evt: { nativeEvent: { locationX: number } }) => {
+      if (!duration) return;
+      const ratio = Math.max(0, Math.min(1, evt.nativeEvent.locationX / trackWidth));
+      seek(ratio * duration);
+    },
+    [duration, seek, trackWidth],
+  );
 
-  // ── Player inner JSX (reused in inline + fullscreen Modal) ──────────────────
-  const Player = ({ modal = false }: { modal?: boolean }) => (
-    <View style={[styles.player, modal ? styles.modalPlayer : { aspectRatio }]}>
-      {/* Poster */}
+  const handleFullscreen = useCallback(async () => {
+    await ref.current?.presentFullscreenPlayer();
+    setIsFullscreen(true);
+  }, []);
+
+  // ─── Inline player JSX (no inner component — keeps Video stable) ──────────
+
+  const progressPct = duration > 0 ? `${(position / duration) * 100}%` : '0%';
+
+  return (
+    <View style={[styles.player, { aspectRatio }]}>
+
+      {/* Poster — shown while video is not yet loaded */}
       {posterUri ? (
         <MsMediaLoader
           uri={posterUri}
           style={StyleSheet.absoluteFill}
-          resizeMode={modal ? 'contain' : 'cover'}
+          resizeMode="cover"
           accessibleLabel="Video thumbnail"
         />
       ) : null}
 
-      {/* Stream */}
+      {/* The ONE Video instance — never remounts */}
       {uri && !error ? (
         <Video
           ref={ref}
@@ -195,6 +230,7 @@ export function MsLongFormPlayer({
           positionMillis={savedPosition ?? 0}
           onPlaybackStatusUpdate={onStatus}
           onReadyForDisplay={onReadyForDisplay}
+          onFullscreenUpdate={onFullscreenUpdate}
           onError={() => { setError(true); setIsPlaying(false); }}
           useNativeControls={false}
         />
@@ -203,10 +239,16 @@ export function MsLongFormPlayer({
       {/* Error overlay */}
       {(!uri || error) ? (
         <View style={styles.center}>
-          <Text style={styles.errorTitle}>{error ? 'Video could not load' : 'Video unavailable'}</Text>
+          <Text style={styles.errorTitle}>
+            {error ? 'Video could not load' : 'Video unavailable'}
+          </Text>
           {error ? (
             <Pressable
-              onPress={() => { setError(false); premiumFired.current = false; setPremiumGated(false); }}
+              onPress={() => {
+                setError(false);
+                premiumFired.current = false;
+                setPremiumGated(false);
+              }}
               style={styles.retryBtn}
               accessibilityLabel="Retry loading video"
             >
@@ -219,7 +261,12 @@ export function MsLongFormPlayer({
 
       {/* Buffering spinner */}
       {isBuffering && uri && !error ? (
-        <ActivityIndicator color="#fff" size="large" style={StyleSheet.absoluteFill} pointerEvents="none" />
+        <ActivityIndicator
+          color="#fff"
+          size="large"
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
       ) : null}
 
       {/* Premium gate overlay */}
@@ -233,15 +280,18 @@ export function MsLongFormPlayer({
         </View>
       ) : null}
 
-      {/* Tap to toggle controls */}
+      {/* Tap-to-toggle controls (only when not premium-gated) */}
       {!premiumGated ? (
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => {
-          setShowControls((v) => {
-            if (!v) { scheduleHide(); return true; }
-            if (hideTimer.current) clearTimeout(hideTimer.current);
-            return false;
-          });
-        }} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {
+            setShowControls((v) => {
+              if (!v) { scheduleHide(); return true; }
+              if (hideTimer.current) clearTimeout(hideTimer.current);
+              return false;
+            });
+          }}
+        />
       ) : null}
 
       {/* Controls bar */}
@@ -263,8 +313,8 @@ export function MsLongFormPlayer({
             accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying
-              ? <Pause  size={20} color="#fff" weight="fill" />
-              : <Play   size={20} color="#fff" weight="fill" />}
+              ? <Pause size={20} color="#fff" weight="fill" />
+              : <Play  size={20} color="#fff" weight="fill" />}
           </Pressable>
 
           {/* Skip +10 */}
@@ -276,9 +326,8 @@ export function MsLongFormPlayer({
             <SkipForward size={18} color="#fff" weight="fill" />
           </Pressable>
 
-          {/* Progress bar */}
+          {/* Progress track */}
           <View
-            ref={trackRef}
             style={styles.track}
             onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
           >
@@ -287,13 +336,9 @@ export function MsLongFormPlayer({
               onPress={seekByTrackTap}
               accessibilityLabel="Seek"
             />
-            <View style={[styles.trackFill, { width: duration ? `${(position / duration) * 100}%` as any : '0%' }]} />
-            {/* Scrubber thumb */}
+            <View style={[styles.trackFill, { width: progressPct as any }]} />
             <View
-              style={[
-                styles.thumb,
-                { left: duration ? `${(position / duration) * 100}%` as any : '0%' },
-              ]}
+              style={[styles.thumb, { left: progressPct as any }]}
               pointerEvents="none"
             />
           </View>
@@ -303,43 +348,20 @@ export function MsLongFormPlayer({
             {formatTime(position)}{' / '}{formatTime(duration)}
           </Text>
 
-          {/* Fullscreen toggle */}
-          {!modal ? (
+          {/* Fullscreen */}
+          {!isFullscreen ? (
             <Pressable
-              onPress={() => setFullscreen(true)}
+              onPress={handleFullscreen}
               style={styles.expandBtn}
               accessibilityLabel="Open fullscreen"
             >
               <ArrowsOut size={16} color="#fff" />
             </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => setFullscreen(false)}
-              style={styles.expandBtn}
-              accessibilityLabel="Exit fullscreen"
-            >
-              <ArrowsIn size={16} color="#fff" />
-            </Pressable>
-          )}
+          ) : null}
         </View>
       ) : null}
-    </View>
-  );
 
-  return (
-    <>
-      <Player />
-      <Modal
-        visible={fullscreen}
-        animationType="fade"
-        supportedOrientations={['portrait', 'landscape']}
-        onRequestClose={() => setFullscreen(false)}
-      >
-        <View style={styles.fullscreenWrap}>
-          <Player modal />
-        </View>
-      </Modal>
-    </>
+    </View>
   );
 }
 
@@ -348,17 +370,13 @@ export function MsLongFormPlayer({
 const styles = StyleSheet.create({
   player: {
     width: '100%',
-    // aspectRatio is applied dynamically via the style prop in Player
     backgroundColor: '#050506',
     overflow: 'hidden',
     position: 'relative',
   },
-  modalPlayer: {
-    flex: 1,
-  },
+
   video: { zIndex: 1 },
 
-  // States
   center: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -379,7 +397,6 @@ const styles = StyleSheet.create({
   },
   retryText: { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 },
 
-  // Premium gate
   premiumOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.72)',
@@ -400,7 +417,6 @@ const styles = StyleSheet.create({
   premiumTitle: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 16 },
   premiumSub:   { color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 12 },
 
-  // Controls bar
   controls: {
     position: 'absolute',
     left: 0,
@@ -411,9 +427,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    paddingBottom: 10,
-    paddingTop: 10,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.38)',
   },
   skipBtn: {
     width: 32,
@@ -465,7 +480,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // Fullscreen
-  fullscreenWrap: { flex: 1, backgroundColor: '#000' },
 });

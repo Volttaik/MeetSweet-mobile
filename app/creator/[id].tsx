@@ -37,7 +37,7 @@ import { getPostsByCreator, type Post } from '@/services/posts';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
-import { ExploreVideoCard, type ExploreVideoCardData } from '@/components/ExploreVideoCard';
+import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
 import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
 import { T } from '@/constants/theme';
 
@@ -520,7 +520,7 @@ export default function CreatorProfileScreen() {
                   const comments   = String(preview.commentCount ?? 0);
 
                   if (preview.kind === 'video' || preview.kind === 'audio') {
-                    const card: ExploreVideoCardData = {
+                    const card: MsFeedVideoCardData = {
                       id:           preview.id,
                       title:        preview.title || 'Untitled',
                       duration:     preview.duration,
@@ -536,7 +536,7 @@ export default function CreatorProfileScreen() {
                       ...creatorBase,
                     };
                     return (
-                      <ExploreVideoCard
+                      <MsFeedVideoCard
                         key={preview.id}
                         card={card}
                         onPress={() => router.push(`/content/${preview.id}`)}
