@@ -2,23 +2,16 @@
  * Video Detail Screen — full-screen long-form video experience.
  *
  * The video is the primary element (fills the entire screen).
- * Creator info, back button and comments are all overlaid on the player.
+ * Creator info, back button, and all actions are overlaid on the player.
  * No ScrollView — nothing sits below the video.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import {
-  Bookmark,
-  Heart,
-  ShareNetwork,
-} from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
@@ -106,7 +99,7 @@ export default function VideoDetailScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* ── Full-screen player — the primary element ───────────────────── */}
+      {/* ── Full-screen player — actions embedded in player top bar ──────── */}
       <MsLongFormPlayer
         videoId={post.id}
         uri={videoMedia}
@@ -119,8 +112,16 @@ export default function VideoDetailScreen() {
         }
         onPremiumRequired={() => setPremiumSheetVisible(true)}
         onBack={() => router.back()}
+        // Action buttons in top bar
+        onLike={toggleLike}
+        isLiked={liked}
+        likeCount={likeCount}
         onCommentsPress={() => setCommentsVisible(true)}
         commentCount={post.commentCount}
+        onSave={toggleBookmark}
+        isSaved={bookmarked}
+        onShare={() => setShareVisible(true)}
+        // Creator info at bottom
         creator={{
           avatarUrl: post.author.avatarUrl,
           name: post.author.name || post.author.username,
@@ -129,47 +130,7 @@ export default function VideoDetailScreen() {
         }}
       />
 
-      {/* ── Floating action bar (likes / bookmark / share) ────────────── */}
-      <View
-        style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, 16) }]}
-        pointerEvents="box-none"
-      >
-        {/* Title snippet */}
-        {!!post.caption && (
-          <Text style={styles.titleSnippet} numberOfLines={1}>
-            {post.caption}
-          </Text>
-        )}
-
-        <View style={styles.actions}>
-          <Pressable style={styles.action} onPress={toggleLike} hitSlop={8}>
-            <Heart
-              size={20}
-              color={liked ? '#EF4444' : 'rgba(255,255,255,0.75)'}
-              weight={liked ? 'fill' : 'regular'}
-            />
-            {likeCount > 0 && (
-              <Text style={[styles.actionText, liked && styles.actionLiked]}>
-                {formatCount(likeCount)}
-              </Text>
-            )}
-          </Pressable>
-
-          <Pressable style={styles.action} onPress={toggleBookmark} hitSlop={8}>
-            <Bookmark
-              size={20}
-              color={bookmarked ? T.ACCENT : 'rgba(255,255,255,0.75)'}
-              weight={bookmarked ? 'fill' : 'regular'}
-            />
-          </Pressable>
-
-          <Pressable style={styles.action} onPress={() => setShareVisible(true)} hitSlop={8}>
-            <ShareNetwork size={20} color="rgba(255,255,255,0.75)" />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Comments bottom sheet */}
+      {/* Comments bottom sheet — opened when onCommentsPress fires */}
       <MsContentComments
         kind="video"
         contentId={post.id}
@@ -201,12 +162,6 @@ export default function VideoDetailScreen() {
   );
 }
 
-function formatCount(value: number) {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(value);
-}
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -218,44 +173,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // Floating action bar — overlaid above the player at the very bottom
-  actionBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    // extra scrim so actions read against any video frame
-    backgroundColor: 'rgba(0,0,0,0.0)',
-  },
-  titleSnippet: {
-    color: 'rgba(255,255,255,0.85)',
-    fontFamily: T.FONT.semibold,
-    fontSize: 13,
-    marginBottom: 8,
-    textShadowColor: 'rgba(0,0,0,0.7)',
-    textShadowRadius: 4,
-    textShadowOffset: { width: 0, height: 1 },
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 20,
-    alignItems: 'center',
-  },
-  action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  actionText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontFamily: T.FONT.medium,
-    fontSize: 12,
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowRadius: 4,
-    textShadowOffset: { width: 0, height: 1 },
-  },
-  actionLiked: { color: '#EF4444' },
 });

@@ -1,7 +1,7 @@
 /**
  * MsLongFormPlayer — single reusable long-form video controller.
  *
- * Architecture (v2):
+ * Architecture (v2 — polished):
  *   - Outer Pressable IS the interaction surface; child buttons absorb their
  *     own taps so the parent Pressable only fires on empty-space taps.
  *   - Video is mounted ONCE and never remounts during playback.
@@ -19,6 +19,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -42,15 +43,18 @@ import {
 } from 'expo-av';
 import {
   ArrowCounterClockwise,
+  ArrowClockwise,
   ArrowLeft,
+  Bookmark,
   ChatCircle,
+  Heart,
   Lock,
   Pause,
   Play,
-  SkipBack,
-  SkipForward,
+  ShareNetwork,
   UserPlus,
 } from 'phosphor-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -87,19 +91,57 @@ interface Props {
   /** Comments-button callback — player pauses first, then calls this. */
   onCommentsPress?: () => void;
   commentCount?: number;
+  /** Like button */
+  onLike?: () => void;
+  isLiked?: boolean;
+  likeCount?: number;
+  /** Save / bookmark button */
+  onSave?: () => void;
+  isSaved?: boolean;
+  /** Share button */
+  onShare?: () => void;
 }
 
 const progressKey = (id: string) => `@ms_video_progress:${id}`;
 
 function formatTime(ms: number): string {
   const total = Math.floor(ms / 1000);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  const mins  = Math.floor(total / 60);
+  const secs  = total % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function formatRemaining(posMs: number, durMs: number): string {
-  const remaining = Math.max(0, durMs - posMs);
-  return `-${formatTime(remaining)}`;
+/** Seek-back 10 s icon: counter-clockwise arrow with "10" centre label */
+function SeekBack10() {
+  return (
+    <View style={seekIconS.wrap}>
+      <ArrowCounterClockwise size={26} color="#fff" weight="bold" />
+      <Text style={seekIconS.num}>10</Text>
+    </View>
+  );
 }
+
+/** Seek-forward 10 s icon: clockwise arrow with "10" centre label */
+function SeekFwd10() {
+  return (
+    <View style={seekIconS.wrap}>
+      <ArrowClockwise size={26} color="#fff" weight="bold" />
+      <Text style={seekIconS.num}>10</Text>
+    </View>
+  );
+}
+
+const seekIconS = StyleSheet.create({
+  wrap: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  num:  {
+    position: 'absolute',
+    color: '#fff',
+    fontSize: 8,
+    fontFamily: T.FONT.bold,
+    letterSpacing: -0.3,
+    marginTop: 1,
+  },
+});
 
 export function MsLongFormPlayer({
   videoId,
@@ -114,11 +156,24 @@ export function MsLongFormPlayer({
   creator,
   onCommentsPress,
   commentCount = 0,
+  onLike,
+  isLiked = false,
+  likeCount = 0,
+  onSave,
+  isSaved = false,
+  onShare,
 }: Props) {
+  const insets       = useSafeAreaInsets();
   const ref          = useRef<Video>(null);
   const hideTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const premiumFired = useRef(false);
   const positionRef  = useRef(0);
+
+  // Refs kept in sync for use inside stable PanResponder closure
+  const trackWidthRef  = useRef(1);
+  const durationRef    = useRef(0);
+  const isDraggingRef  = useRef(false);
+  const hasEndedRef    = useRef(false);
 
   const [isPlaying,     setIsPlaying]     = useState(autoPlay);
   const [isBuffering,   setIsBuffering]   = useState(false);
@@ -128,9 +183,9 @@ export function MsLongFormPlayer({
   const [error,         setError]         = useState(false);
   const [showControls,  setShowControls]  = useState(true);
   const [savedPosition, setSavedPosition] = useState<number | null>(null);
-  const [trackWidth,    setTrackWidth]    = useState(1);
   const [premiumGated,  setPremiumGated]  = useState(false);
   const [playerWidth,   setPlayerWidth]   = useState(SCREEN_WIDTH);
+  const [hasEnded,      setHasEnded]      = useState(false);
 
   /** Stable aspect ratio — never jump on first onReadyForDisplay callback. */
   const [aspectRatio, setAspectRatio] = useState(initialAspectRatio ?? 16 / 9);
@@ -160,6 +215,7 @@ export function MsLongFormPlayer({
   // ── Auto-hide timer ──────────────────────────────────────────────────────
 
   const scheduleHide = useCallback((delayMs = 3000) => {
+    if (isDraggingRef.current) return; // never hide during scrub
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
       controlsOpacity.value = withTiming(0, { duration: 350, easing: Easing.out(Easing.cubic) });
@@ -205,13 +261,16 @@ export function MsLongFormPlayer({
   // ── Reset on video change ────────────────────────────────────────────────
 
   useEffect(() => {
-    premiumFired.current = false;
+    premiumFired.current   = false;
+    hasEndedRef.current    = false;
     setPremiumGated(false);
     setError(false);
     setPosition(0);
     setDuration(0);
     setIsReady(false);
-    positionRef.current = 0;
+    setHasEnded(false);
+    positionRef.current  = 0;
+    durationRef.current  = 0;
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri, initialAspectRatio]);
 
@@ -223,13 +282,23 @@ export function MsLongFormPlayer({
       setIsBuffering(status.isBuffering ?? false);
       setIsPlaying(status.isPlaying);
       const pos = status.positionMillis;
-      setPosition(pos);
-      setDuration(status.durationMillis ?? 0);
+      const dur = status.durationMillis ?? 0;
+      // Don't override position state during user scrub
+      if (!isDraggingRef.current) {
+        setPosition(pos);
+        positionRef.current = pos;
+      }
+      setDuration(dur);
+      durationRef.current = dur;
       if (pos > 0 && Math.floor(pos / 5000) !== Math.floor(positionRef.current / 5000)) {
         AsyncStorage.setItem(progressKey(videoId), String(pos)).catch(() => {});
       }
-      positionRef.current = pos;
-      if (status.didJustFinish) setIsPlaying(false);
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+        setHasEnded(true);
+        hasEndedRef.current = true;
+        revealControls(false); // keep controls visible at end
+      }
       if (isPremium && !premiumFired.current && pos >= 3000) {
         premiumFired.current = true;
         ref.current?.pauseAsync().catch(() => {});
@@ -237,7 +306,7 @@ export function MsLongFormPlayer({
         onPremiumRequired?.();
       }
     },
-    [videoId, isPremium, onPremiumRequired],
+    [videoId, isPremium, onPremiumRequired, revealControls],
   );
 
   const onReadyForDisplay = useCallback(
@@ -252,7 +321,6 @@ export function MsLongFormPlayer({
 
   const onFullscreenUpdate = useCallback(
     ({ fullscreenUpdate }: { fullscreenUpdate: VideoFullscreenUpdate }) => {
-      // no-op — native fullscreen not used in this player
       void fullscreenUpdate;
     },
     [],
@@ -262,30 +330,82 @@ export function MsLongFormPlayer({
 
   const toggle = useCallback(async () => {
     if (!ref.current || premiumGated) return;
+    // If video ended, replay from start
+    if (hasEndedRef.current) {
+      hasEndedRef.current = false;
+      setHasEnded(false);
+      setPosition(0);
+      await ref.current.setPositionAsync(0);
+      await ref.current.playAsync();
+      revealControls(true, 1500);
+      return;
+    }
     if (isPlaying) await ref.current.pauseAsync();
     else           await ref.current.playAsync();
-  }, [isPlaying, premiumGated]);
+  }, [isPlaying, premiumGated, revealControls]);
+
+  const handleReplay = useCallback(async () => {
+    if (!ref.current) return;
+    hasEndedRef.current = false;
+    setHasEnded(false);
+    setPosition(0);
+    await ref.current.setPositionAsync(0);
+    await ref.current.playAsync();
+    revealControls(true, 1500);
+  }, [revealControls]);
 
   const seek = useCallback(async (ms: number) => {
-    const clamped = Math.max(0, Math.min(duration || 0, ms));
+    const clamped = Math.max(0, Math.min(durationRef.current || 0, ms));
     setPosition(clamped);
     await ref.current?.setPositionAsync(clamped);
     revealControls(true, 3000);
-  }, [duration, revealControls]);
+  }, [revealControls]);
 
-  const seekByTrackTap = useCallback(
-    (evt: { nativeEvent: { locationX: number } }) => {
-      if (!duration) return;
-      const ratio = Math.max(0, Math.min(1, evt.nativeEvent.locationX / trackWidth));
-      seek(ratio * duration);
-    },
-    [duration, seek, trackWidth],
-  );
+  // ── Draggable progress bar (PanResponder) ────────────────────────────────
+  // All values accessed via stable refs — no stale closures.
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        isDraggingRef.current = true;
+        // Keep controls visible during scrub
+        if (hideTimer.current) clearTimeout(hideTimer.current);
+        controlsOpacity.value = withTiming(1, { duration: 100 });
+        const x   = Math.max(0, Math.min(evt.nativeEvent.locationX, trackWidthRef.current));
+        const ms  = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
+        setPosition(ms);
+        ref.current?.setPositionAsync(ms).catch(() => {});
+      },
+      onPanResponderMove: (evt) => {
+        const x  = Math.max(0, Math.min(evt.nativeEvent.locationX, trackWidthRef.current));
+        const ms = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
+        setPosition(ms);
+        ref.current?.setPositionAsync(ms).catch(() => {});
+      },
+      onPanResponderRelease: (evt) => {
+        isDraggingRef.current = false;
+        const x  = Math.max(0, Math.min(evt.nativeEvent.locationX, trackWidthRef.current));
+        const ms = (x / Math.max(1, trackWidthRef.current)) * Math.max(0, durationRef.current);
+        setPosition(ms);
+        ref.current?.setPositionAsync(ms).catch(() => {});
+        // Re-arm hide timer
+        if (hideTimer.current) clearTimeout(hideTimer.current);
+        hideTimer.current = setTimeout(() => {
+          controlsOpacity.value = withTiming(0, { duration: 350 });
+          setShowControls(false);
+        }, 3000);
+      },
+      onPanResponderTerminate: () => {
+        isDraggingRef.current = false;
+      },
+    })
+  ).current; // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Comments ─────────────────────────────────────────────────────────────
 
   const handleCommentsPress = useCallback(async () => {
-    // Pause first, then open comments
     if (ref.current && isPlaying) await ref.current.pauseAsync();
     onCommentsPress?.();
   }, [isPlaying, onCommentsPress]);
@@ -302,9 +422,6 @@ export function MsLongFormPlayer({
   }, [flashOpacity]);
 
   // ── Gesture handling ─────────────────────────────────────────────────────
-  // The outer Pressable covers the entire player.
-  // Child buttons in the controls overlay absorb their own taps, so this
-  // handler only fires on "empty" areas of the video.
 
   const handleOuterPress = useCallback(
     (e: { nativeEvent: { locationX: number } }) => {
@@ -313,18 +430,14 @@ export function MsLongFormPlayer({
       const third = playerWidth / 3;
 
       if (x >= third && x <= third * 2) {
-        // ── Centre tap: play / pause only ─────────────────────────────────
-        // Do NOT show or hide controls.
+        // Centre tap: play / pause only
         const willPause = isPlaying;
         toggle();
         triggerFlash(willPause ? 'pause' : 'play');
       } else {
-        // ── Edge tap: toggle controls ──────────────────────────────────────
-        if (showControls) {
-          hideControls();
-        } else {
-          revealControls(true, 3000);
-        }
+        // Edge tap: toggle controls
+        if (showControls) hideControls();
+        else revealControls(true, 3000);
       }
     },
     [premiumGated, uri, error, playerWidth, isPlaying, showControls,
@@ -337,6 +450,9 @@ export function MsLongFormPlayer({
   const outerStyle  = fillContainer
     ? [styles.player, styles.playerFill]
     : [styles.player, { aspectRatio }];
+
+  // Safe-area-aware top padding for the control bar
+  const topPad = Math.max(insets.top, 0) + 10;
 
   return (
     <Pressable
@@ -442,8 +558,9 @@ export function MsLongFormPlayer({
           style={[styles.controlsOverlay, controlsStyle]}
           pointerEvents={showControls ? 'box-none' : 'none'}
         >
-          {/* Top bar — back + comments */}
-          <View style={styles.topBar}>
+          {/* Top bar — back (left) + actions (right) */}
+          <View style={[styles.topBar, { paddingTop: topPad }]}>
+            {/* Back button */}
             {onBack ? (
               <Pressable
                 onPress={onBack}
@@ -451,28 +568,79 @@ export function MsLongFormPlayer({
                 accessibilityLabel="Go back"
                 hitSlop={12}
               >
-                <ArrowLeft size={19} color="#fff" weight="bold" />
+                <ArrowLeft size={18} color="#fff" weight="bold" />
               </Pressable>
             ) : <View style={styles.topBtnPlaceholder} />}
 
+            {/* Action buttons row */}
             <View style={styles.topRight}>
+              {/* Like */}
+              {onLike ? (
+                <Pressable
+                  onPress={onLike}
+                  style={styles.topBtn}
+                  accessibilityLabel={isLiked ? 'Unlike' : 'Like'}
+                  hitSlop={10}
+                >
+                  <Heart
+                    size={17}
+                    color={isLiked ? '#EF4444' : '#fff'}
+                    weight={isLiked ? 'fill' : 'regular'}
+                  />
+                  {likeCount > 0 ? (
+                    <Text style={[styles.topBtnLabel, isLiked && styles.topBtnLabelLiked]}>
+                      {likeCount >= 1000
+                        ? `${(likeCount / 1000).toFixed(1)}k`
+                        : String(likeCount)}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ) : null}
+
+              {/* Comment */}
               {onCommentsPress ? (
                 <Pressable
                   onPress={handleCommentsPress}
                   style={styles.topBtn}
                   accessibilityLabel="Comments"
-                  hitSlop={12}
+                  hitSlop={10}
                 >
-                  <ChatCircle size={19} color="#fff" />
+                  <ChatCircle size={17} color="#fff" />
                   {commentCount > 0 ? (
-                    <View style={styles.commentBadge} pointerEvents="none">
-                      <Text style={styles.commentBadgeText}>
-                        {commentCount >= 1000
-                          ? `${(commentCount / 1000).toFixed(1)}k`
-                          : String(commentCount)}
-                      </Text>
-                    </View>
+                    <Text style={styles.topBtnLabel}>
+                      {commentCount >= 1000
+                        ? `${(commentCount / 1000).toFixed(1)}k`
+                        : String(commentCount)}
+                    </Text>
                   ) : null}
+                </Pressable>
+              ) : null}
+
+              {/* Save */}
+              {onSave ? (
+                <Pressable
+                  onPress={onSave}
+                  style={styles.topBtn}
+                  accessibilityLabel={isSaved ? 'Unsave' : 'Save'}
+                  hitSlop={10}
+                >
+                  <Bookmark
+                    size={17}
+                    color={isSaved ? T.ACCENT : '#fff'}
+                    weight={isSaved ? 'fill' : 'regular'}
+                  />
+                </Pressable>
+              ) : null}
+
+              {/* Share */}
+              {onShare ? (
+                <Pressable
+                  onPress={onShare}
+                  style={styles.topBtn}
+                  accessibilityLabel="Share"
+                  hitSlop={10}
+                >
+                  <ShareNetwork size={17} color="#fff" />
                 </Pressable>
               ) : null}
             </View>
@@ -484,29 +652,33 @@ export function MsLongFormPlayer({
               onPress={() => seek(position - 10_000)}
               style={styles.skipBtn}
               accessibilityLabel="Skip back 10 seconds"
-              hitSlop={10}
+              hitSlop={12}
             >
-              <SkipBack size={26} color="#fff" weight="fill" />
+              <SeekBack10 />
             </Pressable>
 
             <Pressable
-              onPress={toggle}
-              style={styles.playBtn}
-              accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+              onPress={hasEnded ? handleReplay : toggle}
+              style={[styles.playBtn, hasEnded && styles.replayBtn]}
+              accessibilityLabel={hasEnded ? 'Replay' : isPlaying ? 'Pause' : 'Play'}
               hitSlop={10}
             >
-              {isPlaying
-                ? <Pause size={28} color="#fff" weight="fill" />
-                : <Play  size={28} color="#fff" weight="fill" />}
+              {hasEnded ? (
+                <ArrowCounterClockwise size={30} color="#fff" weight="bold" />
+              ) : isPlaying ? (
+                <Pause size={28} color="#fff" weight="fill" />
+              ) : (
+                <Play  size={28} color="#fff" weight="fill" />
+              )}
             </Pressable>
 
             <Pressable
               onPress={() => seek(position + 10_000)}
               style={styles.skipBtn}
               accessibilityLabel="Skip forward 10 seconds"
-              hitSlop={10}
+              hitSlop={12}
             >
-              <SkipForward size={26} color="#fff" weight="fill" />
+              <SeekFwd10 />
             </Pressable>
           </View>
 
@@ -551,25 +723,35 @@ export function MsLongFormPlayer({
 
             {/* Progress bar row */}
             <View style={styles.bottomBar}>
-              <Text style={styles.timeText}>{formatTime(position)}</Text>
+              {/* Combined time display: 00:00 / 00:00 */}
+              <Text style={styles.timeText}>
+                {formatTime(position)}
+                <Text style={styles.timeDivider}> / </Text>
+                {formatTime(duration)}
+              </Text>
 
+              {/* Draggable track */}
               <View
-                style={styles.track}
-                onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+                style={styles.trackHitArea}
+                onLayout={(e) => {
+                  trackWidthRef.current = e.nativeEvent.layout.width;
+                }}
+                {...panResponder.panHandlers}
               >
-                <Pressable
-                  style={StyleSheet.absoluteFill}
-                  onPress={seekByTrackTap}
-                  accessibilityLabel="Seek"
-                />
-                {isBuffering ? (
-                  <View style={[styles.trackBuffering, { width: `${Math.min(100, progressPct + 8)}%` as any }]} />
-                ) : null}
-                <View style={[styles.trackFill, { width: `${progressPct}%` as any }]} />
-                <View style={[styles.thumb, { left: `${progressPct}%` as any }]} pointerEvents="none" />
+                {/* Track background */}
+                <View style={styles.track} pointerEvents="none">
+                  {isBuffering ? (
+                    <View
+                      style={[
+                        styles.trackBuffering,
+                        { width: `${Math.min(100, progressPct + 8)}%` as any },
+                      ]}
+                    />
+                  ) : null}
+                  <View style={[styles.trackFill, { width: `${progressPct}%` as any }]} />
+                  <View style={[styles.thumb, { left: `${progressPct}%` as any }]} />
+                </View>
               </View>
-
-              <Text style={styles.timeText}>{formatRemaining(position, duration)}</Text>
             </View>
           </View>
         </Animated.View>
@@ -671,27 +853,27 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 5,
     justifyContent: 'space-between',
-    // Gradient-like dark edges
     backgroundColor: 'transparent',
   },
 
   // Top bar
   topBar: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: 10,
+    // gradient scrim at top
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   topBtn: {
-    minWidth: 36,
-    height: 36,
-    borderRadius: 18,
+    minWidth: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(0,0,0,0.52)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -700,21 +882,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
   },
-  topBtnPlaceholder: { width: 36 },
-  topRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-
-  commentBadge: {
-    backgroundColor: T.ACCENT,
-    borderRadius: 10,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    minWidth: 18,
-    alignItems: 'center',
-  },
-  commentBadgeText: {
+  topBtnLabel: {
     color: '#fff',
-    fontFamily: T.FONT.bold,
-    fontSize: 9,
+    fontFamily: T.FONT.semibold,
+    fontSize: 11,
+  },
+  topBtnLabelLiked: {
+    color: '#EF4444',
+  },
+  topBtnPlaceholder: { width: 38, height: 38 },
+  topRight: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    flexWrap: 'nowrap',
   },
 
   // Centre controls
@@ -722,11 +903,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 30,
+    gap: 32,
   },
   skipBtn: {
     width: 52, height: 52, borderRadius: 26,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000',
     shadowOpacity: 0.4,
@@ -735,7 +916,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   playBtn: {
-    width: 64, height: 64, borderRadius: 32,
+    width: 66, height: 66, borderRadius: 33,
     backgroundColor: 'rgba(0,0,0,0.58)',
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000',
@@ -744,14 +925,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 6,
   },
+  replayBtn: {
+    // Slight accent tint on the replay button
+    backgroundColor: 'rgba(20,10,30,0.65)',
+  },
 
   // Bottom section: creator strip + progress
   bottomSection: {
     paddingHorizontal: 0,
-    // Bottom scrim
     backgroundColor: 'rgba(0,0,0,0.42)',
-    borderRadius: 0,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
 
   // Creator strip
@@ -764,7 +947,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   creatorAvatar: {
-    width: 28, height: 28, borderRadius: 14,
+    width: 30, height: 30, borderRadius: 15,
     backgroundColor: T.SURFACE_2,
   },
   creatorAvatarFallback: {
@@ -776,11 +959,11 @@ const styles = StyleSheet.create({
   },
   creatorText: { flex: 1 },
   creatorName: {
-    color: '#fff', fontFamily: T.FONT.semibold, fontSize: 12,
+    color: '#fff', fontFamily: T.FONT.semibold, fontSize: 13,
     textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 4, textShadowOffset: { width: 0, height: 1 },
   },
   creatorHandle: {
-    color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 10,
+    color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 11,
   },
   subscribeBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -797,20 +980,29 @@ const styles = StyleSheet.create({
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     paddingHorizontal: 14,
-    paddingBottom: 4,
-    paddingTop: 2,
+    paddingBottom: 2,
+    paddingTop: 4,
   },
   timeText: {
     color: '#fff',
     fontFamily: T.FONT.medium,
     fontSize: 11,
-    minWidth: 38,
-    textAlign: 'center',
+    minWidth: 90,          // enough for "00:00 / 00:00"
+  },
+  timeDivider: {
+    color: 'rgba(255,255,255,0.45)',
+    fontFamily: T.FONT.regular,
+  },
+
+  // Track hit area — larger touch target than the visual track
+  trackHitArea: {
+    flex: 1,
+    height: 28,            // tall for easy dragging
+    justifyContent: 'center',
   },
   track: {
-    flex: 1,
     height: 4,
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.25)',
@@ -822,7 +1014,7 @@ const styles = StyleSheet.create({
     left: 0,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
   trackFill: {
     position: 'absolute',
@@ -833,14 +1025,14 @@ const styles = StyleSheet.create({
   },
   thumb: {
     position: 'absolute',
-    width: 13, height: 13, borderRadius: 7,
+    width: 14, height: 14, borderRadius: 7,
     backgroundColor: '#fff',
-    marginLeft: -6,
+    marginLeft: -7,
     top: -5,
     zIndex: 2,
     shadowColor: '#000',
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 3,
   },
 });
