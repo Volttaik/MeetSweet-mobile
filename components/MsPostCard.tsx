@@ -397,10 +397,14 @@ export function MsPostCard({
         </ScalePressable>
       )}
 
-      {/* Media — video */}
+      {/* Media — video
+          Play button tap  → inline playback inside MsPremiumContent (no onPlayPress = inline)
+          Video area tap   → inline play (same ScalePressable onPress)
+          Caption/author   → Full View (separate TouchableOpacity handlers above)
+      */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <ScalePressable
-          onPress={onMediaPress ?? onPress}
+          onPress={undefined}
           onLongPress={openSheet}
           onDoubleTap={handleLike}
         >
@@ -414,7 +418,6 @@ export function MsPostCard({
             aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
             borderRadius={T.RADIUS.xl}
             onUnlock={onMediaPress ?? onPress}
-            onPlayPress={onMediaPress ?? onPress}
             style={styles.videoPlaceholder}
           />
         </ScalePressable>
