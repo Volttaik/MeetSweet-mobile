@@ -11,6 +11,7 @@
  */
 import React, { useCallback, useState } from 'react';
 import {
+  StyleProp,
   StyleSheet,
   View,
   ViewStyle,
@@ -21,7 +22,8 @@ import { T } from '@/constants/theme';
 
 interface Props {
   videoUri: string;
-  style?: ViewStyle;
+  /** StyleProp so StyleSheet.absoluteFill (RegisteredStyle) is accepted. */
+  style?: StyleProp<ViewStyle>;
   /** When false the thumbnail hides and yields to the parent (e.g. the player itself). */
   visible?: boolean;
 }

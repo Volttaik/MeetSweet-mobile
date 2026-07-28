@@ -297,6 +297,7 @@ export default function CreatorProfileScreen() {
     title:        post.caption || '',
     category:     '',
     kind:         post.mediaType === 'video' ? 'video' : 'photo' as string,
+    contentType:  post.contentType,
     duration:     '',
     likes:        String(post.likeCount),
     isPremium:    post.isPremium,
@@ -535,13 +536,20 @@ export default function CreatorProfileScreen() {
                       mediaUrl:     preview.isPremium ? null : (preview.mediaUrl ?? null),
                       ...creatorBase,
                     };
+                    const navToVideo = () => {
+                      if (preview.contentType === 'short') {
+                        router.push({ pathname: '/shorts', params: { startId: preview.id } });
+                      } else {
+                        router.push(`/videos/${preview.id}`);
+                      }
+                    };
                     return (
                       <MsFeedVideoCard
                         key={preview.id}
                         card={card}
-                        onPress={() => router.push(`/content/${preview.id}`)}
+                        onPress={navToVideo}
                         onCreatorPress={() => undefined}
-                        onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                        onUnlockPress={navToVideo}
                       />
                     );
                   }

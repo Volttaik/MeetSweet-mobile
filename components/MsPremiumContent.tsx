@@ -16,10 +16,13 @@ import { LockSimple, Play } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsMediaLoader, MsMediaState, type MediaLoadState } from '@/components/MsMediaLoader';
+import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 
 export interface MsPremiumContentProps {
   uri?: string | null;
   posterUri?: string | null;
+  /** Video URL used as fallback when posterUri is absent — first frame is extracted natively. */
+  videoThumbnailUri?: string | null;
   mediaType?: 'image' | 'video';
   locked?: boolean;
   unlocked?: boolean;
@@ -38,6 +41,7 @@ export interface MsPremiumContentProps {
 export function MsPremiumContent({
   uri,
   posterUri,
+  videoThumbnailUri,
   mediaType = 'image',
   locked = false,
   unlocked = false,
@@ -115,6 +119,13 @@ export function MsPremiumContent({
                   style={StyleSheet.absoluteFill}
                   resizeMode="cover"
                   accessibleLabel="Video poster"
+                />
+              ) : videoThumbnailUri ? (
+                /* First-frame extraction — never shows a blank/black rectangle */
+                <MsVideoThumbnail
+                  videoUri={videoThumbnailUri}
+                  style={StyleSheet.absoluteFill}
+                  visible
                 />
               ) : (
                 <View style={[StyleSheet.absoluteFill, styles.videoPosterFallback]} accessible accessibilityLabel="Video poster placeholder" />

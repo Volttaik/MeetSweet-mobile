@@ -141,6 +141,7 @@ export function MsFeedVideoCard({
         <MsPremiumContent
           uri={card.isPremium ? null : (card.mediaUrl ?? null)}
           posterUri={card.thumbnailUrl ?? null}
+          videoThumbnailUri={!card.thumbnailUrl && card.mediaUrl ? card.mediaUrl : null}
           mediaType="video"
           locked={card.isPremium}
           unlocked={!card.isPremium}

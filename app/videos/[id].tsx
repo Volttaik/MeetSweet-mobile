@@ -23,6 +23,7 @@ import { MsContentComments } from '@/components/MsContentComments';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { getPost, likePost, unlikePost, bookmarkPost, type Post } from '@/services/posts';
@@ -218,6 +219,12 @@ export default function VideoDetailScreen() {
                       accessibleLabel={item.title}
                       errorMessage=""
                       fallback={null}
+                    />
+                  ) : item.videoUrl ? (
+                    <MsVideoThumbnail
+                      videoUri={item.videoUrl}
+                      style={StyleSheet.absoluteFill}
+                      visible
                     />
                   ) : null}
                 </View>

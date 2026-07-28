@@ -28,6 +28,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withRepeat,
   Easing,
 } from 'react-native-reanimated';
 import {
@@ -115,6 +116,19 @@ export function MsLongFormPlayer({
   const controlsOpacity = useSharedValue(1);
   const controlsStyle = useAnimatedStyle(() => ({
     opacity: controlsOpacity.value,
+  }));
+
+  // Spinner rotation
+  const spinAngle = useSharedValue(0);
+  useEffect(() => {
+    spinAngle.value = withRepeat(
+      withTiming(360, { duration: 800, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const spinStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${spinAngle.value}deg` }],
   }));
 
   // ── Auto-hide timer ─────────────────────────────────────────────────────────
@@ -349,14 +363,14 @@ export function MsLongFormPlayer({
       {/* Spinner — only before first frame is decoded */}
       {!isReady && uri && !error ? (
         <View style={styles.spinnerWrap} pointerEvents="none">
-          <View style={styles.spinnerRing} />
+          <Animated.View style={[styles.spinnerRing, spinStyle]} />
         </View>
       ) : null}
 
-      {/* Mid-playback buffering dot on progress (subtle, non-blocking) */}
-      {isReady && isBuffering && !isPlaying && uri && !error ? (
+      {/* Mid-playback buffering indicator (shown while buffering even if playing) */}
+      {isReady && isBuffering && uri && !error ? (
         <View style={styles.spinnerWrap} pointerEvents="none">
-          <View style={styles.spinnerRing} />
+          <Animated.View style={[styles.spinnerRing, spinStyle]} />
         </View>
       ) : null}
 
