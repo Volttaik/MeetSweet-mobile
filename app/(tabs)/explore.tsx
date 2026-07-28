@@ -49,7 +49,6 @@ import { CreatorImageCard } from '@/components/CreatorImageCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
-import { MsCreatorPreview, type CreatorPreviewData } from '@/components/MsCreatorPreview';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
 import { ExploreVideoCard, type ExploreVideoCardData } from '@/components/ExploreVideoCard';
@@ -139,23 +138,6 @@ const toggleStyles = StyleSheet.create({
     color: T.BG,
   },
 });
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function toPreviewData(creator: Creator): CreatorPreviewData {
-  return {
-    id: creator.id,
-    name: creator.name,
-    handle: creator.handle,
-    bio: creator.bio,
-    initials: creator.initials,
-    isVerified: creator.isVerified,
-    isOnline: creator.isOnline,
-    followers: creator.followers,
-    monthlyCredits: creator.monthlyCredits,
-    category: creator.category,
-  };
-}
 
 // ─── Shared header component ───────────────────────────────────────────────────
 
@@ -264,8 +246,6 @@ export default function ExploreScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [menuCreator, setMenuCreator] = useState<Creator | null>(null);
-  const [previewCreator, setPreviewCreator] = useState<CreatorPreviewData | null>(null);
-  const [previewVisible, setPreviewVisible] = useState(false);
 
   // ── Data hooks ───────────────────────────────────────────────────────────────
   const catalogQuery = useLocalExploreCatalog();
@@ -429,11 +409,6 @@ export default function ExploreScreen() {
   // ── Actions ────────────────────────────────────────────────────────────────────
   const openCreator = (creator: Creator) => router.push(`/creator/${creator.id}`);
 
-  const openAvatarPreview = (creator: Creator) => {
-    setPreviewCreator(toPreviewData(creator));
-    setPreviewVisible(true);
-  };
-
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -580,9 +555,9 @@ export default function ExploreScreen() {
           <View style={styles.feedItemWrap}>
             <ExploreImageCard
               card={item.data}
-              onPress={() => router.push(`/content/${item.id}`)}
+              onPress={() => router.push(`/post/${item.id}`)}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-              onUnlockPress={() => router.push(`/content/${item.id}`)}
+              onUnlockPress={() => router.push(`/post/${item.id}`)}
             />
           </View>
         );
@@ -593,9 +568,9 @@ export default function ExploreScreen() {
           <View style={styles.videoItemWrap}>
             <ExploreVideoCard
               card={item.data}
-              onPress={() => router.push(`/content/${item.id}`)}
+              onPress={() => router.push(`/videos/${item.id}`)}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-              onUnlockPress={() => router.push(`/content/${item.id}`)}
+              onUnlockPress={() => router.push(`/videos/${item.id}`)}
             />
           </View>
         );
@@ -771,7 +746,7 @@ export default function ExploreScreen() {
                       creator={creator}
                       onPress={() => openCreator(creator)}
                       onLongPress={() => setMenuCreator(creator)}
-                      onAvatarPress={() => openAvatarPreview(creator)}
+                      onAvatarPress={() => openCreator(creator)}
                     />
                   ))}
                 </ScrollView>
@@ -820,7 +795,7 @@ export default function ExploreScreen() {
                       creator={creator}
                       onPress={() => openCreator(creator)}
                       onLongPress={() => setMenuCreator(creator)}
-                      onAvatarPress={() => openAvatarPreview(creator)}
+                      onAvatarPress={() => openCreator(creator)}
                     />
                   ))}
                 </View>
@@ -877,9 +852,9 @@ export default function ExploreScreen() {
                       <View key={preview.id} style={styles.videoItemWrap}>
                         <ExploreVideoCard
                           card={card}
-                          onPress={() => router.push(`/content/${preview.id}`)}
+                          onPress={() => router.push(`/videos/${preview.id}`)}
                           onCreatorPress={() => router.push(`/creator/${creator.id}`)}
-                          onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                          onUnlockPress={() => router.push(`/videos/${preview.id}`)}
                         />
                       </View>
                     );
@@ -901,9 +876,9 @@ export default function ExploreScreen() {
                     <View key={preview.id} style={styles.feedItemWrap}>
                       <ExploreImageCard
                         card={imgCard}
-                        onPress={() => router.push(`/content/${preview.id}`)}
+                        onPress={() => router.push(`/post/${preview.id}`)}
                         onCreatorPress={() => router.push(`/creator/${creator.id}`)}
-                        onUnlockPress={() => router.push(`/content/${preview.id}`)}
+                        onUnlockPress={() => router.push(`/post/${preview.id}`)}
                       />
                     </View>
                   );
@@ -953,7 +928,7 @@ export default function ExploreScreen() {
                       creator={creator}
                       onPress={() => openCreator(creator)}
                       onLongPress={() => setMenuCreator(creator)}
-                      onAvatarPress={() => openAvatarPreview(creator)}
+                      onAvatarPress={() => openCreator(creator)}
                     />
                   ))}
                 </View>
@@ -980,13 +955,6 @@ export default function ExploreScreen() {
         onClose={() => setMenuCreator(null)}
       />
 
-      <MsCreatorPreview
-        visible={previewVisible}
-        creator={previewCreator}
-        onClose={() => setPreviewVisible(false)}
-        onViewProfile={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
-        onSubscribe={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
-      />
     </MsAmbientBackground>
   );
 }

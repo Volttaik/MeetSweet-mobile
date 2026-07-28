@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useState } from 'react';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
 import {
   Alert,
   Dimensions,
@@ -29,9 +29,11 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser } from '@/services/users';
 import { Spinner } from 'heroui-native';
-import type { Creator, ContentPreview } from '@/lib/api-client-react';
+import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
-import { useCreatorProfile, useCreatorReviews, type CreatorReview } from '@/services/creators';
+import { useCreatorReviews, type CreatorReview } from '@/services/creators';
+import { getUser } from '@/services/users';
+import { getPostsByCreator, type Post } from '@/services/posts';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -237,41 +239,70 @@ export default function CreatorProfileScreen() {
   // 1. Explore catalog: gives us the basic creator shell (name, handle, avatar)
   //    derived from the posts feed.  Used as a fast-path while the profile loads.
   const catalogQuery  = useLocalExploreCatalog();
-  // 2. Real profile: GET /creators/:id — bio, category, follower count, etc.
-  //    Gracefully returns null when the backend endpoint is pending.
-  const profileQuery  = useCreatorProfile(id);
-  // 3. Real reviews: GET /creators/:id/reviews
-  //    Returns an empty list when the backend endpoint is pending.
+  // Reviews: backend has no /creators/:id/reviews — always empty
   const reviewsQuery  = useCreatorReviews(id);
 
-  const catalogCreator = useMemo(
-    () => catalogQuery.data?.creators?.find((item) => item.id === id),
-    [id, catalogQuery.data],
-  );
+  // Real profile: GET /api/users/:username
+  // Real posts:   GET /api/posts?creator_id=:id
+  const [realProfile, setRealProfile] = useState<{ name: string; username: string; bio?: string | null; avatarUrl?: string | null; bannerUrl?: string | null; followerCount?: number; isVerified?: boolean } | null>(null);
+  const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
+
+  // Catalog lookup: try by UUID (from explore), then by username/handle (from post navigation)
+  const catalogCreator = useMemo(() => {
+    if (!catalogQuery.data) return null;
+    return (
+      catalogQuery.data.creators?.find((c) => c.id === id) ??
+      catalogQuery.data.creators?.find((c) => c.handle === `@${id}`) ??
+      null
+    );
+  }, [id, catalogQuery.data]);
+
+  // Username for API: from catalog handle (strip @), or treat id as username
+  const username = catalogCreator?.handle?.replace('@', '') ?? id;
+
+  useEffect(() => {
+    if (!username) return;
+    getUser(username)
+      .then(({ user }) => {
+        setRealProfile({
+          name:         user.name ?? '',
+          username:     user.username ?? '',
+          bio:          user.bio ?? null,
+          avatarUrl:    user.avatarUrl ?? null,
+          bannerUrl:    user.bannerUrl ?? null,
+          followerCount: user.followerCount ?? 0,
+          isVerified:   user.isVerified ?? false,
+        });
+      })
+      .catch(() => {});
+  }, [username]);
+
+  // Fetch real posts by this creator. Use the UUID from catalog if available;
+  // fall back to the id param (may already be a UUID for logged-in creators).
+  const creatorUUID = catalogCreator?.id ?? id;
+  useEffect(() => {
+    if (!creatorUUID) return;
+    getPostsByCreator(creatorUUID)
+      .then(({ posts }) => setCreatorPosts(posts))
+      .catch(() => {});
+  }, [creatorUUID]);
 
   /**
    * Merge the explore-catalog shell with the real profile data.
-   * This ensures the screen always has something to show (name, avatar) while
-   * the profile request resolves, and upgrades to real data (bio, followers,
-   * category, subscription price) as soon as it arrives.
    */
   const creator: Creator | null = useMemo(() => {
-    if (!catalogCreator && !profileQuery.data) return null;
+    if (!catalogCreator && !realProfile) return null;
     const base = catalogCreator;
-    const profile = profileQuery.data;
+    const profile = realProfile;
 
-    const resolvedName     = profile?.display_name?.trim() || base?.name || 'Creator';
+    const resolvedName     = profile?.name?.trim() || base?.name || 'Creator';
     const resolvedHandle   = base?.handle || (profile?.username ? `@${profile.username}` : '');
     const resolvedInitials = initials(resolvedName);
     const resolvedBio      = profile?.bio ?? base?.bio ?? '';
-    const resolvedCategory = profile?.category ?? base?.category ?? '';
     const resolvedFollowers = profile
-      ? fmtCount(profile.follower_count)
+      ? fmtCount(profile.followerCount ?? 0)
       : (base?.followers ?? '');
-    const resolvedSubscriberCount = profile?.subscriber_count ?? base?.subscriberCount ?? 0;
-    const resolvedMonthlyCredits  = profile?.subscription_price ?? base?.monthlyCredits ?? 0;
-    const resolvedIsVerified = profile?.is_verified ?? base?.isVerified ?? false;
-    const resolvedIsOnline   = profile?.is_online   ?? base?.isOnline   ?? false;
+    const resolvedIsVerified = profile?.isVerified ?? base?.isVerified ?? false;
 
     return {
       id: id!,
@@ -279,27 +310,25 @@ export default function CreatorProfileScreen() {
       handle:          resolvedHandle,
       initials:        resolvedInitials,
       bio:             resolvedBio,
-      category:        resolvedCategory,
+      category:        base?.category ?? '',
       followers:       resolvedFollowers,
-      subscriberCount: resolvedSubscriberCount,
-      monthlyCredits:  resolvedMonthlyCredits,
+      subscriberCount: base?.subscriberCount ?? 0,
+      monthlyCredits:  base?.monthlyCredits ?? 0,
       isVerified:      resolvedIsVerified,
-      isOnline:        resolvedIsOnline,
+      isOnline:        base?.isOnline ?? false,
       gradient:        base?.gradient ?? 'violet',
-      avatarUrl:       profile?.avatar_url ?? base?.avatarUrl,
-      bannerUrl:       profile?.banner_url ?? base?.bannerUrl,
+      avatarUrl:       profile?.avatarUrl ?? base?.avatarUrl,
+      bannerUrl:       profile?.bannerUrl ?? base?.bannerUrl,
     };
-  }, [id, catalogCreator, profileQuery.data]);
+  }, [id, catalogCreator, realProfile]);
 
-  const creatorPreviews =
-    catalogQuery.data?.previews.filter((item) => item.creatorId === id) ?? [];
   const creditBalance = Number(catalogQuery.data?.creditBalance ?? 0);
   const canSubscribe  = Boolean(creator && creator.monthlyCredits > 0 && creditBalance >= creator.monthlyCredits);
 
-  // Reviews from the live endpoint
-  const reviews       = reviewsQuery.data?.reviews ?? [];
-  const totalReviews  = reviewsQuery.data?.total ?? 0;
-  const avgRating     = reviewsQuery.data?.average_rating ?? null;
+  // Reviews (always empty — backend has no reviews endpoint)
+  const reviews      = reviewsQuery.data?.reviews ?? [];
+  const totalReviews = reviewsQuery.data?.total ?? 0;
+  const avgRating    = reviewsQuery.data?.average_rating ?? null;
 
   // ── Refresh ───────────────────────────────────────────────────────────────────
   const refresh = async () => {
@@ -307,8 +336,12 @@ export default function CreatorProfileScreen() {
     try {
       await Promise.all([
         catalogQuery.refetch(),
-        profileQuery.refetch(),
-        reviewsQuery.refetch(),
+        getUser(username).then(({ user }) => setRealProfile({
+          name: user.name, username: user.username, bio: user.bio,
+          avatarUrl: user.avatarUrl, bannerUrl: user.bannerUrl,
+          followerCount: user.followerCount, isVerified: user.isVerified,
+        })).catch(() => {}),
+        getPostsByCreator(creatorUUID).then(({ posts }) => setCreatorPosts(posts)).catch(() => {}),
       ]);
     } finally {
       setRefreshing(false);
@@ -316,13 +349,13 @@ export default function CreatorProfileScreen() {
   };
 
   // ── Loading state ─────────────────────────────────────────────────────────────
-  const isInitialLoading = catalogQuery.isLoading && !catalogCreator;
+  const isInitialLoading = catalogQuery.isLoading && !catalogCreator && !realProfile;
 
   if (isInitialLoading) {
     return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
   }
 
-  if ((catalogQuery.isError && !catalogCreator) || (!creator && !catalogQuery.isLoading)) {
+  if ((catalogQuery.isError && !catalogCreator && !realProfile) || (!creator && !catalogQuery.isLoading)) {
     return (
       <View style={styles.center}>
         <MsEmptyState
@@ -340,7 +373,7 @@ export default function CreatorProfileScreen() {
   }
 
   const TABS: { key: TabKey; label: string }[] = [
-    { key: 'drops',   label: `Drops (${creatorPreviews.length})` },
+    { key: 'drops',   label: `Drops (${creatorPosts.length})` },
     { key: 'reviews', label: `Reviews (${reviewsQuery.isLoading ? '…' : totalReviews})` },
     { key: 'about',   label: 'About' },
   ];

@@ -1,4 +1,12 @@
-import React, { useMemo } from 'react';
+/**
+ * Post detail screen — handles both image and video posts.
+ *
+ * Fetches the real post from GET /api/posts/:id.
+ * For video posts: renders the production video player (MsLongFormPlayer).
+ * For image posts: renders the full-resolution image.
+ * Shows creator info, likes, comments, and paywall for premium content.
+ */
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -11,37 +19,77 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
-  Check,
-  Clock,
+  Bookmark,
+  ChatCircle,
   Heart,
-  Lock,
-  Play,
-  Users,
+  ShareNetwork,
+  UserPlus,
 } from 'phosphor-react-native';
-import { useLocalExploreCatalog, fmtTimeAgo } from '@/services/explore';
+import { getPost, likePost, unlikePost, bookmarkPost, type Post } from '@/services/posts';
+import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
+import { MsContentComments } from '@/components/MsContentComments';
+import { MsShareSheet } from '@/components/MsShareSheet';
+import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { T } from '@/constants/theme';
 
-export default function ContentViewerScreen() {
-  const insets = useSafeAreaInsets();
+export default function ContentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
 
-  // Use the local catalog — never the generated stub that hits a missing endpoint
-  const query = useLocalExploreCatalog();
+  const [post, setPost] = useState<Post | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [liked, setLiked] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
-  const preview = useMemo(
-    () => query.data?.previews.find((item) => item.id === id),
-    [id, query.data],
-  );
-  const creator = useMemo(
-    () => query.data?.creators.find((item) => item.id === preview?.creatorId),
-    [preview, query.data],
-  );
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    getPost(id)
+      .then(({ post: p }) => {
+        setPost(p);
+        setLiked(p.likedByMe);
+        setBookmarked(p.bookmarkedByMe ?? false);
+        setLikeCount(p.likeCount);
+      })
+      .catch(() => setPost(null))
+      .finally(() => setLoading(false));
+  }, [id]);
 
-  // Loading
-  if (query.isLoading) {
+  const toggleLike = async () => {
+    if (!post) return;
+    const nextLiked = !liked;
+    setLiked(nextLiked);
+    setLikeCount((n) => Math.max(0, n + (nextLiked ? 1 : -1)));
+    try {
+      const result = nextLiked ? await likePost(post.id) : await unlikePost(post.id);
+      setLikeCount(result.likeCount);
+      setLiked(result.liked);
+    } catch {
+      setLiked(!nextLiked);
+      setLikeCount((n) => Math.max(0, n + (nextLiked ? -1 : 1)));
+    }
+  };
+
+  const toggleBookmark = async () => {
+    if (!post) return;
+    const next = !bookmarked;
+    setBookmarked(next);
+    try {
+      await bookmarkPost(post.id);
+    } catch {
+      setBookmarked(!next);
+    }
+  };
+
+  if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={T.TEXT_2} />
@@ -49,287 +97,178 @@ export default function ContentViewerScreen() {
     );
   }
 
-  // Error or content not found
-  if (query.isError || !preview || !creator) {
+  if (!post) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
         <MsEmptyState
-          title="Preview unavailable"
-          message="This drop is no longer available or couldn't be loaded."
-          actionLabel="Back to Explore"
-          onAction={() => router.replace('/(tabs)/explore')}
+          title="Content unavailable"
+          message="This post could not be loaded."
+          actionLabel="Back"
+          onAction={() => router.back()}
         />
       </View>
     );
   }
 
+  const isVideo = post.mediaType === 'video';
+  const isPremium = post.isPremium;
+
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* ── Header ─────────────────────────────────────────── */}
+    <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <Pressable
-          style={styles.iconButton}
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
+        <Pressable style={styles.iconButton} onPress={() => router.back()}>
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
-        <Text style={styles.headerTitle}>Preview</Text>
-        {/* Right spacer keeps title centred */}
-        <View style={styles.iconButton} />
+        <Text style={styles.headerTitle}>{isVideo ? 'Video' : 'Post'}</Text>
+        <Pressable style={styles.iconButton} onPress={() => setShareVisible(true)}>
+          <ShareNetwork size={19} color={T.TEXT} />
+        </Pressable>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      >
-        {/* ── Media art / thumbnail ──────────────────────────── */}
-        <View style={styles.artWrap}>
-          {/* Real thumbnail if available — fades in over the solid bg */}
-          {preview.thumbnailUrl ? (
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {/* Media */}
+        {isVideo ? (
+          <MsLongFormPlayer
+            videoId={post.id}
+            uri={post.mediaUrl}
+            posterUri={post.thumbnailUrl}
+            isPremium={isPremium}
+            previewDuration={post.isLocked ? 3 : undefined}
+            onPremiumRequired={() => setPremiumSheetVisible(true)}
+          />
+        ) : post.mediaUrl ? (
+          <View style={styles.imageWrap}>
             <MsMediaLoader
-              uri={preview.thumbnailUrl}
-              style={StyleSheet.absoluteFill}
+              uri={post.mediaUrl}
+              style={styles.image}
               resizeMode="cover"
-              accessibleLabel={`Thumbnail for ${preview.title}`}
-              errorMessage="Could not load media"
+              accessibleLabel={post.caption || 'Post image'}
+              errorMessage="Could not load image"
             />
-          ) : (
-            /* Decorative glow for gradient-only fallback */
-            <View style={styles.artGlow} />
-          )}
-
-          {/* Kind + duration badge */}
-          <View style={styles.artCopy}>
-            <Text style={styles.artKind}>
-              {preview.kind.toUpperCase()}
-              {preview.duration ? ` · ${preview.duration}` : ''}
-            </Text>
-            <Text style={styles.artTitle} numberOfLines={3}>
-              {preview.title}
-            </Text>
           </View>
+        ) : null}
 
-          {preview.isPremium ? (
-            <View style={styles.lock}>
-              <Lock size={18} color={T.TEXT} />
-              <Text style={styles.lockText}>PREMIUM PREVIEW</Text>
-            </View>
-          ) : (
-            <View style={styles.play}>
-              <Play size={21} color={T.BG} weight="fill" />
-            </View>
-          )}
-        </View>
+        {/* Caption */}
+        {post.caption ? (
+          <Text style={styles.caption}>{post.caption}</Text>
+        ) : null}
 
-        {/* ── Creator row ────────────────────────────────────── */}
+        {/* Creator row */}
         <View style={styles.creatorRow}>
           <Pressable
             style={styles.creatorPress}
-            onPress={() => router.push(`/creator/${creator.id}`)}
-            accessibilityRole="button"
-            accessibilityLabel={`View ${creator.name}'s profile`}
+            onPress={() => router.push(`/creator/${post.author.id}`)}
           >
             <MsAvatar
-              size={44}
-              initials={creator.initials}
-              imageUri={creator.avatarUrl ?? undefined}
-              showOnline={creator.isOnline}
+              size={42}
+              initials={(post.author.name || post.author.username || 'U').slice(0, 2).toUpperCase()}
+              imageUri={post.author.avatarUrl ?? undefined}
             />
             <View style={styles.creatorCopy}>
-              <View style={styles.creatorNameRow}>
-                <Text style={styles.creatorName} numberOfLines={1}>
-                  {creator.name}
-                </Text>
-                {creator.isVerified && (
-                  <Check size={13} color={T.TEXT_3} weight="fill" />
-                )}
-              </View>
-              <Text style={styles.creatorMeta} numberOfLines={1}>
-                {creator.handle}
-                {creator.followers ? ` · ${creator.followers} followers` : ''}
+              <Text style={styles.creatorName}>
+                {post.author.name || post.author.username}
+                {post.author.isVerified ? '  ✓' : ''}
               </Text>
+              <Text style={styles.creatorHandle}>@{post.author.username}</Text>
             </View>
           </Pressable>
-
           <Pressable
-            style={styles.likeButton}
-            accessibilityRole="button"
-            accessibilityLabel="Like"
+            style={styles.subscribe}
+            onPress={() => router.push(`/creator/${post.author.id}`)}
           >
-            <Heart size={19} color={T.TEXT} />
+            <UserPlus size={14} color={T.BG} />
+            <Text style={styles.subscribeText}>Subscribe</Text>
           </Pressable>
         </View>
 
-        {/* ── Stats row ──────────────────────────────────────── */}
-        <View style={styles.statsRow}>
-          {preview.likes ? (
-            <View style={styles.statItem}>
-              <Heart size={13} color={T.TEXT_3} />
-              <Text style={styles.statText}>{preview.likes} likes</Text>
-            </View>
-          ) : null}
-          {preview.createdAt ? (
-            <View style={styles.statItem}>
-              <Clock size={13} color={T.TEXT_3} />
-              <Text style={styles.statText}>{fmtTimeAgo(preview.createdAt)}</Text>
-            </View>
-          ) : null}
-          {creator.followers ? (
-            <View style={styles.statItem}>
-              <Users size={13} color={T.TEXT_3} />
-              <Text style={styles.statText}>{creator.followers}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        {/* ── Description ────────────────────────────────────── */}
-        <Text style={styles.description}>
-          {preview.isPremium
-            ? 'Subscribe to unlock the full drop and access a growing archive of premium content from this creator.'
-            : 'A closer look at what makes this creator\'s work worth following. Follow to stay up to date with new drops.'}
-        </Text>
-
-        {/* ── Unlock / follow card ───────────────────────────── */}
-        <View style={styles.unlockCard}>
-          <View style={styles.unlockCopy}>
-            <Text style={styles.unlockEyebrow}>
-              {preview.isPremium ? 'UNLOCK THIS DROP' : 'DISCOVER THE FULL FEED'}
-            </Text>
-            <Text style={styles.unlockTitle}>{preview.lockedLabel}</Text>
-          </View>
-          <Pressable
-            style={styles.unlockBtn}
-            onPress={() => router.push(`/creator/${creator.id}`)}
-            accessibilityRole="button"
-            accessibilityLabel={preview.isPremium ? 'Subscribe' : 'View profile'}
-          >
-            <Text style={styles.unlockBtnText}>
-              {preview.isPremium ? 'Subscribe' : 'View profile'}
-            </Text>
+        {/* Actions */}
+        <View style={styles.actions}>
+          <Pressable style={styles.action} onPress={toggleLike}>
+            <Heart
+              size={18}
+              color={liked ? T.ACCENT : T.TEXT_2}
+              weight={liked ? 'fill' : 'regular'}
+            />
+            <Text style={styles.actionText}>{formatCount(likeCount)}</Text>
+          </Pressable>
+          <Pressable style={styles.action} onPress={() => setCommentsVisible(true)}>
+            <ChatCircle size={18} color={T.TEXT_2} />
+            <Text style={styles.actionText}>{formatCount(post.commentCount)}</Text>
+          </Pressable>
+          <Pressable style={styles.action} onPress={toggleBookmark}>
+            <Bookmark
+              size={18}
+              color={bookmarked ? T.ACCENT : T.TEXT_2}
+              weight={bookmarked ? 'fill' : 'regular'}
+            />
+            <Text style={styles.actionText}>{bookmarked ? 'Saved' : 'Save'}</Text>
+          </Pressable>
+          <Pressable style={styles.action} onPress={() => setShareVisible(true)}>
+            <ShareNetwork size={18} color={T.TEXT_2} />
+            <Text style={styles.actionText}>Share</Text>
           </Pressable>
         </View>
+
+        {/* Meta */}
+        <Text style={styles.metaText}>{timeAgo(post.createdAt)}</Text>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
-    </View>
+
+      {/* Sheets */}
+      <MsContentComments
+        kind="video"
+        contentId={post.id}
+        visible={commentsVisible}
+        onClose={() => setCommentsVisible(false)}
+        count={post.commentCount}
+      />
+      <MsShareSheet
+        visible={shareVisible}
+        contentType={isVideo ? 'video' : 'post'}
+        contentId={post.id}
+        title={post.caption || 'Post'}
+        onClose={() => setShareVisible(false)}
+      />
+      <MsPaymentSheet
+        visible={premiumSheetVisible}
+        amount={post.priceCredits ?? 0}
+        onClose={() => setPremiumSheetVisible(false)}
+        onConfirm={() => {
+          setPremiumSheetVisible(false);
+          router.push(`/creator/${post.author.id}`);
+        }}
+      />
+    </MsAmbientBackground>
   );
 }
 
-const ART_HEIGHT = 390;
-const TONE: Record<string, string> = {
-  violet:  '#1B1128',
-  rose:    '#1C0E13',
-  amber:   '#1C1508',
-  teal:    '#091A18',
-  indigo:  '#0E0F1E',
-  emerald: '#0B1A12',
-  sky:     '#091520',
-  fuchsia: '#1A0E1C',
-};
+function formatCount(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
+}
+
+function timeAgo(value: string) {
+  if (!value) return '';
+  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
+  return days <= 0 ? 'today' : `${days}d ago`;
+}
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.BG },
-  center: {
-    flex: 1,
-    backgroundColor: T.BG,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
 
-  // Header
   header: {
     height: 62,
+    paddingHorizontal: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-  },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: T.SURFACE,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15 },
-
-  // Content
-  content: { paddingBottom: 40 },
-
-  // Art
-  artWrap: {
-    height: ART_HEIGHT,
-    margin: 20,
-    borderRadius: T.RADIUS.xl,
-    overflow: 'hidden',
-    backgroundColor: TONE['violet'],
-    justifyContent: 'flex-end',
-    padding: 20,
-    ...T.SHADOWS.hard,
-  },
-  artGlow: {
-    position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    right: -50,
-    top: 45,
-  },
-  artCopy: { zIndex: 1 },
-  artKind: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.semibold,
-    fontSize: 9,
-    letterSpacing: 1.2,
-  },
-  artTitle: {
-    color: T.TEXT,
-    fontFamily: T.FONT.bold,
-    fontSize: 28,
-    letterSpacing: -0.7,
-    marginTop: 8,
-  },
-  lock: {
-    position: 'absolute',
-    left: 20,
-    top: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: T.RADIUS.full,
-  },
-  lockText: { color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1 },
-  play: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...T.SHADOWS.soft,
-  },
-
-  // Creator row
-  creatorRow: {
-    marginHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  creatorPress: { flexDirection: 'row', alignItems: 'center', gap: 11, flex: 1 },
-  creatorCopy: { flex: 1 },
-  creatorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  creatorName: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14, flexShrink: 1 },
-  creatorMeta: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 3 },
-  likeButton: {
+  iconButton: {
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -338,66 +277,63 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Stats
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginHorizontal: 20,
-    marginTop: 14,
-    flexWrap: 'wrap',
-  },
-  statItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  statText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12 },
+  content: { paddingBottom: 40 },
 
-  // Description
-  description: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.regular,
-    fontSize: 13,
-    lineHeight: 21,
-    marginHorizontal: 20,
-    marginTop: 18,
+  imageWrap: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: T.RADIUS.xl,
+    overflow: 'hidden',
+    backgroundColor: T.SURFACE_2,
+    aspectRatio: 4 / 5,
   },
+  image: { width: '100%', height: '100%' },
 
-  // Unlock card
-  unlockCard: {
-    margin: 20,
-    marginTop: 24,
-    padding: 18,
-    borderRadius: T.RADIUS.lg,
-    backgroundColor: T.SURFACE,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 14,
-    ...T.SHADOWS.medium,
-  },
-  unlockCopy: { flex: 1 },
-  unlockEyebrow: {
-    color: T.TEXT_3,
-    fontFamily: T.FONT.semibold,
-    fontSize: 8,
-    letterSpacing: 1,
-  },
-  unlockTitle: {
+  caption: {
     color: T.TEXT,
-    fontFamily: T.FONT.semibold,
-    fontSize: 14,
-    marginTop: 5,
+    fontFamily: T.FONT.regular,
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 18,
+    paddingTop: 12,
   },
-  unlockBtn: {
-    height: 38,
-    paddingHorizontal: 16,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+
+  creatorRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    ...T.SHADOWS.soft,
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
   },
-  unlockBtnText: {
-    color: T.BG,
-    fontFamily: T.FONT.semibold,
-    fontSize: 13,
+  creatorPress: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  creatorCopy: { flex: 1 },
+  creatorName: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13 },
+  creatorHandle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 2 },
+  subscribe: {
+    flexDirection: 'row',
+    gap: 5,
+    alignItems: 'center',
+    backgroundColor: T.TEXT,
+    borderRadius: T.RADIUS.full,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  subscribeText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
+
+  actions: {
+    flexDirection: 'row',
+    gap: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  action: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  actionText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 12 },
+
+  metaText: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.regular,
+    fontSize: 11,
+    paddingHorizontal: 18,
+    paddingTop: 4,
   },
 });

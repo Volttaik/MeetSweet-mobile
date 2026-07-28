@@ -31,7 +31,7 @@ import {
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
-import { createShort, createLongFormVideo } from '@/services/content';
+import type { PostMediaInput } from '@/services/posts';
 import { getCategories, type Category } from '@/services/categories';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -158,33 +158,33 @@ export default function CreatePostScreen() {
     setUploadProgress(0);
 
     try {
-      let mediaIds: string[] | undefined;
+      let mediaArr: PostMediaInput[] | undefined;
 
       if (mediaUri && mediaType) {
         const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
           setUploadProgress(p);
         });
-        if (uploaded.id) mediaIds = [uploaded.id];
+        mediaArr = [{
+          url:       uploaded.url,
+          blob_path: uploaded.objectKey,
+          type:      mediaType === 'video' ? 'video' : 'image',
+          mime_type:    uploaded.mimeType,
+          size_bytes:   uploaded.sizeBytes,
+        }];
       }
 
       setStep('creating');
 
-      const baseParams = {
+      // Both Short and Video content types use the same createPost endpoint.
+      // The backend has no dedicated /shorts or /videos endpoints.
+      await createPost({
         caption:    caption.trim(),
         visibility: isPaid ? 'subscribers' as const : visibility,
-        media_ids:  mediaIds,
+        media:      mediaArr,
         categories: selectedCategories,
         tags,
         ...(isPaid ? { unlock_price: parseInt(creditPrice, 10) || 50 } : {}),
-      };
-
-      if (mediaType === 'video' && videoContentType === 'short') {
-        await createShort(baseParams);
-      } else if (mediaType === 'video' && videoContentType === 'video') {
-        await createLongFormVideo({ ...baseParams, title: caption.trim() });
-      } else {
-        await createPost(baseParams);
-      }
+      });
 
       setStep('processing');
       await new Promise((r) => setTimeout(r, 600));

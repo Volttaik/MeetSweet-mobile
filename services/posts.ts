@@ -136,20 +136,26 @@ export async function getFeed(cursor?: string): Promise<{ posts: Post[]; hasMore
   return { posts, hasMore: posts.length === 20, nextCursor };
 }
 
-export async function getUserPosts(
-  username: string,
+/**
+ * Fetch posts by a specific creator.
+ * Backend: GET /api/posts?creator_id=:id
+ */
+export async function getPostsByCreator(
+  creatorId: string,
   cursor?: string,
 ): Promise<{ posts: Post[]; hasMore: boolean; nextCursor: string | null }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
+  const qs = cursor
+    ? `?creator_id=${encodeURIComponent(creatorId)}&cursor=${encodeURIComponent(cursor)}&limit=20`
+    : `?creator_id=${encodeURIComponent(creatorId)}&limit=20`;
   const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
-    `/users/${encodeURIComponent(username)}/posts${qs}`,
+    `/posts${qs}`,
     { headers },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
-  const nextCursor = raw?.next_cursor ?? (posts.length === 20 ? posts[posts.length - 1]?.createdAt ?? null : null);
-  return { posts, hasMore: posts.length === 20, nextCursor };
+  const nextCursor = raw?.next_cursor ?? (posts.length >= 20 ? posts[posts.length - 1]?.createdAt ?? null : null);
+  return { posts, hasMore: posts.length >= 20, nextCursor };
 }
 
 export async function getPost(id: string): Promise<{ post: Post }> {
@@ -172,17 +178,29 @@ export async function getBookmarkedPosts(page = 1): Promise<{ posts: Post[]; has
 
 // ─── Create / Edit / Delete ───────────────────────────────────────────────────
 
+/** A single media item passed inline when creating a post. */
+export interface PostMediaInput {
+  /** Public CDN or R2 URL of the uploaded file. */
+  url: string;
+  /** R2 object key (blob_path) issued by the credentials broker. */
+  blob_path: string;
+  type: 'image' | 'video';
+  mime_type?: string;
+  size_bytes?: number;
+  width?: number;
+  height?: number;
+  duration_seconds?: number;
+}
+
 export interface CreatePostData {
   caption?: string;
   visibility?: 'public' | 'subscribers' | 'draft';
-  media_ids?: string[];
+  /** Inline media objects — preferred over media_ids for new posts. */
+  media?: PostMediaInput[];
   unlock_price?: number;
   preview_duration?: number;
-  expires_at?: string;
   categories?: string[];
   tags?: string[];
-  /** Distinguishes a short-form vertical video from a long-form video post */
-  post_type?: 'short' | 'video';
 }
 
 export async function createPost(data: CreatePostData): Promise<{ id: string }> {
@@ -344,17 +362,20 @@ export async function addComment(postId: string, body: string): Promise<{ commen
 }
 
 export async function addReply(
-  _postId: string,
+  postId: string,
   parentCommentId: string,
   body: string,
 ): Promise<{ comment: Comment }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ id: string }>(`/comments/${parentCommentId}/replies`, {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ body }),
-  });
+  const raw = await apiFetch<{ id: string }>(
+    `/posts/${postId}/comments/${parentCommentId}/replies`,
+    {
+      method: 'POST',
+      headers: authHeader(token),
+      body: JSON.stringify({ body }),
+    },
+  );
   return {
     comment: {
       id: raw.id,
@@ -370,11 +391,12 @@ export async function addReply(
 }
 
 export async function getReplies(
+  postId: string,
   commentId: string,
   page = 1,
 ): Promise<{ comments: Comment[] }> {
   const raw = await apiFetch<{ replies: unknown[] }>(
-    `/comments/${commentId}/replies?page=${page}&limit=20`,
+    `/posts/${postId}/comments/${commentId}/replies?page=${page}&limit=20`,
   );
   return { comments: Array.isArray(raw?.replies) ? raw.replies.map(normalizeComment) : [] };
 }
