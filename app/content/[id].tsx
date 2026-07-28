@@ -134,7 +134,6 @@ export default function ContentDetailScreen() {
             uri={post.mediaUrl}
             posterUri={post.thumbnailUrl}
             isPremium={isPremium}
-            previewDuration={post.isLocked ? 3 : undefined}
             onPremiumRequired={() => setPremiumSheetVisible(true)}
           />
         ) : post.mediaUrl ? (

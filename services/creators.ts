@@ -163,7 +163,7 @@ export function useCreatorProfile(id: string | undefined) {
 export function useCreatorReviews(_id: string | undefined, _page = 1) {
   return useQuery({
     queryKey: ['creator-reviews-empty'],
-    queryFn: async () => ({ reviews: [] as CreatorReview[], total: 0, average_rating: null }),
+    queryFn: async (): Promise<{ reviews: CreatorReview[]; total: number; average_rating: number | null }> => ({ reviews: [] as CreatorReview[], total: 0, average_rating: null }),
     staleTime: Infinity,
   });
 }

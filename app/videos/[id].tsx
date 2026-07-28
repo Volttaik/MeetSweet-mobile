@@ -129,7 +129,6 @@ export default function VideoDetailScreen() {
           uri={videoMedia}
           posterUri={post.thumbnailUrl}
           isPremium={isPremium}
-          previewDuration={post.isLocked ? 3 : undefined}
           onPremiumRequired={() => setPremiumSheetVisible(true)}
         />
 

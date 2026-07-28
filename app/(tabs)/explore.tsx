@@ -45,7 +45,6 @@ import {
   MsRecommendedCreatorRow,
 } from '@/components/MsExploreVisual';
 import { ExploreCreatorCard } from '@/components/ExploreCreatorCard';
-import { CreatorImageCard } from '@/components/CreatorImageCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -651,13 +650,6 @@ export default function ExploreScreen() {
           onClose={() => setMenuCreator(null)}
         />
 
-        <MsCreatorPreview
-          visible={previewVisible}
-          creator={previewCreator}
-          onClose={() => setPreviewVisible(false)}
-          onViewProfile={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
-          onSubscribe={() => { if (previewCreator) router.push(`/creator/${previewCreator.id}`); }}
-        />
       </MsAmbientBackground>
     );
   }

@@ -32,7 +32,7 @@ import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import { uploadMedia } from '@/services/media';
 import { updateMe } from '@/services/users';
-import { getUserPosts, getBookmarkedPosts, type Post } from '@/services/posts';
+import { getPostsByCreator, getBookmarkedPosts, type Post } from '@/services/posts';
 
 const PROFILE_TABS = ['Posts', 'Media', 'Saved'] as const;
 type ProfileTab = typeof PROFILE_TABS[number];
@@ -217,7 +217,7 @@ export default function ProfileScreen() {
   const loadPosts = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await getUserPosts(user.username);
+      const data = await getPostsByCreator(user.id);
       setPosts(data.posts);
     } catch {
       // ignore — empty state shown

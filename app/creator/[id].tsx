@@ -288,6 +288,27 @@ export default function CreatorProfileScreen() {
   }, [creatorUUID]);
 
   /**
+   * Map backend posts → the preview shape expected by the Drops tab cards.
+   * Derived directly from real backend data — no placeholder content.
+   */
+  const creatorPreviews = useMemo(() => creatorPosts.map((post) => ({
+    id:           post.id,
+    creatorId:    creatorUUID ?? id ?? '',
+    title:        post.caption || '',
+    category:     '',
+    kind:         post.mediaType === 'video' ? 'video' : 'photo' as string,
+    duration:     '',
+    likes:        String(post.likeCount),
+    isPremium:    post.isPremium,
+    lockedLabel:  post.priceCredits ? `${post.priceCredits} credits` : 'Locked',
+    thumbnailUrl: post.thumbnailUrl ?? null,
+    mediaUrl:     post.mediaUrl ?? null,
+    createdAt:    post.createdAt,
+    commentCount: post.commentCount,
+    gradient:     'violet',
+  })), [creatorPosts, creatorUUID, id]);
+
+  /**
    * Merge the explore-catalog shell with the real profile data.
    */
   const creator: Creator | null = useMemo(() => {
@@ -445,7 +466,7 @@ export default function CreatorProfileScreen() {
             <View style={styles.metricDivider} />
             <View>
               <Text style={styles.metricValue}>{creatorPreviews.length}</Text>
-              <Text style={styles.metricLabel}>Previews</Text>
+              <Text style={styles.metricLabel}>Drops</Text>
             </View>
           </View>
 
