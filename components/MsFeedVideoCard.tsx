@@ -12,6 +12,7 @@
 import React from 'react';
 import {
   StyleSheet,
+  StyleProp,
   Text,
   TouchableOpacity,
   View,
@@ -81,7 +82,7 @@ function ScalePressable({
   children: React.ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
