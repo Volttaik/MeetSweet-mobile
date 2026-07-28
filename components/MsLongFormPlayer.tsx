@@ -148,11 +148,6 @@ export function MsLongFormPlayer({
   const isDraggingRef   = useRef(false);
   const hasEndedRef     = useRef(false);
 
-  // Glass progress bar separate refs
-  const glassTrackWidthRef   = useRef(1);
-  const glassTrackOriginXRef = useRef(0);
-  const glassIsDraggingRef   = useRef(false);
-
   // Double-tap tracking for edge skip gestures
   const tapCountRef = useRef(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -284,7 +279,7 @@ export function MsLongFormPlayer({
       setIsPlaying(status.isPlaying);
       const pos = status.positionMillis;
       const dur = status.durationMillis ?? 0;
-      if (!isDraggingRef.current && !glassIsDraggingRef.current) {
+      if (!isDraggingRef.current) {
         setPosition(pos);
         positionRef.current = pos;
       }
@@ -429,52 +424,6 @@ export function MsLongFormPlayer({
     })
   ).current; // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Glass progress bar PanResponder ─────────────────────────────────────
-
-  const glassPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
-      onPanResponderGrant: (evt) => {
-        glassIsDraggingRef.current = true;
-        glassTrackOriginXRef.current =
-          evt.nativeEvent.pageX - evt.nativeEvent.locationX;
-        const x  = Math.max(0, Math.min(
-          evt.nativeEvent.pageX - glassTrackOriginXRef.current,
-          glassTrackWidthRef.current,
-        ));
-        const ms = (x / Math.max(1, glassTrackWidthRef.current)) * Math.max(0, durationRef.current);
-        setPosition(ms);
-        positionRef.current = ms;
-        ref.current?.setPositionAsync(ms).catch(() => {});
-      },
-      onPanResponderMove: (evt) => {
-        const x  = Math.max(0, Math.min(
-          evt.nativeEvent.pageX - glassTrackOriginXRef.current,
-          glassTrackWidthRef.current,
-        ));
-        const ms = (x / Math.max(1, glassTrackWidthRef.current)) * Math.max(0, durationRef.current);
-        setPosition(ms);
-        positionRef.current = ms;
-        ref.current?.setPositionAsync(ms).catch(() => {});
-      },
-      onPanResponderRelease: (evt) => {
-        glassIsDraggingRef.current = false;
-        const x  = Math.max(0, Math.min(
-          evt.nativeEvent.pageX - glassTrackOriginXRef.current,
-          glassTrackWidthRef.current,
-        ));
-        const ms = (x / Math.max(1, glassTrackWidthRef.current)) * Math.max(0, durationRef.current);
-        setPosition(ms);
-        positionRef.current = ms;
-        ref.current?.setPositionAsync(ms).catch(() => {});
-      },
-      onPanResponderTerminate: () => {
-        glassIsDraggingRef.current = false;
-      },
-    })
-  ).current; // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Comments ─────────────────────────────────────────────────────────────
 
   const handleCommentsPress = useCallback(async () => {
@@ -563,13 +512,12 @@ export function MsLongFormPlayer({
     : 'play';
 
   return (
-    <View>
-      <Pressable
-        style={outerStyle}
-        onPress={handleOuterPress}
-        onLayout={(e) => setPlayerWidth(e.nativeEvent.layout.width)}
-        accessibilityLabel="Video player"
-      >
+    <Pressable
+      style={outerStyle}
+      onPress={handleOuterPress}
+      onLayout={(e) => setPlayerWidth(e.nativeEvent.layout.width)}
+      accessibilityLabel="Video player"
+    >
         {/* Poster / thumbnail */}
         {posterUri ? (
           <MsMediaLoader
@@ -849,34 +797,7 @@ export function MsLongFormPlayer({
             </View>
           </Animated.View>
         ) : null}
-      </Pressable>
-
-      {/* ── Glass progress bar — always visible below the player ─────────── */}
-      {uri && !error && !premiumGated ? (
-        <View
-          style={styles.glassBarOuter}
-          onLayout={(e) => {
-            glassTrackWidthRef.current = e.nativeEvent.layout.width - 32; // 16px padding each side
-          }}
-          {...glassPanResponder.panHandlers}
-        >
-          {/* Glass pill container */}
-          <View style={styles.glassBarPill}>
-            {/* Track background */}
-            <View style={styles.glassTrack}>
-              {/* Filled portion */}
-              <View
-                style={[styles.glassTrackFill, { width: `${progressPct}%` as any }]}
-              />
-              {/* Thumb dot */}
-              <View
-                style={[styles.glassThumb, { left: `${progressPct}%` as any }]}
-              />
-            </View>
-          </View>
-        </View>
-      ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -1173,53 +1094,4 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
 
-  // ── Glass progress bar (always visible, below player) ─────────────────
-
-  glassBarOuter: {
-    width: '100%',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  glassBarPill: {
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    overflow: 'hidden',
-    // subtle glass border
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.18)',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  glassTrack: {
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    overflow: 'visible',
-    justifyContent: 'center',
-  },
-  glassTrackFill: {
-    position: 'absolute',
-    left: 0,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.75)',
-  },
-  glassThumb: {
-    position: 'absolute',
-    width: 11, height: 11, borderRadius: 6,
-    backgroundColor: '#fff',
-    marginLeft: -5.5,
-    top: -4,
-    zIndex: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
-  },
 });
