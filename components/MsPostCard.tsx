@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -9,6 +9,8 @@ import {
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
+  withSequence,
   withTiming,
   Easing,
 } from 'react-native-reanimated';
@@ -28,6 +30,12 @@ import {
 } from '@/services/posts';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { MsShareSheet } from '@/components/MsShareSheet';
+import { tapLight, tapMedium, tapHeavy } from '@/lib/haptics';
+
+// ── Spring presets ────────────────────────────────────────────────────────────
+const SPRING_PRESS  = { damping: 14, stiffness: 380, mass: 1 };
+const SPRING_BOUNCE = { damping: 10, stiffness: 320, mass: 1 };
+const SPRING_HEART  = { damping: 8,  stiffness: 260, mass: 1 };
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -47,33 +55,54 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** Scale-on-press wrapper */
+// ── ScalePressable — spring physics press wrapper ─────────────────────────────
+
 function ScalePressable({
   children,
   onPress,
   style,
   onLongPress,
+  onDoubleTap,
 }: {
   children: React.ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
+  onDoubleTap?: () => void;
   style?: any;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapCountRef = useRef(0);
+
+  const handlePress = () => {
+    tapCountRef.current += 1;
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+
+    tapTimerRef.current = setTimeout(() => {
+      if (tapCountRef.current >= 2) {
+        onDoubleTap?.();
+      } else {
+        onPress?.();
+      }
+      tapCountRef.current = 0;
+    }, 230);
+  };
+
   return (
     <Animated.View style={[animStyle, style]}>
       <TouchableOpacity
         activeOpacity={1}
-        onPress={onPress}
+        onPress={handlePress}
         onLongPress={onLongPress}
         onPressIn={() => {
-          scale.value = withTiming(0.93, { duration: 80, easing: Easing.out(Easing.cubic) });
+          scale.value = withSpring(0.96, SPRING_PRESS);
         }}
         onPressOut={() => {
-          scale.value = withTiming(1, { duration: 160, easing: Easing.out(Easing.back(1.4)) });
+          scale.value = withSpring(1, SPRING_BOUNCE);
         }}
         delayLongPress={400}
       >
@@ -83,21 +112,85 @@ function ScalePressable({
   );
 }
 
+// ── AnimatedHeart — spring burst on like ─────────────────────────────────────
+
+function AnimatedHeart({ liked }: { liked: boolean }) {
+  const scale = useSharedValue(1);
+  const prevLiked = useRef(liked);
+
+  if (liked && !prevLiked.current) {
+    scale.value = withSequence(
+      withSpring(1.5, SPRING_HEART),
+      withSpring(1,   { damping: 12, stiffness: 400, mass: 1 }),
+    );
+  }
+  prevLiked.current = liked;
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={style}>
+      <Heart
+        size={18}
+        color={liked ? '#EF4444' : T.TEXT_2}
+        weight={liked ? 'fill' : 'regular'}
+      />
+    </Animated.View>
+  );
+}
+
+// ── ActionButton — spring-press wrapper for action row icons ──────────────────
+
+function ActionButton({
+  children,
+  onPress,
+  style,
+}: {
+  children: React.ReactNode;
+  onPress?: () => void;
+  style?: any;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={animStyle}>
+      <TouchableOpacity
+        style={[baseActionStyles.btn, style]}
+        onPress={onPress}
+        activeOpacity={1}
+        onPressIn={() => { scale.value = withSpring(0.82, SPRING_PRESS); }}
+        onPressOut={() => { scale.value = withSpring(1, SPRING_BOUNCE); }}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+const baseActionStyles = StyleSheet.create({
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: T.RADIUS.sm,
+  },
+});
+
+// ── MsPostCard ────────────────────────────────────────────────────────────────
+
 interface MsPostCardProps {
   post: Post;
   onPress?: () => void;
-  /**
-   * Called when the user taps the media area (image or video thumbnail).
-   * When provided, media taps use this instead of onPress.
-   * Use to open PostFullView; leave undefined to fall back to onPress.
-   */
   onMediaPress?: () => void;
   onAuthorPress?: () => void;
   onDeleted?: (id: string) => void;
   currentUserId?: string;
-  /** Called when owner taps "Edit Post" — receives the current post. */
   onEditPress?: (post: Post) => void;
-  /** Called when owner taps "View Analytics" — receives the current post. */
   onAnalyticsPress?: (post: Post) => void;
 }
 
@@ -127,6 +220,7 @@ export function MsPostCard({
     const wasLiked = liked;
     setLiked(!wasLiked);
     setLikeCount((c) => (wasLiked ? Math.max(0, c - 1) : c + 1));
+    tapMedium();
     try {
       if (wasLiked) {
         const res = await unlikePost(post.id);
@@ -148,6 +242,7 @@ export function MsPostCard({
     setBookmarking(true);
     const was = bookmarked;
     setBookmarked(!was);
+    tapLight();
     try {
       if (was) await unbookmarkPost(post.id);
       else await bookmarkPost(post.id);
@@ -161,6 +256,7 @@ export function MsPostCard({
   const { markDeleted } = usePostActions();
 
   const doDelete = () => {
+    tapHeavy();
     Alert.alert('Delete Post', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -169,8 +265,8 @@ export function MsPostCard({
         onPress: async () => {
           try {
             await deletePost(post.id);
-            markDeleted(post.id);   // propagate to all screens globally
-            onDeleted?.(post.id);   // also notify the immediate parent list
+            markDeleted(post.id);
+            onDeleted?.(post.id);
           } catch {
             Alert.alert('Error', 'Could not delete post.');
           }
@@ -184,7 +280,6 @@ export function MsPostCard({
       Alert.alert('Error', 'Could not report post.'),
     );
 
-  // Own post actions
   const ownActions: ActionItem[] = [
     {
       label: 'Edit Post',
@@ -203,7 +298,6 @@ export function MsPostCard({
     { label: 'Delete Post', destructive: true, onPress: doDelete },
   ];
 
-  // Guest post actions
   const guestActions: ActionItem[] = [
     { label: 'Save Post', onPress: () => handleBookmark() },
     { label: 'Share Post', onPress: () => setShareVisible(true) },
@@ -218,6 +312,8 @@ export function MsPostCard({
     .slice(0, 2)
     .join('');
 
+  const openSheet = () => { tapLight(); setSheetVisible(true); };
+
   return (
     <View style={styles.card}>
       {/* Author row */}
@@ -226,7 +322,7 @@ export function MsPostCard({
           onPress={onAuthorPress}
           style={styles.authorLeft}
           activeOpacity={0.75}
-          onLongPress={() => setSheetVisible(true)}
+          onLongPress={openSheet}
           delayLongPress={400}
         >
           <MsAvatar
@@ -258,7 +354,7 @@ export function MsPostCard({
           <TouchableOpacity
             style={styles.moreBtn}
             activeOpacity={0.7}
-            onPress={() => setSheetVisible(true)}
+            onPress={openSheet}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <DotsThree size={18} color={T.TEXT_2} />
@@ -268,7 +364,12 @@ export function MsPostCard({
 
       {/* Caption */}
       {!!post.caption && (
-        <TouchableOpacity activeOpacity={0.9} onPress={onPress} onLongPress={() => setSheetVisible(true)} delayLongPress={400}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onPress}
+          onLongPress={openSheet}
+          delayLongPress={400}
+        >
           <Text style={styles.caption} numberOfLines={3}>
             {post.caption}
           </Text>
@@ -279,7 +380,8 @@ export function MsPostCard({
       {post.mediaUrl && post.mediaType === 'image' && (
         <ScalePressable
           onPress={onMediaPress ?? onPress}
-          onLongPress={() => setSheetVisible(true)}
+          onLongPress={openSheet}
+          onDoubleTap={handleLike}
         >
           <MsPremiumContent
             uri={post.mediaUrl}
@@ -297,67 +399,62 @@ export function MsPostCard({
 
       {/* Media — video */}
       {post.mediaUrl && post.mediaType === 'video' && (
-        <View>
-          <ScalePressable
-            onPress={onMediaPress ?? onPress}
-            onLongPress={() => setSheetVisible(true)}
-          >
-            <MsPremiumContent
-              uri={post.mediaUrl}
-              posterUri={post.thumbnailUrl}
-              mediaType="video"
-              locked={Boolean(post.isLocked)}
-              unlocked={!post.isLocked}
-              price={post.priceCredits ?? 0}
-              aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
-              borderRadius={T.RADIUS.xl}
-              onUnlock={onMediaPress ?? onPress}
-              onPlayPress={onMediaPress ?? onPress}
-              style={styles.videoPlaceholder}
-            />
-          </ScalePressable>
-        </View>
+        <ScalePressable
+          onPress={onMediaPress ?? onPress}
+          onLongPress={openSheet}
+          onDoubleTap={handleLike}
+        >
+          <MsPremiumContent
+            uri={post.mediaUrl}
+            posterUri={post.thumbnailUrl}
+            mediaType="video"
+            locked={Boolean(post.isLocked)}
+            unlocked={!post.isLocked}
+            price={post.priceCredits ?? 0}
+            aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
+            borderRadius={T.RADIUS.xl}
+            onUnlock={onMediaPress ?? onPress}
+            onPlayPress={onMediaPress ?? onPress}
+            style={styles.videoPlaceholder}
+          />
+        </ScalePressable>
       )}
 
       {/* Actions */}
       <View style={styles.actions}>
-        {/* Like */}
-        <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.7}>
-          <Heart
-            size={18}
-            color={liked ? '#EF4444' : T.TEXT_2}
-            weight={liked ? 'fill' : 'regular'}
-          />
+        {/* Like — spring heart burst */}
+        <ActionButton onPress={handleLike} style={styles.actionBtn}>
+          <AnimatedHeart liked={liked} />
           {likeCount > 0 && (
             <Text style={[styles.actionCount, liked && styles.actionCountLiked]}>
               {formatCount(likeCount)}
             </Text>
           )}
-        </TouchableOpacity>
+        </ActionButton>
 
         {/* Comment */}
-        <TouchableOpacity style={styles.actionBtn} onPress={onPress} activeOpacity={0.7}>
+        <ActionButton onPress={onPress} style={styles.actionBtn}>
           <ChatCircle size={18} color={T.TEXT_2} />
           {post.commentCount > 0 && (
             <Text style={styles.actionCount}>{formatCount(post.commentCount)}</Text>
           )}
-        </TouchableOpacity>
+        </ActionButton>
 
         <View style={{ flex: 1 }} />
 
         {/* Bookmark */}
-        <TouchableOpacity style={styles.actionBtn} onPress={handleBookmark} activeOpacity={0.7}>
+        <ActionButton onPress={handleBookmark} style={styles.actionBtn}>
           <Bookmark
             size={18}
             color={bookmarked ? T.TEXT : T.TEXT_2}
             weight={bookmarked ? 'fill' : 'regular'}
           />
-        </TouchableOpacity>
+        </ActionButton>
       </View>
 
       <View style={styles.cardSpacing} />
 
-      {/* Context menu bottom sheet */}
+      {/* Context menu */}
       <MsActionSheet
         visible={sheetVisible}
         title={isOwn ? 'Your Post' : post.author.name}
@@ -446,16 +543,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  videoOverlay: { alignItems: 'center', gap: 10 },
-  playBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  duration: { fontSize: 12, fontFamily: T.FONT.medium, color: 'rgba(255,255,255,0.7)' },
 
   actions: {
     flexDirection: 'row',
@@ -476,16 +563,4 @@ const styles = StyleSheet.create({
   actionCountLiked: { color: '#EF4444' },
 
   cardSpacing: { height: 8 },
-
-  expandBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

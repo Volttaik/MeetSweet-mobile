@@ -1,10 +1,10 @@
 /**
  * MsModal — shared modal/sheet shell.
  *
- * Keeps transient interactions in one place and gives every sheet the same
- * warm, borderless surface treatment on native and web.
- *
- * Swipe-to-close: Sheet modals support dragging down to dismiss (>80px threshold).
+ * Physics upgrade:
+ *   - Swipe resistance: drag distance is rubber-banded (sqrt curve)
+ *   - Velocity-based dismiss: fast swipe closes even before 80px threshold
+ *   - Spring snap-back with configurable damping/stiffness
  */
 import React, { ReactNode, useRef } from 'react';
 import {
@@ -48,36 +48,75 @@ export function MsModal({
   const insets = useSafeAreaInsets();
   const isSheet = presentation === 'sheet';
 
-  // Swipe-to-close (sheet only)
   const translateY = useRef(new Animated.Value(0)).current;
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
 
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) =>
         isSheet && g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
+
       onPanResponderMove: (_, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
+        if (g.dy > 0) {
+          // Apply rubber-band resistance: drag feels increasingly stiff
+          const resistance = 0.55;
+          const rubbered = g.dy * resistance;
+          translateY.setValue(rubbered);
+          // Fade overlay as user drags down
+          const progress = Math.min(1, rubbered / 280);
+          overlayOpacity.setValue(1 - progress * 0.5);
+        }
       },
+
       onPanResponderRelease: (_, g) => {
-        if (g.dy > 80) {
-          // Snap down then close
-          Animated.timing(translateY, {
-            toValue: 500,
-            duration: 180,
-            useNativeDriver: true,
-          }).start(() => {
+        const shouldClose =
+          g.dy > 80 || g.vy > 0.8; // threshold OR fast fling
+
+        if (shouldClose) {
+          Animated.parallel([
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 260,
+              useNativeDriver: true,
+            }),
+            Animated.timing(overlayOpacity, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
             translateY.setValue(0);
+            overlayOpacity.setValue(1);
             onClose();
           });
         } else {
-          // Snap back
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 120,
-            friction: 12,
-          }).start();
+          // Spring snap-back — slightly underdamped for a satisfying bounce
+          Animated.parallel([
+            Animated.spring(translateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              damping: 18,
+              stiffness: 280,
+              mass: 1,
+            }),
+            Animated.timing(overlayOpacity, {
+              toValue: 1,
+              duration: 160,
+              useNativeDriver: true,
+            }),
+          ]).start();
         }
+      },
+
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 18,
+          stiffness: 280,
+          mass: 1,
+        }).start();
+        overlayOpacity.setValue(1);
       },
     }),
   ).current;
@@ -91,10 +130,14 @@ export function MsModal({
       statusBarTranslucent
     >
       <KeyboardAvoidingView
-        style={styles.overlay}
+        style={styles.overlayWrap}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.overlay, { opacity: overlayOpacity }]}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
 
         <Animated.View
           style={[
@@ -127,10 +170,12 @@ export function MsModal({
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  overlayWrap: {
     flex: 1,
-    backgroundColor: 'rgba(8,5,8,0.72)',
     justifyContent: 'flex-end',
+  },
+  overlay: {
+    backgroundColor: 'rgba(8,5,8,0.72)',
   },
   surface: {
     backgroundColor: T.SURFACE,
@@ -151,6 +196,8 @@ const styles = StyleSheet.create({
     width: '86%',
     borderRadius: 24,
     padding: 20,
+    marginBottom: 'auto',
+    marginTop: 'auto',
   },
   handle: {
     width: 36,

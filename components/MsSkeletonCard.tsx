@@ -1,6 +1,11 @@
+/**
+ * MsSkeletonCard — shimmer skeleton primitives used for loading states.
+ * Replaced HeroUI pulse with a custom LinearGradient sweep (MsShimmer)
+ * for a more premium, consistent shimmer effect.
+ */
 import React from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';
-import { Skeleton } from 'heroui-native';
+import { MsShimmer } from '@/components/MsShimmer';
 import { T } from '@/constants/theme';
 
 interface MsSkeletonCardProps {
@@ -9,18 +14,20 @@ interface MsSkeletonCardProps {
   radius?: number;
 }
 
-/** HeroUI Native animated skeleton rectangle — wraps content or stands alone. */
+/** Animated shimmer rectangle — wraps content or stands alone. */
 export function MsSkeletonCard({
   style,
   height = 120,
   radius = T.RADIUS.md,
 }: MsSkeletonCardProps) {
   return (
-    <Skeleton
-      isLoading
-      variant="pulse"
-      animation={{ pulse: { minOpacity: 0.35, maxOpacity: 0.75, duration: 1800 } }}
-      style={[{ backgroundColor: T.SURFACE, height, borderRadius: radius }, style]}
+    <MsShimmer
+      height={height}
+      radius={radius}
+      baseColor={T.SURFACE}
+      highlightColor="rgba(255,255,255,0.07)"
+      duration={1300}
+      style={style}
     />
   );
 }
@@ -38,14 +45,14 @@ export function MsSkeletonRow({
   style?: ViewStyle;
 }) {
   return (
-    <Skeleton
-      isLoading
-      variant="pulse"
-      animation={{ pulse: { minOpacity: 0.3, maxOpacity: 0.65, duration: 2000 } }}
-      style={[
-        { backgroundColor: T.SURFACE_2, height, borderRadius: radius, width: width as number },
-        style,
-      ]}
+    <MsShimmer
+      width={width as any}
+      height={height}
+      radius={radius}
+      baseColor={T.SURFACE_2}
+      highlightColor="rgba(255,255,255,0.06)"
+      duration={1500}
+      style={style}
     />
   );
 }
@@ -79,8 +86,6 @@ const postStyles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 16,
     paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
     paddingBottom: 16,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },

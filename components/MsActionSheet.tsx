@@ -1,9 +1,14 @@
 /**
  * MsActionSheet — reusable native-feeling context menu bottom sheet.
- * Replaces browser-style Alert.alert / ActionSheetIOS for all long-press menus.
+ *
+ * Physics upgrade:
+ *   - Spring entry animation (slides up with bounce)
+ *   - Scale press on each action item
+ *   - Haptic feedback when opened and on action press
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
+  Animated,
   Modal,
   Pressable,
   StyleSheet,
@@ -14,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { tapLight, tapMedium } from '@/lib/haptics';
 
 export interface ActionItem {
   label: string;
@@ -37,20 +43,51 @@ export function MsActionSheet({
   onClose,
 }: MsActionSheetProps) {
   const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(300)).current;
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      tapLight();
+      Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 22,
+          stiffness: 300,
+          mass: 1,
+        }),
+        Animated.timing(overlayOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      translateY.setValue(300);
+      overlayOpacity.setValue(0);
+    }
+  }, [visible, translateY, overlayOpacity]);
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable
-          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 4, 20) }]}
-          onPress={(e) => e.stopPropagation()}
-        >
+      <Animated.View style={[styles.overlayWrap, { opacity: overlayOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.sheetWrap,
+          { transform: [{ translateY }] },
+        ]}
+      >
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 4, 20) }]}>
           <View style={styles.handle} />
 
           {(title || subtitle) && (
@@ -80,6 +117,7 @@ export function MsActionSheet({
                 style={[styles.action, idx > 0 && styles.actionSpaced]}
                 activeOpacity={0.55}
                 onPress={() => {
+                  action.destructive ? tapMedium() : tapLight();
                   onClose();
                   setTimeout(action.onPress, 80);
                 }}
@@ -95,17 +133,22 @@ export function MsActionSheet({
               </TouchableOpacity>
             ))}
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </Animated.View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
+  overlayWrap: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.65)',
-    justifyContent: 'flex-end',
+  },
+  sheetWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   sheet: {
     backgroundColor: T.SURFACE,

@@ -3,13 +3,13 @@ import { Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View, I
 import { Tabs, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  Easing,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
+  withSpring,
 } from 'react-native-reanimated';
-import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, X, type Icon } from 'phosphor-react-native';
+import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, type Icon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { tapLight, tapMedium } from '@/lib/haptics';
 
 const TAB_HEIGHT = 60;
 const INACTIVE_COLOR = '#777777';
@@ -57,8 +57,14 @@ function TabBtn({
   }));
 
   const handlePress = () => {
-    scale.value = withTiming(0.84, { duration: 75, easing: Easing.out(Easing.cubic) }, () => {
-      scale.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.back(1.6)) });
+    // Spring bounce with haptic
+    if (tab.routeName === undefined) {
+      tapMedium();
+    } else {
+      tapLight();
+    }
+    scale.value = withSpring(0.82, { damping: 12, stiffness: 400, mass: 1 }, () => {
+      scale.value = withSpring(1, { damping: 10, stiffness: 280, mass: 1 });
     });
     onPress();
   };

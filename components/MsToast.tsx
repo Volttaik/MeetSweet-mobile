@@ -1,6 +1,11 @@
 /**
  * MsToast — global toast notifications.
  *
+ * Physics upgrade:
+ *   - Spring entry with slight overshoot (underdamped)
+ *   - Spring + fade exit
+ *   - Haptic on error variant
+ *
  * Usage:
  *   1. Render <MsToastHost /> once inside the root layout.
  *   2. Call toast.show('Message') / toast.success() / toast.error() anywhere.
@@ -10,6 +15,7 @@ import { Animated, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckCircle, XCircle, Info } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { notifyError, notifySuccess } from '@/lib/haptics';
 
 type ToastVariant = 'success' | 'error' | 'info';
 
@@ -39,36 +45,58 @@ const VARIANT_CONFIG: Record<ToastVariant, { bg: string; icon: React.ReactNode }
   info:    { bg: 'rgba(155,110,202,0.18)', icon: <Info       size={16} color={T.PURPLE}  weight="fill" /> },
 };
 
-const ICON_COLOR: Record<ToastVariant, string> = {
-  success: T.SUCCESS,
-  error:   T.DANGER,
-  info:    T.TEXT_2,
-};
-
 export function MsToastHost() {
   const insets = useSafeAreaInsets();
   const [current, setCurrent] = useState<ToastMessage | null>(null);
-  const opacity   = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(-16)).current;
-  const scale      = useRef(new Animated.Value(0.9)).current;
-  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const opacity    = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(-24)).current;
+  const scale      = useRef(new Animated.Value(0.88)).current;
+  const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     _listener = (msg) => {
       if (timerRef.current) clearTimeout(timerRef.current);
       setCurrent(msg);
+
+      // Haptics on show
+      if (msg.variant === 'success') notifySuccess();
+      if (msg.variant === 'error')   notifyError();
+
+      // Spring entry — underdamped for a satisfying pop
       Animated.parallel([
-        Animated.timing(opacity,    { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 220 }),
-        Animated.spring(scale,      { toValue: 1, useNativeDriver: true, damping: 18, stiffness: 220 }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 160,
+          useNativeDriver: true,
+        }),
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 14,   // underdamped — slight overshoot
+          stiffness: 260,
+          mass: 1,
+        }),
+        Animated.spring(scale, {
+          toValue: 1,
+          useNativeDriver: true,
+          damping: 14,
+          stiffness: 260,
+          mass: 1,
+        }),
       ]).start();
 
       timerRef.current = setTimeout(() => {
+        // Spring out — pull up and fade
         Animated.parallel([
           Animated.timing(opacity,    { toValue: 0, duration: 200, useNativeDriver: true }),
-          Animated.timing(translateY, { toValue: -16, duration: 200, useNativeDriver: true }),
-          Animated.timing(scale,      { toValue: 0.9, duration: 200, useNativeDriver: true }),
-        ]).start(() => setCurrent(null));
+          Animated.spring(translateY, { toValue: -20, useNativeDriver: true, damping: 22, stiffness: 300, mass: 1 }),
+          Animated.spring(scale,      { toValue: 0.9,  useNativeDriver: true, damping: 22, stiffness: 300, mass: 1 }),
+        ]).start(() => {
+          setCurrent(null);
+          // Reset for next toast
+          translateY.setValue(-24);
+          scale.setValue(0.88);
+        });
       }, 2800);
     };
 
@@ -86,7 +114,11 @@ export function MsToastHost() {
     <Animated.View
       style={[
         styles.wrap,
-        { top: insets.top + 14, opacity, transform: [{ translateY }, { scale }] },
+        {
+          top: insets.top + 14,
+          opacity,
+          transform: [{ translateY }, { scale }],
+        },
       ]}
       pointerEvents="none"
     >

@@ -8,6 +8,7 @@ import {
   Text,
   View,
   ViewStyle,
+  Image,
 } from 'react-native';
 import type { ImageResizeMode } from 'react-native';
 import { ArrowClockwise, WarningCircle } from 'phosphor-react-native';
@@ -29,7 +30,8 @@ interface MsMediaLoaderProps {
 
 /**
  * Shared image lifecycle for feed, profile, premium and message media.
- * The same component owns the placeholder, fade-in and retry state everywhere.
+ * Progressive loading: starts as a blurred low-res placeholder, then springs
+ * to full opacity when the real image finishes loading.
  */
 export function MsMediaLoader({
   uri,
@@ -43,20 +45,27 @@ export function MsMediaLoader({
   onLoadError,
 }: MsMediaLoaderProps) {
   const opacity = useRef(new Animated.Value(0)).current;
+  // Track loaded state to swap from blurred placeholder to sharp image
+  const [loaded, setLoaded] = useState(false);
   const [state, setState] = useState<MediaLoadState>(uri ? 'loading' : 'error');
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     opacity.setValue(0);
+    setLoaded(false);
     setState(uri ? 'loading' : 'error');
   }, [uri, attempt, opacity]);
 
   const handleLoad = useCallback(() => {
     setState('success');
-    Animated.timing(opacity, {
+    setLoaded(true);
+    // Spring-based fade-in — more natural than linear timing
+    Animated.spring(opacity, {
       toValue: 1,
-      duration: 360,
       useNativeDriver: true,
+      damping: 20,
+      stiffness: 180,
+      mass: 1,
     }).start();
   }, [opacity]);
 
@@ -67,22 +76,34 @@ export function MsMediaLoader({
 
   return (
     <View style={[styles.root, style]} accessible accessibilityLabel={accessibleLabel}>
+      {/* Blurred placeholder — visible while image streams in */}
+      {uri && !loaded && state === 'loading' && (
+        <Image
+          key={`blur:${uri}:${attempt}`}
+          source={{ uri }}
+          style={StyleSheet.absoluteFill}
+          resizeMode={resizeMode}
+          blurRadius={12}
+        />
+      )}
+
+      {/* Full-res image with spring fade-in */}
       {uri && (
         <Animated.Image
-          key={`${uri}:${attempt}`}
+          key={`sharp:${uri}:${attempt}`}
           source={{ uri }}
           style={[StyleSheet.absoluteFill, { opacity }]}
           resizeMode={resizeMode}
           blurRadius={blurRadius}
           onLoad={handleLoad}
-           onError={() => {
-             setState('error');
-             onLoadError?.();
-           }}
+          onError={() => {
+            setState('error');
+            onLoadError?.();
+          }}
         />
       )}
 
-      {state === 'loading' && (
+      {state === 'loading' && !loaded && (
         <View style={styles.placeholder} accessibilityLabel="Loading media" accessibilityRole="progressbar">
           <ActivityIndicator size="small" color={T.TEXT_2} />
         </View>
@@ -148,7 +169,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: T.SURFACE_2,
+    backgroundColor: 'transparent',
   },
   errorState: {
     ...StyleSheet.absoluteFillObject,

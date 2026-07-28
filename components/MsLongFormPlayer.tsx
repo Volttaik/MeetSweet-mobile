@@ -31,6 +31,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withSpring,
   withRepeat,
   withSequence,
   Easing,
@@ -219,21 +220,23 @@ export function MsLongFormPlayer({
     if (isDraggingRef.current) return; // never hide during scrub
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
-      controlsOpacity.value = withTiming(0, { duration: 350, easing: Easing.out(Easing.cubic) });
+      // Gentle spring fade-out — soft damping so it glides off
+      controlsOpacity.value = withSpring(0, { damping: 28, stiffness: 180, mass: 1 });
       setShowControls(false);
     }, delayMs);
   }, [controlsOpacity]);
 
   const revealControls = useCallback((autoHide = true, delayMs = 3000) => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    controlsOpacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+    // Spring pop-in for controls
+    controlsOpacity.value = withSpring(1, { damping: 20, stiffness: 280, mass: 1 });
     setShowControls(true);
     if (autoHide) scheduleHide(delayMs);
   }, [controlsOpacity, scheduleHide]);
 
   const hideControls = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    controlsOpacity.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
+    controlsOpacity.value = withSpring(0, { damping: 28, stiffness: 200, mass: 1 });
     setShowControls(false);
   }, [controlsOpacity]);
 
@@ -443,10 +446,11 @@ export function MsLongFormPlayer({
 
   const triggerFlash = useCallback((icon: 'play' | 'pause') => {
     setFlashIcon(icon);
+    // Spring pop-in → linger → spring fade-out
     flashOpacity.value = withSequence(
-      withTiming(1, { duration: 80 }),
-      withTiming(1, { duration: 300 }),
-      withTiming(0, { duration: 200 }),
+      withSpring(1, { damping: 10, stiffness: 400, mass: 1 }),
+      withTiming(1, { duration: 260 }),
+      withSpring(0, { damping: 22, stiffness: 220, mass: 1 }),
     );
   }, [flashOpacity]);
 
