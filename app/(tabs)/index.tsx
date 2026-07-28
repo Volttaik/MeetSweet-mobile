@@ -287,7 +287,11 @@ export default function HomeScreen() {
           renderItem={({ item }) => (
             <MsPostCard
               post={item}
-              onPress={() => router.push(`/post/${item.id}`)}
+              onPress={() =>
+                item.mediaType === 'video'
+                  ? router.push(`/videos/${item.id}`)
+                  : router.push(`/post/${item.id}`)
+              }
               currentUserId={user?.id}
               onAuthorPress={() => router.push(`/creator/${item.author.username}`)}
               onDeleted={(id) => setPosts((prev) => prev.filter((p) => p.id !== id))}

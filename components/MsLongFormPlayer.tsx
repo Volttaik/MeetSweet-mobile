@@ -49,6 +49,8 @@ interface Props {
   autoPlay?: boolean;
   isPremium?: boolean;
   onPremiumRequired?: () => void;
+  /** Pass the known aspect ratio from post metadata to eliminate the initial layout flash. */
+  initialAspectRatio?: number;
 }
 
 const progressKey = (id: string) => `@ms_video_progress:${id}`;
@@ -65,6 +67,7 @@ export function MsLongFormPlayer({
   autoPlay = false,
   isPremium = false,
   onPremiumRequired,
+  initialAspectRatio,
 }: Props) {
   const ref            = useRef<Video>(null);
   const hideTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,9 +85,12 @@ export function MsLongFormPlayer({
   const [trackWidth,    setTrackWidth]    = useState(1);
   const [premiumGated,  setPremiumGated]  = useState(false);
   const [isFullscreen,  setIsFullscreen]  = useState(false);
+  // Track rendered width for centre-tap zone detection
+  const [playerWidth,   setPlayerWidth]   = useState(SCREEN_WIDTH);
 
-  // Dynamic aspect ratio — 16:9 until the video reports its natural size
-  const [aspectRatio, setAspectRatio] = useState(16 / 9);
+  // Use caller-supplied aspect ratio (from post metadata) so the first frame
+  // is already the correct size — eliminates the layout flash on open.
+  const [aspectRatio, setAspectRatio] = useState(initialAspectRatio ?? 16 / 9);
 
   // Restore saved progress on mount
   useEffect(() => {
@@ -207,7 +213,10 @@ export function MsLongFormPlayer({
   const progressPct = duration > 0 ? `${(position / duration) * 100}%` : '0%';
 
   return (
-    <View style={[styles.player, { aspectRatio }]}>
+    <View
+      style={[styles.player, { aspectRatio }]}
+      onLayout={(e) => setPlayerWidth(e.nativeEvent.layout.width)}
+    >
 
       {/* Poster — shown while video is not yet loaded */}
       {posterUri ? (
@@ -280,16 +289,32 @@ export function MsLongFormPlayer({
         </View>
       ) : null}
 
-      {/* Tap-to-toggle controls (only when not premium-gated) */}
+      {/* Gesture layer — centre tap toggles playback; edges toggle controls */}
       {!premiumGated ? (
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={() => {
-            setShowControls((v) => {
-              if (!v) { scheduleHide(); return true; }
-              if (hideTimer.current) clearTimeout(hideTimer.current);
-              return false;
-            });
+          onPress={(e) => {
+            const x = e.nativeEvent.locationX;
+            const third = playerWidth / 3;
+            if (x >= third && x <= third * 2) {
+              // ── Centre tap: toggle play / pause ──────────────────────────
+              if (ref.current) {
+                if (isPlaying) {
+                  ref.current.pauseAsync().catch(() => {});
+                } else {
+                  ref.current.playAsync().catch(() => {});
+                }
+              }
+              // Always reveal controls briefly so the user sees the state change
+              revealControls();
+            } else {
+              // ── Edge tap: show / hide controls ───────────────────────────
+              setShowControls((v) => {
+                if (!v) { scheduleHide(); return true; }
+                if (hideTimer.current) clearTimeout(hideTimer.current);
+                return false;
+              });
+            }
           }}
         />
       ) : null}

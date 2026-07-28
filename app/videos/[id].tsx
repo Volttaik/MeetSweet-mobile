@@ -123,12 +123,13 @@ export default function VideoDetailScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {/* Video player */}
+        {/* Video player — initialAspectRatio from post metadata eliminates layout flash */}
         <MsLongFormPlayer
           videoId={post.id}
           uri={videoMedia}
           posterUri={post.thumbnailUrl}
           isPremium={isPremium}
+          initialAspectRatio={post.width && post.height ? post.width / post.height : undefined}
           onPremiumRequired={() => setPremiumSheetVisible(true)}
         />
 

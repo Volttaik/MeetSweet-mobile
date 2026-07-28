@@ -161,8 +161,11 @@ export async function getPostsByCreator(
 export async function getPost(id: string): Promise<{ post: Post }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const raw = await apiFetch<unknown>(`/posts/${id}`, { headers });
-  return { post: normalizePost(raw) };
+  const raw = await apiFetch<Record<string, unknown>>(`/posts/${id}`, { headers });
+  // Backend may wrap as { post: {...} } after envelope unwrap — handle both shapes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const postData = (raw as any)?.post ?? raw;
+  return { post: normalizePost(postData) };
 }
 
 export async function getBookmarkedPosts(page = 1): Promise<{ posts: Post[]; hasMore: boolean }> {
@@ -190,6 +193,8 @@ export interface PostMediaInput {
   width?: number;
   height?: number;
   duration_seconds?: number;
+  /** Public URL of a custom thumbnail image (videos only). */
+  thumbnail_url?: string;
 }
 
 export interface CreatePostData {

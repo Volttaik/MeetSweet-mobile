@@ -66,6 +66,11 @@ export default function CreatePostScreen() {
   const [mediaMime,  setMediaMime]  = useState('image/jpeg');
   const [mediaName,  setMediaName]  = useState('media.jpg');
 
+  // Thumbnail state (long-form video only)
+  const [thumbnailUri,  setThumbnailUri]  = useState<string | null>(null);
+  const [thumbnailMime, setThumbnailMime] = useState('image/jpeg');
+  const [thumbnailName, setThumbnailName] = useState('thumbnail.jpg');
+
   // Flow state
   const [step,           setStep]           = useState<Step>('onboard');
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -121,7 +126,33 @@ export default function CreatePostScreen() {
     }
   }, []);
 
-  const removeMedia = () => { setMediaUri(null); setMediaType(null); setStep('onboard'); };
+  const removeMedia = () => {
+    setMediaUri(null);
+    setMediaType(null);
+    setThumbnailUri(null);
+    setStep('onboard');
+  };
+
+  // ─── Thumbnail picker (long-form video only) ──────────────────────────────
+
+  const pickThumbnail = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Allow access to your media library to select a thumbnail.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    setThumbnailUri(asset.uri);
+    setThumbnailMime(asset.mimeType ?? 'image/jpeg');
+    setThumbnailName(asset.fileName ?? `thumb-${Date.now()}.jpg`);
+  }, []);
 
   // ─── Tags ─────────────────────────────────────────────────────────────────
 
@@ -162,14 +193,26 @@ export default function CreatePostScreen() {
 
       if (mediaUri && mediaType) {
         const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
-          setUploadProgress(p);
+          // Scale media upload to 0–90% so thumbnail upload fits in 90–100%
+          setUploadProgress(thumbnailUri && mediaType === 'video' && videoContentType === 'video' ? p * 0.9 : p);
         });
+
+        // Upload custom thumbnail for long-form video if one was selected
+        let thumbUrl: string | undefined;
+        if (thumbnailUri && mediaType === 'video' && videoContentType === 'video') {
+          const uploadedThumb = await uploadMedia(thumbnailUri, thumbnailMime, thumbnailName, (p) => {
+            setUploadProgress(0.9 + p * 0.1);
+          });
+          thumbUrl = uploadedThumb.url;
+        }
+
         mediaArr = [{
-          url:       uploaded.url,
-          blob_path: uploaded.objectKey,
-          type:      mediaType === 'video' ? 'video' : 'image',
-          mime_type:    uploaded.mimeType,
-          size_bytes:   uploaded.sizeBytes,
+          url:           uploaded.url,
+          blob_path:     uploaded.objectKey,
+          type:          mediaType === 'video' ? 'video' : 'image',
+          mime_type:     uploaded.mimeType,
+          size_bytes:    uploaded.sizeBytes,
+          ...(thumbUrl ? { thumbnail_url: thumbUrl } : {}),
         }];
       }
 
@@ -276,6 +319,36 @@ export default function CreatePostScreen() {
               >
                 <Text style={styles.changeMediaLabel}>Change</Text>
               </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Thumbnail picker — long-form video only */}
+          {mediaType === 'video' && videoContentType === 'video' && (
+            <View style={[styles.section, { paddingTop: 8 }]}>
+              <Text style={styles.sectionTitle}>Video Thumbnail</Text>
+              <TouchableOpacity
+                style={styles.thumbnailPicker}
+                onPress={pickThumbnail}
+                activeOpacity={0.8}
+              >
+                {thumbnailUri ? (
+                  <Image
+                    source={{ uri: thumbnailUri }}
+                    style={styles.thumbnailPreview}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.thumbnailEmpty}>
+                    <PlayCircle size={30} color={T.TEXT_3} />
+                    <Text style={styles.thumbnailEmptyLabel}>Tap to add a thumbnail</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              {thumbnailUri ? (
+                <TouchableOpacity onPress={() => setThumbnailUri(null)} activeOpacity={0.7}>
+                  <Text style={styles.thumbnailRemoveLabel}>Remove thumbnail</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           )}
 
@@ -932,6 +1005,37 @@ const styles = StyleSheet.create({
   },
   previewMetaLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   previewMetaValue: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
+
+  // Thumbnail picker
+  thumbnailPicker: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE,
+    overflow: 'hidden',
+  },
+  thumbnailPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbnailEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  thumbnailEmptyLabel: {
+    fontSize: 13,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_3,
+  },
+  thumbnailRemoveLabel: {
+    fontSize: 12,
+    fontFamily: T.FONT.medium,
+    color: '#EF4444',
+    textAlign: 'center' as const,
+    paddingVertical: 6,
+  },
 
   // Error
   errorBanner: {

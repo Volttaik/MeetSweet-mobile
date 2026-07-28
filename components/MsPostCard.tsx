@@ -266,7 +266,7 @@ export function MsPostCard({
       {/* Media — video */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <View>
-          <ScalePressable onLongPress={() => setSheetVisible(true)}>
+          <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
             <MsPremiumContent
               uri={post.mediaUrl}
               posterUri={post.thumbnailUrl}
