@@ -20,6 +20,7 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSearchModal } from '@/components/MsSearchModal';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { getFeed, type Post } from '@/services/posts';
 
 function greetingText(): string {

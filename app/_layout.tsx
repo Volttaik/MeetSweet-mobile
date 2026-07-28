@@ -22,6 +22,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { T } from '@/constants/theme';
 
 // Set native background colour immediately — prevents the white flash
@@ -134,7 +135,9 @@ export default function RootLayout() {
             <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
-                  <RootLayoutNav />
+                  <PostActionsProvider>
+                    <RootLayoutNav />
+                  </PostActionsProvider>
                 </AuthProvider>
               </KeyboardProvider>
             </HeroUINativeProvider>

@@ -26,6 +26,7 @@ import {
   deletePost,
   reportPost,
 } from '@/services/posts';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { MsShareSheet } from '@/components/MsShareSheet';
 
 function formatCount(n: number): string {
@@ -157,6 +158,8 @@ export function MsPostCard({
     }
   };
 
+  const { markDeleted } = usePostActions();
+
   const doDelete = () => {
     Alert.alert('Delete Post', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
@@ -166,7 +169,8 @@ export function MsPostCard({
         onPress: async () => {
           try {
             await deletePost(post.id);
-            onDeleted?.(post.id);
+            markDeleted(post.id);   // propagate to all screens globally
+            onDeleted?.(post.id);   // also notify the immediate parent list
           } catch {
             Alert.alert('Error', 'Could not delete post.');
           }

@@ -37,6 +37,7 @@ import { MsActionSheet } from '@/components/MsActionSheet';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { uploadMedia } from '@/services/media';
 import { updateMe } from '@/services/users';
 import {

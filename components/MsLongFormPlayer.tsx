@@ -49,8 +49,6 @@ import {
   ChatCircle,
   Heart,
   Lock,
-  Pause,
-  Play,
   ShareNetwork,
   UserPlus,
 } from 'phosphor-react-native';
@@ -675,7 +673,7 @@ export function MsLongFormPlayer({
             </View>
           </View>
 
-          {/* Centre playback controls */}
+          {/* Centre playback controls — skip only; play/pause via centre-tap */}
           <View style={styles.centreRow} pointerEvents="box-none">
             <Pressable
               onPress={() => seek(positionRef.current - 10_000)}
@@ -684,21 +682,6 @@ export function MsLongFormPlayer({
               hitSlop={12}
             >
               <SeekBack10 />
-            </Pressable>
-
-            <Pressable
-              onPress={hasEnded ? handleReplay : toggle}
-              style={[styles.playBtn, hasEnded && styles.replayBtn]}
-              accessibilityLabel={hasEnded ? 'Replay' : isPlaying ? 'Pause' : 'Play'}
-              hitSlop={10}
-            >
-              {hasEnded ? (
-                <ArrowCounterClockwise size={30} color="#fff" weight="bold" />
-              ) : isPlaying ? (
-                <Pause size={28} color="#fff" weight="fill" />
-              ) : (
-                <Play  size={28} color="#fff" weight="fill" />
-              )}
             </Pressable>
 
             <Pressable
