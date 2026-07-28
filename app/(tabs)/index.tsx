@@ -179,6 +179,7 @@ const discoveryStyles = StyleSheet.create({
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { deletedIds } = usePostActions();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -283,7 +284,7 @@ export default function HomeScreen() {
         <DiscoveryState />
       ) : (
         <FlatList
-          data={posts}
+          data={posts.filter((p) => !deletedIds.includes(p.id))}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <MsPostCard
@@ -316,7 +317,11 @@ export default function HomeScreen() {
               }}
               currentUserId={user?.id}
               onAuthorPress={() => router.push(`/creator/${item.author.username}`)}
-              onDeleted={(id) => setPosts((prev) => prev.filter((p) => p.id !== id))}
+              onDeleted={(id) => {
+                // markDeleted() propagates to all screens via context;
+                // also prune local state so the FlatList drops the item immediately
+                setPosts((prev) => prev.filter((p) => p.id !== id));
+              }}
             />
           )}
           refreshControl={

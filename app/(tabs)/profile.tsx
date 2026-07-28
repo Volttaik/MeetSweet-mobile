@@ -439,6 +439,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user, refreshUser, updateUser } = useAuth();
+  const { markDeleted } = usePostActions();
 
   // Tab state
   const [activeTab,    setActiveTab]    = useState<ProfileTab>('Posts');
@@ -462,7 +463,6 @@ export default function ProfileScreen() {
   // Post actions
   const [actionPost,          setActionPost]          = useState<Post | null>(null);
   const [postActionSheet,     setPostActionSheet]     = useState(false);
-  const [editPostSheet,       setEditPostSheet]       = useState(false);
   const [analyticsSheet,      setAnalyticsSheet]      = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [deleting,            setDeleting]            = useState(false);
@@ -562,6 +562,8 @@ export default function ProfileScreen() {
     setDeleting(true);
     try {
       await deletePost(actionPost.id);
+      // Propagate deletion to every screen via context
+      markDeleted(actionPost.id);
       setPosts((prev) => prev.filter((p) => p.id !== actionPost.id));
       setSavedPosts((prev) => prev.filter((p) => p.id !== actionPost.id));
       setDeleteConfirmVisible(false);
@@ -585,6 +587,7 @@ export default function ProfileScreen() {
   };
 
   const handlePostDeleted = (id: string) => {
+    markDeleted(id);
     setPosts((prev) => prev.filter((p) => p.id !== id));
     setSavedPosts((prev) => prev.filter((p) => p.id !== id));
   };
@@ -708,8 +711,7 @@ export default function ProfileScreen() {
               onAuthorPress={() => {}}
               onDeleted={handlePostDeleted}
               onEditPress={(post) => {
-                setActionPost(post);
-                setEditPostSheet(true);
+                router.push(`/edit-post/${post.id}`);
               }}
               onAnalyticsPress={(post) => {
                 setActionPost(post);
@@ -934,7 +936,7 @@ export default function ProfileScreen() {
         actions={[
           {
             label: 'Edit Post',
-            onPress: () => { setPostActionSheet(false); setEditPostSheet(true); },
+            onPress: () => { setPostActionSheet(false); if (actionPost) router.push(`/edit-post/${actionPost.id}`); },
           },
           {
             label: 'View Analytics',
@@ -958,14 +960,6 @@ export default function ProfileScreen() {
         destructive
         onConfirm={handleDeletePost}
         onCancel={() => { setDeleteConfirmVisible(false); setActionPost(null); }}
-      />
-
-      {/* ── Edit post sheet ───────────────────────────────────────────────── */}
-      <EditPostSheet
-        visible={editPostSheet}
-        post={actionPost}
-        onClose={() => { setEditPostSheet(false); setActionPost(null); }}
-        onSaved={handlePostEdited}
       />
 
       {/* ── Analytics sheet ──────────────────────────────────────────────── */}

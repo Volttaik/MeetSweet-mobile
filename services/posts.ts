@@ -235,7 +235,14 @@ export async function createPost(data: CreatePostData): Promise<{ id: string }> 
 
 export async function editPost(
   id: string,
-  data: { caption?: string; visibility?: string; preview_duration?: number | null; expires_at?: string | null },
+  data: {
+    caption?: string;
+    visibility?: string;
+    preview_duration?: number | null;
+    expires_at?: string | null;
+    /** Credit price to unlock premium content; 0 removes the paywall. */
+    unlock_price?: number;
+  },
 ): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
