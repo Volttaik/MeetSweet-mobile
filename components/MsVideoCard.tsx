@@ -5,7 +5,7 @@
  * Premium posts show a blurred thumbnail, the credit price, and an Unlock
  * button — the actual media URL is never passed for premium content.
  */
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Dimensions,
   Pressable,
@@ -17,7 +17,6 @@ import {
 import { Check, Clock, Heart, Lock, Play, Star } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -87,17 +86,8 @@ export function MsVideoCard({
   onUnlockPress,
   onLongPress,
 }: MsVideoCardProps) {
-  const [playerVisible, setPlayerVisible] = useState(false);
-
-  const canPlay = Boolean(video.mediaUrl) && !video.isPremium;
-
-  const handlePlayPress = () => {
-    if (canPlay) {
-      setPlayerVisible(true);
-    } else {
-      onPress();
-    }
-  };
+  // All taps navigate to the video detail screen — no inline player.
+  const handlePlayPress = onPress;
 
   return (
     <>
@@ -238,15 +228,6 @@ export function MsVideoCard({
         </View>
       </Pressable>
 
-      {/* Fullscreen video player — mounted only when open */}
-      {playerVisible && video.mediaUrl ? (
-        <MsVideoPlayer
-          visible={playerVisible}
-          uri={video.mediaUrl}
-          posterUri={video.thumbnailUrl}
-          onClose={() => setPlayerVisible(false)}
-        />
-      ) : null}
     </>
   );
 }

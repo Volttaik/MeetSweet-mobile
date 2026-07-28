@@ -16,6 +16,8 @@ export interface Post {
   id: string;
   caption: string;
   visibility: 'public' | 'subscribers' | 'draft';
+  /** Backend content_type field — 'post' | 'video' | 'short' | 'album' | null */
+  contentType: 'post' | 'video' | 'short' | 'album' | null;
   mediaUrl: string | null;
   mediaType: 'image' | 'video' | null;
   thumbnailUrl: string | null;
@@ -59,10 +61,20 @@ export interface Comment {
 function normalizePost(raw: any): Post {
   const media = Array.isArray(raw.media) ? raw.media : [];
   const firstMedia = media[0] ?? null;
+  // Map backend content_type to our enum; fall back based on media type
+  const rawContentType = raw.content_type ?? null;
+  const contentType: Post['contentType'] =
+    rawContentType === 'short' ? 'short'
+    : rawContentType === 'video' ? 'video'
+    : rawContentType === 'album' ? 'album'
+    : rawContentType === 'post'  ? 'post'
+    : firstMedia?.type === 'video' ? 'video'   // infer from media when absent
+    : null;
   return {
     id: raw.id,
     caption: raw.caption ?? '',
     visibility: raw.visibility ?? 'public',
+    contentType,
     mediaUrl: firstMedia?.url ?? null,
     mediaType: firstMedia?.type ?? null,
     thumbnailUrl: firstMedia?.thumbnail_url ?? null,

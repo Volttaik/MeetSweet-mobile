@@ -280,8 +280,8 @@ export default function ExploreScreen() {
 
   // ── Feed items — image + video cards with album rows injected every 5 items ──
   type FeedItem =
-    | { type: 'video';     data: MsFeedVideoCardData; id: string }
-    | { type: 'image';     data: ExploreImageCardData; id: string }
+    | { type: 'video';     data: MsFeedVideoCardData; id: string; contentType?: string | null }
+    | { type: 'image';     data: ExploreImageCardData; id: string; contentType?: string | null }
     | { type: 'album-row'; albums: AlbumCardData[];    id: string };
 
   const feedItems = useMemo<FeedItem[]>(() => {
@@ -320,7 +320,7 @@ export default function ExploreScreen() {
           creatorIsOnline: creator.isOnline,
           creatorAvatarUrl: creator.avatarUrl,
         };
-        raw.push({ type: 'video', data: card, id: p.id });
+        raw.push({ type: 'video', data: card, id: p.id, contentType: p.contentType });
       } else {
         const card: ExploreImageCardData = {
           id: p.id,
@@ -563,13 +563,20 @@ export default function ExploreScreen() {
       }
 
       if (item.type === 'video') {
+        const navToContent = () => {
+          if (item.contentType === 'short') {
+            router.push({ pathname: '/shorts', params: { startId: item.id } });
+          } else {
+            router.push(`/videos/${item.id}`);
+          }
+        };
         return (
           <View style={styles.videoItemWrap}>
             <MsFeedVideoCard
               card={item.data}
-              onPress={() => router.push(`/videos/${item.id}`)}
+              onPress={navToContent}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-              onUnlockPress={() => router.push(`/videos/${item.id}`)}
+              onUnlockPress={navToContent}
             />
           </View>
         );

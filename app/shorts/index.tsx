@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -87,6 +87,9 @@ const sheetStyles = StyleSheet.create({
 
 export default function ShortsScreen() {
   const insets = useSafeAreaInsets();
+  const { startId } = useLocalSearchParams<{ startId?: string }>();
+  const listRef = useRef<FlatList>(null);
+
   const [shorts, setShorts]     = useState<Short[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading]   = useState(true);
@@ -109,6 +112,19 @@ export default function ShortsScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Scroll to startId once list is loaded
+  useEffect(() => {
+    if (!startId || !shorts.length) return;
+    const idx = shorts.findIndex((s) => s.id === startId);
+    if (idx > 0) {
+      // Slight delay lets the FlatList finish its initial layout
+      setTimeout(() => {
+        listRef.current?.scrollToIndex({ index: idx, animated: false });
+        setActiveIndex(idx);
+      }, 100);
+    }
+  }, [startId, shorts]);
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
     const index = viewableItems[0]?.index;
@@ -135,6 +151,7 @@ export default function ShortsScreen() {
   return (
     <View style={styles.screen}>
       <FlatList
+        ref={listRef}
         data={shorts}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (

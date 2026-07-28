@@ -53,6 +53,8 @@ export interface ContentPreview {
   likeCount?: number;
   /** Raw comment count for display */
   commentCount?: number;
+  /** Backend content_type field — drives routing: 'short' → Shorts, 'video' → Long-form player */
+  contentType?: string | null;
 }
 
 export interface TrendingCollection {

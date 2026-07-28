@@ -118,6 +118,7 @@ interface RawPost {
   creator_avatar_url?: string | null;
   creator_is_verified: boolean;
   caption: string | null;
+  content_type?: string | null;
   unlock_price: number | null;
   like_count: number;
   comment_count?: number;
@@ -180,6 +181,16 @@ function previewFromPost(post: RawPost): ContentPreview {
   // mediaUrl: the full-resolution source — used for video playback and image lightbox
   const mediaUrl = firstMedia?.url ?? null;
 
+  // Determine content_type for correct routing client-side
+  const rawCT = post.content_type ?? null;
+  const contentType: string | null =
+    rawCT === 'short' ? 'short'
+    : rawCT === 'video' ? 'video'
+    : rawCT === 'album' ? 'album'
+    : rawCT === 'post'  ? 'post'
+    : firstMedia?.type === 'video' ? 'video'
+    : null;
+
   return {
     id: post.id,
     creatorId: post.creator_id,
@@ -196,6 +207,7 @@ function previewFromPost(post: RawPost): ContentPreview {
     thumbnailUrl,
     mediaUrl,
     createdAt: post.created_at ?? post.published_at,
+    contentType,
   };
 }
 

@@ -129,8 +129,10 @@ export default function VideoDetailScreen() {
           uri={videoMedia}
           posterUri={post.thumbnailUrl}
           isPremium={isPremium}
-          initialAspectRatio={post.width && post.height ? post.width / post.height : undefined}
+          autoPlay
+          initialAspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
           onPremiumRequired={() => setPremiumSheetVisible(true)}
+          onBack={() => router.back()}
         />
 
         {/* Title & meta */}
