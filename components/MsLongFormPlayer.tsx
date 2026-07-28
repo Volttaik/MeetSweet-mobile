@@ -1,20 +1,21 @@
 /**
- * MsLongFormPlayer — seekable long-form video player.
+ * MsLongFormPlayer — single reusable long-form video controller.
  *
- * Architecture:
- *   - Video is mounted ONCE and never remounts during playback (prevents flash).
- *   - Controls are a translucent glass overlay that floats inside the video frame.
- *   - Spinner only shows before the first frame is decoded (onReadyForDisplay).
+ * Architecture (v2):
+ *   - Outer Pressable IS the interaction surface; child buttons absorb their
+ *     own taps so the parent Pressable only fires on empty-space taps.
+ *   - Video is mounted ONCE and never remounts during playback.
+ *   - Two independent overlay systems:
+ *       1. Creator strip  — always visible (its own opacity, never hides).
+ *       2. Glass controls — auto-hide overlay (fades in/out).
+ *   - fillContainer mode: player fills parent flex container (used in
+ *     full-screen video detail).  Default mode: aspect-ratio box.
  *
  * Gesture contract:
- *   - Centre tap (middle third): pause / resume only — never shows/hides controls.
- *   - Edge tap (left or right third): toggle controls visibility.
- *   - Controls auto-show on playback start and hide after 1.5 s.
- *
- * Controls layout (inside the video, glass-frosted overlay):
- *   Top    : optional back button + fullscreen toggle
- *   Middle : ⏪ 10s  |  ▶/⏸  |  ⏩ 10s
- *   Bottom : current time · progress bar · remaining time
+ *   - Centre tap (middle third):  toggle play / pause only — no control change.
+ *     Brief icon flash gives visual confirmation.
+ *   - Edge tap (left OR right third): toggle controls visibility.
+ *   - Controls auto-show on mount / play-start, fade after 1.5 s.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -23,12 +24,14 @@ import {
   Text,
   View,
   Dimensions,
+  Image,
 } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   withRepeat,
+  withSequence,
   Easing,
 } from 'react-native-reanimated';
 import {
@@ -40,12 +43,13 @@ import {
 import {
   ArrowCounterClockwise,
   ArrowLeft,
-  ArrowsOut,
+  ChatCircle,
   Lock,
   Pause,
   Play,
   SkipBack,
   SkipForward,
+  UserPlus,
 } from 'phosphor-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
@@ -54,6 +58,14 @@ import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+/** Compact creator info shown over the video. */
+export interface LongFormCreator {
+  avatarUrl?: string | null;
+  name: string;
+  username: string;
+  onSubscribePress?: () => void;
+}
+
 interface Props {
   videoId: string;
   uri: string | null;
@@ -61,10 +73,20 @@ interface Props {
   autoPlay?: boolean;
   isPremium?: boolean;
   onPremiumRequired?: () => void;
-  /** Pass the known aspect ratio from post metadata to eliminate the initial layout flash. */
+  /** Eliminate initial layout flash by passing the known aspect ratio. */
   initialAspectRatio?: number;
-  /** Optional callback for the back button shown inside the controls overlay. */
+  /** Back-button callback rendered in the top-left of the controls. */
   onBack?: () => void;
+  /**
+   * When true the player fills its parent (flex:1) instead of sizing by
+   * aspect ratio.  Use for full-screen video-detail screens.
+   */
+  fillContainer?: boolean;
+  /** Show compact creator info overlaid on the video. */
+  creator?: LongFormCreator;
+  /** Comments-button callback — player pauses first, then calls this. */
+  onCommentsPress?: () => void;
+  commentCount?: number;
 }
 
 const progressKey = (id: string) => `@ms_video_progress:${id}`;
@@ -88,55 +110,59 @@ export function MsLongFormPlayer({
   onPremiumRequired,
   initialAspectRatio,
   onBack,
+  fillContainer = false,
+  creator,
+  onCommentsPress,
+  commentCount = 0,
 }: Props) {
   const ref          = useRef<Video>(null);
   const hideTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const premiumFired = useRef(false);
   const positionRef  = useRef(0);
 
-  const [isPlaying,    setIsPlaying]    = useState(autoPlay);
-  const [isBuffering,  setIsBuffering]  = useState(false);
-  // isReady: true once onReadyForDisplay fires — spinner hidden from this point
-  const [isReady,      setIsReady]      = useState(false);
-  const [position,     setPosition]     = useState(0);
-  const [duration,     setDuration]     = useState(0);
-  const [error,        setError]        = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [savedPosition,setSavedPosition]= useState<number | null>(null);
-  const [trackWidth,   setTrackWidth]   = useState(1);
-  const [premiumGated, setPremiumGated] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [playerWidth,  setPlayerWidth]  = useState(SCREEN_WIDTH);
+  const [isPlaying,     setIsPlaying]     = useState(autoPlay);
+  const [isBuffering,   setIsBuffering]   = useState(false);
+  const [isReady,       setIsReady]       = useState(false);
+  const [position,      setPosition]      = useState(0);
+  const [duration,      setDuration]      = useState(0);
+  const [error,         setError]         = useState(false);
+  const [showControls,  setShowControls]  = useState(true);
+  const [savedPosition, setSavedPosition] = useState<number | null>(null);
+  const [trackWidth,    setTrackWidth]    = useState(1);
+  const [premiumGated,  setPremiumGated]  = useState(false);
+  const [playerWidth,   setPlayerWidth]   = useState(SCREEN_WIDTH);
 
-  // Stable aspect ratio — always start at initialAspectRatio ?? 16/9 so the
-  // container never resizes on the first onReadyForDisplay callback.
-  const [aspectRatio,  setAspectRatio]  = useState(initialAspectRatio ?? 16 / 9);
+  /** Stable aspect ratio — never jump on first onReadyForDisplay callback. */
+  const [aspectRatio, setAspectRatio] = useState(initialAspectRatio ?? 16 / 9);
 
-  // Animated opacity for smooth control fade
+  // ── Animated values ──────────────────────────────────────────────────────
+
   const controlsOpacity = useSharedValue(1);
-  const controlsStyle = useAnimatedStyle(() => ({
-    opacity: controlsOpacity.value,
-  }));
+  const controlsStyle = useAnimatedStyle(() => ({ opacity: controlsOpacity.value }));
+
+  // Brief icon flash for centre-tap feedback (play / pause confirmation)
+  const flashOpacity = useSharedValue(0);
+  const flashStyle   = useAnimatedStyle(() => ({ opacity: flashOpacity.value }));
+  const [flashIcon, setFlashIcon] = useState<'play' | 'pause'>('play');
 
   // Spinner rotation
   const spinAngle = useSharedValue(0);
   useEffect(() => {
     spinAngle.value = withRepeat(
       withTiming(360, { duration: 800, easing: Easing.linear }),
-      -1,
-      false,
+      -1, false,
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const spinStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${spinAngle.value}deg` }],
   }));
 
-  // ── Auto-hide timer ─────────────────────────────────────────────────────────
+  // ── Auto-hide timer ──────────────────────────────────────────────────────
 
   const scheduleHide = useCallback((delayMs = 3000) => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
-      controlsOpacity.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
+      controlsOpacity.value = withTiming(0, { duration: 350, easing: Easing.out(Easing.cubic) });
       setShowControls(false);
     }, delayMs);
   }, [controlsOpacity]);
@@ -156,12 +182,17 @@ export function MsLongFormPlayer({
 
   useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
-  // Auto-show controls when playback begins, then fade after 1.5 s
+  // Auto-show controls on play-start, fade after 1.5 s
   useEffect(() => {
     if (isPlaying) revealControls(true, 1500);
   }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Restore saved progress ─────────────────────────────────────────────────
+  // Auto-show on mount
+  useEffect(() => {
+    revealControls(true, 1500);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Restore saved progress ───────────────────────────────────────────────
 
   useEffect(() => {
     let active = true;
@@ -171,7 +202,7 @@ export function MsLongFormPlayer({
     return () => { active = false; };
   }, [videoId]);
 
-  // ── Reset on video change ─────────────────────────────────────────────────
+  // ── Reset on video change ────────────────────────────────────────────────
 
   useEffect(() => {
     premiumFired.current = false;
@@ -181,18 +212,14 @@ export function MsLongFormPlayer({
     setDuration(0);
     setIsReady(false);
     positionRef.current = 0;
-    // Keep the aspect ratio stable across video changes — only reset if caller
-    // provides a new value.
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri, initialAspectRatio]);
 
-  // ── Playback status ────────────────────────────────────────────────────────
+  // ── Playback status ──────────────────────────────────────────────────────
 
   const onStatus = useCallback(
     (status: AVPlaybackStatus) => {
-      if (!status.isLoaded) {
-        return;
-      }
+      if (!status.isLoaded) return;
       setIsBuffering(status.isBuffering ?? false);
       setIsPlaying(status.isPlaying);
       const pos = status.positionMillis;
@@ -203,7 +230,6 @@ export function MsLongFormPlayer({
       }
       positionRef.current = pos;
       if (status.didJustFinish) setIsPlaying(false);
-      // Premium gate
       if (isPremium && !premiumFired.current && pos >= 3000) {
         premiumFired.current = true;
         ref.current?.pauseAsync().catch(() => {});
@@ -216,11 +242,9 @@ export function MsLongFormPlayer({
 
   const onReadyForDisplay = useCallback(
     (event: { naturalSize?: { width: number; height: number } }) => {
-      // Mark as ready — spinner disappears immediately
       setIsReady(true);
       const w = event.naturalSize?.width;
       const h = event.naturalSize?.height;
-      // Only update if not already set by initialAspectRatio to avoid layout jump
       if (w && h && h > 0 && !initialAspectRatio) setAspectRatio(w / h);
     },
     [initialAspectRatio],
@@ -228,19 +252,13 @@ export function MsLongFormPlayer({
 
   const onFullscreenUpdate = useCallback(
     ({ fullscreenUpdate }: { fullscreenUpdate: VideoFullscreenUpdate }) => {
-      if (
-        fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_DISMISS ||
-        fullscreenUpdate === VideoFullscreenUpdate.PLAYER_WILL_DISMISS
-      ) {
-        setIsFullscreen(false);
-      } else {
-        setIsFullscreen(true);
-      }
+      // no-op — native fullscreen not used in this player
+      void fullscreenUpdate;
     },
     [],
   );
 
-  // ── Playback controls ──────────────────────────────────────────────────────
+  // ── Playback controls ────────────────────────────────────────────────────
 
   const toggle = useCallback(async () => {
     if (!ref.current || premiumGated) return;
@@ -252,7 +270,7 @@ export function MsLongFormPlayer({
     const clamped = Math.max(0, Math.min(duration || 0, ms));
     setPosition(clamped);
     await ref.current?.setPositionAsync(clamped);
-    revealControls();
+    revealControls(true, 3000);
   }, [duration, revealControls]);
 
   const seekByTrackTap = useCallback(
@@ -264,25 +282,44 @@ export function MsLongFormPlayer({
     [duration, seek, trackWidth],
   );
 
-  const handleFullscreen = useCallback(async () => {
-    await ref.current?.presentFullscreenPlayer();
-  }, []);
+  // ── Comments ─────────────────────────────────────────────────────────────
 
-  // ── Gesture handling ──────────────────────────────────────────────────────
+  const handleCommentsPress = useCallback(async () => {
+    // Pause first, then open comments
+    if (ref.current && isPlaying) await ref.current.pauseAsync();
+    onCommentsPress?.();
+  }, [isPlaying, onCommentsPress]);
 
-  const handleVideoPress = useCallback(
+  // ── Flash icon for centre-tap feedback ───────────────────────────────────
+
+  const triggerFlash = useCallback((icon: 'play' | 'pause') => {
+    setFlashIcon(icon);
+    flashOpacity.value = withSequence(
+      withTiming(1, { duration: 80 }),
+      withTiming(1, { duration: 300 }),
+      withTiming(0, { duration: 200 }),
+    );
+  }, [flashOpacity]);
+
+  // ── Gesture handling ─────────────────────────────────────────────────────
+  // The outer Pressable covers the entire player.
+  // Child buttons in the controls overlay absorb their own taps, so this
+  // handler only fires on "empty" areas of the video.
+
+  const handleOuterPress = useCallback(
     (e: { nativeEvent: { locationX: number } }) => {
-      if (premiumGated) return;
-      const x = e.nativeEvent.locationX;
+      if (premiumGated || !uri || error) return;
+      const x     = e.nativeEvent.locationX;
       const third = playerWidth / 3;
 
       if (x >= third && x <= third * 2) {
-        // ── Centre tap: play / pause only ──────────────────────────────────
+        // ── Centre tap: play / pause only ─────────────────────────────────
+        // Do NOT show or hide controls.
+        const willPause = isPlaying;
         toggle();
-        // Brief control flash so user sees the state change, then re-hide
-        revealControls(true, 800);
+        triggerFlash(willPause ? 'pause' : 'play');
       } else {
-        // ── Edge tap: toggle control visibility ───────────────────────────
+        // ── Edge tap: toggle controls ──────────────────────────────────────
         if (showControls) {
           hideControls();
         } else {
@@ -290,19 +327,25 @@ export function MsLongFormPlayer({
         }
       }
     },
-    [premiumGated, playerWidth, toggle, showControls, revealControls, hideControls],
+    [premiumGated, uri, error, playerWidth, isPlaying, showControls,
+     toggle, triggerFlash, hideControls, revealControls],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   const progressPct = duration > 0 ? (position / duration) * 100 : 0;
+  const outerStyle  = fillContainer
+    ? [styles.player, styles.playerFill]
+    : [styles.player, { aspectRatio }];
 
   return (
-    <View
-      style={[styles.player, { aspectRatio }]}
+    <Pressable
+      style={outerStyle}
+      onPress={handleOuterPress}
       onLayout={(e) => setPlayerWidth(e.nativeEvent.layout.width)}
+      accessibilityLabel="Video player"
     >
-      {/* Poster / thumbnail — shown until video is ready */}
+      {/* Poster / thumbnail */}
       {posterUri ? (
         <MsMediaLoader
           uri={posterUri}
@@ -311,7 +354,6 @@ export function MsLongFormPlayer({
           accessibleLabel="Video thumbnail"
         />
       ) : !posterUri && uri ? (
-        /* First-frame fallback when no thumbnail URL is available */
         <MsVideoThumbnail
           videoUri={uri}
           style={StyleSheet.absoluteFill}
@@ -319,7 +361,7 @@ export function MsLongFormPlayer({
         />
       ) : null}
 
-      {/* The ONE Video instance — never remounts */}
+      {/* The ONE Video instance */}
       {uri && !error ? (
         <Video
           ref={ref}
@@ -360,14 +402,14 @@ export function MsLongFormPlayer({
         </View>
       ) : null}
 
-      {/* Spinner — only before first frame is decoded */}
+      {/* Spinner — before first frame */}
       {!isReady && uri && !error ? (
         <View style={styles.spinnerWrap} pointerEvents="none">
           <Animated.View style={[styles.spinnerRing, spinStyle]} />
         </View>
       ) : null}
 
-      {/* Mid-playback buffering indicator (shown while buffering even if playing) */}
+      {/* Mid-playback buffering */}
       {isReady && isBuffering && uri && !error ? (
         <View style={styles.spinnerWrap} pointerEvents="none">
           <Animated.View style={[styles.spinnerRing, spinStyle]} />
@@ -385,43 +427,52 @@ export function MsLongFormPlayer({
         </View>
       ) : null}
 
-      {/* Gesture layer — covers entire player */}
-      {!premiumGated && uri && !error ? (
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={handleVideoPress}
-          accessibilityLabel="Video player"
-        />
-      ) : null}
+      {/* Centre-tap icon flash (play / pause confirmation) */}
+      <Animated.View style={[styles.flashWrap, flashStyle]} pointerEvents="none">
+        <View style={styles.flashCircle}>
+          {flashIcon === 'pause'
+            ? <Pause size={28} color="#fff" weight="fill" />
+            : <Play  size={28} color="#fff" weight="fill" />}
+        </View>
+      </Animated.View>
 
-      {/* Glass controls overlay */}
+      {/* ── Glass controls overlay ─────────────────────────────────────── */}
       {uri && !error && !premiumGated ? (
         <Animated.View
           style={[styles.controlsOverlay, controlsStyle]}
           pointerEvents={showControls ? 'box-none' : 'none'}
         >
-          {/* Top bar */}
+          {/* Top bar — back + comments */}
           <View style={styles.topBar}>
             {onBack ? (
               <Pressable
                 onPress={onBack}
                 style={styles.topBtn}
                 accessibilityLabel="Go back"
-                hitSlop={10}
+                hitSlop={12}
               >
                 <ArrowLeft size={19} color="#fff" weight="bold" />
               </Pressable>
             ) : <View style={styles.topBtnPlaceholder} />}
 
             <View style={styles.topRight}>
-              {!isFullscreen ? (
+              {onCommentsPress ? (
                 <Pressable
-                  onPress={handleFullscreen}
+                  onPress={handleCommentsPress}
                   style={styles.topBtn}
-                  accessibilityLabel="Fullscreen"
-                  hitSlop={10}
+                  accessibilityLabel="Comments"
+                  hitSlop={12}
                 >
-                  <ArrowsOut size={17} color="#fff" />
+                  <ChatCircle size={19} color="#fff" />
+                  {commentCount > 0 ? (
+                    <View style={styles.commentBadge} pointerEvents="none">
+                      <Text style={styles.commentBadgeText}>
+                        {commentCount >= 1000
+                          ? `${(commentCount / 1000).toFixed(1)}k`
+                          : String(commentCount)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               ) : null}
             </View>
@@ -433,7 +484,7 @@ export function MsLongFormPlayer({
               onPress={() => seek(position - 10_000)}
               style={styles.skipBtn}
               accessibilityLabel="Skip back 10 seconds"
-              hitSlop={8}
+              hitSlop={10}
             >
               <SkipBack size={26} color="#fff" weight="fill" />
             </Pressable>
@@ -442,49 +493,88 @@ export function MsLongFormPlayer({
               onPress={toggle}
               style={styles.playBtn}
               accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
-              hitSlop={8}
+              hitSlop={10}
             >
               {isPlaying
-                ? <Pause size={26} color="#fff" weight="fill" />
-                : <Play  size={26} color="#fff" weight="fill" />}
+                ? <Pause size={28} color="#fff" weight="fill" />
+                : <Play  size={28} color="#fff" weight="fill" />}
             </Pressable>
 
             <Pressable
               onPress={() => seek(position + 10_000)}
               style={styles.skipBtn}
               accessibilityLabel="Skip forward 10 seconds"
-              hitSlop={8}
+              hitSlop={10}
             >
               <SkipForward size={26} color="#fff" weight="fill" />
             </Pressable>
           </View>
 
-          {/* Bottom bar: time + seekbar */}
-          <View style={styles.bottomBar}>
-            <Text style={styles.timeText}>{formatTime(position)}</Text>
+          {/* Bottom: creator strip + progress bar */}
+          <View style={styles.bottomSection}>
+            {/* Compact creator strip */}
+            {creator ? (
+              <View style={styles.creatorRow} pointerEvents="box-none">
+                {creator.avatarUrl ? (
+                  <Image
+                    source={{ uri: creator.avatarUrl }}
+                    style={styles.creatorAvatar}
+                  />
+                ) : (
+                  <View style={[styles.creatorAvatar, styles.creatorAvatarFallback]}>
+                    <Text style={styles.creatorAvatarInitial}>
+                      {creator.name.slice(0, 1).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.creatorText}>
+                  <Text style={styles.creatorName} numberOfLines={1}>
+                    {creator.name}
+                  </Text>
+                  <Text style={styles.creatorHandle} numberOfLines={1}>
+                    @{creator.username}
+                  </Text>
+                </View>
+                {creator.onSubscribePress ? (
+                  <Pressable
+                    onPress={creator.onSubscribePress}
+                    style={styles.subscribeBtn}
+                    accessibilityLabel="Subscribe"
+                    hitSlop={6}
+                  >
+                    <UserPlus size={11} color={T.BG} />
+                    <Text style={styles.subscribeBtnText}>Subscribe</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
 
-            <View
-              style={styles.track}
-              onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
-            >
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={seekByTrackTap}
-                accessibilityLabel="Seek"
-              />
-              {/* Buffering ghost fill */}
-              {isBuffering ? (
-                <View style={[styles.trackBuffering, { width: `${Math.min(100, progressPct + 8)}%` as any }]} />
-              ) : null}
-              <View style={[styles.trackFill, { width: `${progressPct}%` as any }]} />
-              <View style={[styles.thumb, { left: `${progressPct}%` as any }]} pointerEvents="none" />
+            {/* Progress bar row */}
+            <View style={styles.bottomBar}>
+              <Text style={styles.timeText}>{formatTime(position)}</Text>
+
+              <View
+                style={styles.track}
+                onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+              >
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={seekByTrackTap}
+                  accessibilityLabel="Seek"
+                />
+                {isBuffering ? (
+                  <View style={[styles.trackBuffering, { width: `${Math.min(100, progressPct + 8)}%` as any }]} />
+                ) : null}
+                <View style={[styles.trackFill, { width: `${progressPct}%` as any }]} />
+                <View style={[styles.thumb, { left: `${progressPct}%` as any }]} pointerEvents="none" />
+              </View>
+
+              <Text style={styles.timeText}>{formatRemaining(position, duration)}</Text>
             </View>
-
-            <Text style={styles.timeText}>{formatRemaining(position, duration)}</Text>
           </View>
         </Animated.View>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -496,6 +586,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#050506',
     overflow: 'hidden',
     position: 'relative',
+  },
+  playerFill: {
+    flex: 1,
   },
 
   video: { zIndex: 1 },
@@ -525,6 +618,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 3,
+    pointerEvents: 'none' as any,
   },
   spinnerRing: {
     width: 40,
@@ -544,23 +638,41 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   premiumCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 56, height: 56, borderRadius: 28,
     backgroundColor: T.ACCENT_LIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
     marginBottom: 4,
   },
   premiumTitle: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 16 },
   premiumSub:   { color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 12 },
 
-  // ── Glass overlay ─────────────────────────────────────────────────────────
+  // Centre-tap flash
+  flashWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 7,
+    pointerEvents: 'none' as any,
+  },
+  flashCircle: {
+    width: 68, height: 68, borderRadius: 34,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+  },
+
+  // ── Glass controls overlay ─────────────────────────────────────────────
 
   controlsOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 5,
     justifyContent: 'space-between',
+    // Gradient-like dark edges
+    backgroundColor: 'transparent',
   },
 
   // Top bar
@@ -569,70 +681,126 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingTop: 12,
     paddingBottom: 8,
-    backgroundColor: 'rgba(0,0,0,0)',
   },
   topBtn: {
-    width: 36,
+    minWidth: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.52)',
     alignItems: 'center',
     justifyContent: 'center',
-    // Soft shadow so it reads against any background
+    paddingHorizontal: 8,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
+    flexDirection: 'row',
+    gap: 4,
   },
   topBtnPlaceholder: { width: 36 },
-  topRight: { flexDirection: 'row', gap: 8 },
+  topRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+
+  commentBadge: {
+    backgroundColor: T.ACCENT,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    minWidth: 18,
+    alignItems: 'center',
+  },
+  commentBadgeText: {
+    color: '#fff',
+    fontFamily: T.FONT.bold,
+    fontSize: 9,
+  },
 
   // Centre controls
   centreRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 28,
+    gap: 30,
   },
   skipBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
   playBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(0,0,0,0.52)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 2 },
     elevation: 6,
   },
 
-  // Bottom bar
+  // Bottom section: creator strip + progress
+  bottomSection: {
+    paddingHorizontal: 0,
+    // Bottom scrim
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    borderRadius: 0,
+    paddingBottom: 10,
+  },
+
+  // Creator strip
+  creatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  creatorAvatar: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: T.SURFACE_2,
+  },
+  creatorAvatarFallback: {
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: T.SURFACE_2,
+  },
+  creatorAvatarInitial: {
+    color: T.TEXT_2, fontFamily: T.FONT.bold, fontSize: 12,
+  },
+  creatorText: { flex: 1 },
+  creatorName: {
+    color: '#fff', fontFamily: T.FONT.semibold, fontSize: 12,
+    textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 4, textShadowOffset: { width: 0, height: 1 },
+  },
+  creatorHandle: {
+    color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 10,
+  },
+  subscribeBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#fff',
+    borderRadius: T.RADIUS.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  subscribeBtnText: {
+    color: T.BG, fontFamily: T.FONT.semibold, fontSize: 10,
+  },
+
+  // Progress bar row
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    paddingTop: 8,
-    backgroundColor: 'rgba(0,0,0,0.32)',
+    paddingHorizontal: 14,
+    paddingBottom: 4,
+    paddingTop: 2,
   },
   timeText: {
     color: '#fff',
@@ -645,7 +813,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.25)',
     overflow: 'visible',
     justifyContent: 'center',
   },
@@ -654,7 +822,7 @@ const styles = StyleSheet.create({
     left: 0,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   trackFill: {
     position: 'absolute',
@@ -665,12 +833,10 @@ const styles = StyleSheet.create({
   },
   thumb: {
     position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 13, height: 13, borderRadius: 7,
     backgroundColor: '#fff',
     marginLeft: -6,
-    top: -4,
+    top: -5,
     zIndex: 2,
     shadowColor: '#000',
     shadowOpacity: 0.3,

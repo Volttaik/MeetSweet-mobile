@@ -85,6 +85,12 @@ function ScalePressable({
 interface MsPostCardProps {
   post: Post;
   onPress?: () => void;
+  /**
+   * Called when the user taps the media area (image or video thumbnail).
+   * When provided, media taps use this instead of onPress.
+   * Use to open PostFullView; leave undefined to fall back to onPress.
+   */
+  onMediaPress?: () => void;
   onAuthorPress?: () => void;
   onDeleted?: (id: string) => void;
   currentUserId?: string;
@@ -93,6 +99,7 @@ interface MsPostCardProps {
 export function MsPostCard({
   post,
   onPress,
+  onMediaPress,
   onAuthorPress,
   onDeleted,
   currentUserId,
@@ -249,7 +256,10 @@ export function MsPostCard({
 
       {/* Media — image */}
       {post.mediaUrl && post.mediaType === 'image' && (
-        <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
+        <ScalePressable
+          onPress={onMediaPress ?? onPress}
+          onLongPress={() => setSheetVisible(true)}
+        >
           <MsPremiumContent
             uri={post.mediaUrl}
             mediaType="image"
@@ -257,7 +267,7 @@ export function MsPostCard({
             unlocked={!post.isLocked}
             price={post.priceCredits ?? 0}
             aspectRatio={post.width && post.height ? post.width / post.height : 1}
-            onUnlock={onPress}
+            onUnlock={onMediaPress ?? onPress}
             style={styles.media}
           />
         </ScalePressable>
@@ -266,7 +276,10 @@ export function MsPostCard({
       {/* Media — video */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <View>
-          <ScalePressable onPress={onPress} onLongPress={() => setSheetVisible(true)}>
+          <ScalePressable
+            onPress={onMediaPress ?? onPress}
+            onLongPress={() => setSheetVisible(true)}
+          >
             <MsPremiumContent
               uri={post.mediaUrl}
               posterUri={post.thumbnailUrl}
@@ -275,7 +288,7 @@ export function MsPostCard({
               unlocked={!post.isLocked}
               price={post.priceCredits ?? 0}
               aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
-              onUnlock={onPress}
+              onUnlock={onMediaPress ?? onPress}
               style={styles.videoPlaceholder}
             />
           </ScalePressable>

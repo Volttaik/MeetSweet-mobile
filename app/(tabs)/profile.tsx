@@ -319,7 +319,23 @@ export default function ProfileScreen() {
       key={item.id}
       style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE }}
       activeOpacity={0.8}
-      onPress={() => router.push(`/post/${item.id}`)}
+      onPress={() => {
+        if (item.mediaUrl) {
+          router.push({
+            pathname: '/post-media',
+            params: {
+              uri: item.mediaUrl,
+              type: item.mediaType ?? 'image',
+              postId: item.id,
+              aspectRatio: item.width && item.height
+                ? String(item.width / item.height)
+                : '',
+            },
+          });
+        } else {
+          router.push(`/post/${item.id}`);
+        }
+      }}
     >
       {item.mediaUrl ? (
         <Image

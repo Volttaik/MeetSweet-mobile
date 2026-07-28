@@ -290,8 +290,25 @@ export default function HomeScreen() {
               onPress={() => {
                 if (item.contentType === 'short') {
                   router.push({ pathname: '/shorts', params: { startId: item.id } });
-                } else if (item.contentType === 'video' || item.mediaType === 'video') {
-                  router.push(`/videos/${item.id}`);
+                } else {
+                  router.push(`/post/${item.id}`);
+                }
+              }}
+              onMediaPress={() => {
+                if (item.contentType === 'short') {
+                  router.push({ pathname: '/shorts', params: { startId: item.id } });
+                } else if (item.mediaUrl) {
+                  router.push({
+                    pathname: '/post-media',
+                    params: {
+                      uri: item.mediaUrl,
+                      type: item.mediaType ?? 'image',
+                      postId: item.id,
+                      aspectRatio: item.width && item.height
+                        ? String(item.width / item.height)
+                        : '',
+                    },
+                  });
                 } else {
                   router.push(`/post/${item.id}`);
                 }
