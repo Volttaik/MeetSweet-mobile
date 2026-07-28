@@ -94,6 +94,10 @@ interface MsPostCardProps {
   onAuthorPress?: () => void;
   onDeleted?: (id: string) => void;
   currentUserId?: string;
+  /** Called when owner taps "Edit Post" — receives the current post. */
+  onEditPress?: (post: Post) => void;
+  /** Called when owner taps "View Analytics" — receives the current post. */
+  onAnalyticsPress?: (post: Post) => void;
 }
 
 export function MsPostCard({
@@ -103,6 +107,8 @@ export function MsPostCard({
   onAuthorPress,
   onDeleted,
   currentUserId,
+  onEditPress,
+  onAnalyticsPress,
 }: MsPostCardProps) {
   const [liked, setLiked] = useState(post.likedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
@@ -176,9 +182,20 @@ export function MsPostCard({
 
   // Own post actions
   const ownActions: ActionItem[] = [
-    { label: 'Edit Post', onPress: () => {} },
-    { label: 'Archive Post', onPress: () => {} },
-    { label: 'View Statistics', onPress: () => {} },
+    {
+      label: 'Edit Post',
+      onPress: () => {
+        setSheetVisible(false);
+        onEditPress?.(post);
+      },
+    },
+    {
+      label: 'View Analytics',
+      onPress: () => {
+        setSheetVisible(false);
+        onAnalyticsPress?.(post);
+      },
+    },
     { label: 'Delete Post', destructive: true, onPress: doDelete },
   ];
 

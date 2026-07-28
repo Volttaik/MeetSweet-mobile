@@ -218,15 +218,27 @@ export default function CreatePostScreen() {
 
       setStep('creating');
 
-      // Both Short and Video content types use the same createPost endpoint.
-      // The backend has no dedicated /shorts or /videos endpoints.
+      // Map videoContentType → backend content_type field.
+      // This drives which feed/tab the post appears in on the backend.
+      const contentTypeMap: Record<string, 'post' | 'video' | 'short'> = {
+        short: 'short',
+        video: 'video',
+      };
+      const resolvedContentType =
+        mediaType === 'video' && videoContentType
+          ? contentTypeMap[videoContentType]
+          : mediaArr
+          ? 'post'
+          : undefined;
+
       await createPost({
-        caption:    caption.trim(),
-        visibility: isPaid ? 'subscribers' as const : visibility,
-        media:      mediaArr,
-        categories: selectedCategories,
+        caption:      caption.trim(),
+        visibility:   isPaid ? 'subscribers' as const : visibility,
+        media:        mediaArr,
+        categories:   selectedCategories,
         tags,
         ...(isPaid ? { unlock_price: parseInt(creditPrice, 10) || 50 } : {}),
+        ...(resolvedContentType ? { content_type: resolvedContentType } : {}),
       });
 
       setStep('processing');

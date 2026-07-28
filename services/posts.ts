@@ -218,6 +218,8 @@ export interface CreatePostData {
   preview_duration?: number;
   categories?: string[];
   tags?: string[];
+  /** Backend content_type — drives which feed/tab the post appears in. */
+  content_type?: 'post' | 'video' | 'short' | 'album';
 }
 
 export async function createPost(data: CreatePostData): Promise<{ id: string }> {
