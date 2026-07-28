@@ -58,7 +58,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
