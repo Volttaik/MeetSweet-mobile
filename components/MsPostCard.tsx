@@ -288,6 +288,7 @@ export function MsPostCard({
             unlocked={!post.isLocked}
             price={post.priceCredits ?? 0}
             aspectRatio={post.width && post.height ? post.width / post.height : 1}
+            borderRadius={T.RADIUS.xl}
             onUnlock={onMediaPress ?? onPress}
             style={styles.media}
           />
@@ -309,6 +310,7 @@ export function MsPostCard({
               unlocked={!post.isLocked}
               price={post.priceCredits ?? 0}
               aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
+              borderRadius={T.RADIUS.xl}
               onUnlock={onMediaPress ?? onPress}
               onPlayPress={onMediaPress ?? onPress}
               style={styles.videoPlaceholder}

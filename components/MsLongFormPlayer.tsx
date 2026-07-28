@@ -49,6 +49,8 @@ import {
   ChatCircle,
   Heart,
   Lock,
+  Pause,
+  Play,
   ShareNetwork,
   UserPlus,
 } from 'phosphor-react-native';
@@ -552,12 +554,7 @@ export function MsLongFormPlayer({
         </View>
       ) : null}
 
-      {/* Mid-playback buffering */}
-      {isReady && isBuffering && uri && !error ? (
-        <View style={styles.spinnerWrap} pointerEvents="none">
-          <Animated.View style={[styles.spinnerRing, spinStyle]} />
-        </View>
-      ) : null}
+      {/* Mid-playback buffering is intentionally silent — spinner only shows before first frame */}
 
       {/* Premium gate overlay */}
       {premiumGated ? (
@@ -784,6 +781,7 @@ const styles = StyleSheet.create({
   },
   playerFill: {
     flex: 1,
+    borderRadius: 0,
   },
 
   video: { zIndex: 1 },

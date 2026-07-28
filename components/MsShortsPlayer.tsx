@@ -49,6 +49,8 @@ export function MsShortsPlayer({
   const startedAt        = useRef<number | null>(null);
   const premiumFired     = useRef(false);
   const iconTimer        = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Once playback has started we silence all subsequent buffering indicators.
+  const hasEverPlayedRef = useRef(false);
 
   const [paused,         setPaused]         = useState(false);
   const [showPlayIcon,   setShowPlayIcon]   = useState(false);
@@ -117,6 +119,7 @@ export function MsShortsPlayer({
     setIsBuffering(false);
     // If currently active, start playing now
     if (active && !paused) {
+      hasEverPlayedRef.current = true;
       ref.current?.playAsync().catch(() => {});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,8 +208,8 @@ export function MsShortsPlayer({
         </Animated.View>
       ) : null}
 
-      {/* Buffering indicator (shown after video is ready but still buffering) */}
-      {videoReady && isBuffering && active ? (
+      {/* Buffering indicator — only during initial load, silent once playback has started */}
+      {videoReady && isBuffering && active && !hasEverPlayedRef.current ? (
         <ActivityIndicator
           color="rgba(255,255,255,0.6)"
           size="small"

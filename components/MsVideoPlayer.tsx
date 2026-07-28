@@ -345,8 +345,8 @@ export function MsVideoPlayer({ visible, uri, posterUri, onClose }: Props) {
           <Text style={styles.seekText}>{SEEK_SECONDS}s</Text>
         </Animated.View>
 
-        {/* Always-visible buffering indicator (subtle dot on scrubber when controls hidden) */}
-        {isBuffering && !controlsVisible && (
+        {/* Buffering indicator only during initial load — silent once playback has started */}
+        {isBuffering && !controlsVisible && mediaState !== 'success' && (
           <View style={styles.bufferingWrap} pointerEvents="none">
             <View style={styles.bufferingDot} />
           </View>
@@ -446,7 +446,7 @@ export function MsVideoPlayer({ visible, uri, posterUri, onClose }: Props) {
                 delayLongPress={300}
                 activeOpacity={0.8}
               >
-                {isBuffering ? (
+                {isBuffering && mediaState !== 'success' ? (
                   <View style={styles.bufferingRing} />
                 ) : isPlaying ? (
                   <Pause size={32} color="#fff" weight="fill" />
@@ -492,8 +492,8 @@ export function MsVideoPlayer({ visible, uri, posterUri, onClose }: Props) {
                 }}
               >
                 <View style={[styles.scrubFill, { width: `${progress * 100}%` }]} />
-                {/* Buffering indicator on track */}
-                {isBuffering && (
+                {/* Buffering indicator on track — only during initial load */}
+                {isBuffering && mediaState !== 'success' && (
                   <View style={[styles.scrubBuffering, { left: `${progress * 100}%` as any }]} />
                 )}
                 <View style={[styles.scrubThumb, { left: `${progress * 100}%` as any }]} />

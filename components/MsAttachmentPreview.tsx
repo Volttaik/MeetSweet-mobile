@@ -84,6 +84,10 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
   const [isPaid, setIsPaid] = useState(false);
   const [paidPrice, setPaidPrice] = useState('');
 
+  // Video preview playback state (custom controls — no native controls)
+  const videoRef = useRef<any>(null);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+
   // Audio/voice playback state
   const soundRef = useRef<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -235,12 +239,41 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
             {attachment.type === 'video' && (
               <View style={s.videoWrap}>
                 <Video
+                  ref={videoRef}
                   source={{ uri: attachment.uri }}
                   style={s.videoPreview}
-                  useNativeControls
+                  useNativeControls={false}
                   resizeMode={ResizeMode.CONTAIN}
-                  shouldPlay={false}
+                  shouldPlay={videoPlaying}
+                  isLooping={false}
+                  onPlaybackStatusUpdate={(status: any) => {
+                    if (status?.isLoaded) {
+                      setVideoPlaying(status.isPlaying ?? false);
+                      if (status.didJustFinish) setVideoPlaying(false);
+                    }
+                  }}
                 />
+                {/* Custom play/pause overlay */}
+                <TouchableOpacity
+                  style={s.videoPlayOverlay}
+                  onPress={async () => {
+                    if (!videoRef.current) return;
+                    if (videoPlaying) {
+                      await videoRef.current.pauseAsync();
+                    } else {
+                      await videoRef.current.playAsync();
+                    }
+                    setVideoPlaying((v: boolean) => !v);
+                  }}
+                  activeOpacity={0.8}
+                  accessibilityLabel={videoPlaying ? 'Pause' : 'Play'}
+                >
+                  {!videoPlaying && (
+                    <View style={s.videoPlayBtn}>
+                      <Play size={24} color="#fff" weight="fill" />
+                    </View>
+                  )}
+                </TouchableOpacity>
               </View>
             )}
 
@@ -446,10 +479,24 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#000',
     height: SCREEN_H * 0.3,
+    position: 'relative',
   },
   videoPreview: {
     width: '100%',
     height: '100%',
+  },
+  videoPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Audio / voice

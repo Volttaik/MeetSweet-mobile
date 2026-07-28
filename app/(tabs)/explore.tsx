@@ -1085,8 +1085,8 @@ const styles = StyleSheet.create({
   bottomSpace: { height: 28 },
 
   // Feed list
-  feedItemWrap:  { paddingHorizontal: 16, paddingBottom: 16 },
-  videoItemWrap: { paddingHorizontal: 12, paddingBottom: 16 },
+  feedItemWrap:  { paddingHorizontal: 16, paddingBottom: 22 },
+  videoItemWrap: { paddingHorizontal: 12, paddingBottom: 22 },
 
   // Album row injected into content feed
   albumRowWrap: { paddingBottom: 20 },
