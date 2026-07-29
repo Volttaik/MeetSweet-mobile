@@ -238,13 +238,19 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
             {attachment.type === 'video' && (
               <View style={s.videoWrap}>
+                {/*
+                  shouldPlay is intentionally omitted (defaults to false) so the
+                  declarative prop never races against the imperative
+                  playAsync / pauseAsync calls below.
+                  onPlaybackStatusUpdate is the single source of truth for
+                  videoPlaying state so the UI always reflects real native state.
+                */}
                 <Video
                   ref={videoRef}
                   source={{ uri: attachment.uri }}
                   style={s.videoPreview}
                   useNativeControls={false}
                   resizeMode={ResizeMode.CONTAIN}
-                  shouldPlay={videoPlaying}
                   isLooping={false}
                   onPlaybackStatusUpdate={(status: any) => {
                     if (status?.isLoaded) {
@@ -258,12 +264,17 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
                   style={s.videoPlayOverlay}
                   onPress={async () => {
                     if (!videoRef.current) return;
-                    if (videoPlaying) {
-                      await videoRef.current.pauseAsync();
-                    } else {
-                      await videoRef.current.playAsync();
+                    try {
+                      if (videoPlaying) {
+                        await videoRef.current.pauseAsync();
+                      } else {
+                        await videoRef.current.playAsync();
+                      }
+                      // State update is driven by onPlaybackStatusUpdate —
+                      // do not call setVideoPlaying here to avoid stale-state toggle.
+                    } catch {
+                      // silent: player may not be loaded yet
                     }
-                    setVideoPlaying((v: boolean) => !v);
                   }}
                   activeOpacity={0.8}
                   accessibilityLabel={videoPlaying ? 'Pause' : 'Play'}

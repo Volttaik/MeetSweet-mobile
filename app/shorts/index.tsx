@@ -246,7 +246,6 @@ function ShortPage({
         onViewProgress={onViewProgress}
         onPremiumRequired={() => setPremiumSheetVisible(true)}
       />
-      <View style={styles.scrim} pointerEvents="none" />
 
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: topInset + 12 }]}>
@@ -326,8 +325,6 @@ const styles = StyleSheet.create({
   page: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT, backgroundColor: '#050506' },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13, marginTop: 14 },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.16)' },
-
   topBar: {
     position: 'absolute', left: 16, right: 16, top: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

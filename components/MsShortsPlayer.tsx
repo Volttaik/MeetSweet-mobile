@@ -47,9 +47,11 @@ export function MsShortsPlayer({
     setPremiumGated(false);
   }, [item.id]);
 
+  // Track view duration. Playback start/stop is controlled entirely by
+  // shouldPlay={active && !premiumGated} — no imperative play/pause here so
+  // there is no race condition between the prop and the native player state.
   useEffect(() => {
     if (!active) {
-      ref.current?.pauseAsync().catch(() => {});
       if (startedAt.current !== null) {
         onViewProgress?.((Date.now() - startedAt.current) / 1000);
         startedAt.current = null;
@@ -57,14 +59,10 @@ export function MsShortsPlayer({
       return;
     }
 
-    // Became active — record start time and begin playback (unless gated).
+    // Became active — record start time.
     startedAt.current = Date.now();
-    if (!premiumGatedRef.current) {
-      ref.current?.playAsync().catch(() => {});
-    }
 
     return () => {
-      ref.current?.pauseAsync().catch(() => {});
       if (startedAt.current !== null) {
         onViewProgress?.((Date.now() - startedAt.current) / 1000);
         startedAt.current = null;
