@@ -38,6 +38,11 @@ interface Props {
   item: Short;
   /** Whether this Short is the currently visible item in the feed. */
   active: boolean;
+  /**
+   * Actual page height measured by the parent container.
+   * Falls back to Dimensions SCREEN_HEIGHT if not provided.
+   */
+  pageHeight?: number;
   onViewProgress?: (seconds: number) => void;
   onPremiumRequired?: () => void;
   onError?: () => void;
@@ -48,10 +53,13 @@ interface Props {
 export function MsShortsPlayer({
   item,
   active,
+  pageHeight,
   onViewProgress,
   onPremiumRequired,
   onError,
 }: Props) {
+  const ph = pageHeight ?? SCREEN_HEIGHT;
+
   const videoRef       = useRef<Video>(null);
   const startedAt      = useRef<number | null>(null);
   const premiumFired   = useRef(false);
@@ -61,6 +69,13 @@ export function MsShortsPlayer({
    * overwrite the tap animation while it is still running.
    */
   const isTapping = useRef(false);
+  /**
+   * Ref mirror of isPlaying state.
+   * handleTap reads this instead of the state value to avoid stale-closure
+   * bugs — the useCallback would otherwise capture an old isPlaying snapshot
+   * when the native player's status update and the user's tap race each other.
+   */
+  const isPlayingRef = useRef(false);
 
   const [premiumGated, setPremiumGated] = useState(false);
   const [isPlaying,    setIsPlaying]    = useState(false);
