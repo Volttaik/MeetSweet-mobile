@@ -1,20 +1,19 @@
 /**
- * Post Full View — pure media viewer.
+ * Post Full View — image-only full-screen viewer.
  *
- * Opens when a user taps media inside a post card.
- * Shows ONLY the media + a back button. No comments, likes, creator panel,
- * recommendations or metadata — just the image or video.
+ * Opens when a user taps an image inside a post card.
+ * Shows ONLY the image + a back button.
  *
- * For videos: uses MsLongFormPlayer in fillContainer mode.
- * For images: full-screen Image with pinch-zoom feel via resizeMode contain.
+ * Videos are no longer routed here — they go to /videos/[id] instead,
+ * where the native Expo player handles playback and fullscreen.
  *
  * Route params:
- *   uri         — media URL (required)
- *   type        — 'image' | 'video'
- *   postId      — used as videoId key for progress save
- *   aspectRatio — optional "width/height" float string
+ *   uri         — image URL (required)
+ *   type        — should be 'image'; 'video' redirects to /videos/[postId]
+ *   postId      — post identifier
+ *   aspectRatio — ignored for images (kept for back-compat)
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Image,
   Pressable,
@@ -24,11 +23,10 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'phosphor-react-native';
-import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
 import { T } from '@/constants/theme';
 
 export default function PostMediaScreen() {
-  const { uri, type, postId, aspectRatio } =
+  const { uri, type, postId } =
     useLocalSearchParams<{
       uri: string;
       type: 'image' | 'video';
@@ -38,42 +36,34 @@ export default function PostMediaScreen() {
 
   const insets = useSafeAreaInsets();
 
-  const parsedAspectRatio = aspectRatio ? parseFloat(aspectRatio) : undefined;
-  const safePostId = postId ?? 'post-media';
+  // Any video that still lands here gets redirected to the watch page.
+  useEffect(() => {
+    if (type === 'video' && postId) {
+      router.replace(`/videos/${postId}`);
+    }
+  }, [type, postId]);
+
+  // While the redirect is pending (or if there's no postId), show nothing.
+  if (type === 'video') return null;
 
   return (
     <View style={styles.screen}>
-      {type === 'video' ? (
-        /* ── Video: full-screen player with back button ─────────────────── */
-        <MsLongFormPlayer
-          videoId={safePostId}
-          uri={uri ?? null}
-          autoPlay
-          fillContainer
-          initialAspectRatio={parsedAspectRatio}
-          onBack={() => router.back()}
-        />
-      ) : (
-        /* ── Image: full-screen contain ─────────────────────────────────── */
-        <>
-          {/* Back button — overlaid top-left */}
-          <Pressable
-            style={[styles.backBtn, { top: insets.top + 12 }]}
-            onPress={() => router.back()}
-            accessibilityLabel="Go back"
-            hitSlop={12}
-          >
-            <ArrowLeft size={19} color="#fff" weight="bold" />
-          </Pressable>
+      {/* Back button — overlaid top-left */}
+      <Pressable
+        style={[styles.backBtn, { top: insets.top + 12 }]}
+        onPress={() => router.back()}
+        accessibilityLabel="Go back"
+        hitSlop={12}
+      >
+        <ArrowLeft size={19} color="#fff" weight="bold" />
+      </Pressable>
 
-          <Image
-            source={{ uri: uri ?? '' }}
-            style={styles.image}
-            resizeMode="contain"
-            accessibilityLabel="Post image"
-          />
-        </>
-      )}
+      <Image
+        source={{ uri: uri ?? '' }}
+        style={styles.image}
+        resizeMode="contain"
+        accessibilityLabel="Post image"
+      />
     </View>
   );
 }

@@ -424,15 +424,16 @@ export function MsPostCard({
       )}
 
       {/* Media — video
-          feedMode: single tap on play button = inline playback; double-tap = Full View.
-          Other screens: single tap = inline playback (onPress=undefined means no nav).
-          Double-tap: feedMode → open Full View; otherwise → like.
+          Native player handles all playback gestures (play/pause, seek, fullscreen).
+          No double-tap or custom gesture interception — just a long-press for the
+          action sheet so the user can save/share/report from the feed.
+          Unlock button (premium gate) still routes to the content detail screen.
       */}
       {post.mediaUrl && post.mediaType === 'video' && (
-        <ScalePressable
-          onPress={undefined}
+        <TouchableOpacity
+          activeOpacity={1}
           onLongPress={openSheet}
-          onDoubleTap={doubleTapToOpen ? (onMediaPress ?? onPress) : handleLike}
+          delayLongPress={400}
         >
           <MsPremiumContent
             uri={post.mediaUrl}
@@ -446,7 +447,7 @@ export function MsPostCard({
             onUnlock={onMediaPress ?? onPress}
             style={styles.videoPlaceholder}
           />
-        </ScalePressable>
+        </TouchableOpacity>
       )}
 
       {/* Actions */}

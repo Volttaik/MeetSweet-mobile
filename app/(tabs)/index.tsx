@@ -298,14 +298,18 @@ export default function HomeScreen() {
                 }
               }}
               onMediaPress={() => {
+                // Images open the full-screen image viewer; videos open the watch page.
+                // The native Expo player handles fullscreen — no custom fullscreen route needed.
                 if (item.contentType === 'short') {
                   router.push({ pathname: '/shorts', params: { startId: item.id } });
+                } else if (item.mediaType === 'video') {
+                  router.push(`/videos/${item.id}`);
                 } else if (item.mediaUrl) {
                   router.push({
                     pathname: '/post-media',
                     params: {
                       uri: item.mediaUrl,
-                      type: item.mediaType ?? 'image',
+                      type: 'image',
                       postId: item.id,
                       aspectRatio: item.width && item.height
                         ? String(item.width / item.height)
