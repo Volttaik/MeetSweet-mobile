@@ -18,8 +18,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 interface Props {
   visible: boolean;
   uri: string;
-  /** Unused — kept for API compatibility with existing callers. */
-  posterUri?: string | null;
   onClose: () => void;
 }
 

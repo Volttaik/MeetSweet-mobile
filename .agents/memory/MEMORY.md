@@ -28,3 +28,4 @@
 - [Long-form player v2 architecture](longform-player-v2.md) — outer Pressable gesture pattern; fillContainer mode; creator overlay; comments button; PostFullView at /post-media; onMediaPress on MsPostCard.
 - [Video player polish](video-player-polish.md) — buffering spinner silenced once playback starts; Play+Pause were missing from MsLongFormPlayer imports (fixed); fillContainer mode sets borderRadius:0 for fullscreen; MsAttachmentPreview uses custom play/pause overlay (no native controls).
 - [Video watch page](video-watch-page.md) — /videos/[id] is YouTube-style scroll (player+metadata+related), not fullscreen; video posts in feed have no double-tap; MsFeedVideoCard is the only video card; ExploreVideoCard+MsVideoCard deleted.
+- [Video player architecture](video-player-architecture.md) — full audit: MsLongFormPlayer clean/native-only; MsShortsPlayer immersive; MsPostCard video now has onPlayPress routing to watch page; expo-av deprecated (migration deferred).

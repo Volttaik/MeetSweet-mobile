@@ -424,14 +424,15 @@ export function MsPostCard({
       )}
 
       {/* Media — video
-          Native player handles all playback gestures (play/pause, seek, fullscreen).
-          No double-tap or custom gesture interception — just a long-press for the
-          action sheet so the user can save/share/report from the feed.
-          Unlock button (premium gate) still routes to the content detail screen.
+          Tapping the play button routes to the dedicated video watch page so there
+          is only one active playback controller at a time (no inline feed playback).
+          Long-press opens the action sheet for save/share/report.
+          Unlock button (premium gate) also routes to the watch/content page.
       */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <TouchableOpacity
           activeOpacity={1}
+          onPress={onMediaPress ?? onPress}
           onLongPress={openSheet}
           delayLongPress={400}
         >
@@ -445,6 +446,7 @@ export function MsPostCard({
             aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
             borderRadius={T.RADIUS.xl}
             onUnlock={onMediaPress ?? onPress}
+            onPlayPress={onMediaPress ?? onPress}
             style={styles.videoPlaceholder}
           />
         </TouchableOpacity>
