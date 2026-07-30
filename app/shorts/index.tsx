@@ -11,6 +11,13 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -18,8 +25,11 @@ import { MsContentComments } from '@/components/MsContentComments';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsShortsPlayer } from '@/components/MsShortsPlayer';
+import { PressScale } from '@/components/motion/PressScale';
+import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 import { getShortsFeed, likeContent, trackShortView, type Short } from '@/services/content';
 import { T } from '@/constants/theme';
+import { MOTION } from '@/constants/motion';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -234,10 +244,34 @@ function ShortPage({
   const [likeCount, setLikeCount] = useState(item.likeCount);
   const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
+  // Flying hearts + like bounce
+  const { hearts, spawnHeart } = useHeartBurst();
+  const likeScale = useSharedValue(1);
+  const likeStyle = useAnimatedStyle(() => ({ transform: [{ scale: likeScale.value }] }));
+  const likeBtnRef = useRef<View>(null);
+
   const toggleLike = async () => {
     const next = !liked;
     setLiked(next);
     setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
+
+    if (next) {
+      // Bounce + hearts
+      likeScale.value = withSequence(
+        withSpring(1.4, { damping: 5, stiffness: 340 }),
+        withSpring(1.0, { damping: 10, stiffness: 220 }),
+      );
+      likeBtnRef.current?.measure((_x, _y, _w, _h, px, py) => {
+        spawnHeart(px + 22, py);
+        spawnHeart(px + 36, py - 12);
+      });
+    } else {
+      likeScale.value = withSequence(
+        withTiming(0.82, { duration: MOTION.PRESS_DOWN, easing: MOTION.EASE_EXIT }),
+        withTiming(1.0,  { duration: MOTION.PRESS_UP,   easing: MOTION.EASE_ENTER }),
+      );
+    }
+
     try {
       const result = await likeContent('short', item.id, liked);
       setLikeCount(result.likeCount);
@@ -249,6 +283,9 @@ function ShortPage({
 
   return (
     <View style={[styles.page, { height: pageHeight }]}>
+      {/* Flying hearts layer */}
+      {hearts.map(h => <FlyingHeart key={h.id} x={h.x} y={h.y} />)}
+
       <MsShortsPlayer
         item={item}
         active={active}
@@ -259,9 +296,9 @@ function ShortPage({
 
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: topInset + 12 }]}>
-        <Pressable style={styles.topButton} onPress={() => router.back()} accessibilityLabel="Close Shorts">
+        <PressScale style={styles.topButton} onPress={() => router.back()} accessibilityLabel="Close Shorts">
           <ArrowLeft size={21} color="#fff" />
-        </Pressable>
+        </PressScale>
         <View style={styles.topTitle}>
           <Text style={styles.topEyebrow}>MEETSWEET</Text>
           <Text style={styles.topText}>Shorts</Text>
@@ -281,10 +318,10 @@ function ShortPage({
           <MsAvatar size={38} initials={item.creator.name.slice(0, 2).toUpperCase()} imageUri={item.creator.avatarUrl ?? undefined} />
           <Text style={styles.creatorName}>{item.creator.name}</Text>
           {item.creator.isVerified ? <CheckCircle size={15} color="#fff" weight="fill" /> : null}
-          <Pressable style={styles.subscribe} onPress={() => router.push(`/creator/${item.creator.id}`)}>
+          <PressScale style={styles.subscribe} onPress={() => router.push(`/creator/${item.creator.id}`)}>
             <UserPlus size={12} color={T.BG} />
             <Text style={styles.subscribeText}>Subscribe</Text>
-          </Pressable>
+          </PressScale>
         </View>
         {item.caption ? <Text style={styles.caption} numberOfLines={3}>{item.caption}</Text> : null}
         <Text style={styles.views}>{formatCount(item.viewCount)} views</Text>
@@ -292,24 +329,31 @@ function ShortPage({
 
       {/* Side actions */}
       <View style={[styles.actions, { paddingBottom: bottomInset + 20 }]}>
-        <Pressable style={styles.actionButton} onPress={toggleLike}>
-          <View style={[styles.actionCircle, liked && styles.actionCircleActive]}>
-            <Heart size={23} color="#fff" weight={liked ? 'fill' : 'regular'} />
-          </View>
+        {/* Like — animated bounce + flying hearts */}
+        <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
+          <PressScale style={styles.actionCircleWrap} onPress={toggleLike} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
+            <Animated.View style={[styles.actionCircle, liked && styles.actionCircleActive, likeStyle]}>
+              <Heart size={23} color="#fff" weight={liked ? 'fill' : 'regular'} />
+            </Animated.View>
+          </PressScale>
           <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
-        </Pressable>
-        <Pressable style={styles.actionButton} onPress={onComment}>
+        </View>
+
+        {/* Comment */}
+        <PressScale style={styles.actionButton} onPress={onComment} accessibilityLabel="Comment">
           <View style={styles.actionCircle}>
             <ChatCircle size={23} color="#fff" />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.commentCount)}</Text>
-        </Pressable>
-        <Pressable style={styles.actionButton} onPress={onShare}>
+        </PressScale>
+
+        {/* Share */}
+        <PressScale style={styles.actionButton} onPress={onShare} accessibilityLabel="Share">
           <View style={styles.actionCircle}>
             <ShareNetwork size={23} color="#fff" />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.shareCount)}</Text>
-        </Pressable>
+        </PressScale>
       </View>
 
       {/* Premium paywall */}
@@ -367,6 +411,10 @@ const styles = StyleSheet.create({
 
   actions: { position: 'absolute', right: 14, bottom: 0, alignItems: 'center', gap: 18 },
   actionButton: { alignItems: 'center', gap: 4 },
+  actionCircleWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   actionCircle: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.42)', alignItems: 'center', justifyContent: 'center',
