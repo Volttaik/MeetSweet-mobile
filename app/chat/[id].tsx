@@ -40,7 +40,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Video, ResizeMode } from 'expo-av';
+import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 import {
   ArrowLeft,
   Camera,
@@ -565,13 +565,10 @@ function MessageBubble({
                         isOwn ? { borderBottomRightRadius: 6 } : { borderBottomLeftRadius: 6 },
                       ]}
                     >
-                      <Video
-                        source={{ uri: message.mediaUrl }}
+                      <MsVideoThumbnail
+                        videoUri={message.mediaUrl}
                         style={StyleSheet.absoluteFill}
-                        resizeMode={ResizeMode.COVER}
-                        shouldPlay={false}
-                        useNativeControls={false}
-                        pointerEvents="none"
+                        visible
                       />
                       <View style={bs.videoPlayOverlay}>
                         <View style={bs.videoPlayButton}>
@@ -2048,11 +2045,27 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      <MsVideoPlayer
+      <Modal
         visible={!!fullscreenVideoUri}
-        uri={fullscreenVideoUri ?? ''}
-        onClose={() => setFullscreenVideoUri(null)}
-      />
+        transparent={false}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setFullscreenVideoUri(null)}
+        supportedOrientations={['portrait', 'landscape']}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          {fullscreenVideoUri ? (
+            <MsVideoPlayer
+              videoId={fullscreenVideoUri}
+              uri={fullscreenVideoUri}
+              autoPlay
+              fillContainer
+              mode="standard"
+              onClose={() => setFullscreenVideoUri(null)}
+            />
+          ) : null}
+        </View>
+      </Modal>
 
       {/* Long-press menu */}
       <LongPressSheet

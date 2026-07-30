@@ -95,6 +95,11 @@ export interface MsVideoPlayerProps {
   /** Shorts: called with seconds watched when the item goes inactive. */
   onViewProgress?: (seconds: number) => void;
   onError?: () => void;
+  /**
+   * When fillContainer=true (e.g. inside a fullscreen Modal), provide this to
+   * render a close/back button in the controls overlay.
+   */
+  onClose?: () => void;
 }
 
 // ─── Constants & helpers ──────────────────────────────────────────────────────
@@ -130,6 +135,7 @@ export function MsVideoPlayer({
   active,
   onViewProgress,
   onError,
+  onClose,
 }: MsVideoPlayerProps) {
 
   const isShorts = mode === 'shorts';
@@ -654,6 +660,15 @@ export function MsVideoPlayer({
           </Animated.View>
         ) : null}
 
+        {/* Standard: fill-container close button */}
+        {!isShorts && fillContainer && onClose ? (
+          <View style={styles.fillCloseBar} pointerEvents="box-none">
+            <Pressable style={styles.fillCloseBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Close video">
+              <ArrowsIn size={19} color="rgba(255,255,255,0.9)" />
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Standard: bottom control bar */}
         {!isShorts ? (
           <View style={styles.bottomBarWrap} pointerEvents="box-none">
@@ -664,7 +679,7 @@ export function MsVideoPlayer({
               panResponder={seekPanResponder}
               onWidthMeasured={(w) => { seekWidthRef.current = w; }}
               onFullscreen={openFullscreen}
-              showFullscreen
+              showFullscreen={!fillContainer}
             />
           </View>
         ) : null}
@@ -1053,6 +1068,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 10, right: 10, bottom: 10,
     zIndex: 10,
+  },
+
+  // Fill-container close button (shown when fillContainer=true and onClose provided)
+  fillCloseBar: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    paddingTop: Platform.OS === 'ios' ? 50 : 16,
+    paddingHorizontal: 16,
+    zIndex: 12,
+  },
+  fillCloseBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center',
   },
 
   // Shorts progress strip

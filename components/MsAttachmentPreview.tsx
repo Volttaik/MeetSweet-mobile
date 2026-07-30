@@ -21,7 +21,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Audio, Video, ResizeMode } from 'expo-av';
+import { Audio } from 'expo-av';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import {
   X,
   Play,
@@ -83,10 +84,6 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
   const [caption, setCaption] = useState('');
   const [isPaid, setIsPaid] = useState(false);
   const [paidPrice, setPaidPrice] = useState('');
-
-  // Video preview playback state (custom controls — no native controls)
-  const videoRef = useRef<any>(null);
-  const [videoPlaying, setVideoPlaying] = useState(false);
 
   // Audio/voice playback state
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -238,53 +235,12 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
             {attachment.type === 'video' && (
               <View style={s.videoWrap}>
-                {/*
-                  shouldPlay is intentionally omitted (defaults to false) so the
-                  declarative prop never races against the imperative
-                  playAsync / pauseAsync calls below.
-                  onPlaybackStatusUpdate is the single source of truth for
-                  videoPlaying state so the UI always reflects real native state.
-                */}
-                <Video
-                  ref={videoRef}
-                  source={{ uri: attachment.uri }}
-                  style={s.videoPreview}
-                  useNativeControls={false}
-                  resizeMode={ResizeMode.CONTAIN}
-                  isLooping={false}
-                  onPlaybackStatusUpdate={(status: any) => {
-                    if (status?.isLoaded) {
-                      setVideoPlaying(status.isPlaying ?? false);
-                      if (status.didJustFinish) setVideoPlaying(false);
-                    }
-                  }}
+                <MsVideoPlayer
+                  videoId={attachment.uri}
+                  uri={attachment.uri}
+                  fillContainer
+                  mode="standard"
                 />
-                {/* Custom play/pause overlay */}
-                <TouchableOpacity
-                  style={s.videoPlayOverlay}
-                  onPress={async () => {
-                    if (!videoRef.current) return;
-                    try {
-                      if (videoPlaying) {
-                        await videoRef.current.pauseAsync();
-                      } else {
-                        await videoRef.current.playAsync();
-                      }
-                      // State update is driven by onPlaybackStatusUpdate —
-                      // do not call setVideoPlaying here to avoid stale-state toggle.
-                    } catch {
-                      // silent: player may not be loaded yet
-                    }
-                  }}
-                  activeOpacity={0.8}
-                  accessibilityLabel={videoPlaying ? 'Pause' : 'Play'}
-                >
-                  {!videoPlaying && (
-                    <View style={s.videoPlayBtn}>
-                      <Play size={24} color="#fff" weight="fill" />
-                    </View>
-                  )}
-                </TouchableOpacity>
               </View>
             )}
 

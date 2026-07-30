@@ -2,7 +2,7 @@
  * MsPremiumContent — one component for premium/locked media in feed, posts, messages.
  * Added: image fade-in loading state, video poster frame + buffering indicator.
  */
-import React, { useEffect, useRef, useState } from 'react'; // useRef kept for videoRef
+import React, { useEffect, useState } from 'react';
 import {
   Animated,
   StyleSheet,
@@ -11,7 +11,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { ResizeMode, Video } from 'expo-av';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { LockSimple, Play } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
@@ -65,8 +65,6 @@ export function MsPremiumContent({
 }: MsPremiumContentProps) {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [videoStarted, setVideoStarted] = useState(false);
-
-  const videoRef = useRef<Video>(null);
 
   useEffect(() => {
     setVideoStarted(false);
@@ -136,14 +134,15 @@ export function MsPremiumContent({
               )
             )}
             {videoStarted && (
-              <Video
-                ref={videoRef}
-                source={{ uri }}
-                style={StyleSheet.absoluteFill}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay
-                useNativeControls
-              />
+              <View style={StyleSheet.absoluteFill}>
+                <MsVideoPlayer
+                  videoId={uri}
+                  uri={uri}
+                  autoPlay
+                  fillContainer
+                  mode="standard"
+                />
+              </View>
             )}
             {!isLocked && !videoStarted && (
               <TouchableOpacity
