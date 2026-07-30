@@ -10,21 +10,24 @@
  *
  * Standard features:
  *   • Auto-hiding controls overlay (2.5 s after last interaction)
- *   • Centre play/pause icon
+ *   • Centre play/pause/restart icon
  *   • Progress/seek bar with drag and tap support
  *   • Current time + total duration display
  *   • Fullscreen via built-in Modal (position preserved on open and close)
  *   • Double-tap LEFT = −10 s, double-tap RIGHT = +10 s (YouTube-style)
- *   • Animated seek feedback overlays
- *   • Initial buffering spinner
- *   • Poster/thumbnail behind video
+ *   • Animated seek feedback overlays (slide outward + fade)
+ *   • Flying hearts on double-tap
+ *   • Initial buffering spinner (fades in/out)
+ *   • Poster/thumbnail → video crossfade
  *   • Premium gate at 3 s
+ *   • Orientation picker inside fullscreen
  *
  * Shorts features (mode='shorts'):
  *   • Centre play/pause icon (auto-hides when playing)
  *   • Always-visible thin progress strip at the bottom
  *   • No seek bar, no fullscreen button
  *   • Driven by `active` prop
+ *   • Double-tap to spawn flying heart
  */
 import React, {
   useCallback,
@@ -47,15 +50,18 @@ import {
 } from 'react-native';
 import Animated, {
   Easing,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { ResizeMode, Video, type AVPlaybackStatus } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   ArrowCounterClockwise,
+  ArrowsClockwise,
   ArrowsIn,
   ArrowsOut,
   Lock,
@@ -113,8 +119,8 @@ export interface MsVideoPlayerProps {
 
 // ─── Constants & helpers ──────────────────────────────────────────────────────
 
-const DOUBLE_TAP_MS   = 260;
-const SEEK_SECONDS    = 10;
+const DOUBLE_TAP_MS    = 260;
+const SEEK_SECONDS     = 10;
 const CONTROLS_HIDE_MS = 2500;
 
 function fmtTime(ms: number): string {
@@ -163,15 +169,23 @@ export function MsVideoPlayer({
   const tapTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef    = useRef<number | null>(null);
+  const prevBufferingRef = useRef(true);   // tracks last known buffering state
+  const videoEndedRef    = useRef(false);  // true when didJustFinish fired
 
   // Fullscreen refs
-  const fsVideoRef     = useRef<Video>(null);
-  const fsPositionRef  = useRef(0);
-  const fsDurationRef  = useRef(0);
-  const fsWidthRef     = useRef(0);
-  const fsTapTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fsPlayingRef   = useRef(false);
+  const fsVideoRef      = useRef<Video>(null);
+  const fsPositionRef   = useRef(0);
+  const fsDurationRef   = useRef(0);
+  const fsWidthRef      = useRef(0);
+  const fsTapTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fsHideTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fsPlayingRef    = useRef(false);
+  const fsPrevBuffRef   = useRef(true);
+  const fsEndedRef      = useRef(false);
+
+  // Flying hearts
+  const heartIdRef    = useRef(0);
+  const lastHeartRef  = useRef(0);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -183,13 +197,16 @@ export function MsVideoPlayer({
   const [positionMs,    setPositionMs]    = useState(0);
   const [aspectRatio,   setAspectRatio]   = useState(initialAspectRatio ?? 16 / 9);
   const [fsVisible,     setFsVisible]     = useState(false);
+  const [videoEnded,    setVideoEnded]    = useState(false);
+  const [hearts,        setHearts]        = useState<Array<{ id: number; x: number; y: number }>>([]);
 
   // Fullscreen player state
-  const [fsPlaying,     setFsPlaying]     = useState(false);
-  const [fsProgress,    setFsProgress]    = useState(0);
-  const [fsDurationMs,  setFsDurationMs]  = useState(0);
-  const [fsPositionMs,  setFsPositionMs]  = useState(0);
-  const [fsBuffering,   setFsBuffering]   = useState(true);
+  const [fsPlaying,    setFsPlaying]    = useState(false);
+  const [fsProgress,   setFsProgress]   = useState(0);
+  const [fsDurationMs, setFsDurationMs] = useState(0);
+  const [fsPositionMs, setFsPositionMs] = useState(0);
+  const [fsBuffering,  setFsBuffering]  = useState(true);
+  const [fsVideoEnded, setFsVideoEnded] = useState(false);
   const fsHasPlayedRef = useRef(false);
 
   // ── Animated values ───────────────────────────────────────────────────────
@@ -213,20 +230,43 @@ export function MsVideoPlayer({
     transform: [{ scale: iconScale.value }],
   }));
 
-  // Seek flash (standard only)
+  // Seek flash + YouTube-style outward slide
   const seekLeftOpacity  = useSharedValue(0);
   const seekRightOpacity = useSharedValue(0);
-  const seekLeftStyle    = useAnimatedStyle(() => ({ opacity: seekLeftOpacity.value }));
-  const seekRightStyle   = useAnimatedStyle(() => ({ opacity: seekRightOpacity.value }));
+  const seekLeftX        = useSharedValue(0);
+  const seekRightX       = useSharedValue(0);
+  const seekLeftStyle  = useAnimatedStyle(() => ({
+    opacity: seekLeftOpacity.value,
+    transform: [{ translateX: seekLeftX.value }],
+  }));
+  const seekRightStyle = useAnimatedStyle(() => ({
+    opacity: seekRightOpacity.value,
+    transform: [{ translateX: seekRightX.value }],
+  }));
+
+  // Poster → video crossfade
+  // posterOpacity starts 1 (thumbnail visible while loading).
+  // videoOpacity starts 0 (video invisible until first frame plays).
+  // On first play: poster fades out, video fades in.
+  const posterOpacity = useSharedValue(1);
+  const videoOpacity  = useSharedValue(0);
+  const posterFadeStyle = useAnimatedStyle(() => ({ opacity: posterOpacity.value }));
+  const videoFadeStyle  = useAnimatedStyle(() => ({ opacity: videoOpacity.value }));
+
+  // Buffering overlay — always mounted, fades in/out so transitions feel premium.
+  const bufferOpacity = useSharedValue(1);
+  const bufferFadeStyle = useAnimatedStyle(() => ({ opacity: bufferOpacity.value }));
 
   // ── Reset on source change ────────────────────────────────────────────────
   useEffect(() => {
-    hasPlayedRef.current  = false;
+    hasPlayedRef.current    = false;
     premiumFiredRef.current = false;
     premiumGateRef.current  = false;
     isPlayingRef.current    = false;
     positionRef.current     = 0;
     durationRef.current     = 0;
+    prevBufferingRef.current = true;
+    videoEndedRef.current   = false;
     setPremiumGated(false);
     setError(false);
     setProgress(0);
@@ -234,9 +274,15 @@ export function MsVideoPlayer({
     setPositionMs(0);
     setIsPlaying(false);
     setIsBuffering(true);
+    setVideoEnded(false);
+    setHearts([]);
     ctrlOpacity.value = 1;
     iconScale.value   = 1;
-    shortsIconOpacity.value = 1; // start visible — show Play button on load
+    shortsIconOpacity.value = 1;
+    // Reset crossfade values
+    posterOpacity.value = 1;
+    videoOpacity.value  = 0;
+    bufferOpacity.value = 1;
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -244,10 +290,8 @@ export function MsVideoPlayer({
   useEffect(() => {
     if (isShorts) return;
     if (active === false) {
-      // Pause both the inline and any open fullscreen player immediately.
       videoRef.current?.pauseAsync().catch(() => {});
       fsVideoRef.current?.pauseAsync().catch(() => {});
-      // Keep controls visible so the user can see the state when they return.
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       ctrlOpacity.value = withTiming(1, { duration: 180 });
     }
@@ -258,12 +302,10 @@ export function MsVideoPlayer({
     if (!isShorts) return;
     if (active && !premiumGateRef.current) {
       videoRef.current?.playAsync().catch(() => {});
-      // Briefly show the icon then auto-hide once playing
       shortsIconOpacity.value = withTiming(1, { duration: 180 });
       scheduleHide(shortsIconOpacity, hideTimerRef);
     } else {
       videoRef.current?.pauseAsync().catch(() => {});
-      // Always show the icon when paused / inactive
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       shortsIconOpacity.value = withTiming(1, { duration: 180 });
     }
@@ -298,25 +340,21 @@ export function MsVideoPlayer({
   // ── Unmount cleanup — stop all playback and release timers ────────────────
   useEffect(() => {
     return () => {
-      // Stop both players so audio can NEVER leak after navigation.
-      // stopAsync() halts decoding entirely; pauseAsync() alone is insufficient
-      // if the system defers the pause (observed on Android).
       videoRef.current?.stopAsync().catch(() => {});
       fsVideoRef.current?.stopAsync().catch(() => {});
-      // Clear every pending timer so callbacks never fire after unmount.
       if (hideTimerRef.current)   clearTimeout(hideTimerRef.current);
       if (tapTimerRef.current)    clearTimeout(tapTimerRef.current);
       if (fsHideTimerRef.current) clearTimeout(fsHideTimerRef.current);
       if (fsTapTimerRef.current)  clearTimeout(fsTapTimerRef.current);
-      // Restore the app orientation in case fullscreen was open during unmount.
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP,
-      ).catch(() => {});
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Controls auto-hide helpers ────────────────────────────────────────────
-  const scheduleHide = useCallback((opacity: Animated.SharedValue<number>, timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>) => {
+  const scheduleHide = useCallback((
+    opacity: SharedValue<number>,
+    timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  ) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       opacity.value = withTiming(0, { duration: 350 });
@@ -336,35 +374,61 @@ export function MsVideoPlayer({
   // ── Tap icon pulse animation ───────────────────────────────────────────────
   const pulseIcon = useCallback(() => {
     iconScale.value = withSequence(
-      withTiming(1.18, { duration: 80,  easing: Easing.out(Easing.ease) }),
-      withTiming(1.0,  { duration: 180, easing: Easing.in(Easing.ease) }),
+      withSpring(1.22, { damping: 6, stiffness: 260 }),
+      withSpring(1.0,  { damping: 12, stiffness: 220 }),
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Shorts: show the icon overlay (called on background tap) ──────────────
+  // ── Flying hearts ─────────────────────────────────────────────────────────
+  const spawnHeart = useCallback((tapX: number, tapY: number) => {
+    const now = Date.now();
+    if (now - lastHeartRef.current < 250) return; // throttle rapid taps
+    lastHeartRef.current = now;
+    const id = ++heartIdRef.current;
+    // Small random horizontal jitter so stacked hearts spread out
+    const jitter = (Math.random() - 0.5) * 36;
+    setHearts(prev => [...prev.slice(-5), { id, x: tapX + jitter, y: tapY }]);
+    setTimeout(() => setHearts(prev => prev.filter(h => h.id !== id)), 1400);
+  }, []);
+
+  // ── Shorts: show the icon overlay ─────────────────────────────────────────
   const showShortsIcon = useCallback(() => {
     shortsIconOpacity.value = withTiming(1, { duration: 180 });
-    // Only schedule auto-hide when playing; keep icon visible while paused
-    if (isPlayingRef.current) {
-      scheduleHide(shortsIconOpacity, hideTimerRef);
-    }
+    if (isPlayingRef.current) scheduleHide(shortsIconOpacity, hideTimerRef);
   }, [scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Shorts: dedicated play/pause toggle (only from the centre button) ─────
+  // ── Shorts: play/pause toggle (centre button) ─────────────────────────────
   const toggleShortsPlayback = useCallback(() => {
     if (premiumGateRef.current) return;
     pulseIcon();
     if (isPlayingRef.current) {
       videoRef.current?.pauseAsync().catch(() => {});
-      // Paused → keep icon permanently visible
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       shortsIconOpacity.value = withTiming(1, { duration: 180 });
     } else {
       videoRef.current?.playAsync().catch(() => {});
-      // Playing → schedule auto-hide
       scheduleHide(shortsIconOpacity, hideTimerRef);
     }
   }, [pulseIcon, scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Shorts: double-tap to spawn heart (single tap shows icon as before) ───
+  const handleShortsPress = useCallback((tapX: number, tapY: number) => {
+    const now  = Date.now();
+    const last = lastTapRef.current;
+    if (now - last.time < DOUBLE_TAP_MS) {
+      // Double-tap → heart
+      if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
+      lastTapRef.current = { time: 0, x: 0 };
+      spawnHeart(tapX, tapY);
+      showShortsIcon();
+      return;
+    }
+    lastTapRef.current = { time: now, x: tapX };
+    tapTimerRef.current = setTimeout(() => {
+      tapTimerRef.current = null;
+      showShortsIcon();
+    }, DOUBLE_TAP_MS);
+  }, [spawnHeart, showShortsIcon]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initialise controls auto-hide on mount
   useEffect(() => {
@@ -372,13 +436,21 @@ export function MsVideoPlayer({
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Standard: intentional play/pause toggle (only from the centre button) ─
+  // ── Standard: play/pause/restart toggle ───────────────────────────────────
   const toggleStandardPlayback = useCallback(() => {
     if (premiumGateRef.current) return;
     pulseIcon();
+    if (videoEndedRef.current) {
+      // Video ended → restart from beginning
+      videoEndedRef.current = false;
+      setVideoEnded(false);
+      videoRef.current?.setPositionAsync(0).catch(() => {});
+      videoRef.current?.playAsync().catch(() => {});
+      showControls();
+      return;
+    }
     if (isPlayingRef.current) {
       videoRef.current?.pauseAsync().catch(() => {});
-      // Paused → keep controls visible
       ctrlOpacity.value = withTiming(1, { duration: 180 });
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     } else {
@@ -389,22 +461,27 @@ export function MsVideoPlayer({
 
   // ── Seek helpers ──────────────────────────────────────────────────────────
   const flashLeft = useCallback(() => {
+    // Reset position, then slide leftward as it fades — YouTube-style
+    seekLeftX.value = 0;
+    seekLeftX.value = withTiming(-20, { duration: 800, easing: Easing.out(Easing.quad) });
     seekLeftOpacity.value = withSequence(
-      withTiming(1, { duration: 150 }),
-      withTiming(1, { duration: 450 }),
-      withTiming(0, { duration: 300 }),
+      withTiming(1, { duration: 120, easing: Easing.out(Easing.ease) }),
+      withTiming(1, { duration: 380 }),
+      withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flashRight = useCallback(() => {
+    seekRightX.value = 0;
+    seekRightX.value = withTiming(20, { duration: 800, easing: Easing.out(Easing.quad) });
     seekRightOpacity.value = withSequence(
-      withTiming(1, { duration: 150 }),
-      withTiming(1, { duration: 450 }),
-      withTiming(0, { duration: 300 }),
+      withTiming(1, { duration: 120, easing: Easing.out(Easing.ease) }),
+      withTiming(1, { duration: 380 }),
+      withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const seekBy = useCallback((deltaS: number, ref: React.RefObject<Video>) => {
+  const seekBy = useCallback((deltaS: number, ref: React.RefObject<Video | null>) => {
     const target = Math.max(0, Math.min(durationRef.current, positionRef.current + deltaS * 1000));
     ref.current?.setPositionAsync(target).catch(() => {});
     positionRef.current = target;
@@ -413,40 +490,40 @@ export function MsVideoPlayer({
   }, []);
 
   // ── Standard tap (single / double) ───────────────────────────────────────
-  const handleStandardPress = useCallback((tapX: number) => {
+  const handleStandardPress = useCallback((tapX: number, tapY: number) => {
     if (premiumGateRef.current) return;
     const now  = Date.now();
     const last = lastTapRef.current;
-    // Use live window width so the left/right boundary is always correct.
     const W    = windowWidth;
 
     if (now - last.time < DOUBLE_TAP_MS) {
-      // Double tap → seek
       if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
       lastTapRef.current = { time: 0, x: 0 };
-      if (tapX < W / 2) { seekBy(-SEEK_SECONDS, videoRef); flashLeft(); }
-      else               { seekBy( SEEK_SECONDS, videoRef); flashRight(); }
+      if (tapX < W / 2) {
+        seekBy(-SEEK_SECONDS, videoRef);
+        flashLeft();
+      } else {
+        seekBy(SEEK_SECONDS, videoRef);
+        flashRight();
+        spawnHeart(tapX, tapY);  // heart on right double-tap (forward seek = like gesture)
+      }
       showControls();
       return;
     }
 
-    // Single tap → only reveal controls; playback unchanged
     lastTapRef.current = { time: now, x: tapX };
     tapTimerRef.current = setTimeout(() => {
       tapTimerRef.current = null;
       showControls();
     }, DOUBLE_TAP_MS);
-  }, [seekBy, flashLeft, flashRight, showControls, windowWidth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seekBy, flashLeft, flashRight, showControls, spawnHeart, windowWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Standard fullscreen tap ────────────────────────────────────────────────
-  // tapRatio is 0..1 (fraction from left edge), pre-computed in FullscreenModal
-  // using that modal's live window width so landscape/portrait are both correct.
+  // ── Fullscreen tap (ratio 0..1 from left edge) ────────────────────────────
   const handleFsPress = useCallback((tapRatio: number) => {
     const now  = Date.now();
     const last = lastTapRef.current;
 
     if (now - last.time < DOUBLE_TAP_MS) {
-      // Double tap → seek
       if (fsTapTimerRef.current) { clearTimeout(fsTapTimerRef.current); fsTapTimerRef.current = null; }
       lastTapRef.current = { time: 0, x: 0 };
       const target = tapRatio < 0.5
@@ -460,7 +537,6 @@ export function MsVideoPlayer({
       return;
     }
 
-    // Single tap → only reveal controls; playback unchanged
     lastTapRef.current = { time: now, x: tapRatio };
     fsTapTimerRef.current = setTimeout(() => {
       fsTapTimerRef.current = null;
@@ -468,8 +544,17 @@ export function MsVideoPlayer({
     }, DOUBLE_TAP_MS);
   }, [showFsControls]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Fullscreen: intentional play/pause toggle (only from the centre button) ─
+  // ── Fullscreen: play/pause/restart toggle ─────────────────────────────────
   const toggleFsPlayback = useCallback(() => {
+    if (fsEndedRef.current) {
+      // Restart fullscreen video
+      fsEndedRef.current = false;
+      setFsVideoEnded(false);
+      fsVideoRef.current?.setPositionAsync(0).catch(() => {});
+      fsVideoRef.current?.playAsync().catch(() => {});
+      showFsControls();
+      return;
+    }
     if (fsPlayingRef.current) {
       fsVideoRef.current?.pauseAsync().catch(() => {});
       fsCtrlOpacity.value = withTiming(1, { duration: 180 });
@@ -489,18 +574,36 @@ export function MsVideoPlayer({
       isPlayingRef.current = playing;
       setIsPlaying(playing);
 
-      // Buffering contract — track both initial load AND mid-video rebuffering.
-      // Before first play: spinner is shown until playback actually begins.
-      // After first play: use the real isBuffering flag so quality-switch
-      // rebuffers (adaptive streaming) also display the spinner.
+      // Crossfade: on first play, fade poster out and video in
       if (playing && !hasPlayedRef.current) {
         hasPlayedRef.current = true;
+        // Video fades in from black; poster fades out beneath
+        videoOpacity.value  = withTiming(1, { duration: 280, easing: Easing.out(Easing.ease) });
+        posterOpacity.value = withTiming(0, { duration: 380, easing: Easing.out(Easing.ease) });
       }
-      setIsBuffering(
-        hasPlayedRef.current
-          ? (status.isBuffering ?? false)
-          : (status.isBuffering ?? true),
-      );
+
+      // Restart detection
+      if (status.didJustFinish) {
+        videoEndedRef.current = true;
+        setVideoEnded(true);
+      }
+      if (playing && videoEndedRef.current) {
+        videoEndedRef.current = false;
+        setVideoEnded(false);
+      }
+
+      // Buffering — animate spinner in/out instead of conditional mount
+      const nextBuffering = hasPlayedRef.current
+        ? (status.isBuffering ?? false)
+        : (status.isBuffering ?? true);
+      setIsBuffering(nextBuffering);
+      if (nextBuffering !== prevBufferingRef.current) {
+        prevBufferingRef.current = nextBuffering;
+        bufferOpacity.value = withTiming(nextBuffering ? 1 : 0, {
+          duration: nextBuffering ? 150 : 250,
+          easing: Easing.out(Easing.ease),
+        });
+      }
 
       // Track position / duration
       const dur = status.durationMillis ?? 0;
@@ -532,12 +635,28 @@ export function MsVideoPlayer({
     const playing = status.isPlaying ?? false;
     fsPlayingRef.current = playing;
     setFsPlaying(playing);
+
     if (playing && !fsHasPlayedRef.current) {
       fsHasPlayedRef.current = true;
-      setFsBuffering(false);
-    } else if (!fsHasPlayedRef.current) {
-      setFsBuffering(status.isBuffering ?? true);
     }
+
+    // Restart detection
+    if (status.didJustFinish) {
+      fsEndedRef.current = true;
+      setFsVideoEnded(true);
+    }
+    if (playing && fsEndedRef.current) {
+      fsEndedRef.current = false;
+      setFsVideoEnded(false);
+    }
+
+    // Buffering animation
+    const nextBuf = fsHasPlayedRef.current ? (status.isBuffering ?? false) : (status.isBuffering ?? true);
+    setFsBuffering(nextBuf);
+    if (nextBuf !== fsPrevBuffRef.current) {
+      fsPrevBuffRef.current = nextBuf;
+    }
+
     const dur = status.durationMillis ?? 0;
     const pos = status.positionMillis ?? 0;
     fsPositionRef.current = pos;
@@ -586,7 +705,7 @@ export function MsVideoPlayer({
     [showControls],
   );
 
-  // Fullscreen seek bar PanResponder (uses refs only → stable)
+  // Fullscreen seek bar PanResponder
   const fsSeekPanResponder = useMemo(
     () =>
       PanResponder.create({
@@ -617,44 +736,29 @@ export function MsVideoPlayer({
   );
 
   // ── Fullscreen open / close ───────────────────────────────────────────────
-  //
-  // On entry, lock to LANDSCAPE for landscape videos so the player immediately
-  // fills the screen instead of showing a letterboxed portrait layout.
-  // For portrait videos (aspectRatio < 1) we unlock so the device can rotate
-  // naturally.  The user is always free to rotate once fullscreen is open.
-  //
-  // On exit, lock back to PORTRAIT_UP and resume inline playback from the
-  // exact position where the fullscreen player stopped.
   const openFullscreen = useCallback(() => {
     videoRef.current?.pauseAsync().catch(() => {});
     fsHasPlayedRef.current = false;
+    fsPrevBuffRef.current  = true;
+    fsEndedRef.current     = false;
     setFsBuffering(true);
+    setFsVideoEnded(false);
     setFsProgress(progress);
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     setFsVisible(true);
     if (aspectRatio >= 1) {
-      // Landscape video → force landscape so the player fills the screen.
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.LANDSCAPE,
-      ).catch(() => {});
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
     } else {
-      // Portrait video → just unlock and let the user rotate freely.
       ScreenOrientation.unlockAsync().catch(() => {});
     }
   }, [progress, durationMs, positionMs, aspectRatio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeFullscreen = useCallback(() => {
-    // Pause fullscreen player first so no audio bleeds into the inline resume.
     fsVideoRef.current?.pauseAsync().catch(() => {});
     const pos = fsPositionRef.current;
     setFsVisible(false);
-    // Always restore portrait-up when leaving fullscreen.
-    ScreenOrientation.lockAsync(
-      ScreenOrientation.OrientationLock.PORTRAIT_UP,
-    ).catch(() => {});
-    // Give the orientation animation a moment to settle before resuming the
-    // inline player (180 ms is enough; avoids a flash on slow devices).
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     setTimeout(() => {
       videoRef.current?.setPositionAsync(pos).catch(() => {});
       videoRef.current?.playAsync().catch(() => {});
@@ -675,30 +779,34 @@ export function MsVideoPlayer({
   return (
     <View style={outerStyle}>
 
-      {/* ── Poster ── */}
+      {/* ── Poster (crossfades out when video starts) ── */}
       {posterUri ? (
-        <MsMediaLoader
-          uri={posterUri}
-          style={StyleSheet.absoluteFill}
-          resizeMode={isShorts ? 'cover' : 'cover'}
-          accessibleLabel="Video thumbnail"
-        />
+        <Animated.View style={[StyleSheet.absoluteFill, posterFadeStyle]} pointerEvents="none">
+          <MsMediaLoader
+            uri={posterUri}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            accessibleLabel="Video thumbnail"
+          />
+        </Animated.View>
       ) : null}
 
-      {/* ── Video ── */}
+      {/* ── Video (crossfades in on first play) ── */}
       {uri && !error ? (
-        <Video
-          ref={videoRef}
-          source={{ uri }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={isShorts ? ResizeMode.COVER : ResizeMode.CONTAIN}
-          shouldPlay={false}
-          isLooping={isShorts ? true : isLooping}
-          useNativeControls={false}
-          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          onReadyForDisplay={onReadyForDisplay}
-          onError={() => { setError(true); setIsBuffering(false); onError?.(); }}
-        />
+        <Animated.View style={[StyleSheet.absoluteFill, videoFadeStyle]}>
+          <Video
+            ref={videoRef}
+            source={{ uri }}
+            style={StyleSheet.absoluteFill}
+            resizeMode={isShorts ? ResizeMode.COVER : ResizeMode.CONTAIN}
+            shouldPlay={false}
+            isLooping={isShorts ? true : isLooping}
+            useNativeControls={false}
+            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+            onReadyForDisplay={onReadyForDisplay}
+            onError={() => { setError(true); setIsBuffering(false); onError?.(); }}
+          />
+        </Animated.View>
       ) : null}
 
       {/* ── Error state ── */}
@@ -708,7 +816,20 @@ export function MsVideoPlayer({
           {error ? (
             <Pressable
               style={styles.retryBtn}
-              onPress={() => { setError(false); hasPlayedRef.current = false; premiumFiredRef.current = false; premiumGateRef.current = false; setPremiumGated(false); setIsBuffering(true); }}
+              onPress={() => {
+                setError(false);
+                hasPlayedRef.current    = false;
+                premiumFiredRef.current = false;
+                premiumGateRef.current  = false;
+                prevBufferingRef.current = true;
+                videoEndedRef.current   = false;
+                setPremiumGated(false);
+                setIsBuffering(true);
+                setVideoEnded(false);
+                posterOpacity.value = 1;
+                videoOpacity.value  = 0;
+                bufferOpacity.value = 1;
+              }}
               accessibilityLabel="Retry"
             >
               <ArrowCounterClockwise size={15} color={T.ACCENT} />
@@ -718,25 +839,29 @@ export function MsVideoPlayer({
         </View>
       ) : null}
 
-      {/* ── Initial buffering overlay ── */}
-      {isBuffering && !error ? (
-        <View style={styles.bufferOverlay} pointerEvents="box-only">
-          <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" />
-        </View>
+      {/* ── Buffering overlay — always mounted, opacity-driven for smooth fades ── */}
+      {!error ? (
+        <Animated.View style={[styles.bufferOverlay, bufferFadeStyle]} pointerEvents="none">
+          {isBuffering ? <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" /> : null}
+        </Animated.View>
       ) : null}
 
-      {/* ── Gesture layer — tap to show controls (Shorts), or toggle + seek (Standard) ── */}
+      {/* ── Gesture layer ── */}
       {!isBuffering && !premiumGated ? (
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={(e) => isShorts ? showShortsIcon() : handleStandardPress(e.nativeEvent.locationX)}
+          onPress={(e) => {
+            const { locationX, locationY } = e.nativeEvent;
+            if (isShorts) handleShortsPress(locationX, locationY);
+            else          handleStandardPress(locationX, locationY);
+          }}
           onPressIn={!isShorts ? showControls : undefined}
           accessibilityRole="button"
           accessibilityLabel="Show controls"
         />
       ) : null}
 
-      {/* ── Shorts: tappable centre play/pause button (lives ABOVE gesture layer) ── */}
+      {/* ── Shorts: tappable centre play/pause button ── */}
       {isShorts && !isBuffering && !premiumGated ? (
         <Animated.View style={[styles.iconWrap, styles.shortsIconLayer, shortsIconStyle]} pointerEvents="box-none">
           <Pressable
@@ -755,18 +880,20 @@ export function MsVideoPlayer({
       {/* ── Controls overlay (auto-hiding) ── */}
       <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
 
-        {/* Standard: centre play/pause button — intentional tap only changes playback */}
+        {/* Standard: centre play / pause / restart */}
         {!isShorts ? (
           <Animated.View style={[styles.iconWrap, stdIconStyle]} pointerEvents="box-none">
             <Pressable
               style={styles.iconCircle}
               onPress={toggleStandardPlayback}
               hitSlop={16}
-              accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+              accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying
-                ? <Pause size={24} color="#fff" weight="fill" />
-                : <Play  size={24} color="#fff" weight="fill" />}
+              {videoEnded
+                ? <ArrowCounterClockwise size={24} color="#fff" weight="bold" />
+                : isPlaying
+                  ? <Pause size={24} color="#fff" weight="fill" />
+                  : <Play  size={24} color="#fff" weight="fill" />}
             </Pressable>
           </Animated.View>
         ) : null}
@@ -780,7 +907,7 @@ export function MsVideoPlayer({
           </View>
         ) : null}
 
-        {/* Standard: bottom control bar — no glass background on inline player */}
+        {/* Standard: bottom control bar */}
         {!isShorts ? (
           <View style={styles.bottomBarWrap} pointerEvents="box-none">
             <SeekBar
@@ -804,7 +931,7 @@ export function MsVideoPlayer({
         </View>
       ) : null}
 
-      {/* ── Standard: seek flash overlays ── */}
+      {/* ── Standard: seek flash overlays (slide outward + fade) ── */}
       {!isShorts ? (
         <>
           <Animated.View style={[styles.seekFlashL, seekLeftStyle]} pointerEvents="none">
@@ -821,6 +948,11 @@ export function MsVideoPlayer({
           </Animated.View>
         </>
       ) : null}
+
+      {/* ── Flying hearts ── */}
+      {hearts.map(h => (
+        <FlyingHeart key={h.id} x={h.x} y={h.y} />
+      ))}
 
       {/* ── Premium gate ── */}
       {premiumGated ? (
@@ -844,6 +976,7 @@ export function MsVideoPlayer({
           videoRef={fsVideoRef}
           isPlaying={fsPlaying}
           isBuffering={fsBuffering}
+          videoEnded={fsVideoEnded}
           progress={fsProgress}
           positionMs={fsPositionMs}
           durationMs={fsDurationMs}
@@ -872,7 +1005,6 @@ interface SeekBarProps {
   onFullscreen?: () => void;
   showFullscreen?: boolean;
   onExitFullscreen?: () => void;
-  /** Show the translucent glass background pill. True in fullscreen, false for inline. */
   hasBackground?: boolean;
 }
 
@@ -924,7 +1056,6 @@ const sb = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  /** Inline (non-fullscreen) variant — no glass pill, just the progress bar elements */
   barNoBackground: {
     backgroundColor: 'transparent',
     borderRadius: 0,
@@ -975,15 +1106,15 @@ interface FullscreenModalProps {
   posterUri?: string | null;
   isLooping: boolean;
   startPositionMs: number;
-  videoRef: React.RefObject<Video>;
+  videoRef: React.RefObject<Video | null>;
   isPlaying: boolean;
   isBuffering: boolean;
+  videoEnded: boolean;
   progress: number;
   positionMs: number;
   durationMs: number;
   onStatus: (s: AVPlaybackStatus) => void;
   onClose: () => void;
-  /** tapRatio: 0..1 fraction from the left edge of the fullscreen area. */
   onPress: (tapRatio: number) => void;
   onPressIn: () => void;
   onTogglePlay: () => void;
@@ -1001,6 +1132,7 @@ function FullscreenModal({
   videoRef,
   isPlaying,
   isBuffering,
+  videoEnded,
   progress,
   positionMs,
   durationMs,
@@ -1013,17 +1145,23 @@ function FullscreenModal({
   seekPanResponder,
   onSeekBarWidth,
 }: FullscreenModalProps) {
-  // Bottom safe area for home indicator.  Top is never needed: status bar is hidden.
   const { bottom: safeBottom } = useSafeAreaInsets();
-  // Live dimensions — recalculated on every orientation change so the
-  // double-tap left/right boundary and layout are always correct.
   const { width: fsWindowWidth } = useWindowDimensions();
+  const [showOrientPicker, setShowOrientPicker] = useState(false);
 
-  // Seek and auto-play when modal opens. The timeout gives the Video element
-  // one frame to mount before we issue commands.
+  // Buffering overlay opacity inside fullscreen
+  const fsBufOpacity = useSharedValue(1);
+  const fsBufStyle   = useAnimatedStyle(() => ({ opacity: fsBufOpacity.value }));
+
+  useEffect(() => {
+    fsBufOpacity.value = withTiming(isBuffering ? 1 : 0, {
+      duration: isBuffering ? 150 : 250,
+      easing: Easing.out(Easing.ease),
+    });
+  }, [isBuffering]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!visible) return;
-    // Hide status bar imperatively as well (belt-and-suspenders for Android).
     StatusBar.setHidden(true, 'fade');
     const t = setTimeout(() => {
       if (startPositionMs > 0) {
@@ -1033,7 +1171,6 @@ function FullscreenModal({
     }, 220);
     return () => {
       clearTimeout(t);
-      // Restore status bar when modal is dismissed.
       StatusBar.setHidden(false, 'fade');
     };
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1048,14 +1185,7 @@ function FullscreenModal({
       onRequestClose={onClose}
       supportedOrientations={['portrait', 'landscape']}
     >
-      {/*
-        Use absolute-fill instead of flex:1 to guarantee edge-to-edge coverage
-        on every device / API level. flex:1 can leave a 1-px white border on
-        some Android skins when statusBarTranslucent interacts with insets.
-      */}
       <View style={fs.root}>
-        {/* Declarative hide is the primary mechanism; the imperative call in the
-            effect above is a safety net for Android devices that ignore the prop. */}
         <StatusBar hidden translucent backgroundColor="transparent" />
 
         {/* Poster */}
@@ -1068,7 +1198,7 @@ function FullscreenModal({
           />
         ) : null}
 
-        {/* Video — single source of truth for position/state during fullscreen */}
+        {/* Video */}
         {uri ? (
           <Video
             ref={videoRef}
@@ -1082,14 +1212,12 @@ function FullscreenModal({
           />
         ) : null}
 
-        {/* Buffering */}
-        {isBuffering ? (
-          <View style={styles.bufferOverlay} pointerEvents="box-only">
-            <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" />
-          </View>
-        ) : null}
+        {/* Buffering overlay — opacity-animated */}
+        <Animated.View style={[styles.bufferOverlay, fsBufStyle]} pointerEvents="none">
+          {isBuffering ? <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" /> : null}
+        </Animated.View>
 
-        {/* Gesture layer — pass a 0..1 ratio so handleFsPress is orientation-agnostic */}
+        {/* Gesture layer */}
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={(e) => onPress(e.nativeEvent.locationX / Math.max(fsWindowWidth, 1))}
@@ -1099,28 +1227,73 @@ function FullscreenModal({
         {/* Controls overlay */}
         <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
 
-          {/* Top bar — no inset needed: status bar is hidden */}
+          {/* Top bar */}
           <View style={fs.topBar} pointerEvents="box-none">
             <Pressable style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
               <ArrowsIn size={19} color="rgba(255,255,255,0.9)" />
             </Pressable>
+            {/* Orientation picker button */}
+            <Pressable
+              style={[fs.closeBtn, { marginLeft: 10 }]}
+              onPress={() => setShowOrientPicker(v => !v)}
+              hitSlop={12}
+              accessibilityLabel="Orientation"
+            >
+              <ArrowsClockwise size={18} color="rgba(255,255,255,0.9)" />
+            </Pressable>
           </View>
 
-          {/* Centre play/pause */}
+          {/* Orientation picker panel */}
+          {showOrientPicker ? (
+            <View style={fs.orientPanel} pointerEvents="box-none">
+              <Text style={fs.orientTitle}>Orientation</Text>
+              <Pressable
+                style={fs.orientRow}
+                onPress={() => {
+                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+                  setShowOrientPicker(false);
+                }}
+              >
+                <Text style={fs.orientLabel}>Portrait</Text>
+              </Pressable>
+              <Pressable
+                style={fs.orientRow}
+                onPress={() => {
+                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+                  setShowOrientPicker(false);
+                }}
+              >
+                <Text style={fs.orientLabel}>Landscape</Text>
+              </Pressable>
+              <Pressable
+                style={fs.orientRow}
+                onPress={() => {
+                  ScreenOrientation.unlockAsync().catch(() => {});
+                  setShowOrientPicker(false);
+                }}
+              >
+                <Text style={fs.orientLabel}>Auto Rotate</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {/* Centre play / pause / restart */}
           <View style={styles.iconWrap} pointerEvents="box-none">
             <Pressable
               style={styles.iconCircle}
               onPress={onTogglePlay}
               hitSlop={16}
-              accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+              accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying
-                ? <Pause size={26} color="#fff" weight="fill" />
-                : <Play  size={26} color="#fff" weight="fill" />}
+              {videoEnded
+                ? <ArrowCounterClockwise size={26} color="#fff" weight="bold" />
+                : isPlaying
+                  ? <Pause size={26} color="#fff" weight="fill" />
+                  : <Play  size={26} color="#fff" weight="fill" />}
             </Pressable>
           </View>
 
-          {/* Bottom bar — respect home-indicator height on iOS notch devices */}
+          {/* Bottom bar */}
           <View
             style={[fs.bottomWrap, { paddingBottom: Math.max(8, safeBottom) }]}
             pointerEvents="box-none"
@@ -1141,25 +1314,15 @@ function FullscreenModal({
 }
 
 const fs = StyleSheet.create({
-  /**
-   * flex:1 fills the Modal's entire presentation layer on every platform.
-   * Previously used position:absolute which, when combined with
-   * statusBarTranslucent on Android, left the video portrait-sized because
-   * the inset offsets were applied on top of the absolute coordinates.
-   * flex:1 sidesteps all of that and is the correct pattern for Modal children.
-   */
   root: {
     flex: 1,
     backgroundColor: '#000',
   },
-  /**
-   * Top bar — no safe-area padding because the status bar is hidden while
-   * fullscreen is open.  A small fixed offset keeps the close button visually
-   * away from the physical top edge on all devices.
-   */
   topBar: {
     position: 'absolute',
     top: 0, left: 0, right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingTop: Platform.OS === 'android' ? 20 : 14,
     paddingHorizontal: 16,
     zIndex: 12,
@@ -1172,6 +1335,85 @@ const fs = StyleSheet.create({
   bottomWrap: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: 14, zIndex: 12,
+  },
+  // Orientation picker panel
+  orientPanel: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 68 : 62,
+    left: 16,
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    zIndex: 20,
+    minWidth: 160,
+  },
+  orientTitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: T.FONT.medium,
+    fontSize: 11,
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  orientRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  orientLabel: {
+    color: '#fff',
+    fontFamily: T.FONT.medium,
+    fontSize: 14,
+  },
+});
+
+// ─── FlyingHeart component ─────────────────────────────────────────────────────
+
+function FlyingHeart({ x, y }: { x: number; y: number }) {
+  const opacity    = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const scale      = useSharedValue(0.3);
+
+  useEffect(() => {
+    // Pop in with spring, then float up while fading
+    scale.value   = withSpring(1.15, { damping: 6, stiffness: 220 });
+    opacity.value = withSequence(
+      withTiming(1,    { duration: 160, easing: Easing.out(Easing.ease) }),
+      withTiming(0.95, { duration: 500 }),
+      withTiming(0,    { duration: 380, easing: Easing.in(Easing.ease) }),
+    );
+    translateY.value = withTiming(-110, {
+      duration: 1050,
+      easing: Easing.out(Easing.quad),
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const style = useAnimatedStyle(() => ({
+    opacity:   opacity.value,
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[heartS.wrap, { left: x - 18, top: y - 18 }, style]}
+      pointerEvents="none"
+    >
+      <Text style={heartS.icon}>♥</Text>
+    </Animated.View>
+  );
+}
+
+const heartS = StyleSheet.create({
+  wrap: {
+    position: 'absolute',
+    zIndex: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  icon: {
+    fontSize: 36,
+    color: '#FF4D6D',
   },
 });
 
@@ -1212,12 +1454,12 @@ const styles = StyleSheet.create({
   },
   retryText:  { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 },
 
-  // Buffering
+  // Buffering overlay — always mounted; opacity animated
   bufferOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',
     zIndex: 8,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.28)',
   },
 
   // Icon
@@ -1226,7 +1468,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     zIndex: 5,
   },
-  // Shorts play/pause button sits above the gesture layer (zIndex > gesture Pressable)
   shortsIconLayer: {
     zIndex: 12,
   },
@@ -1243,7 +1484,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
-  // Fill-container close button (shown when fillContainer=true and onClose provided)
+  // Fill-container close button
   fillCloseBar: {
     position: 'absolute',
     top: 0, left: 0, right: 0,
@@ -1275,12 +1516,14 @@ const styles = StyleSheet.create({
     width: '50%',
     justifyContent: 'center',
     zIndex: 9,
+    pointerEvents: 'none',
   },
   seekFlashR: {
     position: 'absolute', right: 0, top: 0, bottom: 0,
     width: '50%',
     justifyContent: 'center',
     zIndex: 9,
+    pointerEvents: 'none',
   },
   seekBubble: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
