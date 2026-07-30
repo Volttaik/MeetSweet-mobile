@@ -16,11 +16,18 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import {
   ArrowLeft,
   Bookmark,
@@ -36,6 +43,8 @@ import { MsContentComments } from '@/components/MsContentComments';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
+import { PressScale } from '@/components/motion/PressScale';
+import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 import {
   getPost,
   likePost,
@@ -46,11 +55,34 @@ import {
 } from '@/services/posts';
 import { useLocalExploreCatalog, fmtTimeAgo } from '@/services/explore';
 import { T } from '@/constants/theme';
+import { MOTION } from '@/constants/motion';
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+// ─── Animated action button ───────────────────────────────────────────────────
+
+function ActionBtn({
+  onPress,
+  children,
+  accessibilityLabel,
+}: {
+  onPress: () => void;
+  children: React.ReactNode;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <PressScale
+      style={styles.actionBtn}
+      onPress={onPress}
+      accessibilityLabel={accessibilityLabel}
+    >
+      {children}
+    </PressScale>
+  );
 }
 
 export default function VideoWatchScreen() {
@@ -66,21 +98,23 @@ export default function VideoWatchScreen() {
   const [shareVisible,        setShareVisible]        = useState(false);
   const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
+  // Flying hearts from like button
+  const { hearts, spawnHeart } = useHeartBurst();
+  const likeBarRef = useRef<View>(null);
+
+  // ── Like button bounce animation ─────────────────────────────────────────
+  const likeScale   = useSharedValue(1);
+  const likeStyle   = useAnimatedStyle(() => ({ transform: [{ scale: likeScale.value }] }));
+
   // ── Screen focus — pause playback when navigating away ───────────────────
-  // Using a ref avoids triggering a re-render of the whole screen on blur/focus,
-  // which would cause the player to flicker. The player reads `active` as a prop
-  // and handles pause/unpause purely in its own effect.
   const screenActiveRef = useRef(true);
   const [screenActive,  setScreenActive] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
-      // Screen is now focused — mark active (but do NOT auto-resume; user chooses).
       screenActiveRef.current = true;
       setScreenActive(true);
       return () => {
-        // Screen lost focus (back gesture, tab switch, push navigation, etc.).
-        // Immediately pause to prevent background audio.
         screenActiveRef.current = false;
         setScreenActive(false);
       };
@@ -109,6 +143,27 @@ export default function VideoWatchScreen() {
     const nextLiked = !liked;
     setLiked(nextLiked);
     setLikeCount((n) => Math.max(0, n + (nextLiked ? 1 : -1)));
+
+    // Bounce + flying hearts on like
+    if (nextLiked) {
+      likeScale.value = withSequence(
+        withSpring(1.35, { damping: 5, stiffness: 320 }),
+        withSpring(1.0,  { damping: 10, stiffness: 220 }),
+      );
+      // Spawn hearts around the like bar
+      likeBarRef.current?.measure((_x, _y, _w, h, px, py) => {
+        const cx = px + 28; // approximate centre of like button
+        const cy = py + h / 2;
+        spawnHeart(cx, cy);
+        spawnHeart(cx + 14, cy - 10);
+      });
+    } else {
+      likeScale.value = withSequence(
+        withTiming(0.85, { duration: MOTION.PRESS_DOWN, easing: MOTION.EASE_EXIT }),
+        withTiming(1.0,  { duration: MOTION.PRESS_UP,   easing: MOTION.EASE_ENTER }),
+      );
+    }
+
     try {
       const result = nextLiked
         ? await likePost(post.id)
@@ -134,17 +189,22 @@ export default function VideoWatchScreen() {
   };
 
   // Build related videos from the explore catalog (exclude the current post).
+  // Deduplicate both by post ID and by creator ID so each creator only appears once.
   const relatedVideos = useMemo<MsFeedVideoCardData[]>(() => {
     if (!catalog) return [];
     const previews  = catalog.previews  ?? [];
     const creators  = catalog.creators  ?? [];
-    const seenIds = new Set<string>();
+    const seenPostIds    = new Set<string>();
+    const seenCreatorIds = new Set<string>();
     return previews
       .filter((p) => {
         if (p.id === id) return false;
         if (p.kind !== 'video' && p.kind !== 'audio') return false;
-        if (seenIds.has(p.id)) return false; // guard against duplicate entries rendering the creator row twice
-        seenIds.add(p.id);
+        if (seenPostIds.has(p.id)) return false;
+        // Only one card per creator — prevents the same avatar/name showing twice
+        if (seenCreatorIds.has(p.creatorId)) return false;
+        seenPostIds.add(p.id);
+        seenCreatorIds.add(p.creatorId);
         return true;
       })
       .slice(0, 10)
@@ -215,16 +275,21 @@ export default function VideoWatchScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
+      {/* ── Floating hearts (spawned by like button) ──────────────────────── */}
+      {hearts.map(h => (
+        <FlyingHeart key={h.id} x={h.x} y={h.y} />
+      ))}
+
       {/* ── Top bar — back button ─────────────────────────────────────────── */}
       <View style={styles.topBar}>
-        <Pressable
+        <PressScale
           style={styles.backBtn}
           onPress={() => router.back()}
           accessibilityLabel="Go back"
           hitSlop={12}
         >
           <ArrowLeft size={19} color={T.TEXT} weight="bold" />
-        </Pressable>
+        </PressScale>
       </View>
 
       <ScrollView
@@ -232,7 +297,7 @@ export default function VideoWatchScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
       >
-        {/* ── Video player (aspect-ratio, native controls) ──────────────── */}
+        {/* ── Video player (aspect-ratio, custom controls) ──────────────── */}
         <MsLongFormPlayer
           videoId={post.id}
           uri={videoMedia}
@@ -255,115 +320,116 @@ export default function VideoWatchScreen() {
         </View>
 
         {/* ── Action bar: Like / Comment / Save / Share ─────────────────── */}
-        <View style={styles.actionBar}>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={toggleLike}
-            activeOpacity={0.75}
-            accessibilityLabel={liked ? 'Unlike' : 'Like'}
-          >
-            <Heart
-              size={20}
-              color={liked ? '#EF4444' : T.TEXT_2}
-              weight={liked ? 'fill' : 'regular'}
-            />
-            <Text style={[styles.actionLabel, liked && styles.actionLabelLiked]}>
-              {likeCount > 0 ? formatCount(likeCount) : 'Like'}
-            </Text>
-          </TouchableOpacity>
+        <View ref={likeBarRef} style={styles.actionBar} collapsable={false}>
+          {/* Like button — animated bounce + flying hearts */}
+          <ActionBtn onPress={toggleLike} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
+            <Animated.View style={[styles.actionBtnInner, likeStyle]}>
+              <Heart
+                size={20}
+                color={liked ? '#EF4444' : T.TEXT_2}
+                weight={liked ? 'fill' : 'regular'}
+              />
+              <Text style={[styles.actionLabel, liked && styles.actionLabelLiked]}>
+                {likeCount > 0 ? formatCount(likeCount) : 'Like'}
+              </Text>
+            </Animated.View>
+          </ActionBtn>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
+          <ActionBtn
             onPress={() => setCommentsVisible(true)}
-            activeOpacity={0.75}
             accessibilityLabel="Comments"
           >
-            <ChatCircle size={20} color={T.TEXT_2} />
-            <Text style={styles.actionLabel}>
-              {post.commentCount > 0 ? formatCount(post.commentCount) : 'Comment'}
-            </Text>
-          </TouchableOpacity>
+            <View style={styles.actionBtnInner}>
+              <ChatCircle size={20} color={T.TEXT_2} />
+              <Text style={styles.actionLabel}>
+                {post.commentCount > 0 ? formatCount(post.commentCount) : 'Comment'}
+              </Text>
+            </View>
+          </ActionBtn>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
+          <ActionBtn
             onPress={toggleBookmark}
-            activeOpacity={0.75}
             accessibilityLabel={bookmarked ? 'Unsave' : 'Save'}
           >
-            <Bookmark
-              size={20}
-              color={bookmarked ? T.TEXT : T.TEXT_2}
-              weight={bookmarked ? 'fill' : 'regular'}
-            />
-            <Text style={[styles.actionLabel, bookmarked && styles.actionLabelSaved]}>
-              {bookmarked ? 'Saved' : 'Save'}
-            </Text>
-          </TouchableOpacity>
+            <View style={styles.actionBtnInner}>
+              <Bookmark
+                size={20}
+                color={bookmarked ? T.TEXT : T.TEXT_2}
+                weight={bookmarked ? 'fill' : 'regular'}
+              />
+              <Text style={[styles.actionLabel, bookmarked && styles.actionLabelSaved]}>
+                {bookmarked ? 'Saved' : 'Save'}
+              </Text>
+            </View>
+          </ActionBtn>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
+          <ActionBtn
             onPress={() => setShareVisible(true)}
-            activeOpacity={0.75}
             accessibilityLabel="Share"
           >
-            <ShareNetwork size={20} color={T.TEXT_2} />
-            <Text style={styles.actionLabel}>Share</Text>
-          </TouchableOpacity>
+            <View style={styles.actionBtnInner}>
+              <ShareNetwork size={20} color={T.TEXT_2} />
+              <Text style={styles.actionLabel}>Share</Text>
+            </View>
+          </ActionBtn>
         </View>
 
         {/* ── Creator card ─────────────────────────────────────────────── */}
-        <TouchableOpacity
-          style={styles.creatorCard}
-          onPress={() => router.push(`/creator/${post.author.id}`)}
-          activeOpacity={0.82}
-          accessibilityLabel={`View ${post.author.name}'s profile`}
-        >
-          {post.author.avatarUrl ? (
-            <Image source={{ uri: post.author.avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback]}>
-              <Text style={styles.avatarInitial}>{creatorInitials}</Text>
-            </View>
-          )}
-          <View style={styles.creatorInfo}>
-            <View style={styles.creatorNameRow}>
-              <Text style={styles.creatorName} numberOfLines={1}>
-                {post.author.name || post.author.username}
-              </Text>
-              {post.author.isVerified && (
-                <SealCheck size={14} color={T.ACCENT} weight="fill" />
-              )}
-            </View>
-            <Text style={styles.creatorHandle}>@{post.author.username}</Text>
-          </View>
+        <PressScale style={styles.creatorCard}>
           <Pressable
-            style={styles.subscribeBtn}
+            style={styles.creatorCardInner}
             onPress={() => router.push(`/creator/${post.author.id}`)}
-            hitSlop={6}
-            accessibilityLabel="Subscribe"
+            accessibilityLabel={`View ${post.author.name}'s profile`}
           >
-            <UserPlus size={13} color={T.BG} />
-            <Text style={styles.subscribeBtnText}>Subscribe</Text>
+            {post.author.avatarUrl ? (
+              <Image source={{ uri: post.author.avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarFallback]}>
+                <Text style={styles.avatarInitial}>{creatorInitials}</Text>
+              </View>
+            )}
+            <View style={styles.creatorInfo}>
+              <View style={styles.creatorNameRow}>
+                <Text style={styles.creatorName} numberOfLines={1}>
+                  {post.author.name || post.author.username}
+                </Text>
+                {post.author.isVerified && (
+                  <SealCheck size={14} color={T.ACCENT} weight="fill" />
+                )}
+              </View>
+              <Text style={styles.creatorHandle}>@{post.author.username}</Text>
+            </View>
+            <PressScale
+              style={styles.subscribeBtn}
+              onPress={() => router.push(`/creator/${post.author.id}`)}
+              hitSlop={6}
+              accessibilityLabel="Subscribe"
+            >
+              <UserPlus size={13} color={T.BG} />
+              <Text style={styles.subscribeBtnText}>Subscribe</Text>
+            </PressScale>
           </Pressable>
-        </TouchableOpacity>
+        </PressScale>
 
         {/* ── Comments preview ─────────────────────────────────────────── */}
         {post.commentCount > 0 && (
-          <Pressable
-            style={styles.commentsPreview}
-            onPress={() => setCommentsVisible(true)}
-            accessibilityLabel="View comments"
-          >
-            <View style={styles.commentsHeader}>
-              <Text style={styles.commentsTitle}>Comments</Text>
-              <View style={styles.commentsBadge}>
-                <Text style={styles.commentsBadgeText}>
-                  {formatCount(post.commentCount)}
-                </Text>
+          <PressScale style={styles.commentsPreview}>
+            <Pressable
+              style={styles.commentsPreviewInner}
+              onPress={() => setCommentsVisible(true)}
+              accessibilityLabel="View comments"
+            >
+              <View style={styles.commentsHeader}>
+                <Text style={styles.commentsTitle}>Comments</Text>
+                <View style={styles.commentsBadge}>
+                  <Text style={styles.commentsBadgeText}>
+                    {formatCount(post.commentCount)}
+                  </Text>
+                </View>
               </View>
-            </View>
-            <Text style={styles.commentsPrompt}>Tap to view all comments →</Text>
-          </Pressable>
+              <Text style={styles.commentsPrompt}>Tap to view all comments →</Text>
+            </Pressable>
+          </PressScale>
         )}
 
         {/* ── Related videos ────────────────────────────────────────────── */}
@@ -467,16 +533,20 @@ const styles = StyleSheet.create({
     marginTop: 14,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.xl,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     ...T.SHADOWS.soft,
   },
   actionBtn: {
     alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    minWidth: 54,
+    borderRadius: T.RADIUS.lg,
+  },
+  actionBtnInner: {
+    alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    minWidth: 58,
   },
   actionLabel: {
     color: T.TEXT_2,
@@ -488,15 +558,18 @@ const styles = StyleSheet.create({
 
   // ── Creator card ─────────────────────────────────────────────────────────────
   creatorCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     marginHorizontal: 14,
     marginTop: 14,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.xl,
-    padding: 14,
     ...T.SHADOWS.soft,
+    overflow: 'hidden',
+  },
+  creatorCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
   },
   avatar: { width: 44, height: 44, borderRadius: 22 },
   avatarFallback: {
@@ -544,9 +617,12 @@ const styles = StyleSheet.create({
     marginTop: 14,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.xl,
+    ...T.SHADOWS.soft,
+    overflow: 'hidden',
+  },
+  commentsPreviewInner: {
     padding: 14,
     gap: 6,
-    ...T.SHADOWS.soft,
   },
   commentsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   commentsTitle: {
@@ -573,16 +649,16 @@ const styles = StyleSheet.create({
 
   // ── Related videos ────────────────────────────────────────────────────────────
   relatedSection: {
-    marginTop: 24,
+    marginTop: 20,
     paddingHorizontal: 14,
   },
   relatedTitle: {
     color: T.TEXT,
     fontFamily: T.FONT.bold,
-    fontSize: 17,
+    fontSize: 16,
     marginBottom: 10,
   },
   relatedCard: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
 });

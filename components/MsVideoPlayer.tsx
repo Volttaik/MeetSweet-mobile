@@ -1135,7 +1135,7 @@ interface FullscreenModalProps {
   onPress: (tapRatio: number) => void;
   onPressIn: () => void;
   onTogglePlay: () => void;
-  ctrlStyle: ReturnType<typeof useAnimatedStyle>;
+  ctrlStyle: object;
   seekPanResponder: ReturnType<typeof PanResponder.create>;
   onSeekBarWidth: (w: number) => void;
 }
