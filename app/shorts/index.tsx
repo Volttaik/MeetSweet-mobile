@@ -334,7 +334,7 @@ function formatCount(value: number) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#000' },
-  page: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT, backgroundColor: '#050506' },
+  page: { width: SCREEN_WIDTH, backgroundColor: '#050506' },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13, marginTop: 14 },
   topBar: {
