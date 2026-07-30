@@ -193,8 +193,8 @@ export function MsVideoPlayer({
 
   // Centre icon (shorts: per-playing state; standard: part of auto-hide overlay)
   const iconScale   = useSharedValue(1);
-  // Shorts-only icon opacity
-  const shortsIconOpacity = useSharedValue(0);
+  // Shorts-only icon opacity — starts VISIBLE (1) so the Play button is shown on load
+  const shortsIconOpacity = useSharedValue(1);
   const shortsIconStyle   = useAnimatedStyle(() => ({
     opacity: shortsIconOpacity.value,
     transform: [{ scale: iconScale.value }],
@@ -227,7 +227,7 @@ export function MsVideoPlayer({
     setIsBuffering(true);
     ctrlOpacity.value = 1;
     iconScale.value   = 1;
-    shortsIconOpacity.value = 0;
+    shortsIconOpacity.value = 1; // start visible — show Play button on load
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -236,10 +236,16 @@ export function MsVideoPlayer({
     if (!isShorts) return;
     if (active && !premiumGateRef.current) {
       videoRef.current?.playAsync().catch(() => {});
+      // Briefly show the icon then auto-hide once playing
+      shortsIconOpacity.value = withTiming(1, { duration: 180 });
+      scheduleHide(shortsIconOpacity, hideTimerRef);
     } else {
       videoRef.current?.pauseAsync().catch(() => {});
+      // Always show the icon when paused / inactive
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      shortsIconOpacity.value = withTiming(1, { duration: 180 });
     }
-  }, [active, isShorts]);
+  }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Shorts: view-progress tracking ────────────────────────────────────────
   useEffect(() => {
@@ -285,18 +291,43 @@ export function MsVideoPlayer({
     scheduleHide(fsCtrlOpacity, fsHideTimerRef);
   }, [scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Initialise controls auto-hide on mount
-  useEffect(() => {
-    scheduleHide(ctrlOpacity, hideTimerRef);
-    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Tap icon pulse animation ───────────────────────────────────────────────
   const pulseIcon = useCallback(() => {
     iconScale.value = withSequence(
       withTiming(1.18, { duration: 80,  easing: Easing.out(Easing.ease) }),
       withTiming(1.0,  { duration: 180, easing: Easing.in(Easing.ease) }),
     );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Shorts: show the icon overlay (called on background tap) ──────────────
+  const showShortsIcon = useCallback(() => {
+    shortsIconOpacity.value = withTiming(1, { duration: 180 });
+    // Only schedule auto-hide when playing; keep icon visible while paused
+    if (isPlayingRef.current) {
+      scheduleHide(shortsIconOpacity, hideTimerRef);
+    }
+  }, [scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Shorts: dedicated play/pause toggle (only from the centre button) ─────
+  const toggleShortsPlayback = useCallback(() => {
+    if (premiumGateRef.current) return;
+    pulseIcon();
+    if (isPlayingRef.current) {
+      videoRef.current?.pauseAsync().catch(() => {});
+      // Paused → keep icon permanently visible
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      shortsIconOpacity.value = withTiming(1, { duration: 180 });
+    } else {
+      videoRef.current?.playAsync().catch(() => {});
+      // Playing → schedule auto-hide
+      scheduleHide(shortsIconOpacity, hideTimerRef);
+    }
+  }, [pulseIcon, scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Initialise controls auto-hide on mount
+  useEffect(() => {
+    scheduleHide(ctrlOpacity, hideTimerRef);
+    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Seek helpers ──────────────────────────────────────────────────────────
@@ -323,17 +354,6 @@ export function MsVideoPlayer({
     if (durationRef.current > 0) setProgress(target / durationRef.current);
     setPositionMs(target);
   }, []);
-
-  // ── Shorts tap ────────────────────────────────────────────────────────────
-  const handleShortsTap = useCallback(() => {
-    if (premiumGateRef.current) return;
-    pulseIcon();
-    if (isPlayingRef.current) {
-      videoRef.current?.pauseAsync().catch(() => {});
-    } else {
-      videoRef.current?.playAsync().catch(() => {});
-    }
-  }, [pulseIcon]);
 
   // ── Standard tap (single / double) ───────────────────────────────────────
   const handleStandardPress = useCallback((tapX: number) => {
@@ -411,16 +431,10 @@ export function MsVideoPlayer({
       isPlayingRef.current = playing;
       setIsPlaying(playing);
 
-      // Shorts: manage icon visibility
-      if (isShorts && hasPlayedRef.current) {
-        shortsIconOpacity.value = withTiming(playing ? 0 : 0.85, { duration: 250 });
-      }
-
       // Buffering contract
       if (playing && !hasPlayedRef.current) {
         hasPlayedRef.current = true;
         setIsBuffering(false);
-        if (isShorts) shortsIconOpacity.value = withTiming(0, { duration: 250 });
       } else if (!hasPlayedRef.current) {
         setIsBuffering(status.isBuffering ?? true);
       }
@@ -624,30 +638,35 @@ export function MsVideoPlayer({
         </View>
       ) : null}
 
-      {/* ── Gesture layer ── */}
+      {/* ── Gesture layer — tap to show controls (Shorts), or toggle + seek (Standard) ── */}
       {!isBuffering && !premiumGated ? (
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={(e) => isShorts ? handleShortsTap() : handleStandardPress(e.nativeEvent.locationX)}
+          onPress={(e) => isShorts ? showShortsIcon() : handleStandardPress(e.nativeEvent.locationX)}
           onPressIn={!isShorts ? showControls : undefined}
           accessibilityRole="button"
-          accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+          accessibilityLabel="Show controls"
         />
+      ) : null}
+
+      {/* ── Shorts: tappable centre play/pause button (lives ABOVE gesture layer) ── */}
+      {isShorts && !isBuffering && !premiumGated ? (
+        <Animated.View style={[styles.iconWrap, styles.shortsIconLayer, shortsIconStyle]} pointerEvents="box-none">
+          <Pressable
+            style={styles.iconCircle}
+            onPress={toggleShortsPlayback}
+            hitSlop={16}
+            accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying
+              ? <Pause size={20} color="#fff" weight="fill" />
+              : <Play  size={20} color="#fff" weight="fill" />}
+          </Pressable>
+        </Animated.View>
       ) : null}
 
       {/* ── Controls overlay (auto-hiding) ── */}
       <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
-
-        {/* Shorts: centre play/pause icon with separate opacity */}
-        {isShorts ? (
-          <Animated.View style={[styles.iconWrap, shortsIconStyle]} pointerEvents="none">
-            <View style={styles.iconCircle}>
-              {isPlaying
-                ? <Pause size={20} color="#fff" weight="fill" />
-                : <Play  size={20} color="#fff" weight="fill" />}
-            </View>
-          </Animated.View>
-        ) : null}
 
         {/* Standard: centre play/pause icon (inherits ctrlStyle opacity) */}
         {!isShorts ? (
@@ -669,7 +688,7 @@ export function MsVideoPlayer({
           </View>
         ) : null}
 
-        {/* Standard: bottom control bar */}
+        {/* Standard: bottom control bar — no glass background on inline player */}
         {!isShorts ? (
           <View style={styles.bottomBarWrap} pointerEvents="box-none">
             <SeekBar
@@ -680,6 +699,7 @@ export function MsVideoPlayer({
               onWidthMeasured={(w) => { seekWidthRef.current = w; }}
               onFullscreen={openFullscreen}
               showFullscreen={!fillContainer}
+              hasBackground={fillContainer}
             />
           </View>
         ) : null}
@@ -759,6 +779,8 @@ interface SeekBarProps {
   onFullscreen?: () => void;
   showFullscreen?: boolean;
   onExitFullscreen?: () => void;
+  /** Show the translucent glass background pill. True in fullscreen, false for inline. */
+  hasBackground?: boolean;
 }
 
 function SeekBar({
@@ -770,10 +792,11 @@ function SeekBar({
   onFullscreen,
   showFullscreen = false,
   onExitFullscreen,
+  hasBackground = true,
 }: SeekBarProps) {
   const pct = `${Math.min(100, Math.max(0, progress * 100))}%` as any;
   return (
-    <View style={sb.bar}>
+    <View style={[sb.bar, !hasBackground && sb.barNoBackground]}>
       <Text style={sb.time}>{fmtTime(positionMs)}</Text>
       <View
         style={sb.track}
@@ -807,6 +830,13 @@ const sb = StyleSheet.create({
     borderRadius: T.RADIUS.lg,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  /** Inline (non-fullscreen) variant — no glass pill, just the progress bar elements */
+  barNoBackground: {
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   time: {
     color: 'rgba(255,255,255,0.88)',
@@ -1056,6 +1086,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center', justifyContent: 'center',
     zIndex: 5,
+  },
+  // Shorts play/pause button sits above the gesture layer (zIndex > gesture Pressable)
+  shortsIconLayer: {
+    zIndex: 12,
   },
   iconCircle: {
     width: 56, height: 56, borderRadius: 28,
