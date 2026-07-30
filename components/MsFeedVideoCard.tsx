@@ -69,6 +69,12 @@ interface MsFeedVideoCardProps {
   onUnlockPress?: () => void;
   onLongPress?: () => void;
   style?: ViewStyle;
+  /**
+   * Whether the video preview should be playing.
+   * Driven by FlatList viewability — true when card is on screen, false when off.
+   * Defaults to true.
+   */
+  videoPreviewActive?: boolean;
 }
 
 // ─── Scale-press wrapper (matches MsPostCard) ─────────────────────────────────
@@ -123,6 +129,7 @@ export function MsFeedVideoCard({
   onUnlockPress,
   onLongPress,
   style,
+  videoPreviewActive = true,
 }: MsFeedVideoCardProps) {
   // Prefer natural dimensions; fall back to 16:9 (standard video)
   const aspectRatio =
@@ -152,6 +159,8 @@ export function MsFeedVideoCard({
           }
           aspectRatio={aspectRatio}
           onUnlock={onUnlockPress ?? onPress}
+          previewMode
+          active={videoPreviewActive}
           style={styles.media}
         />
 

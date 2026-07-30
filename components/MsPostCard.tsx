@@ -198,6 +198,12 @@ interface MsPostCardProps {
    * All other screens leave this false / undefined for single-tap behaviour.
    */
   doubleTapToOpen?: boolean;
+  /**
+   * Whether the video preview should be actively playing.
+   * Driven by FlatList viewability — true when card is on screen, false when off.
+   * Defaults to true (plays immediately when mounted).
+   */
+  videoPreviewActive?: boolean;
 }
 
 export function MsPostCard({
@@ -210,6 +216,7 @@ export function MsPostCard({
   onEditPress,
   onAnalyticsPress,
   doubleTapToOpen = false,
+  videoPreviewActive = true,
 }: MsPostCardProps) {
   const [liked, setLiked] = useState(post.likedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
@@ -424,10 +431,10 @@ export function MsPostCard({
       )}
 
       {/* Media — video
-          Tapping the play button routes to the dedicated video watch page so there
-          is only one active playback controller at a time (no inline feed playback).
+          Feed preview mode: auto-playing muted 3-second loop.
+          No play button is shown in feeds. Tapping anywhere on the card opens
+          the dedicated Video Post page — the feed is never the primary player.
           Long-press opens the action sheet for save/share/report.
-          Unlock button (premium gate) also routes to the watch/content page.
       */}
       {post.mediaUrl && post.mediaType === 'video' && (
         <TouchableOpacity
@@ -447,6 +454,8 @@ export function MsPostCard({
             borderRadius={T.RADIUS.xl}
             onUnlock={onMediaPress ?? onPress}
             onPlayPress={onMediaPress ?? onPress}
+            previewMode
+            active={videoPreviewActive}
             style={styles.videoPlaceholder}
           />
         </TouchableOpacity>

@@ -12,6 +12,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import { MsVideoPreview } from '@/components/MsVideoPreview';
 import { LockSimple, Play } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
@@ -42,6 +43,17 @@ export interface MsPremiumContentProps {
    * dedicated player so there is only one active playback controller.
    */
   onPlayPress?: () => void;
+  /**
+   * Feed preview mode: renders a silent muted 3-second looping preview instead
+   * of a static thumbnail + play button. No controls are shown.
+   * Tap handling is left entirely to the parent (card wrapper).
+   */
+  previewMode?: boolean;
+  /**
+   * When previewMode=true, controls whether the preview is playing.
+   * Driven by viewability — true when card is on screen, false when off screen.
+   */
+  active?: boolean;
 }
 
 export function MsPremiumContent({
@@ -62,6 +74,8 @@ export function MsPremiumContent({
   overlayOnly = false,
   showPaymentSheet = false,
   onPlayPress,
+  previewMode = false,
+  active = true,
 }: MsPremiumContentProps) {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [videoStarted, setVideoStarted] = useState(false);
@@ -111,8 +125,17 @@ export function MsPremiumContent({
           </>
         )}
 
-        {/* Video: poster first; mount the stream only after an explicit play. */}
-        {!overlayOnly && uri && mediaType === 'video' && (
+        {/* Video — feed preview mode: silent muted 3-second looping preview, no play button */}
+        {!overlayOnly && uri && mediaType === 'video' && previewMode && !isLocked && (
+          <MsVideoPreview
+            uri={uri}
+            posterUri={posterUri ?? videoThumbnailUri ?? null}
+            active={active}
+          />
+        )}
+
+        {/* Video — standard mode: static poster first; stream mounts only after explicit play */}
+        {!overlayOnly && uri && mediaType === 'video' && !previewMode && (
           <>
             {!videoStarted && (
               posterUri ? (

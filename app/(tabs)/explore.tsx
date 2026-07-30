@@ -548,7 +548,14 @@ export default function ExploreScreen() {
       }
     };
 
-    const renderFeedItem = ({ item }: { item: FeedItem }) => {
+    // ── Video preview viewability tracking ───────────────────────────────────
+  const [visibleVideoIds, setVisibleVideoIds] = useState<ReadonlySet<string>>(() => new Set());
+  const exploreViewabilityConfig = useRef({ itemVisiblePercentThreshold: 50, minimumViewTime: 150 }).current;
+  const onExploreViewableChanged = useRef(({ viewableItems }: { viewableItems: Array<{ key: string }> }) => {
+    setVisibleVideoIds(new Set(viewableItems.map((v) => v.key)));
+  }).current;
+
+  const renderFeedItem = ({ item }: { item: FeedItem }) => {
       if (item.type === 'image') {
         return (
           <View style={styles.feedItemWrap}>
@@ -577,6 +584,7 @@ export default function ExploreScreen() {
               onPress={navToContent}
               onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
               onUnlockPress={navToContent}
+              videoPreviewActive={visibleVideoIds.has(item.id)}
             />
           </View>
         );
