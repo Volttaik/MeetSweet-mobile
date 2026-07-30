@@ -50,6 +50,9 @@ import {
 } from 'react-native';
 import Animated, {
   Easing,
+  FadeIn,
+  FadeOut,
+  ZoomIn,
   type SharedValue,
   useAnimatedStyle,
   useSharedValue,
@@ -71,6 +74,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { T } from '@/constants/theme';
+import { MOTION } from '@/constants/motion';
+import { PressScale } from '@/components/motion/PressScale';
+import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -183,10 +189,6 @@ export function MsVideoPlayer({
   const fsPrevBuffRef   = useRef(true);
   const fsEndedRef      = useRef(false);
 
-  // Flying hearts
-  const heartIdRef    = useRef(0);
-  const lastHeartRef  = useRef(0);
-
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
   const [isBuffering,   setIsBuffering]   = useState(true);
@@ -198,7 +200,7 @@ export function MsVideoPlayer({
   const [aspectRatio,   setAspectRatio]   = useState(initialAspectRatio ?? 16 / 9);
   const [fsVisible,     setFsVisible]     = useState(false);
   const [videoEnded,    setVideoEnded]    = useState(false);
-  const [hearts,        setHearts]        = useState<Array<{ id: number; x: number; y: number }>>([]);
+  const { hearts, spawnHeart } = useHeartBurst();
 
   // Fullscreen player state
   const [fsPlaying,    setFsPlaying]    = useState(false);
@@ -213,9 +215,23 @@ export function MsVideoPlayer({
   // Controls overlay (auto-hiding)
   const ctrlOpacity = useSharedValue(1);
   const ctrlStyle   = useAnimatedStyle(() => ({ opacity: ctrlOpacity.value }));
+  // Bottom bar slides up 20px → 0 in lockstep with the controls fade, instead
+  // of snapping into place.
+  const bottomBarStyle = useAnimatedStyle(() => ({
+    opacity: ctrlOpacity.value,
+    transform: [{ translateY: (1 - ctrlOpacity.value) * 14 }],
+  }));
   // Fullscreen controls overlay
   const fsCtrlOpacity = useSharedValue(1);
   const fsCtrlStyle   = useAnimatedStyle(() => ({ opacity: fsCtrlOpacity.value }));
+  const fsBottomBarStyle = useAnimatedStyle(() => ({
+    opacity: fsCtrlOpacity.value,
+    transform: [{ translateY: (1 - fsCtrlOpacity.value) * 14 }],
+  }));
+  // Soft dark-to-clear brightness ramp on first play — video "wakes up"
+  // instead of snapping straight to full exposure.
+  const brightnessOpacity = useSharedValue(0.25);
+  const brightnessStyle   = useAnimatedStyle(() => ({ opacity: brightnessOpacity.value }));
 
   // Centre icon (shorts: per-playing state; standard: part of auto-hide overlay)
   const iconScale   = useSharedValue(1);
@@ -275,7 +291,6 @@ export function MsVideoPlayer({
     setIsPlaying(false);
     setIsBuffering(true);
     setVideoEnded(false);
-    setHearts([]);
     ctrlOpacity.value = 1;
     iconScale.value   = 1;
     shortsIconOpacity.value = 1;
@@ -283,6 +298,7 @@ export function MsVideoPlayer({
     posterOpacity.value = 1;
     videoOpacity.value  = 0;
     bufferOpacity.value = 1;
+    brightnessOpacity.value = 0.25;
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -378,18 +394,6 @@ export function MsVideoPlayer({
       withSpring(1.0,  { damping: 12, stiffness: 220 }),
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Flying hearts ─────────────────────────────────────────────────────────
-  const spawnHeart = useCallback((tapX: number, tapY: number) => {
-    const now = Date.now();
-    if (now - lastHeartRef.current < 250) return; // throttle rapid taps
-    lastHeartRef.current = now;
-    const id = ++heartIdRef.current;
-    // Small random horizontal jitter so stacked hearts spread out
-    const jitter = (Math.random() - 0.5) * 36;
-    setHearts(prev => [...prev.slice(-5), { id, x: tapX + jitter, y: tapY }]);
-    setTimeout(() => setHearts(prev => prev.filter(h => h.id !== id)), 1400);
-  }, []);
 
   // ── Shorts: show the icon overlay ─────────────────────────────────────────
   const showShortsIcon = useCallback(() => {
@@ -580,6 +584,8 @@ export function MsVideoPlayer({
         // Video fades in from black; poster fades out beneath
         videoOpacity.value  = withTiming(1, { duration: 280, easing: Easing.out(Easing.ease) });
         posterOpacity.value = withTiming(0, { duration: 380, easing: Easing.out(Easing.ease) });
+        // Brightness ramp: video "wakes up" from a dim 80% exposure to 100%.
+        brightnessOpacity.value = withTiming(0, { duration: 420, easing: Easing.out(Easing.ease) });
       }
 
       // Restart detection
@@ -842,9 +848,16 @@ export function MsVideoPlayer({
       {/* ── Buffering overlay — always mounted, opacity-driven for smooth fades ── */}
       {!error ? (
         <Animated.View style={[styles.bufferOverlay, bufferFadeStyle]} pointerEvents="none">
-          {isBuffering ? <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" /> : null}
+          {isBuffering ? (
+            <Animated.View entering={FadeIn.duration(MOTION.FADE_IN)} exiting={FadeOut.duration(MOTION.FADE_OUT)}>
+              <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" />
+            </Animated.View>
+          ) : null}
         </Animated.View>
       ) : null}
+
+      {/* ── Brightness ramp — video "wakes up" from a dim exposure on first play ── */}
+      <Animated.View style={[StyleSheet.absoluteFill, styles.brightnessOverlay, brightnessStyle]} pointerEvents="none" />
 
       {/* ── Gesture layer ── */}
       {!isBuffering && !premiumGated ? (
@@ -864,16 +877,16 @@ export function MsVideoPlayer({
       {/* ── Shorts: tappable centre play/pause button ── */}
       {isShorts && !isBuffering && !premiumGated ? (
         <Animated.View style={[styles.iconWrap, styles.shortsIconLayer, shortsIconStyle]} pointerEvents="box-none">
-          <Pressable
+          <PressScale
             style={styles.iconCircle}
             onPress={toggleShortsPlayback}
             hitSlop={16}
             accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying
-              ? <Pause size={20} color="#fff" weight="fill" />
-              : <Play  size={20} color="#fff" weight="fill" />}
-          </Pressable>
+              ? <Pause size={19} color="#fff" weight="fill" />
+              : <Play  size={19} color="#fff" weight="fill" />}
+          </PressScale>
         </Animated.View>
       ) : null}
 
@@ -883,33 +896,37 @@ export function MsVideoPlayer({
         {/* Standard: centre play / pause / restart */}
         {!isShorts ? (
           <Animated.View style={[styles.iconWrap, stdIconStyle]} pointerEvents="box-none">
-            <Pressable
+            <PressScale
               style={styles.iconCircle}
               onPress={toggleStandardPlayback}
               hitSlop={16}
               accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
             >
-              {videoEnded
-                ? <ArrowCounterClockwise size={24} color="#fff" weight="bold" />
-                : isPlaying
-                  ? <Pause size={24} color="#fff" weight="fill" />
-                  : <Play  size={24} color="#fff" weight="fill" />}
-            </Pressable>
+              {videoEnded ? (
+                <Animated.View key="replay" entering={ZoomIn.duration(220).springify().damping(14)}>
+                  <ArrowCounterClockwise size={22} color="#fff" weight="bold" />
+                </Animated.View>
+              ) : isPlaying ? (
+                <Pause size={22} color="#fff" weight="fill" />
+              ) : (
+                <Play size={22} color="#fff" weight="fill" />
+              )}
+            </PressScale>
           </Animated.View>
         ) : null}
 
         {/* Standard: fill-container close button */}
         {!isShorts && fillContainer && onClose ? (
           <View style={styles.fillCloseBar} pointerEvents="box-none">
-            <Pressable style={styles.fillCloseBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Close video">
-              <ArrowsIn size={19} color="rgba(255,255,255,0.9)" />
-            </Pressable>
+            <PressScale style={styles.fillCloseBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Close video">
+              <ArrowsIn size={17} color="rgba(255,255,255,0.9)" />
+            </PressScale>
           </View>
         ) : null}
 
         {/* Standard: bottom control bar */}
         {!isShorts ? (
-          <View style={styles.bottomBarWrap} pointerEvents="box-none">
+          <Animated.View style={[styles.bottomBarWrap, bottomBarStyle]} pointerEvents="box-none">
             <SeekBar
               progress={progress}
               positionMs={positionMs}
@@ -920,7 +937,7 @@ export function MsVideoPlayer({
               showFullscreen={!fillContainer}
               hasBackground={fillContainer}
             />
-          </View>
+          </Animated.View>
         ) : null}
       </Animated.View>
 
@@ -1229,68 +1246,86 @@ function FullscreenModal({
 
           {/* Top bar */}
           <View style={fs.topBar} pointerEvents="box-none">
-            <Pressable style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
-              <ArrowsIn size={19} color="rgba(255,255,255,0.9)" />
-            </Pressable>
+            <PressScale style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
+              <ArrowsIn size={17} color="rgba(255,255,255,0.9)" />
+            </PressScale>
             {/* Orientation picker button */}
-            <Pressable
+            <PressScale
               style={[fs.closeBtn, { marginLeft: 10 }]}
               onPress={() => setShowOrientPicker(v => !v)}
               hitSlop={12}
               accessibilityLabel="Orientation"
             >
-              <ArrowsClockwise size={18} color="rgba(255,255,255,0.9)" />
-            </Pressable>
+              <ArrowsClockwise size={17} color="rgba(255,255,255,0.9)" />
+            </PressScale>
           </View>
 
-          {/* Orientation picker panel */}
+          {/* Orientation picker panel — backdrop dismisses on outside tap */}
           {showOrientPicker ? (
-            <View style={fs.orientPanel} pointerEvents="box-none">
-              <Text style={fs.orientTitle}>Orientation</Text>
-              <Pressable
-                style={fs.orientRow}
-                onPress={() => {
-                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-                  setShowOrientPicker(false);
-                }}
+            <>
+              <Animated.View
+                style={StyleSheet.absoluteFill}
+                entering={FadeIn.duration(MOTION.PANEL_IN)}
+                exiting={FadeOut.duration(MOTION.PANEL_OUT)}
               >
-                <Text style={fs.orientLabel}>Portrait</Text>
-              </Pressable>
-              <Pressable
-                style={fs.orientRow}
-                onPress={() => {
-                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-                  setShowOrientPicker(false);
-                }}
+                <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowOrientPicker(false)} />
+              </Animated.View>
+              <Animated.View
+                style={fs.orientPanel}
+                entering={ZoomIn.duration(MOTION.PANEL_IN).springify().damping(16)}
+                exiting={FadeOut.duration(MOTION.PANEL_OUT)}
+                pointerEvents="box-none"
               >
-                <Text style={fs.orientLabel}>Landscape</Text>
-              </Pressable>
-              <Pressable
-                style={fs.orientRow}
-                onPress={() => {
-                  ScreenOrientation.unlockAsync().catch(() => {});
-                  setShowOrientPicker(false);
-                }}
-              >
-                <Text style={fs.orientLabel}>Auto Rotate</Text>
-              </Pressable>
-            </View>
+                <Text style={fs.orientTitle}>Orientation</Text>
+                <Pressable
+                  style={fs.orientRow}
+                  onPress={() => {
+                    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+                    setShowOrientPicker(false);
+                  }}
+                >
+                  <Text style={fs.orientLabel}>Portrait</Text>
+                </Pressable>
+                <Pressable
+                  style={fs.orientRow}
+                  onPress={() => {
+                    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+                    setShowOrientPicker(false);
+                  }}
+                >
+                  <Text style={fs.orientLabel}>Landscape</Text>
+                </Pressable>
+                <Pressable
+                  style={fs.orientRow}
+                  onPress={() => {
+                    ScreenOrientation.unlockAsync().catch(() => {});
+                    setShowOrientPicker(false);
+                  }}
+                >
+                  <Text style={fs.orientLabel}>Auto Rotate</Text>
+                </Pressable>
+              </Animated.View>
+            </>
           ) : null}
 
           {/* Centre play / pause / restart */}
           <View style={styles.iconWrap} pointerEvents="box-none">
-            <Pressable
+            <PressScale
               style={styles.iconCircle}
               onPress={onTogglePlay}
               hitSlop={16}
               accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
             >
-              {videoEnded
-                ? <ArrowCounterClockwise size={26} color="#fff" weight="bold" />
-                : isPlaying
-                  ? <Pause size={26} color="#fff" weight="fill" />
-                  : <Play  size={26} color="#fff" weight="fill" />}
-            </Pressable>
+              {videoEnded ? (
+                <Animated.View key="fs-replay" entering={ZoomIn.duration(220).springify().damping(14)}>
+                  <ArrowCounterClockwise size={24} color="#fff" weight="bold" />
+                </Animated.View>
+              ) : isPlaying ? (
+                <Pause size={24} color="#fff" weight="fill" />
+              ) : (
+                <Play size={24} color="#fff" weight="fill" />
+              )}
+            </PressScale>
           </View>
 
           {/* Bottom bar */}
@@ -1328,7 +1363,7 @@ const fs = StyleSheet.create({
     zIndex: 12,
   },
   closeBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center', justifyContent: 'center',
   },
@@ -1365,55 +1400,6 @@ const fs = StyleSheet.create({
     color: '#fff',
     fontFamily: T.FONT.medium,
     fontSize: 14,
-  },
-});
-
-// ─── FlyingHeart component ─────────────────────────────────────────────────────
-
-function FlyingHeart({ x, y }: { x: number; y: number }) {
-  const opacity    = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const scale      = useSharedValue(0.3);
-
-  useEffect(() => {
-    // Pop in with spring, then float up while fading
-    scale.value   = withSpring(1.15, { damping: 6, stiffness: 220 });
-    opacity.value = withSequence(
-      withTiming(1,    { duration: 160, easing: Easing.out(Easing.ease) }),
-      withTiming(0.95, { duration: 500 }),
-      withTiming(0,    { duration: 380, easing: Easing.in(Easing.ease) }),
-    );
-    translateY.value = withTiming(-110, {
-      duration: 1050,
-      easing: Easing.out(Easing.quad),
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const style = useAnimatedStyle(() => ({
-    opacity:   opacity.value,
-    transform: [{ translateY: translateY.value }, { scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View
-      style={[heartS.wrap, { left: x - 18, top: y - 18 }, style]}
-      pointerEvents="none"
-    >
-      <Text style={heartS.icon}>♥</Text>
-    </Animated.View>
-  );
-}
-
-const heartS = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    zIndex: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  icon: {
-    fontSize: 36,
-    color: '#FF4D6D',
   },
 });
 
@@ -1462,6 +1448,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.28)',
   },
 
+  // Brightness ramp overlay — sits above the video, fades from dim to clear.
+  brightnessOverlay: {
+    backgroundColor: '#000',
+    zIndex: 3,
+  },
+
   // Icon
   iconWrap: {
     ...StyleSheet.absoluteFillObject,
@@ -1472,7 +1464,7 @@ const styles = StyleSheet.create({
     zIndex: 12,
   },
   iconCircle: {
-    width: 56, height: 56, borderRadius: 28,
+    width: 52, height: 52, borderRadius: 26,
     backgroundColor: 'rgba(0,0,0,0.38)',
     alignItems: 'center', justifyContent: 'center',
   },
@@ -1493,7 +1485,7 @@ const styles = StyleSheet.create({
     zIndex: 12,
   },
   fillCloseBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center', justifyContent: 'center',
   },

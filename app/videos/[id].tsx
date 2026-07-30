@@ -138,8 +138,15 @@ export default function VideoWatchScreen() {
     if (!catalog) return [];
     const previews  = catalog.previews  ?? [];
     const creators  = catalog.creators  ?? [];
+    const seenIds = new Set<string>();
     return previews
-      .filter((p) => p.id !== id && (p.kind === 'video' || p.kind === 'audio'))
+      .filter((p) => {
+        if (p.id === id) return false;
+        if (p.kind !== 'video' && p.kind !== 'audio') return false;
+        if (seenIds.has(p.id)) return false; // guard against duplicate entries rendering the creator row twice
+        seenIds.add(p.id);
+        return true;
+      })
       .slice(0, 10)
       .flatMap((p) => {
         const creator = creators.find((c) => c.id === p.creatorId);
@@ -367,6 +374,7 @@ export default function VideoWatchScreen() {
               <View key={video.id} style={styles.relatedCard}>
                 <MsFeedVideoCard
                   card={video}
+                  compact
                   onPress={() => router.push(`/videos/${video.id}`)}
                   onCreatorPress={() => router.push(`/creator/${video.creatorId}`)}
                   onUnlockPress={() => router.push(`/videos/${video.id}`)}
@@ -565,16 +573,16 @@ const styles = StyleSheet.create({
 
   // ── Related videos ────────────────────────────────────────────────────────────
   relatedSection: {
-    marginTop: 28,
+    marginTop: 24,
     paddingHorizontal: 14,
   },
   relatedTitle: {
     color: T.TEXT,
     fontFamily: T.FONT.bold,
     fontSize: 17,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   relatedCard: {
-    marginBottom: 16,
+    marginBottom: 8,
   },
 });

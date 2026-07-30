@@ -29,11 +29,9 @@ export function MsAvatar({
           { width: size, height: size, borderRadius: radius },
         ]}
       >
-        {/* Initials always rendered underneath — visible while image loads */}
-        <Text style={[styles.initials, { fontSize }]}>
-          {(initials || 'U').toUpperCase().slice(0, 2)}
-        </Text>
-
+        {/* Initials render only when there is no image source — the loader's own
+            `fallback` covers the loading/error states, so we never stack two
+            copies of the initials/name on top of each other. */}
         {imageUri ? (
           <MsMediaLoader
             uri={imageUri}
@@ -46,7 +44,11 @@ export function MsAvatar({
               </Text>
             }
           />
-        ) : null}
+        ) : (
+          <Text style={[styles.initials, { fontSize }]}>
+            {(initials || 'U').toUpperCase().slice(0, 2)}
+          </Text>
+        )}
       </View>
 
       {showOnline && (

@@ -75,6 +75,12 @@ interface MsFeedVideoCardProps {
    * Defaults to true.
    */
   videoPreviewActive?: boolean;
+  /**
+   * Denser presentation for lists that show many cards at once (e.g. Related
+   * Videos). Shrinks avatar, spacing and type scale without changing the
+   * media aspect ratio.
+   */
+  compact?: boolean;
 }
 
 // ─── Scale-press wrapper (matches MsPostCard) ─────────────────────────────────
@@ -130,6 +136,7 @@ export function MsFeedVideoCard({
   onLongPress,
   style,
   videoPreviewActive = true,
+  compact = false,
 }: MsFeedVideoCardProps) {
   // Prefer natural dimensions; fall back to 16:9 (standard video)
   const aspectRatio =
@@ -141,7 +148,7 @@ export function MsFeedVideoCard({
     <ScalePressable
       onPress={onPress}
       onLongPress={onLongPress}
-      style={[styles.card, style]}
+      style={[styles.card, compact && styles.cardCompact, style]}
     >
       {/* ── Media area — identical to MsPostCard video block ── */}
       <View style={styles.mediaWrap}>
@@ -166,7 +173,7 @@ export function MsFeedVideoCard({
 
         {/* Duration badge — bottom-right overlay */}
         {card.duration ? (
-          <View style={styles.durationBadge} pointerEvents="none">
+          <View style={[styles.durationBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
             <Clock size={10} color="#fff" />
             <Text style={styles.durationText}>{card.duration}</Text>
           </View>
@@ -174,14 +181,14 @@ export function MsFeedVideoCard({
 
         {/* Premium badge — top-right */}
         {card.isPremium ? (
-          <View style={styles.premiumBadge} pointerEvents="none">
+          <View style={[styles.premiumBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
             <Text style={styles.premiumText}>PREMIUM</Text>
           </View>
         ) : null}
       </View>
 
       {/* ── Info row (matches MsPostCard author row style) ── */}
-      <View style={styles.infoRow}>
+      <View style={[styles.infoRow, compact && styles.infoRowCompact]}>
         <TouchableOpacity
           onPress={onCreatorPress ?? onPress}
           style={styles.creatorLeft}
@@ -189,21 +196,21 @@ export function MsFeedVideoCard({
           hitSlop={6}
         >
           <MsAvatar
-            size={34}
+            size={compact ? 24 : 34}
             initials={card.creatorInitials}
             imageUri={card.creatorAvatarUrl ?? undefined}
             showOnline={card.creatorIsOnline}
           />
           <View style={styles.creatorCopy}>
             <View style={styles.nameRow}>
-              <Text style={styles.creatorName} numberOfLines={1}>
+              <Text style={[styles.creatorName, compact && styles.creatorNameCompact]} numberOfLines={1}>
                 {card.creatorName}
               </Text>
               {card.creatorIsVerified && (
-                <SealCheck size={13} color={T.TEXT} weight="fill" />
+                <SealCheck size={compact ? 11 : 13} color={T.TEXT} weight="fill" />
               )}
             </View>
-            {card.creatorHandle ? (
+            {card.creatorHandle && !compact ? (
               <Text style={styles.creatorHandle} numberOfLines={1}>
                 @{card.creatorHandle}
               </Text>
@@ -215,13 +222,13 @@ export function MsFeedVideoCard({
         <View style={styles.stats}>
           {card.likes ? (
             <View style={styles.statItem}>
-              <Heart size={12} color={T.TEXT_3} />
+              <Heart size={11} color={T.TEXT_3} />
               <Text style={styles.statText}>{formatStats(card.likes)}</Text>
             </View>
           ) : null}
           {card.comments ? (
             <View style={styles.statItem}>
-              <ChatCircle size={12} color={T.TEXT_3} />
+              <ChatCircle size={11} color={T.TEXT_3} />
               <Text style={styles.statText}>{formatStats(card.comments)}</Text>
             </View>
           ) : null}
@@ -229,7 +236,7 @@ export function MsFeedVideoCard({
       </View>
 
       {/* Title */}
-      {card.title ? (
+      {card.title && !compact ? (
         <Text style={styles.title} numberOfLines={2}>
           {card.title}
         </Text>
@@ -246,6 +253,10 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.xl,
     overflow: 'hidden',
     ...T.SHADOWS.medium,
+  },
+  cardCompact: {
+    borderRadius: T.RADIUS.lg,
+    ...T.SHADOWS.soft,
   },
 
   mediaWrap: {
@@ -276,6 +287,12 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.semibold,
     fontSize: 11,
   },
+  durationBadgeCompact: {
+    bottom: 6,
+    right: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
 
   // Premium badge top-right
   premiumBadge: {
@@ -303,6 +320,12 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     gap: 10,
   },
+  infoRowCompact: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 6,
+  },
   creatorLeft: {
     flex: 1,
     flexDirection: 'row',
@@ -316,6 +339,9 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.semibold,
     fontSize: 13,
     flexShrink: 1,
+  },
+  creatorNameCompact: {
+    fontSize: 12,
   },
   creatorHandle: {
     color: T.TEXT_2,
