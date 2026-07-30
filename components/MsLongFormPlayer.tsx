@@ -1,9 +1,11 @@
 /**
  * MsLongFormPlayer — long-form video using Expo's native controls.
  *
- * Native play/pause, seek, volume and fullscreen are handled by the OS.
- * This component manages: aspect-ratio sizing, poster thumbnail, error
- * recovery, and the premium paywall gate.
+ * Buffering contract:
+ *   Until the video plays for the first time (hasPlayed ref), a full-screen
+ *   overlay blocks all interaction (including native controls) and shows a
+ *   spinner + "Buffering" label. Once isPlaying flips true once, the overlay
+ *   is removed permanently for the lifetime of this source.
  *
  * Modes:
  *   fillContainer — fills parent (flex:1); used on full-screen detail screens.
@@ -11,6 +13,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -51,27 +54,41 @@ export function MsLongFormPlayer({
   initialAspectRatio,
   fillContainer = false,
 }: Props) {
-  const ref  = useRef<Video>(null);
+  const ref             = useRef<Video>(null);
   const premiumFired    = useRef(false);
   const premiumGatedRef = useRef(false);
+  /** Once true, the buffering overlay is never shown again for this source. */
+  const hasPlayed       = useRef(false);
 
   const [error,        setError]        = useState(false);
   const [premiumGated, setPremiumGated] = useState(false);
   const [aspectRatio,  setAspectRatio]  = useState(initialAspectRatio ?? 16 / 9);
+  const [isBuffering,  setIsBuffering]  = useState(true);
 
   // Reset when the video source changes.
   useEffect(() => {
     premiumFired.current    = false;
     premiumGatedRef.current = false;
+    hasPlayed.current       = false;
     setPremiumGated(false);
     setError(false);
+    setIsBuffering(true);
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri, initialAspectRatio]);
 
-  // Track position for premium gate; re-enforce while gated.
   const onStatus = useCallback(
     (status: AVPlaybackStatus) => {
       if (!status.isLoaded) return;
+
+      const playing = status.isPlaying ?? false;
+
+      // Once played, clear buffering overlay permanently for this source
+      if (playing && !hasPlayed.current) {
+        hasPlayed.current = true;
+        setIsBuffering(false);
+      } else if (!hasPlayed.current) {
+        setIsBuffering(status.isBuffering ?? true);
+      }
 
       if (isPremium && !premiumFired.current && status.positionMillis >= 3000) {
         premiumFired.current    = true;
@@ -81,8 +98,6 @@ export function MsLongFormPlayer({
         onPremiumRequired?.();
         return;
       }
-
-      // Re-enforce: native controls must not resume gated content.
       if (premiumGatedRef.current && status.isPlaying) {
         ref.current?.pauseAsync().catch(() => {});
       }
@@ -141,8 +156,10 @@ export function MsLongFormPlayer({
             <Pressable
               onPress={() => {
                 setError(false);
+                hasPlayed.current = false;
                 premiumFired.current = false;
                 setPremiumGated(false);
+                setIsBuffering(true);
               }}
               style={styles.retryBtn}
               accessibilityLabel="Retry loading video"
@@ -151,6 +168,14 @@ export function MsLongFormPlayer({
               <Text style={styles.retryText}>Try again</Text>
             </Pressable>
           ) : null}
+        </View>
+      ) : null}
+
+      {/* Buffering overlay — blocks native controls until first play */}
+      {isBuffering && !error ? (
+        <View style={styles.bufferOverlay} pointerEvents="box-only">
+          <ActivityIndicator size="large" color="rgba(255,255,255,0.9)" />
+          <Text style={styles.bufferText}>Buffering…</Text>
         </View>
       ) : null}
 
@@ -202,6 +227,21 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   retryText: { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 },
+
+  bufferOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    zIndex: 5,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  bufferText: {
+    color: 'rgba(255,255,255,0.82)',
+    fontFamily: T.FONT.medium,
+    fontSize: 13,
+    letterSpacing: 0.2,
+  },
 
   premiumOverlay: {
     ...StyleSheet.absoluteFillObject,
