@@ -859,8 +859,8 @@ export function MsVideoPlayer({
       {/* ── Brightness ramp — video "wakes up" from a dim exposure on first play ── */}
       <Animated.View style={[StyleSheet.absoluteFill, styles.brightnessOverlay, brightnessStyle]} pointerEvents="none" />
 
-      {/* ── Gesture layer ── */}
-      {!isBuffering && !premiumGated ? (
+      {/* ── Gesture layer — always active once loaded, independent of buffering ── */}
+      {!premiumGated ? (
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={(e) => {
@@ -875,7 +875,7 @@ export function MsVideoPlayer({
       ) : null}
 
       {/* ── Shorts: tappable centre play/pause button ── */}
-      {isShorts && !isBuffering && !premiumGated ? (
+      {isShorts && !premiumGated ? (
         <Animated.View style={[styles.iconWrap, styles.shortsIconLayer, shortsIconStyle]} pointerEvents="box-none">
           <PressScale
             style={styles.iconCircle}
@@ -1165,6 +1165,17 @@ function FullscreenModal({
   const { bottom: safeBottom } = useSafeAreaInsets();
   const { width: fsWindowWidth } = useWindowDimensions();
   const [showOrientPicker, setShowOrientPicker] = useState(false);
+  const orientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Auto-dismiss orientation picker after 5 s so the user has time to choose
+  useEffect(() => {
+    if (showOrientPicker) {
+      if (orientTimerRef.current) clearTimeout(orientTimerRef.current);
+      orientTimerRef.current = setTimeout(() => setShowOrientPicker(false), 5000);
+    } else {
+      if (orientTimerRef.current) { clearTimeout(orientTimerRef.current); orientTimerRef.current = null; }
+    }
+    return () => { if (orientTimerRef.current) clearTimeout(orientTimerRef.current); };
+  }, [showOrientPicker]);
 
   // Buffering overlay opacity inside fullscreen
   const fsBufOpacity = useSharedValue(1);

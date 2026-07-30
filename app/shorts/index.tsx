@@ -256,15 +256,16 @@ function ShortPage({
     setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
 
     if (next) {
-      // Bounce + hearts
+      // Bounce + hearts — scale kept modest (1.18) so icon doesn't feel oversized
       likeScale.value = withSequence(
-        withSpring(1.4, { damping: 5, stiffness: 340 }),
-        withSpring(1.0, { damping: 10, stiffness: 220 }),
+        withSpring(1.18, { damping: 5, stiffness: 340 }),
+        withSpring(1.0,  { damping: 10, stiffness: 220 }),
       );
-      likeBtnRef.current?.measure((_x, _y, _w, _h, px, py) => {
-        spawnHeart(px + 22, py);
-        spawnHeart(px + 36, py - 12);
-      });
+      // Hearts rise from the horizontal centre of the screen
+      const cx = SCREEN_WIDTH / 2;
+      const cy = SCREEN_HEIGHT * 0.45;
+      spawnHeart(cx - 10, cy);
+      spawnHeart(cx + 10, cy - 14);
     } else {
       likeScale.value = withSequence(
         withTiming(0.82, { duration: MOTION.PRESS_DOWN, easing: MOTION.EASE_EXIT }),
@@ -333,7 +334,7 @@ function ShortPage({
         <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
           <PressScale style={styles.actionCircleWrap} onPress={toggleLike} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
             <Animated.View style={[styles.actionCircle, liked && styles.actionCircleActive, likeStyle]}>
-              <Heart size={23} color="#fff" weight={liked ? 'fill' : 'regular'} />
+              <Heart size={19} color="#fff" weight={liked ? 'fill' : 'regular'} />
             </Animated.View>
           </PressScale>
           <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
@@ -342,7 +343,7 @@ function ShortPage({
         {/* Comment */}
         <PressScale style={styles.actionButton} onPress={onComment} accessibilityLabel="Comment">
           <View style={styles.actionCircle}>
-            <ChatCircle size={23} color="#fff" />
+            <ChatCircle size={19} color="#fff" />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.commentCount)}</Text>
         </PressScale>
@@ -350,7 +351,7 @@ function ShortPage({
         {/* Share */}
         <PressScale style={styles.actionButton} onPress={onShare} accessibilityLabel="Share">
           <View style={styles.actionCircle}>
-            <ShareNetwork size={23} color="#fff" />
+            <ShareNetwork size={19} color="#fff" />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.shareCount)}</Text>
         </PressScale>

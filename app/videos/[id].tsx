@@ -325,7 +325,7 @@ export default function VideoWatchScreen() {
           <ActionBtn onPress={toggleLike} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
             <Animated.View style={[styles.actionBtnInner, likeStyle]}>
               <Heart
-                size={20}
+                size={17}
                 color={liked ? '#EF4444' : T.TEXT_2}
                 weight={liked ? 'fill' : 'regular'}
               />
@@ -340,7 +340,7 @@ export default function VideoWatchScreen() {
             accessibilityLabel="Comments"
           >
             <View style={styles.actionBtnInner}>
-              <ChatCircle size={20} color={T.TEXT_2} />
+              <ChatCircle size={17} color={T.TEXT_2} />
               <Text style={styles.actionLabel}>
                 {post.commentCount > 0 ? formatCount(post.commentCount) : 'Comment'}
               </Text>
@@ -353,7 +353,7 @@ export default function VideoWatchScreen() {
           >
             <View style={styles.actionBtnInner}>
               <Bookmark
-                size={20}
+                size={17}
                 color={bookmarked ? T.TEXT : T.TEXT_2}
                 weight={bookmarked ? 'fill' : 'regular'}
               />
@@ -368,7 +368,7 @@ export default function VideoWatchScreen() {
             accessibilityLabel="Share"
           >
             <View style={styles.actionBtnInner}>
-              <ShareNetwork size={20} color={T.TEXT_2} />
+              <ShareNetwork size={17} color={T.TEXT_2} />
               <Text style={styles.actionLabel}>Share</Text>
             </View>
           </ActionBtn>
