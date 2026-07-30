@@ -1,16 +1,11 @@
 /**
  * MsShortsPlayer — immersive short-form video player.
  *
- * No native controls bar. Custom tap-to-play/pause overlay with smooth fade
- * animations. Slim accent-colour progress bar at the bottom edge.
- *
- * Playback contract:
- *   shouldPlay={active && !premiumGated}  ← scroll-driven auto-play/pause
- *   imperativeplay/pauseAsync              ← user-tap driven
- * These are compatible because React Native only sends a prop update to the
- * native layer when the value changes; imperative calls mid-play do not
- * conflict as long as we do NOT also imperatively call play/pause from
- * effects that fire in response to the same state change as shouldPlay.
+ * Icon contract (simple, always in sync):
+ *   isPlaying=true  → Pause icon, dim opacity (tap to pause)
+ *   isPlaying=false → Play  icon, clear opacity (tap to resume)
+ *   Both are driven directly from the native status callback — no deferred
+ *   swaps, no isTapping guards, no iconKind state.
  *
  * Premium gate: pause at 3 s, fire onPremiumRequired, block any resumption.
  */
@@ -20,7 +15,6 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
@@ -58,61 +52,57 @@ export function MsShortsPlayer({
   onPremiumRequired,
   onError,
 }: Props) {
+  // Use the measured container height — never the raw SCREEN_HEIGHT which
+  // includes the tab bar and causes the dark gap at the bottom.
   const ph = pageHeight ?? SCREEN_HEIGHT;
 
-  const videoRef       = useRef<Video>(null);
-  const startedAt      = useRef<number | null>(null);
-  const premiumFired   = useRef(false);
+  const videoRef        = useRef<Video>(null);
+  const startedAt       = useRef<number | null>(null);
+  const premiumFired    = useRef(false);
   const premiumGatedRef = useRef(false);
   /**
-   * True during and briefly after a user tap so the isPlaying effect does not
-   * overwrite the tap animation while it is still running.
-   */
-  const isTapping = useRef(false);
-  /**
-   * Ref mirror of isPlaying state.
-   * handleTap reads this instead of the state value to avoid stale-closure
-   * bugs — the useCallback would otherwise capture an old isPlaying snapshot
-   * when the native player's status update and the user's tap race each other.
+   * Ref mirror of isPlaying — handleTap reads this to avoid stale closures.
+   * Updated in onPlaybackStatusUpdate alongside setIsPlaying.
    */
   const isPlayingRef = useRef(false);
 
   const [premiumGated, setPremiumGated] = useState(false);
   const [isPlaying,    setIsPlaying]    = useState(false);
   const [progress,     setProgress]     = useState(0);
-  /**
-   * Which icon to render inside the circle.
-   * 'play' = persistent paused indicator OR "you just hit play" flash.
-   * 'pause' = "you just hit pause" flash (switches back to 'play' as icon fades).
-   */
-  const [iconKind, setIconKind] = useState<'play' | 'pause'>('play');
 
-  // Drives the centre-icon circle opacity (0 = hidden, 0.8 = resting-paused, 1 = flash)
+  // ── Animated values ────────────────────────────────────────────────────────
+  // iconOpacity: fades between dim (playing) and bright (paused)
+  // iconScale:   brief scale-up pulse on tap for tactile feedback
   const iconOpacity = useSharedValue(0);
-  const iconStyle   = useAnimatedStyle(() => ({ opacity: iconOpacity.value }));
+  const iconScale   = useSharedValue(1);
+  const iconStyle   = useAnimatedStyle(() => ({
+    opacity:   iconOpacity.value,
+    transform: [{ scale: iconScale.value }],
+  }));
 
   // ── Reset when item changes ────────────────────────────────────────────────
   useEffect(() => {
     premiumFired.current    = false;
     premiumGatedRef.current = false;
-    isTapping.current       = false;
+    isPlayingRef.current    = false;
     setPremiumGated(false);
     setProgress(0);
     setIsPlaying(false);
-    setIconKind('play');
     iconOpacity.value = 0;
+    iconScale.value   = 1;
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Sync icon with play-state changes driven by shouldPlay (scroll) ────────
+  // ── Sync icon directly with actual playback state ─────────────────────────
+  // No isTapping guards, no iconKind swaps — opacity is always driven by
+  // isPlaying so the icon can never drift out of sync with reality.
   useEffect(() => {
-    if (isTapping.current) return; // tap animation owns the opacity right now
     if (!active) {
-      // Off-screen Short: hide icon immediately
-      iconOpacity.value = 0;
+      iconOpacity.value = withTiming(0, { duration: 200 });
       return;
     }
-    iconOpacity.value = withTiming(isPlaying ? 0 : 0.8, {
-      duration: 280,
+    // Playing → dim pause icon; Paused → bright play icon
+    iconOpacity.value = withTiming(isPlaying ? 0.35 : 0.85, {
+      duration: 250,
       easing: Easing.inOut(Easing.ease),
     });
   }, [isPlaying, active]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -139,34 +129,16 @@ export function MsShortsPlayer({
   const handleTap = useCallback(() => {
     if (premiumGatedRef.current) return;
 
-    // Read from the ref — always reflects the latest native playback state,
-    // never a stale closure snapshot.
-    const wasPlaying  = isPlayingRef.current;
-    const targetBase  = wasPlaying ? 0.8 : 0; // settled opacity after action
+    // Scale pulse — tactile feedback independent of icon state
+    iconScale.value = withSequence(
+      withTiming(1.18, { duration: 80,  easing: Easing.out(Easing.ease) }),
+      withTiming(1.0,  { duration: 180, easing: Easing.in(Easing.ease) }),
+    );
 
-    isTapping.current = true;
-    setTimeout(() => { isTapping.current = false; }, 800);
-
-    if (wasPlaying) {
-      // ── Pausing ────────────────────────────────────────────────────────────
-      // Show Pause icon briefly, then switch to Play icon at resting opacity.
-      setIconKind('pause');
-      iconOpacity.value = withSequence(
-        withTiming(1.0, { duration: 90,  easing: Easing.out(Easing.ease) }),
-        withDelay(280, withTiming(targetBase, { duration: 320, easing: Easing.in(Easing.ease) })),
-      );
-      // Switch to Play icon while the opacity is settling so the resting state
-      // shows the correct "tap to resume" affordance.
-      setTimeout(() => setIconKind('play'), 360);
+    // Read from ref — always the latest native state, never a stale closure
+    if (isPlayingRef.current) {
       videoRef.current?.pauseAsync().catch(() => {});
     } else {
-      // ── Playing ────────────────────────────────────────────────────────────
-      // Show Play icon briefly then fade to hidden.
-      setIconKind('play');
-      iconOpacity.value = withSequence(
-        withTiming(1.0, { duration: 90,  easing: Easing.out(Easing.ease) }),
-        withDelay(280, withTiming(targetBase, { duration: 320, easing: Easing.in(Easing.ease) })),
-      );
       videoRef.current?.playAsync().catch(() => {});
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -195,7 +167,7 @@ export function MsShortsPlayer({
         return;
       }
 
-      // Re-enforce gate: native resumption attempted while gated
+      // Re-enforce gate if native resumed while gated
       if (premiumGatedRef.current && status.isPlaying) {
         videoRef.current?.pauseAsync().catch(() => {});
       }
@@ -205,7 +177,9 @@ export function MsShortsPlayer({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <View style={styles.root}>
+    // Use ph (measured container height) — not SCREEN_HEIGHT — to eliminate
+    // the dark gap caused by the tab bar eating into available space.
+    <View style={[styles.root, { height: ph }]}>
       {/* Poster thumbnail — behind video */}
       {item.thumbnailUrl ? (
         <MsMediaLoader
@@ -216,7 +190,7 @@ export function MsShortsPlayer({
         />
       ) : null}
 
-      {/* Video — no native controls, no dark system bar */}
+      {/* Video */}
       {item.videoUrl ? (
         <Video
           ref={videoRef}
@@ -231,7 +205,7 @@ export function MsShortsPlayer({
         />
       ) : null}
 
-      {/* Full-area tap target — sits behind the centre icon */}
+      {/* Full-area tap target */}
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={handleTap}
@@ -239,17 +213,17 @@ export function MsShortsPlayer({
         accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
       />
 
-      {/* Centre play/pause icon — fades in/out on tap and state change */}
+      {/* Centre play/pause icon — always correct, driven by isPlaying */}
       <Animated.View style={[styles.iconWrap, iconStyle]} pointerEvents="none">
         <View style={styles.iconCircle}>
-          {iconKind === 'pause'
+          {isPlaying
             ? <Pause size={22} color="#fff" weight="fill" />
             : <Play  size={22} color="#fff" weight="fill" />
           }
         </View>
       </Animated.View>
 
-      {/* Slim progress bar — bottom edge, no dark track, accent fill */}
+      {/* Slim progress bar */}
       <View style={styles.progressTrack} pointerEvents="none">
         <View style={[styles.progressFill, { width: SCREEN_WIDTH * progress }]} />
       </View>
@@ -262,11 +236,10 @@ export function MsShortsPlayer({
 const styles = StyleSheet.create({
   root: {
     width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
+    // height is applied via inline style using ph (measured container height)
     backgroundColor: '#050506',
   },
 
-  // Centre icon
   iconWrap: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -282,7 +255,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Progress bar — 3 px, no background slab behind it
   progressTrack: {
     position: 'absolute',
     left: 0,
