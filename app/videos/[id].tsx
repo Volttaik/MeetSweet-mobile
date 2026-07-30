@@ -8,7 +8,7 @@
  * The native Expo player handles play/pause, seek, volume and fullscreen.
  * No custom gesture interception or overlay controls.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -19,7 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
@@ -65,6 +65,27 @@ export default function VideoWatchScreen() {
   const [commentsVisible,     setCommentsVisible]     = useState(false);
   const [shareVisible,        setShareVisible]        = useState(false);
   const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
+
+  // ── Screen focus — pause playback when navigating away ───────────────────
+  // Using a ref avoids triggering a re-render of the whole screen on blur/focus,
+  // which would cause the player to flicker. The player reads `active` as a prop
+  // and handles pause/unpause purely in its own effect.
+  const screenActiveRef = useRef(true);
+  const [screenActive,  setScreenActive] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Screen is now focused — mark active (but do NOT auto-resume; user chooses).
+      screenActiveRef.current = true;
+      setScreenActive(true);
+      return () => {
+        // Screen lost focus (back gesture, tab switch, push navigation, etc.).
+        // Immediately pause to prevent background audio.
+        screenActiveRef.current = false;
+        setScreenActive(false);
+      };
+    }, []),
+  );
 
   const catalogQuery = useLocalExploreCatalog();
   const catalog      = catalogQuery.data;
@@ -211,6 +232,7 @@ export default function VideoWatchScreen() {
           posterUri={post.thumbnailUrl}
           isPremium={post.isPremium}
           autoPlay
+          active={screenActive}
           initialAspectRatio={
             post.width && post.height ? post.width / post.height : 16 / 9
           }

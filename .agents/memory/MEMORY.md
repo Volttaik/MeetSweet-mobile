@@ -30,3 +30,4 @@
 - [Video watch page](video-watch-page.md) — /videos/[id] is YouTube-style scroll (player+metadata+related), not fullscreen; video posts in feed have no double-tap; MsFeedVideoCard is the only video card; ExploreVideoCard+MsVideoCard deleted.
 - [Video player architecture](video-player-architecture.md) — full audit: MsLongFormPlayer clean/native-only; MsShortsPlayer immersive; MsPostCard video now has onPlayPress routing to watch page; expo-av deprecated (migration deferred).
 - [Shared video player migration complete](shared-video-player-migration.md) — all surfaces use MsVideoPlayer; fillContainer+onClose props added; chat bubble uses MsVideoThumbnail; no raw expo-av Video outside MsVideoPlayer/MsVideoThumbnail.
+- [Video lifecycle & fullscreen](video-lifecycle-fullscreen.md) — background playback fix (useFocusEffect+active prop); true fullscreen (absoluteFill root, dual StatusBar hide); free orientation via unlockAsync.

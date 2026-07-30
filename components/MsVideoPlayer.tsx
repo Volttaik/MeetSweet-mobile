@@ -91,7 +91,15 @@ export interface MsVideoPlayerProps {
   /** Shorts: sets the exact page height. Defaults to screen height. */
   pageHeight?: number;
   // ── Shorts lifecycle ────────────────────────────────────────────────────────
-  /** Shorts: drives play/pause — plays when true, pauses when false. */
+  /**
+   * Lifecycle gate.
+   *
+   * Shorts  — plays when true, pauses when false (existing behaviour).
+   * Standard — pauses immediately when false (e.g. screen loses focus).
+   *            Does NOT auto-play when restored to true; the user must press
+   *            Play.  Pass `active={screenFocused}` from the host screen to
+   *            prevent background audio/video.
+   */
   active?: boolean;
   /** Shorts: called with seconds watched when the item goes inactive. */
   onViewProgress?: (seconds: number) => void;
@@ -232,6 +240,19 @@ export function MsVideoPlayer({
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Standard: pause when screen loses focus (active=false) ───────────────
+  useEffect(() => {
+    if (isShorts) return;
+    if (active === false) {
+      // Pause both the inline and any open fullscreen player immediately.
+      videoRef.current?.pauseAsync().catch(() => {});
+      fsVideoRef.current?.pauseAsync().catch(() => {});
+      // Keep controls visible so the user can see the state when they return.
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      ctrlOpacity.value = withTiming(1, { duration: 180 });
+    }
+  }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Shorts: respond to active prop ────────────────────────────────────────
   useEffect(() => {
     if (!isShorts) return;
@@ -273,6 +294,24 @@ export function MsVideoPlayer({
     const t = setTimeout(() => videoRef.current?.playAsync().catch(() => {}), 100);
     return () => clearTimeout(t);
   }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Unmount cleanup — stop all playback and release timers ────────────────
+  useEffect(() => {
+    return () => {
+      // Pause both players immediately so no audio leaks after navigation.
+      videoRef.current?.pauseAsync().catch(() => {});
+      fsVideoRef.current?.pauseAsync().catch(() => {});
+      // Clear every pending timer so callbacks never fire after unmount.
+      if (hideTimerRef.current)   clearTimeout(hideTimerRef.current);
+      if (tapTimerRef.current)    clearTimeout(tapTimerRef.current);
+      if (fsHideTimerRef.current) clearTimeout(fsHideTimerRef.current);
+      if (fsTapTimerRef.current)  clearTimeout(fsTapTimerRef.current);
+      // Restore the app orientation in case fullscreen was open during unmount.
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT_UP,
+      ).catch(() => {});
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Controls auto-hide helpers ────────────────────────────────────────────
   const scheduleHide = useCallback((opacity: Animated.SharedValue<number>, timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>) => {
@@ -582,10 +621,9 @@ export function MsVideoPlayer({
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     setFsVisible(true);
-    // Lock to landscape for immersive viewing
-    ScreenOrientation.lockAsync(
-      ScreenOrientation.OrientationLock.LANDSCAPE,
-    ).catch(() => {});
+    // Unlock orientation so the user can watch in portrait OR landscape
+    // by simply rotating their device — no forced lock.
+    ScreenOrientation.unlockAsync().catch(() => {});
   }, [progress, durationMs, positionMs]);
 
   const closeFullscreen = useCallback(() => {
@@ -953,18 +991,27 @@ function FullscreenModal({
   seekPanResponder,
   onSeekBarWidth,
 }: FullscreenModalProps) {
-  const insets = useSafeAreaInsets();
+  // Only used for bottom safe area (home indicator). Top is never needed because
+  // the status bar is hidden while fullscreen.
+  const { bottom: safeBottom } = useSafeAreaInsets();
 
-  // Seek and auto-play when modal opens
+  // Seek and auto-play when modal opens. The timeout gives the Video element
+  // one frame to mount before we issue commands.
   useEffect(() => {
     if (!visible) return;
+    // Hide status bar imperatively as well (belt-and-suspenders for Android).
+    StatusBar.setHidden(true, 'fade');
     const t = setTimeout(() => {
       if (startPositionMs > 0) {
         videoRef.current?.setPositionAsync(startPositionMs).catch(() => {});
       }
       videoRef.current?.playAsync().catch(() => {});
     }, 220);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      // Restore status bar when modal is dismissed.
+      StatusBar.setHidden(false, 'fade');
+    };
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -973,11 +1020,19 @@ function FullscreenModal({
       transparent={false}
       animationType="fade"
       statusBarTranslucent
+      hardwareAccelerated={Platform.OS === 'android'}
       onRequestClose={onClose}
       supportedOrientations={['portrait', 'landscape']}
     >
+      {/*
+        Use absolute-fill instead of flex:1 to guarantee edge-to-edge coverage
+        on every device / API level. flex:1 can leave a 1-px white border on
+        some Android skins when statusBarTranslucent interacts with insets.
+      */}
       <View style={fs.root}>
-        <StatusBar hidden />
+        {/* Declarative hide is the primary mechanism; the imperative call in the
+            effect above is a safety net for Android devices that ignore the prop. */}
+        <StatusBar hidden translucent backgroundColor="transparent" />
 
         {/* Poster */}
         {posterUri ? (
@@ -989,7 +1044,7 @@ function FullscreenModal({
           />
         ) : null}
 
-        {/* Video */}
+        {/* Video — single source of truth for position/state during fullscreen */}
         {uri ? (
           <Video
             ref={videoRef}
@@ -1010,26 +1065,24 @@ function FullscreenModal({
           </View>
         ) : null}
 
-        {/* Gesture */}
+        {/* Gesture layer */}
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={(e) => onPress(e.nativeEvent.locationX)}
           onPressIn={onPressIn}
         />
 
-        {/* Controls */}
+        {/* Controls overlay */}
         <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
-          {/* Top: close button */}
-          <View
-            style={[fs.topBar, { paddingTop: insets.top + (Platform.OS === 'android' ? 8 : 4) }]}
-            pointerEvents="box-none"
-          >
+
+          {/* Top bar — no inset needed: status bar is hidden */}
+          <View style={fs.topBar} pointerEvents="box-none">
             <Pressable style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
               <ArrowsIn size={19} color="rgba(255,255,255,0.9)" />
             </Pressable>
           </View>
 
-          {/* Centre play/pause button — intentional tap only changes playback */}
+          {/* Centre play/pause */}
           <View style={styles.iconWrap} pointerEvents="box-none">
             <Pressable
               style={styles.iconCircle}
@@ -1043,9 +1096,9 @@ function FullscreenModal({
             </Pressable>
           </View>
 
-          {/* Bottom bar */}
+          {/* Bottom bar — respect home-indicator height on iOS notch devices */}
           <View
-            style={[fs.bottomWrap, { paddingBottom: insets.bottom + 8 }]}
+            style={[fs.bottomWrap, { paddingBottom: Math.max(8, safeBottom) }]}
             pointerEvents="box-none"
           >
             <SeekBar
@@ -1064,9 +1117,29 @@ function FullscreenModal({
 }
 
 const fs = StyleSheet.create({
-  root:      { flex: 1, backgroundColor: '#000' },
-  topBar:    { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, zIndex: 12 },
-  closeBtn:  {
+  /**
+   * Absolute-fill root ensures edge-to-edge black coverage on every device.
+   * flex:1 alone can leave a 1px light border on certain Android builds when
+   * statusBarTranslucent is active, so we use explicit absolute positioning.
+   */
+  root: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: '#000',
+  },
+  /**
+   * Top bar — no safe-area padding because the status bar is hidden while
+   * fullscreen is open.  A small fixed offset keeps the close button visually
+   * away from the physical top edge on all devices.
+   */
+  topBar: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    paddingTop: Platform.OS === 'android' ? 20 : 14,
+    paddingHorizontal: 16,
+    zIndex: 12,
+  },
+  closeBtn: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center', justifyContent: 'center',

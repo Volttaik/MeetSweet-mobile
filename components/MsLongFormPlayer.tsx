@@ -24,6 +24,12 @@ interface Props {
    * aspect ratio. Use for full-screen video-detail screens.
    */
   fillContainer?: boolean;
+  /**
+   * When false, playback is immediately paused (e.g. screen loses focus).
+   * Returning to true does NOT auto-resume — the user must press Play.
+   * Pass `active={screenFocused}` via useFocusEffect to prevent background playback.
+   */
+  active?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -37,6 +43,7 @@ export function MsLongFormPlayer({
   onPremiumRequired,
   initialAspectRatio,
   fillContainer     = false,
+  active,
 }: Props) {
   return (
     <MsVideoPlayer
@@ -48,6 +55,7 @@ export function MsLongFormPlayer({
       onPremiumRequired={onPremiumRequired}
       initialAspectRatio={initialAspectRatio}
       fillContainer={fillContainer}
+      active={active}
       mode="standard"
     />
   );
