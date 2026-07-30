@@ -139,7 +139,9 @@ export function MsShortsPlayer({
   const handleTap = useCallback(() => {
     if (premiumGatedRef.current) return;
 
-    const wasPlaying  = isPlaying;
+    // Read from the ref — always reflects the latest native playback state,
+    // never a stale closure snapshot.
+    const wasPlaying  = isPlayingRef.current;
     const targetBase  = wasPlaying ? 0.8 : 0; // settled opacity after action
 
     isTapping.current = true;
@@ -167,14 +169,16 @@ export function MsShortsPlayer({
       );
       videoRef.current?.playAsync().catch(() => {});
     }
-  }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Playback status ────────────────────────────────────────────────────────
   const onPlaybackStatusUpdate = useCallback(
     (status: AVPlaybackStatus) => {
       if (!status.isLoaded) return;
 
-      setIsPlaying(status.isPlaying ?? false);
+      const playing = status.isPlaying ?? false;
+      isPlayingRef.current = playing;
+      setIsPlaying(playing);
 
       const dur = status.durationMillis ?? 0;
       if (dur > 0) {
@@ -239,8 +243,8 @@ export function MsShortsPlayer({
       <Animated.View style={[styles.iconWrap, iconStyle]} pointerEvents="none">
         <View style={styles.iconCircle}>
           {iconKind === 'pause'
-            ? <Pause size={30} color="#fff" weight="fill" />
-            : <Play  size={30} color="#fff" weight="fill" />
+            ? <Pause size={22} color="#fff" weight="fill" />
+            : <Play  size={22} color="#fff" weight="fill" />
           }
         </View>
       </Animated.View>
@@ -270,10 +274,10 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   iconCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(0,0,0,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
   },

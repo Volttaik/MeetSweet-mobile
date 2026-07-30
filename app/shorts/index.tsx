@@ -21,7 +21,7 @@ import { MsShortsPlayer } from '@/components/MsShortsPlayer';
 import { getShortsFeed, likeContent, trackShortView, type Short } from '@/services/content';
 import { T } from '@/constants/theme';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // ─── Premium paywall sheet (reuses the app's modal/sheet design language) ─────
 
@@ -96,6 +96,9 @@ export default function ShortsScreen() {
   const [error, setError]       = useState(false);
   const [commentsId, setCommentsId] = useState<string | null>(null);
   const [shareId, setShareId]   = useState<string | null>(null);
+  // Measured container height — avoids the tab-bar-overlap problem where
+  // SCREEN_HEIGHT > actual FlatList viewport causing the next Short to peek.
+  const [pageHeight, setPageHeight] = useState(0);
   const viewConfig = useRef({ itemVisiblePercentThreshold: 75 });
 
   const load = useCallback(async () => {
@@ -149,7 +152,11 @@ export default function ShortsScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    <View
+      style={styles.screen}
+      onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
+    >
+      {pageHeight > 0 && (
       <FlatList
         ref={listRef}
         data={shorts}
@@ -160,6 +167,7 @@ export default function ShortsScreen() {
             active={index === activeIndex}
             topInset={insets.top}
             bottomInset={insets.bottom}
+            pageHeight={pageHeight}
             onComment={() => setCommentsId(item.id)}
             onShare={() => setShareId(item.id)}
             onViewProgress={(seconds) => { if (seconds > 0) trackShortView(item.id, seconds).catch(() => {}); }}
@@ -167,12 +175,12 @@ export default function ShortsScreen() {
         )}
         pagingEnabled
         decelerationRate="fast"
-        snapToInterval={SCREEN_HEIGHT}
+        snapToInterval={pageHeight}
         snapToAlignment="start"
         showsVerticalScrollIndicator={false}
         viewabilityConfig={viewConfig.current}
         onViewableItemsChanged={onViewableItemsChanged}
-        getItemLayout={(_, index) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * index, index })}
+        getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
         removeClippedSubviews
         windowSize={3}
         initialNumToRender={2}
@@ -180,6 +188,7 @@ export default function ShortsScreen() {
         bounces
         overScrollMode="always"
       />
+      )}
       {commentsId ? (
         <MsContentComments
           kind="short"
@@ -209,6 +218,7 @@ function ShortPage({
   active,
   topInset,
   bottomInset,
+  pageHeight,
   onComment,
   onShare,
   onViewProgress,
@@ -217,6 +227,7 @@ function ShortPage({
   active: boolean;
   topInset: number;
   bottomInset: number;
+  pageHeight: number;
   onComment: () => void;
   onShare: () => void;
   onViewProgress: (seconds: number) => void;
@@ -239,10 +250,11 @@ function ShortPage({
   };
 
   return (
-    <View style={styles.page}>
+    <View style={[styles.page, { height: pageHeight }]}>
       <MsShortsPlayer
         item={item}
         active={active}
+        pageHeight={pageHeight}
         onViewProgress={onViewProgress}
         onPremiumRequired={() => setPremiumSheetVisible(true)}
       />
