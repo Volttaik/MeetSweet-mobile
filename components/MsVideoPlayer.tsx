@@ -53,6 +53,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { ResizeMode, Video, type AVPlaybackStatus } from 'expo-av';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   ArrowCounterClockwise,
   ArrowsIn,
@@ -330,6 +331,21 @@ export function MsVideoPlayer({
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Standard: intentional play/pause toggle (only from the centre button) ─
+  const toggleStandardPlayback = useCallback(() => {
+    if (premiumGateRef.current) return;
+    pulseIcon();
+    if (isPlayingRef.current) {
+      videoRef.current?.pauseAsync().catch(() => {});
+      // Paused → keep controls visible
+      ctrlOpacity.value = withTiming(1, { duration: 180 });
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    } else {
+      videoRef.current?.playAsync().catch(() => {});
+      showControls();
+    }
+  }, [pulseIcon, showControls]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Seek helpers ──────────────────────────────────────────────────────────
   const flashLeft = useCallback(() => {
     seekLeftOpacity.value = withSequence(
@@ -363,7 +379,7 @@ export function MsVideoPlayer({
     const W    = SCREEN_WIDTH;
 
     if (now - last.time < DOUBLE_TAP_MS) {
-      // Double tap
+      // Double tap → seek
       if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
       lastTapRef.current = { time: 0, x: 0 };
       if (tapX < W / 2) { seekBy(-SEEK_SECONDS, videoRef); flashLeft(); }
@@ -372,21 +388,13 @@ export function MsVideoPlayer({
       return;
     }
 
+    // Single tap → only reveal controls; playback unchanged
     lastTapRef.current = { time: now, x: tapX };
     tapTimerRef.current = setTimeout(() => {
       tapTimerRef.current = null;
-      pulseIcon();
-      if (isPlayingRef.current) {
-        videoRef.current?.pauseAsync().catch(() => {});
-        // Keep controls visible while paused
-        ctrlOpacity.value = withTiming(1, { duration: 180 });
-        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      } else {
-        videoRef.current?.playAsync().catch(() => {});
-        showControls();
-      }
+      showControls();
     }, DOUBLE_TAP_MS);
-  }, [seekBy, flashLeft, flashRight, showControls, pulseIcon]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seekBy, flashLeft, flashRight, showControls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Standard fullscreen tap ────────────────────────────────────────────────
   const handleFsPress = useCallback((tapX: number) => {
@@ -395,6 +403,7 @@ export function MsVideoPlayer({
     const W    = SCREEN_WIDTH;
 
     if (now - last.time < DOUBLE_TAP_MS) {
+      // Double tap → seek
       if (fsTapTimerRef.current) { clearTimeout(fsTapTimerRef.current); fsTapTimerRef.current = null; }
       lastTapRef.current = { time: 0, x: 0 };
       const target = tapX < W / 2
@@ -408,18 +417,24 @@ export function MsVideoPlayer({
       return;
     }
 
+    // Single tap → only reveal controls; playback unchanged
     lastTapRef.current = { time: now, x: tapX };
     fsTapTimerRef.current = setTimeout(() => {
       fsTapTimerRef.current = null;
-      if (fsPlayingRef.current) {
-        fsVideoRef.current?.pauseAsync().catch(() => {});
-        fsCtrlOpacity.value = withTiming(1, { duration: 180 });
-        if (fsHideTimerRef.current) clearTimeout(fsHideTimerRef.current);
-      } else {
-        fsVideoRef.current?.playAsync().catch(() => {});
-        showFsControls();
-      }
+      showFsControls();
     }, DOUBLE_TAP_MS);
+  }, [showFsControls]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fullscreen: intentional play/pause toggle (only from the centre button) ─
+  const toggleFsPlayback = useCallback(() => {
+    if (fsPlayingRef.current) {
+      fsVideoRef.current?.pauseAsync().catch(() => {});
+      fsCtrlOpacity.value = withTiming(1, { duration: 180 });
+      if (fsHideTimerRef.current) clearTimeout(fsHideTimerRef.current);
+    } else {
+      fsVideoRef.current?.playAsync().catch(() => {});
+      showFsControls();
+    }
   }, [showFsControls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Playback status (inline) ───────────────────────────────────────────────
@@ -553,7 +568,7 @@ export function MsVideoPlayer({
     [showFsControls],
   );
 
-  // ── Fullscreen open / close ───────────────────────────────────────────────
+  // ── Fullscreen open / close (with landscape lock) ────────────────────────
   const openFullscreen = useCallback(() => {
     videoRef.current?.pauseAsync().catch(() => {});
     fsHasPlayedRef.current = false;
@@ -562,11 +577,19 @@ export function MsVideoPlayer({
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     setFsVisible(true);
+    // Lock to landscape for immersive viewing
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.LANDSCAPE,
+    ).catch(() => {});
   }, [progress, durationMs, positionMs]);
 
   const closeFullscreen = useCallback(() => {
     fsVideoRef.current?.pauseAsync().catch(() => {});
     setFsVisible(false);
+    // Restore portrait-primary orientation
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT_UP,
+    ).catch(() => {});
     const pos = fsPositionRef.current;
     setTimeout(() => {
       videoRef.current?.setPositionAsync(pos).catch(() => {});
@@ -668,14 +691,19 @@ export function MsVideoPlayer({
       {/* ── Controls overlay (auto-hiding) ── */}
       <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
 
-        {/* Standard: centre play/pause icon (inherits ctrlStyle opacity) */}
+        {/* Standard: centre play/pause button — intentional tap only changes playback */}
         {!isShorts ? (
-          <Animated.View style={[styles.iconWrap, stdIconStyle]} pointerEvents="none">
-            <View style={styles.iconCircle}>
+          <Animated.View style={[styles.iconWrap, stdIconStyle]} pointerEvents="box-none">
+            <Pressable
+              style={styles.iconCircle}
+              onPress={toggleStandardPlayback}
+              hitSlop={16}
+              accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+            >
               {isPlaying
                 ? <Pause size={24} color="#fff" weight="fill" />
                 : <Play  size={24} color="#fff" weight="fill" />}
-            </View>
+            </Pressable>
           </Animated.View>
         ) : null}
 
@@ -759,6 +787,7 @@ export function MsVideoPlayer({
           onClose={closeFullscreen}
           onPress={handleFsPress}
           onPressIn={showFsControls}
+          onTogglePlay={toggleFsPlayback}
           ctrlStyle={fsCtrlStyle}
           seekPanResponder={fsSeekPanResponder}
           onSeekBarWidth={(w) => { fsWidthRef.current = w; }}
@@ -892,6 +921,7 @@ interface FullscreenModalProps {
   onClose: () => void;
   onPress: (x: number) => void;
   onPressIn: () => void;
+  onTogglePlay: () => void;
   ctrlStyle: ReturnType<typeof useAnimatedStyle>;
   seekPanResponder: ReturnType<typeof PanResponder.create>;
   onSeekBarWidth: (w: number) => void;
@@ -913,6 +943,7 @@ function FullscreenModal({
   onClose,
   onPress,
   onPressIn,
+  onTogglePlay,
   ctrlStyle,
   seekPanResponder,
   onSeekBarWidth,
@@ -993,13 +1024,18 @@ function FullscreenModal({
             </Pressable>
           </View>
 
-          {/* Centre icon */}
-          <View style={styles.iconWrap} pointerEvents="none">
-            <View style={styles.iconCircle}>
+          {/* Centre play/pause button — intentional tap only changes playback */}
+          <View style={styles.iconWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.iconCircle}
+              onPress={onTogglePlay}
+              hitSlop={16}
+              accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+            >
               {isPlaying
                 ? <Pause size={26} color="#fff" weight="fill" />
                 : <Play  size={26} color="#fff" weight="fill" />}
-            </View>
+            </Pressable>
           </View>
 
           {/* Bottom bar */}

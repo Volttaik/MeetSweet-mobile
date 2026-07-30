@@ -21,7 +21,7 @@ import { MsShortsPlayer } from '@/components/MsShortsPlayer';
 import { getShortsFeed, likeContent, trackShortView, type Short } from '@/services/content';
 import { T } from '@/constants/theme';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // ─── Premium paywall sheet (reuses the app's modal/sheet design language) ─────
 
@@ -96,9 +96,9 @@ export default function ShortsScreen() {
   const [error, setError]       = useState(false);
   const [commentsId, setCommentsId] = useState<string | null>(null);
   const [shareId, setShareId]   = useState<string | null>(null);
-  // Measured container height — avoids the tab-bar-overlap problem where
-  // SCREEN_HEIGHT > actual FlatList viewport causing the next Short to peek.
-  const [pageHeight, setPageHeight] = useState(0);
+  // Measured container height — starts at SCREEN_HEIGHT so the FlatList renders
+  // immediately, and gets refined by onLayout once the view is measured.
+  const [pageHeight, setPageHeight] = useState(SCREEN_HEIGHT);
   const viewConfig = useRef({ itemVisiblePercentThreshold: 75 });
 
   const load = useCallback(async () => {
@@ -156,7 +156,6 @@ export default function ShortsScreen() {
       style={styles.screen}
       onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
     >
-      {pageHeight > 0 && (
       <FlatList
         ref={listRef}
         data={shorts}
@@ -188,7 +187,6 @@ export default function ShortsScreen() {
         bounces
         overScrollMode="always"
       />
-      )}
       {commentsId ? (
         <MsContentComments
           kind="short"
@@ -333,7 +331,8 @@ function formatCount(value: number) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#000' },
+  // Absolute fill ensures Shorts covers the full display including any tab bar.
+  screen: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000' },
   page: { width: SCREEN_WIDTH, backgroundColor: '#050506' },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13, marginTop: 14 },

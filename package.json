@@ -60,6 +60,7 @@
     "expo-av": "^16.0.8",
     "expo-clipboard": "^8.0.8",
     "expo-document-picker": "^57.0.1",
+    "expo-screen-orientation": "^57.0.1",
     "expo-sqlite": "^16.0.10",
     "heroui-native": "^1.0.6",
     "lucide-react-native": "^1.25.0",
