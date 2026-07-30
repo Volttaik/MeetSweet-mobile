@@ -37,7 +37,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  ActivityIndicator,
   Modal,
   PanResponder,
   Platform,
@@ -73,6 +72,7 @@ import {
 } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsShimmer } from '@/components/MsShimmer';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import { PressScale } from '@/components/motion/PressScale';
@@ -373,7 +373,7 @@ export function MsVideoPlayer({
   ) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      opacity.value = withTiming(0, { duration: 350 });
+      opacity.value = withTiming(0, { duration: MOTION.CONTROL_HIDE, easing: MOTION.EASE_EXIT });
     }, CONTROLS_HIDE_MS);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -387,11 +387,11 @@ export function MsVideoPlayer({
     scheduleHide(fsCtrlOpacity, fsHideTimerRef);
   }, [scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Tap icon pulse animation ───────────────────────────────────────────────
+  // ── Tap icon pulse animation ── subtle scale, no bounce ───────────────────
   const pulseIcon = useCallback(() => {
     iconScale.value = withSequence(
-      withSpring(1.22, { damping: 6, stiffness: 260 }),
-      withSpring(1.0,  { damping: 12, stiffness: 220 }),
+      withTiming(0.88, { duration: MOTION.PRESS_DOWN, easing: MOTION.EASE_EXIT }),
+      withTiming(1.0,  { duration: MOTION.PRESS_UP,   easing: MOTION.EASE_ENTER }),
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -578,14 +578,17 @@ export function MsVideoPlayer({
       isPlayingRef.current = playing;
       setIsPlaying(playing);
 
+      // True only on the single status tick where playback first begins.
+      const justStartedPlaying = playing && !hasPlayedRef.current;
+
       // Crossfade: on first play, fade poster out and video in
-      if (playing && !hasPlayedRef.current) {
+      if (justStartedPlaying) {
         hasPlayedRef.current = true;
         // Video fades in from black; poster fades out beneath
-        videoOpacity.value  = withTiming(1, { duration: 280, easing: Easing.out(Easing.ease) });
-        posterOpacity.value = withTiming(0, { duration: 380, easing: Easing.out(Easing.ease) });
-        // Brightness ramp: video "wakes up" from a dim 80% exposure to 100%.
-        brightnessOpacity.value = withTiming(0, { duration: 420, easing: Easing.out(Easing.ease) });
+        videoOpacity.value  = withTiming(1, { duration: 280, easing: MOTION.EASE_ENTER });
+        posterOpacity.value = withTiming(0, { duration: 380, easing: MOTION.EASE_ENTER });
+        // Brightness ramp: video "wakes up" from a dim exposure to 100%.
+        brightnessOpacity.value = withTiming(0, { duration: 420, easing: MOTION.EASE_ENTER });
       }
 
       // Restart detection
@@ -598,16 +601,22 @@ export function MsVideoPlayer({
         setVideoEnded(false);
       }
 
-      // Buffering — animate spinner in/out instead of conditional mount
-      const nextBuffering = hasPlayedRef.current
-        ? (status.isBuffering ?? false)
-        : (status.isBuffering ?? true);
+      // Buffering — animate shimmer in/out instead of conditional mount.
+      // `justStartedPlaying` is authoritative and wins over a stale
+      // `isBuffering: true` the engine can still report for one frame right
+      // as playback begins — this is what prevents the loader from ever
+      // lingering over video that is already playing.
+      const nextBuffering = justStartedPlaying
+        ? false
+        : hasPlayedRef.current
+          ? (status.isBuffering ?? false)
+          : (status.isBuffering ?? true);
       setIsBuffering(nextBuffering);
       if (nextBuffering !== prevBufferingRef.current) {
         prevBufferingRef.current = nextBuffering;
         bufferOpacity.value = withTiming(nextBuffering ? 1 : 0, {
-          duration: nextBuffering ? 150 : 250,
-          easing: Easing.out(Easing.ease),
+          duration: nextBuffering ? 150 : 240,
+          easing: nextBuffering ? MOTION.EASE_ENTER : MOTION.EASE_EXIT,
         });
       }
 
@@ -642,7 +651,8 @@ export function MsVideoPlayer({
     fsPlayingRef.current = playing;
     setFsPlaying(playing);
 
-    if (playing && !fsHasPlayedRef.current) {
+    const fsJustStartedPlaying = playing && !fsHasPlayedRef.current;
+    if (fsJustStartedPlaying) {
       fsHasPlayedRef.current = true;
     }
 
@@ -656,8 +666,13 @@ export function MsVideoPlayer({
       setFsVideoEnded(false);
     }
 
-    // Buffering animation
-    const nextBuf = fsHasPlayedRef.current ? (status.isBuffering ?? false) : (status.isBuffering ?? true);
+    // Buffering animation — first-play tick always wins over a stale
+    // isBuffering:true the engine can still report for one frame.
+    const nextBuf = fsJustStartedPlaying
+      ? false
+      : fsHasPlayedRef.current
+        ? (status.isBuffering ?? false)
+        : (status.isBuffering ?? true);
     setFsBuffering(nextBuf);
     if (nextBuf !== fsPrevBuffRef.current) {
       fsPrevBuffRef.current = nextBuf;
@@ -845,14 +860,17 @@ export function MsVideoPlayer({
         </View>
       ) : null}
 
-      {/* ── Buffering overlay — always mounted, opacity-driven for smooth fades ── */}
+      {/* ── Buffering overlay — skeleton shimmer, opacity-driven for smooth fades ── */}
       {!error ? (
         <Animated.View style={[styles.bufferOverlay, bufferFadeStyle]} pointerEvents="none">
-          {isBuffering ? (
-            <Animated.View entering={FadeIn.duration(MOTION.FADE_IN)} exiting={FadeOut.duration(MOTION.FADE_OUT)}>
-              <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" />
-            </Animated.View>
-          ) : null}
+          <MsShimmer
+            style={StyleSheet.absoluteFill as any}
+            height={4}
+            radius={0}
+            baseColor="transparent"
+            highlightColor="rgba(255,255,255,0.05)"
+            duration={1200}
+          />
         </Animated.View>
       ) : null}
 
@@ -884,8 +902,8 @@ export function MsVideoPlayer({
             accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying
-              ? <Pause size={19} color="#fff" weight="fill" />
-              : <Play  size={19} color="#fff" weight="fill" />}
+              ? <Pause size={16} color="#fff" weight="fill" />
+              : <Play  size={16} color="#fff" weight="fill" />}
           </PressScale>
         </Animated.View>
       ) : null}
@@ -903,13 +921,13 @@ export function MsVideoPlayer({
               accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
             >
               {videoEnded ? (
-                <Animated.View key="replay" entering={ZoomIn.duration(220).springify().damping(14)}>
-                  <ArrowCounterClockwise size={22} color="#fff" weight="bold" />
+                <Animated.View key="replay" entering={FadeIn.duration(MOTION.FADE_IN)}>
+                  <ArrowCounterClockwise size={19} color="#fff" weight="bold" />
                 </Animated.View>
               ) : isPlaying ? (
-                <Pause size={22} color="#fff" weight="fill" />
+                <Pause size={19} color="#fff" weight="fill" />
               ) : (
-                <Play size={22} color="#fff" weight="fill" />
+                <Play size={19} color="#fff" weight="fill" />
               )}
             </PressScale>
           </Animated.View>
@@ -919,7 +937,7 @@ export function MsVideoPlayer({
         {!isShorts && fillContainer && onClose ? (
           <View style={styles.fillCloseBar} pointerEvents="box-none">
             <PressScale style={styles.fillCloseBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Close video">
-              <ArrowsIn size={17} color="rgba(255,255,255,0.9)" />
+              <ArrowsIn size={15} color="rgba(255,255,255,0.9)" />
             </PressScale>
           </View>
         ) : null}
@@ -1005,6 +1023,20 @@ export function MsVideoPlayer({
           ctrlStyle={fsCtrlStyle}
           seekPanResponder={fsSeekPanResponder}
           onSeekBarWidth={(w) => { fsWidthRef.current = w; }}
+          onOrientPickerChange={(open) => {
+            // Suspend the auto-hide timer while orientation picker is open
+            // so controls don't disappear beneath the modal menu.
+            if (open) {
+              if (fsHideTimerRef.current) {
+                clearTimeout(fsHideTimerRef.current);
+                fsHideTimerRef.current = null;
+              }
+              fsCtrlOpacity.value = withTiming(1, { duration: MOTION.CONTROL_SHOW });
+            } else {
+              // Picker closed — restart the normal auto-hide countdown.
+              scheduleHide(fsCtrlOpacity, fsHideTimerRef);
+            }
+          }}
         />
       ) : null}
     </View>
@@ -1051,12 +1083,12 @@ function SeekBar({
       <Text style={sb.time}>{fmtTime(durationMs)}</Text>
       {showFullscreen && onFullscreen ? (
         <Pressable style={sb.fsBtn} onPress={onFullscreen} hitSlop={10} accessibilityLabel="Enter fullscreen">
-          <ArrowsOut size={17} color="rgba(255,255,255,0.85)" />
+          <ArrowsOut size={15} color="rgba(255,255,255,0.85)" />
         </Pressable>
       ) : null}
       {!showFullscreen && onExitFullscreen ? (
         <Pressable style={sb.fsBtn} onPress={onExitFullscreen} hitSlop={10} accessibilityLabel="Exit fullscreen">
-          <ArrowsIn size={17} color="rgba(255,255,255,0.85)" />
+          <ArrowsIn size={15} color="rgba(255,255,255,0.85)" />
         </Pressable>
       ) : null}
     </View>
@@ -1138,6 +1170,8 @@ interface FullscreenModalProps {
   ctrlStyle: object;
   seekPanResponder: ReturnType<typeof PanResponder.create>;
   onSeekBarWidth: (w: number) => void;
+  /** Called when orientation picker opens (true) or closes (false). */
+  onOrientPickerChange: (open: boolean) => void;
 }
 
 function FullscreenModal({
@@ -1161,21 +1195,23 @@ function FullscreenModal({
   ctrlStyle,
   seekPanResponder,
   onSeekBarWidth,
+  onOrientPickerChange,
 }: FullscreenModalProps) {
   const { bottom: safeBottom } = useSafeAreaInsets();
   const { width: fsWindowWidth } = useWindowDimensions();
   const [showOrientPicker, setShowOrientPicker] = useState(false);
-  const orientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Auto-dismiss orientation picker after 5 s so the user has time to choose
-  useEffect(() => {
-    if (showOrientPicker) {
-      if (orientTimerRef.current) clearTimeout(orientTimerRef.current);
-      orientTimerRef.current = setTimeout(() => setShowOrientPicker(false), 5000);
-    } else {
-      if (orientTimerRef.current) { clearTimeout(orientTimerRef.current); orientTimerRef.current = null; }
-    }
-    return () => { if (orientTimerRef.current) clearTimeout(orientTimerRef.current); };
-  }, [showOrientPicker]);
+
+  // Orientation picker: notify parent so it can suspend the auto-hide timer.
+  // No auto-dismiss — the popup stays until the user acts or taps outside.
+  const openOrientPicker = useCallback(() => {
+    setShowOrientPicker(true);
+    onOrientPickerChange(true);
+  }, [onOrientPickerChange]);
+
+  const closeOrientPicker = useCallback(() => {
+    setShowOrientPicker(false);
+    onOrientPickerChange(false);
+  }, [onOrientPickerChange]);
 
   // Buffering overlay opacity inside fullscreen
   const fsBufOpacity = useSharedValue(1);
@@ -1183,8 +1219,8 @@ function FullscreenModal({
 
   useEffect(() => {
     fsBufOpacity.value = withTiming(isBuffering ? 1 : 0, {
-      duration: isBuffering ? 150 : 250,
-      easing: Easing.out(Easing.ease),
+      duration: isBuffering ? 150 : 240,
+      easing: MOTION.EASE_EXIT,
     });
   }, [isBuffering]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1240,9 +1276,16 @@ function FullscreenModal({
           />
         ) : null}
 
-        {/* Buffering overlay — opacity-animated */}
+        {/* Buffering overlay — skeleton shimmer, opacity-animated */}
         <Animated.View style={[styles.bufferOverlay, fsBufStyle]} pointerEvents="none">
-          {isBuffering ? <ActivityIndicator size="large" color="rgba(255,255,255,0.92)" /> : null}
+          <MsShimmer
+            style={StyleSheet.absoluteFill as any}
+            height={4}
+            radius={0}
+            baseColor="transparent"
+            highlightColor="rgba(255,255,255,0.05)"
+            duration={1200}
+          />
         </Animated.View>
 
         {/* Gesture layer */}
@@ -1258,20 +1301,21 @@ function FullscreenModal({
           {/* Top bar */}
           <View style={fs.topBar} pointerEvents="box-none">
             <PressScale style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
-              <ArrowsIn size={17} color="rgba(255,255,255,0.9)" />
+              <ArrowsIn size={15} color="rgba(255,255,255,0.9)" />
             </PressScale>
             {/* Orientation picker button */}
             <PressScale
               style={[fs.closeBtn, { marginLeft: 10 }]}
-              onPress={() => setShowOrientPicker(v => !v)}
+              onPress={openOrientPicker}
               hitSlop={12}
               accessibilityLabel="Orientation"
             >
-              <ArrowsClockwise size={17} color="rgba(255,255,255,0.9)" />
+              <ArrowsClockwise size={15} color="rgba(255,255,255,0.9)" />
             </PressScale>
           </View>
 
-          {/* Orientation picker panel — backdrop dismisses on outside tap */}
+          {/* Orientation picker panel — stays open until user acts or taps outside.
+              Auto-hide timer is suspended while this is visible (see onOrientPickerChange). */}
           {showOrientPicker ? (
             <>
               <Animated.View
@@ -1279,11 +1323,11 @@ function FullscreenModal({
                 entering={FadeIn.duration(MOTION.PANEL_IN)}
                 exiting={FadeOut.duration(MOTION.PANEL_OUT)}
               >
-                <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowOrientPicker(false)} />
+                <Pressable style={StyleSheet.absoluteFill} onPress={closeOrientPicker} />
               </Animated.View>
               <Animated.View
                 style={fs.orientPanel}
-                entering={ZoomIn.duration(MOTION.PANEL_IN).springify().damping(16)}
+                entering={ZoomIn.duration(MOTION.PANEL_IN).springify().damping(18)}
                 exiting={FadeOut.duration(MOTION.PANEL_OUT)}
                 pointerEvents="box-none"
               >
@@ -1292,7 +1336,7 @@ function FullscreenModal({
                   style={fs.orientRow}
                   onPress={() => {
                     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-                    setShowOrientPicker(false);
+                    closeOrientPicker();
                   }}
                 >
                   <Text style={fs.orientLabel}>Portrait</Text>
@@ -1301,7 +1345,7 @@ function FullscreenModal({
                   style={fs.orientRow}
                   onPress={() => {
                     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-                    setShowOrientPicker(false);
+                    closeOrientPicker();
                   }}
                 >
                   <Text style={fs.orientLabel}>Landscape</Text>
@@ -1310,7 +1354,7 @@ function FullscreenModal({
                   style={fs.orientRow}
                   onPress={() => {
                     ScreenOrientation.unlockAsync().catch(() => {});
-                    setShowOrientPicker(false);
+                    closeOrientPicker();
                   }}
                 >
                   <Text style={fs.orientLabel}>Auto Rotate</Text>
@@ -1328,13 +1372,13 @@ function FullscreenModal({
               accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
             >
               {videoEnded ? (
-                <Animated.View key="fs-replay" entering={ZoomIn.duration(220).springify().damping(14)}>
-                  <ArrowCounterClockwise size={24} color="#fff" weight="bold" />
+                <Animated.View key="fs-replay" entering={FadeIn.duration(MOTION.FADE_IN)}>
+                  <ArrowCounterClockwise size={20} color="#fff" weight="bold" />
                 </Animated.View>
               ) : isPlaying ? (
-                <Pause size={24} color="#fff" weight="fill" />
+                <Pause size={20} color="#fff" weight="fill" />
               ) : (
-                <Play size={24} color="#fff" weight="fill" />
+                <Play size={20} color="#fff" weight="fill" />
               )}
             </PressScale>
           </View>
@@ -1452,11 +1496,12 @@ const styles = StyleSheet.create({
   retryText:  { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 },
 
   // Buffering overlay — always mounted; opacity animated
+  // Buffering overlay — shimmer sweeps over a light dim; no spinner.
   bufferOverlay: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
     zIndex: 8,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.22)',
   },
 
   // Brightness ramp overlay — sits above the video, fades from dim to clear.
@@ -1475,8 +1520,8 @@ const styles = StyleSheet.create({
     zIndex: 12,
   },
   iconCircle: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: 'rgba(0,0,0,0.38)',
+    width: 46, height: 46, borderRadius: 23,
+    backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center', justifyContent: 'center',
   },
 
