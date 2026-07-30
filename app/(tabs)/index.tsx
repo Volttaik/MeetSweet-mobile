@@ -190,6 +190,13 @@ export default function HomeScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
 
+  // ── Video preview viewability — pause off-screen previews ─────────────────
+  const [visiblePostIds, setVisiblePostIds] = useState<ReadonlySet<string>>(() => new Set());
+  const feedViewabilityConfig = useRef({ itemVisiblePercentThreshold: 50, minimumViewTime: 150 }).current;
+  const onFeedViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ key: string }> }) => {
+    setVisiblePostIds(new Set(viewableItems.map((v) => v.key)));
+  }).current;
+
   const loadFeed = useCallback(async (reset = false) => {
     try {
       const data = await getFeed(reset ? undefined : (cursor ?? undefined));
@@ -286,10 +293,13 @@ export default function HomeScreen() {
         <FlatList
           data={posts.filter((p) => !deletedIds.includes(p.id))}
           keyExtractor={(item) => item.id}
+          viewabilityConfig={feedViewabilityConfig}
+          onViewableItemsChanged={onFeedViewableItemsChanged}
           renderItem={({ item }) => (
             <MsPostCard
               post={item}
               doubleTapToOpen
+              videoPreviewActive={visiblePostIds.has(item.id)}
               onPress={() => {
                 if (item.contentType === 'short') {
                   router.push({ pathname: '/shorts', params: { startId: item.id } });

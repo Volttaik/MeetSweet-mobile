@@ -19,9 +19,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Camera,
+  FilmStrip,
   Gear,
   LockSimple,
-  Play,
   ShareNetwork,
   X,
 } from 'phosphor-react-native';
@@ -638,11 +638,11 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* Video overlay — play icon + duration */}
+        {/* Video overlay — film icon + duration (no play button) */}
         {isVideo && (
           <View style={styles.videoOverlay}>
             <View style={styles.videoPlayBadge}>
-              <Play size={9} color="#fff" weight="fill" />
+              <FilmStrip size={9} color="#fff" weight="fill" />
             </View>
             {item.durationSecs != null && (
               <Text style={styles.videoDuration}>{formatDuration(item.durationSecs)}</Text>

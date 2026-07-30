@@ -17,7 +17,6 @@ import {
   ViewStyle,
 } from 'react-native';
 import { ResizeMode, Video } from 'expo-av';
-import { Play } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
 interface Props {
@@ -50,13 +49,9 @@ export function MsVideoThumbnail({ videoUri, style, visible = true }: Props) {
         useNativeControls={false}
       />
 
-      {/* Dark overlay + play icon while first frame hasn't decoded yet */}
+      {/* Dark overlay while first frame hasn't decoded yet */}
       {!ready ? (
-        <View style={styles.placeholder}>
-          <View style={styles.playCircle}>
-            <Play size={20} color="rgba(255,255,255,0.85)" weight="fill" />
-          </View>
-        </View>
+        <View style={styles.placeholder} />
       ) : null}
     </View>
   );
@@ -70,15 +65,5 @@ const styles = StyleSheet.create({
   placeholder: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: T.SURFACE_2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
