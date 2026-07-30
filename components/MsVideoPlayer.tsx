@@ -35,7 +35,6 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   Modal,
   PanResponder,
   Platform,
@@ -43,6 +42,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, {
@@ -113,7 +113,6 @@ export interface MsVideoPlayerProps {
 
 // ─── Constants & helpers ──────────────────────────────────────────────────────
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DOUBLE_TAP_MS   = 260;
 const SEEK_SECONDS    = 10;
 const CONTROLS_HIDE_MS = 2500;
@@ -147,8 +146,9 @@ export function MsVideoPlayer({
   onClose,
 }: MsVideoPlayerProps) {
 
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isShorts = mode === 'shorts';
-  const ph       = pageHeight ?? SCREEN_HEIGHT;
+  const ph       = pageHeight ?? windowHeight;
 
   // ── Refs (playback & gesture) ─────────────────────────────────────────────
   const videoRef        = useRef<Video>(null);
@@ -298,9 +298,11 @@ export function MsVideoPlayer({
   // ── Unmount cleanup — stop all playback and release timers ────────────────
   useEffect(() => {
     return () => {
-      // Pause both players immediately so no audio leaks after navigation.
-      videoRef.current?.pauseAsync().catch(() => {});
-      fsVideoRef.current?.pauseAsync().catch(() => {});
+      // Stop both players so audio can NEVER leak after navigation.
+      // stopAsync() halts decoding entirely; pauseAsync() alone is insufficient
+      // if the system defers the pause (observed on Android).
+      videoRef.current?.stopAsync().catch(() => {});
+      fsVideoRef.current?.stopAsync().catch(() => {});
       // Clear every pending timer so callbacks never fire after unmount.
       if (hideTimerRef.current)   clearTimeout(hideTimerRef.current);
       if (tapTimerRef.current)    clearTimeout(tapTimerRef.current);
@@ -415,7 +417,8 @@ export function MsVideoPlayer({
     if (premiumGateRef.current) return;
     const now  = Date.now();
     const last = lastTapRef.current;
-    const W    = SCREEN_WIDTH;
+    // Use live window width so the left/right boundary is always correct.
+    const W    = windowWidth;
 
     if (now - last.time < DOUBLE_TAP_MS) {
       // Double tap → seek
@@ -433,19 +436,20 @@ export function MsVideoPlayer({
       tapTimerRef.current = null;
       showControls();
     }, DOUBLE_TAP_MS);
-  }, [seekBy, flashLeft, flashRight, showControls]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seekBy, flashLeft, flashRight, showControls, windowWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Standard fullscreen tap ────────────────────────────────────────────────
-  const handleFsPress = useCallback((tapX: number) => {
+  // tapRatio is 0..1 (fraction from left edge), pre-computed in FullscreenModal
+  // using that modal's live window width so landscape/portrait are both correct.
+  const handleFsPress = useCallback((tapRatio: number) => {
     const now  = Date.now();
     const last = lastTapRef.current;
-    const W    = SCREEN_WIDTH;
 
     if (now - last.time < DOUBLE_TAP_MS) {
       // Double tap → seek
       if (fsTapTimerRef.current) { clearTimeout(fsTapTimerRef.current); fsTapTimerRef.current = null; }
       lastTapRef.current = { time: 0, x: 0 };
-      const target = tapX < W / 2
+      const target = tapRatio < 0.5
         ? Math.max(0, fsPositionRef.current - SEEK_SECONDS * 1000)
         : Math.min(fsDurationRef.current, fsPositionRef.current + SEEK_SECONDS * 1000);
       fsVideoRef.current?.setPositionAsync(target).catch(() => {});
@@ -457,7 +461,7 @@ export function MsVideoPlayer({
     }
 
     // Single tap → only reveal controls; playback unchanged
-    lastTapRef.current = { time: now, x: tapX };
+    lastTapRef.current = { time: now, x: tapRatio };
     fsTapTimerRef.current = setTimeout(() => {
       fsTapTimerRef.current = null;
       showFsControls();
@@ -612,7 +616,15 @@ export function MsVideoPlayer({
     [showFsControls],
   );
 
-  // ── Fullscreen open / close (with landscape lock) ────────────────────────
+  // ── Fullscreen open / close ───────────────────────────────────────────────
+  //
+  // On entry, lock to LANDSCAPE for landscape videos so the player immediately
+  // fills the screen instead of showing a letterboxed portrait layout.
+  // For portrait videos (aspectRatio < 1) we unlock so the device can rotate
+  // naturally.  The user is always free to rotate once fullscreen is open.
+  //
+  // On exit, lock back to PORTRAIT_UP and resume inline playback from the
+  // exact position where the fullscreen player stopped.
   const openFullscreen = useCallback(() => {
     videoRef.current?.pauseAsync().catch(() => {});
     fsHasPlayedRef.current = false;
@@ -621,24 +633,33 @@ export function MsVideoPlayer({
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     setFsVisible(true);
-    // Unlock orientation so the user can watch in portrait OR landscape
-    // by simply rotating their device — no forced lock.
-    ScreenOrientation.unlockAsync().catch(() => {});
-  }, [progress, durationMs, positionMs]);
+    if (aspectRatio >= 1) {
+      // Landscape video → force landscape so the player fills the screen.
+      ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.LANDSCAPE,
+      ).catch(() => {});
+    } else {
+      // Portrait video → just unlock and let the user rotate freely.
+      ScreenOrientation.unlockAsync().catch(() => {});
+    }
+  }, [progress, durationMs, positionMs, aspectRatio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeFullscreen = useCallback(() => {
+    // Pause fullscreen player first so no audio bleeds into the inline resume.
     fsVideoRef.current?.pauseAsync().catch(() => {});
+    const pos = fsPositionRef.current;
     setFsVisible(false);
-    // Restore portrait-primary orientation
+    // Always restore portrait-up when leaving fullscreen.
     ScreenOrientation.lockAsync(
       ScreenOrientation.OrientationLock.PORTRAIT_UP,
     ).catch(() => {});
-    const pos = fsPositionRef.current;
+    // Give the orientation animation a moment to settle before resuming the
+    // inline player (180 ms is enough; avoids a flash on slow devices).
     setTimeout(() => {
       videoRef.current?.setPositionAsync(pos).catch(() => {});
       videoRef.current?.playAsync().catch(() => {});
       showControls();
-    }, 100);
+    }, 180);
   }, [showControls]);
 
   // ── Container sizing ──────────────────────────────────────────────────────
@@ -962,7 +983,8 @@ interface FullscreenModalProps {
   durationMs: number;
   onStatus: (s: AVPlaybackStatus) => void;
   onClose: () => void;
-  onPress: (x: number) => void;
+  /** tapRatio: 0..1 fraction from the left edge of the fullscreen area. */
+  onPress: (tapRatio: number) => void;
   onPressIn: () => void;
   onTogglePlay: () => void;
   ctrlStyle: ReturnType<typeof useAnimatedStyle>;
@@ -991,9 +1013,11 @@ function FullscreenModal({
   seekPanResponder,
   onSeekBarWidth,
 }: FullscreenModalProps) {
-  // Only used for bottom safe area (home indicator). Top is never needed because
-  // the status bar is hidden while fullscreen.
+  // Bottom safe area for home indicator.  Top is never needed: status bar is hidden.
   const { bottom: safeBottom } = useSafeAreaInsets();
+  // Live dimensions — recalculated on every orientation change so the
+  // double-tap left/right boundary and layout are always correct.
+  const { width: fsWindowWidth } = useWindowDimensions();
 
   // Seek and auto-play when modal opens. The timeout gives the Video element
   // one frame to mount before we issue commands.
@@ -1065,10 +1089,10 @@ function FullscreenModal({
           </View>
         ) : null}
 
-        {/* Gesture layer */}
+        {/* Gesture layer — pass a 0..1 ratio so handleFsPress is orientation-agnostic */}
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={(e) => onPress(e.nativeEvent.locationX)}
+          onPress={(e) => onPress(e.nativeEvent.locationX / Math.max(fsWindowWidth, 1))}
           onPressIn={onPressIn}
         />
 
@@ -1118,13 +1142,14 @@ function FullscreenModal({
 
 const fs = StyleSheet.create({
   /**
-   * Absolute-fill root ensures edge-to-edge black coverage on every device.
-   * flex:1 alone can leave a 1px light border on certain Android builds when
-   * statusBarTranslucent is active, so we use explicit absolute positioning.
+   * flex:1 fills the Modal's entire presentation layer on every platform.
+   * Previously used position:absolute which, when combined with
+   * statusBarTranslucent on Android, left the video portrait-sized because
+   * the inset offsets were applied on top of the absolute coordinates.
+   * flex:1 sidesteps all of that and is the correct pattern for Modal children.
    */
   root: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
+    flex: 1,
     backgroundColor: '#000',
   },
   /**
@@ -1155,7 +1180,7 @@ const fs = StyleSheet.create({
 const styles = StyleSheet.create({
   // Outer containers
   root: {
-    width: SCREEN_WIDTH,
+    width: '100%',
     backgroundColor: '#050506',
     overflow: 'hidden',
   },
