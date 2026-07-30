@@ -100,8 +100,8 @@ export function MsShortsPlayer({
       iconOpacity.value = withTiming(0, { duration: 200 });
       return;
     }
-    // Playing → dim pause icon; Paused → bright play icon
-    iconOpacity.value = withTiming(isPlaying ? 0.35 : 0.85, {
+    // Playing → hidden; Paused → bright play icon
+    iconOpacity.value = withTiming(isPlaying ? 0 : 0.85, {
       duration: 250,
       easing: Easing.inOut(Easing.ease),
     });
