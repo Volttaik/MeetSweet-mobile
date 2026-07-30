@@ -446,13 +446,18 @@ export function MsVideoPlayer({
       isPlayingRef.current = playing;
       setIsPlaying(playing);
 
-      // Buffering contract
+      // Buffering contract — track both initial load AND mid-video rebuffering.
+      // Before first play: spinner is shown until playback actually begins.
+      // After first play: use the real isBuffering flag so quality-switch
+      // rebuffers (adaptive streaming) also display the spinner.
       if (playing && !hasPlayedRef.current) {
         hasPlayedRef.current = true;
-        setIsBuffering(false);
-      } else if (!hasPlayedRef.current) {
-        setIsBuffering(status.isBuffering ?? true);
       }
+      setIsBuffering(
+        hasPlayedRef.current
+          ? (status.isBuffering ?? false)
+          : (status.isBuffering ?? true),
+      );
 
       // Track position / duration
       const dur = status.durationMillis ?? 0;
