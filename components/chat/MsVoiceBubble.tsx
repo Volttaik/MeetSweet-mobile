@@ -1,14 +1,13 @@
 /**
- * MsVoiceBubble — compact voice note with waveform, playback, speed.
- * Matches refined bubble design: 7px radius, dark-gray theme.
+ * MsVoiceBubble — compact voice note bubble.
+ *
+ * Single horizontal row:
+ *   [PlayBtn] [Waveform flex:1] [Duration / Speed]
+ *
+ * 8px radius, dark-gray theme, no pink background.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Pause, Play } from 'phosphor-react-native';
 import { Audio } from 'expo-av';
 import { T } from '@/constants/theme';
@@ -17,9 +16,9 @@ import { formatDuration } from '@/types/chat-message';
 const BG_OWN   = '#28282F';
 const BG_OTHER = '#1C1C23';
 
-// 20 bars — slightly tighter
-const VOICE_BARS = Array.from({ length: 20 }, (_, i) =>
-  3 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 13,
+// 18 bars — comfortable density
+const BARS = Array.from({ length: 18 }, (_, i) =>
+  3 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 12,
 );
 
 const SPEEDS = [1, 1.5, 2];
@@ -31,16 +30,12 @@ interface Props {
 }
 
 export function MsVoiceBubble({ uri, duration, position }: Props) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [position_secs, setPositionSecs] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(0);
+  const [isPlaying,    setIsPlaying]    = useState(false);
+  const [positionSecs, setPositionSecs] = useState(0);
+  const [speedIdx,     setSpeedIdx]     = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
 
-  useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync().catch(() => {});
-    };
-  }, []);
+  useEffect(() => () => { soundRef.current?.unloadAsync().catch(() => {}); }, []);
 
   const togglePlayback = async () => {
     try {
@@ -70,42 +65,32 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
         await soundRef.current.playAsync();
       }
       setIsPlaying(true);
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   };
 
   const cycleSpeed = async () => {
     const next = (speedIdx + 1) % SPEEDS.length;
     setSpeedIdx(next);
-    if (soundRef.current) {
-      await soundRef.current.setRateAsync(SPEEDS[next], true).catch(() => {});
-    }
+    await soundRef.current?.setRateAsync(SPEEDS[next], true).catch(() => {});
   };
 
-  const isOwn = position === 'right';
-  const progress = duration > 0 ? position_secs / duration : 0;
+  const isOwn    = position === 'right';
+  const progress = duration > 0 ? positionSecs / duration : 0;
 
   return (
-    <View
-      style={[
-        styles.bubble,
-        isOwn ? styles.bubbleRight : styles.bubbleLeft,
-      ]}
-    >
-      {/* Play/Pause */}
+    <View style={[styles.bubble, isOwn ? styles.bubbleRight : styles.bubbleLeft]}>
+      {/* ── Play / Pause ──────────────────────────────────────────────────── */}
       <TouchableOpacity onPress={togglePlayback} style={styles.playBtn} activeOpacity={0.8}>
-        {isPlaying ? (
-          <Pause size={16} color="#fff" weight="fill" />
-        ) : (
-          <Play size={16} color="#fff" weight="fill" />
-        )}
+        {isPlaying
+          ? <Pause size={15} color="#fff" weight="fill" />
+          : <Play  size={15} color="#fff" weight="fill" />
+        }
       </TouchableOpacity>
 
-      {/* Waveform */}
+      {/* ── Waveform (takes remaining width) ─────────────────────────────── */}
       <View style={styles.waveform}>
-        {VOICE_BARS.map((h, i) => {
-          const isActive = i / VOICE_BARS.length <= progress;
+        {BARS.map((h, i) => {
+          const active = i / BARS.length <= progress;
           return (
             <View
               key={i}
@@ -113,9 +98,9 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
                 styles.bar,
                 {
                   height: h,
-                  backgroundColor: isActive
-                    ? isOwn ? 'rgba(255,255,255,0.9)' : T.ACCENT
-                    : isOwn ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)',
+                  backgroundColor: active
+                    ? (isOwn ? 'rgba(255,255,255,0.88)' : T.ACCENT)
+                    : (isOwn ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.10)'),
                 },
               ]}
             />
@@ -123,10 +108,10 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
         })}
       </View>
 
-      {/* Duration + speed */}
+      {/* ── Duration + speed (stacked, right side) ────────────────────────── */}
       <View style={styles.rightCol}>
         <Text style={[styles.duration, isOwn ? styles.durationOwn : styles.durationOther]}>
-          {formatDuration(isPlaying ? position_secs : duration)}
+          {formatDuration(isPlaying ? positionSecs : duration)}
         </Text>
         <TouchableOpacity onPress={cycleSpeed} hitSlop={8} activeOpacity={0.7}>
           <Text style={[styles.speed, isOwn ? styles.speedOwn : styles.speedOther]}>
@@ -142,11 +127,12 @@ const styles = StyleSheet.create({
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
-    borderRadius: 7,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    maxWidth: 270,
+    gap: 8,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    // Fixed width so waveform has a stable flex:1 context
+    width: 240,
     marginVertical: 1,
   },
   bubbleLeft: {
@@ -163,10 +149,10 @@ const styles = StyleSheet.create({
   },
 
   playBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -177,30 +163,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    height: 24,
+    height: 22,
   },
   bar: {
     flex: 1,
-    borderRadius: 2,
+    borderRadius: 1.5,
     minWidth: 2,
   },
 
   rightCol: {
-    alignItems: 'center',
-    gap: 2,
+    alignItems: 'flex-end',
+    gap: 1,
     flexShrink: 0,
+    minWidth: 30,
   },
   duration: {
     fontSize: 10,
     fontFamily: T.FONT.medium,
   },
-  durationOwn: { color: 'rgba(255,255,255,0.7)' },
+  durationOwn:   { color: 'rgba(255,255,255,0.65)' },
   durationOther: { color: T.TEXT_2 },
   speed: {
     fontSize: 9,
     fontFamily: T.FONT.semibold,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
-  speedOwn: { color: 'rgba(255,255,255,0.45)' },
+  speedOwn:   { color: 'rgba(255,255,255,0.40)' },
   speedOther: { color: T.TEXT_3 },
 });

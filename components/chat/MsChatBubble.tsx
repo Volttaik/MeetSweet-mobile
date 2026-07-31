@@ -1,29 +1,42 @@
 /**
- * MsChatBubble — main bubble router for the Chat component's renderBubble prop.
+ * MsChatBubble — main bubble router for renderBubble in the Chat component.
  *
- * Routes to the appropriate sub-component based on message type:
- *   text      → MsTextBubble (7px radius, dark-gray)
- *   image     → MsMediaCard  (5px radius)
- *   video     → MsMediaCard  (5px radius) with play overlay
- *   audio     → MsVoiceBubble (7px radius with waveform)
- *   document  → MsFileCard   (5px radius)
- *   paid      → wraps any of above with MsPaidOverlay
+ * Routes by message type:
+ *   text      → MsTextBubble
+ *   image/vid → MsMediaCard
+ *   audio     → MsVoiceBubble
+ *   document  → MsFileCard
+ *   paid      → above + MsPaidOverlay
  *
- * Entrance animation: subtle fade + gentle slide-up per bubble.
+ * Max-width lives here (fixed px, not %) so child percentage widths
+ * resolve against the screen, not a chained percentage.
+ *
+ * Entrance animation: opacity + scale (0.97→1) + translateY — 200 ms.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Clock } from 'phosphor-react-native';
 import type { BubbleProps } from '@kesha-antonov/react-native-chat';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
-import { MsTextBubble } from './MsTextBubble';
-import { MsMediaCard } from './MsMediaCard';
-import { MsVoiceBubble } from './MsVoiceBubble';
-import { MsFileCard } from './MsFileCard';
-import { MsPaidOverlay } from './MsPaidOverlay';
-import { MsReactionStrip } from './MsReactionStrip';
+import { MsTextBubble }        from './MsTextBubble';
+import { MsMediaCard }         from './MsMediaCard';
+import { MsVoiceBubble }       from './MsVoiceBubble';
+import { MsFileCard }          from './MsFileCard';
+import { MsPaidOverlay }       from './MsPaidOverlay';
+import { MsReactionStrip }     from './MsReactionStrip';
 import { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
+
+const SCREEN_W   = Dimensions.get('window').width;
+// Fixed pixel max-width avoids percentage-of-percentage sizing bugs
+const MAX_BUBBLE = SCREEN_W * 0.74;
 
 function formatTime(date: Date | number): string {
   const d = typeof date === 'number' ? new Date(date) : date;
@@ -33,28 +46,28 @@ function formatTime(date: Date | number): string {
 interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage'> {
   currentMessage: MsMessage;
   onUnlockPaid?: (message: MsMessage) => Promise<void>;
-  onMediaPress?: (message: MsMessage) => void;
-  onRetry?: (message: MsMessage) => void;
+  onMediaPress?:  (message: MsMessage) => void;
+  onRetry?:       (message: MsMessage) => void;
 }
 
 export function MsChatBubble({
   currentMessage,
   position,
-  onLongPressMessage,
   onUnlockPaid,
   onMediaPress,
   onRetry,
 }: MsChatBubbleProps) {
-  const msg = currentMessage;
+  const msg   = currentMessage;
   const isOwn = position === 'right';
   const [unlocking, setUnlocking] = useState(false);
 
-  // ── Entrance animation: soft fade + 5px slide-up ──────────────────────────
-  const entryAnim = useRef(new Animated.Value(0)).current;
+  // ── Entrance: fade + scale 0.97→1 + 4px slide-up ─────────────────────────
+  const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(entryAnim, {
-      toValue: 1,
-      duration: 180,
+    Animated.timing(anim, {
+      toValue:        1,
+      duration:       200,
+      easing:         Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start();
   }, []);
@@ -66,37 +79,28 @@ export function MsChatBubble({
   const handleUnlock = useCallback(async () => {
     if (!onUnlockPaid || unlocking) return;
     setUnlocking(true);
-    try {
-      await onUnlockPaid(msg);
-    } finally {
-      setUnlocking(false);
-    }
+    try { await onUnlockPaid(msg); } finally { setUnlocking(false); }
   }, [onUnlockPaid, msg, unlocking]);
 
-  const handleMediaPress = useCallback(() => {
-    onMediaPress?.(msg);
-  }, [onMediaPress, msg]);
+  const handleMediaPress = useCallback(() => onMediaPress?.(msg), [onMediaPress, msg]);
+  const handleRetry      = useCallback(() => onRetry?.(msg),      [onRetry, msg]);
 
-  const handleRetry = useCallback(() => {
-    onRetry?.(msg);
-  }, [onRetry, msg]);
-
-  // ── Determine bubble type ──────────────────────────────────────────────────
+  // ── Type detection ─────────────────────────────────────────────────────────
   const mediaType = msg.msMediaType;
-  const hasAudio = mediaType === 'audio' || !!msg.audio;
-  const hasImage = mediaType === 'image' || (!!msg.image && mediaType !== 'video');
-  const hasVideo = mediaType === 'video' || (!!msg.video && mediaType !== 'image');
-  const hasDoc = mediaType === 'document';
-  const isDeleted = msg.msIsDeleted ?? false;
-  const isPaid = msg.msIsPaid ?? false;
-  const isUnlocked = msg.msIsUnlocked ?? false;
-  const shouldShowLock = isPaid && !isUnlocked;
-  const isFailed = msg.sent === false && msg.pending === false;
+  const hasAudio  = mediaType === 'audio'    || !!msg.audio;
+  const hasImage  = mediaType === 'image'    || (!!msg.image && mediaType !== 'video');
+  const hasVideo  = mediaType === 'video'    || (!!msg.video && mediaType !== 'image');
+  const hasDoc    = mediaType === 'document';
+  const isDeleted = msg.msIsDeleted  ?? false;
+  const isPaid    = msg.msIsPaid     ?? false;
+  const isUnlocked= msg.msIsUnlocked ?? false;
+  const showLock  = isPaid && !isUnlocked;
+  const isFailed  = msg.sent === false && msg.pending === false;
 
-  const replyMsg = msg.replyMessage;
+  const replyMsg  = msg.replyMessage;
   const reactions = msg.reactions ?? [];
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Build bubble node ──────────────────────────────────────────────────────
   let bubble: React.ReactNode;
 
   if (isDeleted) {
@@ -110,54 +114,23 @@ export function MsChatBubble({
     );
   } else if (hasAudio) {
     bubble = (
-      <View style={styles.mediaBubbleWrap}>
-        <MsVoiceBubble
-          uri={msg.audio ?? ''}
-          duration={msg.msAudioDuration ?? 0}
-          position={position ?? 'left'}
-        />
-        {shouldShowLock && (
-          <MsPaidOverlay
-            price={msg.msPaidPrice ?? 0}
-            isUnlocking={unlocking}
-            onUnlock={handleUnlock}
-          />
-        )}
+      <View style={styles.mediaWrap}>
+        <MsVoiceBubble uri={msg.audio ?? ''} duration={msg.msAudioDuration ?? 0} position={position ?? 'left'} />
+        {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>
     );
   } else if (hasImage || hasVideo) {
     bubble = (
-      <View style={styles.mediaBubbleWrap}>
-        <MsMediaCard
-          message={msg}
-          position={position ?? 'left'}
-          onPress={handleMediaPress}
-          isLocked={shouldShowLock}
-        />
-        {shouldShowLock && (
-          <MsPaidOverlay
-            price={msg.msPaidPrice ?? 0}
-            isUnlocking={unlocking}
-            onUnlock={handleUnlock}
-          />
-        )}
+      <View style={styles.mediaWrap}>
+        <MsMediaCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} isLocked={showLock} />
+        {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>
     );
   } else if (hasDoc) {
     bubble = (
-      <View style={styles.mediaBubbleWrap}>
-        <MsFileCard
-          message={msg}
-          position={position ?? 'left'}
-          onPress={handleMediaPress}
-        />
-        {shouldShowLock && (
-          <MsPaidOverlay
-            price={msg.msPaidPrice ?? 0}
-            isUnlocking={unlocking}
-            onUnlock={handleUnlock}
-          />
-        )}
+      <View style={styles.mediaWrap}>
+        <MsFileCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} />
+        {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>
     );
   } else {
@@ -175,56 +148,59 @@ export function MsChatBubble({
     );
   }
 
+  const isMedia = !isDeleted && (hasAudio || hasImage || hasVideo || hasDoc);
+
   return (
     <Animated.View
       style={[
         styles.row,
         isOwn ? styles.rowRight : styles.rowLeft,
         {
-          opacity: entryAnim,
+          opacity: anim,
           transform: [
             {
-              translateY: entryAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [5, 0],
+              scale: anim.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [0.97, 1],
+              }),
+            },
+            {
+              translateY: anim.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [4, 0],
               }),
             },
           ],
         },
       ]}
     >
-      <View style={styles.column}>
-        {/* Reply preview inline above bubble */}
+      {/* Fixed-pixel max-width prevents percentage-of-percentage bugs */}
+      <View style={[styles.column, { maxWidth: MAX_BUBBLE }]}>
+
         {replyMsg ? (
           <MsReplyPreviewBubble reply={replyMsg} position={position ?? 'left'} />
         ) : null}
 
-        {/* Main bubble */}
         {bubble}
 
-        {/* Reactions strip below bubble */}
         {reactions.length > 0 ? (
-          <MsReactionStrip
-            reactions={reactions}
-            position={position ?? 'left'}
-          />
+          <MsReactionStrip reactions={reactions} position={position ?? 'left'} />
         ) : null}
 
-        {/* Time for media (text bubbles show time inside) */}
-        {!isDeleted && (hasAudio || hasImage || hasVideo || hasDoc) ? (
-          <View style={[styles.mediaMetaRow, isOwn ? styles.mediaMetaRight : styles.mediaMetaLeft]}>
-            <Text style={styles.mediaTime}>
-              {timeString}
-              {msg.msIsEdited ? ' · edited' : ''}
+        {/* Media meta row — text bubbles show time inside themselves */}
+        {isMedia ? (
+          <View style={[styles.mediaMeta, isOwn ? styles.mediaMetaRight : styles.mediaMetaLeft]}>
+            <Text numberOfLines={1} style={styles.mediaTime}>
+              {timeString}{msg.msIsEdited ? ' · edited' : ''}
             </Text>
-            {msg.pending && isOwn && (
+            {msg.pending && isOwn ? (
               <View style={styles.mediaStatusIcon}>
                 <Clock size={10} color={T.TEXT_3} weight="regular" />
               </View>
-            )}
-            {isFailed && isOwn && (
-              <Text style={styles.failedStatus}>Not delivered</Text>
-            )}
+            ) : null}
+            {isFailed && isOwn ? (
+              <Text style={styles.failedText}>Not delivered</Text>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -237,37 +213,40 @@ const styles = StyleSheet.create({
     marginVertical: 2,
     paddingHorizontal: 6,
   },
-  rowLeft: { alignItems: 'flex-start' },
+  rowLeft:  { alignItems: 'flex-start' },
   rowRight: { alignItems: 'flex-end' },
 
-  column: { maxWidth: '85%' },
+  // column: maxWidth applied inline (dynamic, based on screen width)
+  column: {},
 
-  mediaBubbleWrap: {
-    position: 'relative',
-  },
+  mediaWrap: { position: 'relative' },
 
-  mediaMetaRow: {
+  mediaMeta: {
     flexDirection: 'row',
+    flexWrap: 'nowrap',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 3,
+    gap: 4,
+    marginTop: 2,
     paddingHorizontal: 4,
   },
-  mediaMetaLeft: { justifyContent: 'flex-start' },
+  mediaMetaLeft:  { justifyContent: 'flex-start' },
   mediaMetaRight: { justifyContent: 'flex-end' },
 
   mediaTime: {
     fontSize: 10,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
+    flexShrink: 0,
   },
   mediaStatusIcon: {
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  failedStatus: {
+  failedText: {
     fontSize: 10,
     fontFamily: T.FONT.medium,
     color: '#EF4444',
+    flexShrink: 0,
   },
 });

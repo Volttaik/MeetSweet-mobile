@@ -1,18 +1,27 @@
 /**
  * MsTextBubble — compact modern text message bubble.
- * 6px corner radius, dark-gray theme, phosphor check icons for status.
+ *
+ * Design rules:
+ * • 8px corner radius (3px on the "tail" corner)
+ * • Dark-gray theme — NO pink backgrounds
+ * • Bubble width wraps tightly around its content
+ * • Timestamp + status always on ONE non-wrapping line
+ * • Status icons via phosphor (Clock / Checks)
+ *
+ * Sizing note:
+ * Max-width is owned by the parent MsChatBubble column.
+ * This component does NOT set its own maxWidth so it never
+ * fights the parent for percentage calculations.
  */
 import React from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Check, Checks, Clock } from 'phosphor-react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Checks, Clock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 
-// ── Bubble colours ─────────────────────────────────────────────────────────────
-// Outgoing: elevated ash-shadow gray (not pink)
-const BG_OWN   = '#28282F';
-// Incoming: slightly darker surface
-const BG_OTHER = '#1C1C23';
+// ── Bubble colours (ash-shadow gray, never pink) ───────────────────────────────
+const BG_OWN   = '#28282F'; // outgoing — slightly elevated dark gray
+const BG_OTHER = '#1C1C23'; // incoming — deeper dark gray
 
 interface Props {
   message: MsMessage;
@@ -68,29 +77,32 @@ export function MsTextBubble({
           </>
         )}
 
-        {/* Time + status row inside bubble */}
+        {/* ── Timestamp + status — always ONE horizontal line ──────────────── */}
         {timeString && !isDeleted ? (
           <View style={[styles.meta, isOwn ? styles.metaRight : styles.metaLeft]}>
-            {showEdited && (
-              <Text style={[styles.editedLabel, isOwn ? styles.editedOwn : styles.editedOther]}>
+            {showEdited ? (
+              <Text
+                numberOfLines={1}
+                style={[styles.editedLabel, isOwn ? styles.editedOwn : styles.editedOther]}
+              >
                 edited ·{' '}
               </Text>
-            )}
-            <Text style={[styles.time, isOwn ? styles.timeOwn : styles.timeOther]}>
+            ) : null}
+            {/* numberOfLines + flexShrink prevent "1:25 P\nM" wrapping */}
+            <Text
+              numberOfLines={1}
+              style={[styles.time, isOwn ? styles.timeOwn : styles.timeOther]}
+            >
               {timeString}
             </Text>
-            {isOwn && (
-              <StatusIcon
-                isPending={isPending}
-                isFailed={isFailed}
-                isRead={showReadReceipt}
-              />
-            )}
+            {isOwn ? (
+              <StatusIcon isPending={isPending} isFailed={isFailed} isRead={showReadReceipt} />
+            ) : null}
           </View>
         ) : null}
       </View>
 
-      {/* Failed send — retry affordance */}
+      {/* Failed — retry affordance below bubble */}
       {isFailed && isOwn && onRetry ? (
         <TouchableOpacity style={styles.retryRow} onPress={onRetry} activeOpacity={0.7}>
           <Text style={styles.retryText}>Not delivered · Tap to retry</Text>
@@ -100,7 +112,7 @@ export function MsTextBubble({
   );
 }
 
-// ── Status icon component ──────────────────────────────────────────────────────
+// ── Status icon ────────────────────────────────────────────────────────────────
 function StatusIcon({
   isPending,
   isFailed,
@@ -110,25 +122,26 @@ function StatusIcon({
   isFailed?: boolean;
   isRead?: boolean;
 }) {
-  if (isFailed) return null; // handled by retry row
+  if (isFailed) return null; // retry row handles failed state
   if (isPending) {
     return (
       <View style={styles.statusIcon}>
-        <Clock size={10} color="rgba(255,255,255,0.35)" weight="regular" />
+        <Clock size={10} color="rgba(255,255,255,0.32)" weight="regular" />
       </View>
     );
   }
   if (isRead) {
+    // Blue/accent tint = read
     return (
       <View style={styles.statusIcon}>
-        <Checks size={12} color={T.ACCENT} weight="bold" />
+        <Checks size={11} color={T.ACCENT} weight="bold" />
       </View>
     );
   }
-  // Sent / delivered
+  // Sent / delivered — muted white
   return (
     <View style={styles.statusIcon}>
-      <Checks size={12} color="rgba(255,255,255,0.45)" weight="bold" />
+      <Checks size={11} color="rgba(255,255,255,0.40)" weight="bold" />
     </View>
   );
 }
@@ -136,8 +149,9 @@ function StatusIcon({
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
+    // No maxWidth here — parent MsChatBubble column owns the constraint.
+    // alignSelf collapses width to content.
     marginVertical: 1,
-    maxWidth: '80%',
   },
   containerLeft: {
     alignSelf: 'flex-start',
@@ -149,11 +163,12 @@ const styles = StyleSheet.create({
   },
 
   bubble: {
-    borderRadius: 7,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 6,
-    minWidth: 56,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingTop: 7,
+    paddingBottom: 5,
+    // No minWidth — let content dictate size.
+    // The meta row (time + icon) sets the floor naturally.
   },
   bubbleLeft: {
     backgroundColor: BG_OTHER,
@@ -167,21 +182,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   bubbleFailed: {
-    opacity: 0.65,
+    opacity: 0.60,
   },
 
   text: {
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 19,
     fontFamily: T.FONT.regular,
-    letterSpacing: 0.08,
+    letterSpacing: 0.06,
   },
-  textOwn: {
-    color: '#FFFFFF',
-  },
-  textOther: {
-    color: T.TEXT,
-  },
+  textOwn:   { color: '#FFFFFF' },
+  textOther: { color: T.TEXT },
 
   caption: {
     fontSize: 12,
@@ -189,7 +200,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
     opacity: 0.75,
   },
-  captionOwn: { color: 'rgba(255,255,255,0.8)' },
+  captionOwn:   { color: 'rgba(255,255,255,0.8)' },
   captionOther: { color: T.TEXT_2 },
 
   deletedText: {
@@ -201,31 +212,34 @@ const styles = StyleSheet.create({
 
   meta: {
     flexDirection: 'row',
+    flexWrap: 'nowrap',        // ← prevents timestamp line-break
     alignItems: 'center',
-    marginTop: 3,
+    marginTop: 2,
     gap: 3,
   },
-  metaLeft: { justifyContent: 'flex-start' },
+  metaLeft:  { justifyContent: 'flex-start' },
   metaRight: { justifyContent: 'flex-end' },
 
   time: {
     fontSize: 10,
     fontFamily: T.FONT.regular,
     lineHeight: 13,
+    flexShrink: 0,             // ← never compress the timestamp
   },
-  timeOwn: { color: 'rgba(255,255,255,0.4)' },
+  timeOwn:   { color: 'rgba(255,255,255,0.38)' },
   timeOther: { color: T.TEXT_3 },
 
   editedLabel: {
     fontSize: 10,
     fontFamily: T.FONT.regular,
     fontStyle: 'italic',
+    flexShrink: 0,
   },
-  editedOwn: { color: 'rgba(255,255,255,0.35)' },
+  editedOwn:   { color: 'rgba(255,255,255,0.30)' },
   editedOther: { color: T.TEXT_3 },
 
   statusIcon: {
-    marginLeft: 2,
+    flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
