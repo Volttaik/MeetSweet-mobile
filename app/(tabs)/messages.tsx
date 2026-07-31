@@ -20,6 +20,7 @@ import {
   getConversations,
   searchUsers,
   createConversation,
+  archiveConversation,
   type Conversation,
   type ConversationUser,
 } from '@/services/messages';
@@ -255,9 +256,20 @@ export default function MessagesScreen() {
         );
       },
     },
-    { label: 'Pin Conversation', onPress: () => {} },
-    { label: 'Archive', onPress: () => {} },
-    { label: 'Mute', onPress: () => {} },
+    {
+      label: convo.isArchived ? 'Unarchive' : 'Archive',
+      onPress: async () => {
+        const next = !convo.isArchived;
+        // Optimistic update — remove from current tab view
+        setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+        try {
+          await archiveConversation(convo.id, next);
+        } catch {
+          // Revert on failure
+          setConversations((prev) => [...prev, { ...convo, isArchived: next }]);
+        }
+      },
+    },
     {
       label: 'Delete',
       destructive: true,

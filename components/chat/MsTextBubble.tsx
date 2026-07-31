@@ -4,7 +4,7 @@
  * Used for text-only messages in both Chat and Comments.
  */
 import React from 'react';
-import { StyleSheet, Text, View, Animated } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 
@@ -19,6 +19,12 @@ interface Props {
   timeString?: string;
   /** Show read receipt */
   showReadReceipt?: boolean;
+  /** Message is in-flight (optimistic) */
+  isPending?: boolean;
+  /** Message send failed */
+  isFailed?: boolean;
+  /** Called when user taps Retry on a failed send */
+  onRetry?: () => void;
 }
 
 export function MsTextBubble({
@@ -28,6 +34,9 @@ export function MsTextBubble({
   showDeleted,
   timeString,
   showReadReceipt,
+  isPending,
+  isFailed,
+  onRetry,
 }: Props) {
   const isOwn = position === 'right';
   const isDeleted = showDeleted || message.msIsDeleted;
@@ -39,6 +48,7 @@ export function MsTextBubble({
           styles.bubble,
           isOwn ? styles.bubbleRight : styles.bubbleLeft,
           isDeleted && styles.bubbleDeleted,
+          isFailed && styles.bubbleFailed,
         ]}
       >
         {isDeleted ? (
@@ -70,12 +80,25 @@ export function MsTextBubble({
             <Text style={[styles.time, isOwn ? styles.timeOwn : styles.timeOther]}>
               {timeString}
             </Text>
-            {isOwn && showReadReceipt && (
+            {isOwn && isPending && !isFailed && (
+              <Text style={styles.statusPending}>⏳</Text>
+            )}
+            {isOwn && !isPending && !isFailed && showReadReceipt && (
               <Text style={styles.receipt}>✓✓</Text>
+            )}
+            {isOwn && !isPending && !isFailed && !showReadReceipt && (
+              <Text style={styles.sent}>✓</Text>
             )}
           </View>
         ) : null}
       </View>
+
+      {/* Failed send — retry affordance */}
+      {isFailed && isOwn && onRetry ? (
+        <TouchableOpacity style={styles.retryRow} onPress={onRetry} activeOpacity={0.7}>
+          <Text style={styles.retryText}>⚠ Not delivered · Tap to retry</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -110,6 +133,9 @@ const styles = StyleSheet.create({
   },
   bubbleDeleted: {
     backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  bubbleFailed: {
+    opacity: 0.7,
   },
 
   text: {
@@ -167,7 +193,28 @@ const styles = StyleSheet.create({
 
   receipt: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.9)',
     marginLeft: 2,
+  },
+  sent: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.55)',
+    marginLeft: 2,
+  },
+  statusPending: {
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.4)',
+    marginLeft: 2,
+  },
+
+  retryRow: {
+    marginTop: 4,
+    alignSelf: 'flex-end',
+    paddingHorizontal: 4,
+  },
+  retryText: {
+    fontSize: 11,
+    fontFamily: T.FONT.medium,
+    color: '#EF4444',
   },
 });

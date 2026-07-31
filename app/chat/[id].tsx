@@ -22,9 +22,11 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   Image,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -414,6 +416,31 @@ export default function ChatScreen() {
     else if (msg.image || msg.msMediaType === 'image') setFullscreenImageUri(msg.image ?? null);
   }, []);
 
+  // ── Retry failed send ────────────────────────────────────────────────────────
+  const handleRetry = useCallback(async (failedMsg: MsMessage) => {
+    if (!conversationId || !failedMsg.text) return;
+    // Replace the failed optimistic message with a new pending one
+    const tempId = `temp_${Date.now()}`;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m._id === failedMsg._id
+          ? { ...m, _id: tempId, pending: true, sent: false }
+          : m,
+      ),
+    );
+    try {
+      const res = await sendMessage(conversationId, failedMsg.text);
+      const confirmed = toMsMessage(res.message, user?.id ?? '');
+      setMessages((prev) =>
+        prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
+      );
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+      );
+    }
+  }, [conversationId, user?.id]);
+
   // ── Attachment sheet pick ─────────────────────────────────────────────────────
   const handleAttachmentResult = useCallback((result: AttachmentResult) => {
     setShowAttach(false);
@@ -516,6 +543,7 @@ export default function ChatScreen() {
             onLongPressMessage={handleLongPress}
             onUnlockPaid={handleUnlockPaid}
             onMediaPress={handleMediaPress}
+            onRetry={handleRetry}
           />
         )}
 
@@ -643,27 +671,13 @@ export default function ChatScreen() {
         </Pressable>
       </Modal>
 
-      {/* ── Fullscreen image viewer ──────────────────────────────────────────── */}
-      <Modal
-        visible={!!fullscreenImageUri}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setFullscreenImageUri(null)}
-        statusBarTranslucent
-      >
-        <View style={styles.fullscreenBg}>
-          <TouchableOpacity style={styles.fullscreenClose} onPress={() => setFullscreenImageUri(null)}>
-            <Text style={styles.fullscreenCloseText}>✕</Text>
-          </TouchableOpacity>
-          {fullscreenImageUri ? (
-            <Image
-              source={{ uri: fullscreenImageUri }}
-              style={styles.fullscreenImg}
-              resizeMode="contain"
-            />
-          ) : null}
-        </View>
-      </Modal>
+      {/* ── Fullscreen image viewer (swipe-down to dismiss) ─────────────────── */}
+      {fullscreenImageUri ? (
+        <FullscreenImageViewer
+          uri={fullscreenImageUri}
+          onClose={() => setFullscreenImageUri(null)}
+        />
+      ) : null}
 
       {/* ── Fullscreen video viewer ──────────────────────────────────────────── */}
       <Modal
@@ -688,6 +702,63 @@ export default function ChatScreen() {
         </View>
       </Modal>
     </View>
+  );
+}
+
+// ─── Fullscreen Image Viewer ──────────────────────────────────────────────────
+
+function FullscreenImageViewer({ uri, onClose }: { uri: string; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, gs) => Math.abs(gs.dy) > 8 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onPanResponderMove: (_e, gs) => {
+        if (gs.dy > 0) {
+          translateY.setValue(gs.dy);
+          opacity.setValue(Math.max(0, 1 - gs.dy / 300));
+        }
+      },
+      onPanResponderRelease: (_e, gs) => {
+        if (gs.dy > 90 || gs.vy > 0.8) {
+          Animated.parallel([
+            Animated.timing(translateY, { toValue: Dimensions.get('window').height, duration: 200, useNativeDriver: true }),
+            Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+          ]).start(onClose);
+        } else {
+          Animated.parallel([
+            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 300 }),
+            Animated.spring(opacity, { toValue: 1, useNativeDriver: true, damping: 20, stiffness: 300 }),
+          ]).start();
+        }
+      },
+    }),
+  ).current;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <Animated.View style={[styles.fullscreenBg, { opacity }]}>
+        <TouchableOpacity
+          style={[styles.fullscreenClose, { top: insets.top + 12 }]}
+          onPress={onClose}
+        >
+          <Text style={styles.fullscreenCloseText}>✕</Text>
+        </TouchableOpacity>
+        <Animated.View
+          style={{ transform: [{ translateY }], flex: 1, width: '100%', justifyContent: 'center' }}
+          {...panResponder.panHandlers}
+        >
+          <Image
+            source={{ uri }}
+            style={styles.fullscreenImg}
+            resizeMode="contain"
+          />
+        </Animated.View>
+        <Text style={[styles.swipeHint, { bottom: insets.bottom + 20 }]}>Swipe down to dismiss</Text>
+      </Animated.View>
+    </Modal>
   );
 }
 
@@ -797,13 +868,12 @@ const styles = StyleSheet.create({
 
   fullscreenBg: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.96)',
+    backgroundColor: 'rgba(0,0,0,0.97)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   fullscreenClose: {
     position: 'absolute',
-    top: 52,
     right: 18,
     zIndex: 10,
     width: 40,
@@ -817,5 +887,13 @@ const styles = StyleSheet.create({
   fullscreenImg: {
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height * 0.82,
+  },
+  swipeHint: {
+    position: 'absolute',
+    alignSelf: 'center',
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: 'rgba(255,255,255,0.35)',
+    letterSpacing: 0.3,
   },
 });

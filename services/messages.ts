@@ -70,14 +70,23 @@ function authHeader(token: string): Record<string, string> {
 }
 
 function inferMediaType(raw: any): ChatMessage['mediaType'] {
+  // Check explicit media_type field (sent by client on create)
   const explicit = raw.mediaType ?? raw.media_type;
   if (explicit === 'image' || explicit === 'video' || explicit === 'audio' || explicit === 'document') {
     return explicit;
   }
-  const source = String(raw.mediaUrl ?? raw.media_url ?? '').toLowerCase().split('?')[0];
+  // Backend stores message category as `type`: "text" | "media".
+  // When type==="media" we fall through to URL-based inference below.
+  // No early return for "text"/"media" — they are not media-type values.
+  const mediaUrl = raw.mediaUrl ?? raw.media_url ?? '';
+  if (!mediaUrl) return null;
+  const source = String(mediaUrl).toLowerCase().split('?')[0];
   if (/\.(png|jpe?g|webp|gif|heic)$/.test(source)) return 'image';
   if (/\.(mp4|mov|m4v|webm|3gp|quicktime)$/.test(source)) return 'video';
   if (/\.(mp3|m4a|wav|ogg|oga|webm)$/.test(source)) return 'audio';
+  // If URL has no recognisable extension but the message category is "media",
+  // default to image so the card renders instead of showing nothing.
+  if (raw.type === 'media') return 'image';
   return null;
 }
 
@@ -85,6 +94,9 @@ function inferMediaType(raw: any): ChatMessage['mediaType'] {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeConversation(raw: any): Conversation {
+  // Backend returns snake_case `other_user`; camelCase `otherUser` is a fallback
+  // for any future normalised responses.
+  const ou = raw.other_user ?? raw.otherUser ?? null;
   return {
     id: raw.id,
     lastMessageBody: raw.lastMessageBody ?? raw.last_message_body ?? null,
@@ -93,13 +105,13 @@ function normalizeConversation(raw: any): Conversation {
     isMuted: raw.isMuted ?? raw.is_muted ?? false,
     isArchived: raw.isArchived ?? raw.is_archived ?? false,
     unreadCount: raw.unreadCount ?? raw.unread_count ?? 0,
-    otherUser: raw.otherUser
+    otherUser: ou
       ? {
-          id: raw.otherUser.id,
-          name: raw.otherUser.name ?? raw.otherUser.full_name ?? '',
-          username: raw.otherUser.username ?? '',
-          avatarUrl: raw.otherUser.avatarUrl ?? raw.otherUser.avatar_url ?? null,
-          isVerified: raw.otherUser.isVerified ?? raw.otherUser.is_verified ?? false,
+          id: ou.id,
+          name: ou.name ?? ou.full_name ?? '',
+          username: ou.username ?? '',
+          avatarUrl: ou.avatarUrl ?? ou.avatar_url ?? null,
+          isVerified: ou.isVerified ?? ou.is_verified ?? false,
         }
       : { id: '', name: 'Unknown', username: '', avatarUrl: null, isVerified: false },
   };
@@ -158,11 +170,19 @@ export async function createConversation(
 ): Promise<{ conversationId: string; created: boolean }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  return apiFetch('/conversations', {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ userId }),
-  });
+  // Backend schema: { user_id: string } (snake_case)
+  const raw = await apiFetch<{ conversation_id?: string; conversationId?: string; created?: boolean }>(
+    '/conversations',
+    {
+      method: 'POST',
+      headers: authHeader(token),
+      body: JSON.stringify({ user_id: userId }),
+    },
+  );
+  return {
+    conversationId: raw?.conversation_id ?? raw?.conversationId ?? '',
+    created: raw?.created ?? true,
+  };
 }
 
 export async function getMessages(
@@ -252,12 +272,11 @@ export async function recallMessage(messageId: string): Promise<void> {
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/messages/conversations/${conversationId}/read`, {
-    method: 'POST',
-    headers: authHeader(token),
-  });
+  // No dedicated read-receipt endpoint exists on the current backend.
+  // The conversation's last_read_at is updated via the conversations/[id]/archive
+  // path; a proper read-marking endpoint is tracked for a future backend release.
+  // This function is intentionally a no-op so callers can stay wired without crashing.
+  void conversationId;
 }
 
 export async function archiveConversation(
