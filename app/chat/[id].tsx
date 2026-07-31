@@ -24,6 +24,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Easing,
   Image,
   Modal,
   PanResponder,
@@ -88,9 +89,10 @@ import {
 
 import { MsChatBubble } from '@/components/chat/MsChatBubble';
 import { MsChatInputBar } from '@/components/chat/MsChatInputBar';
+import { MsChatBackground } from '@/components/chat/MsChatBackground';
 import { MsTypingIndicator } from '@/components/chat/MsTypingIndicator';
 import { MsDateSeparator } from '@/components/chat/MsDateSeparator';
-import type { SendPayload } from '@/components/chat/MsChatInputBar';
+import type { SendPayload, PendingVoice } from '@/components/chat/MsChatInputBar';
 import {
   toMsMessage,
   toReplyMessage,
@@ -139,6 +141,28 @@ export default function ChatScreen() {
     id: '', name: '', username: '', avatarUrl: null,
   });
   const [isFollowing, setIsFollowing] = useState(false);
+
+  // ── Context menu animation ────────────────────────────────────────────────────
+  const menuScaleAnim = useRef(new Animated.Value(0)).current;
+  const menuOpacityAnim = useRef(new Animated.Value(0)).current;
+
+  const showMenu = useCallback((msg: MsMessage) => {
+    setMenuMsg(msg);
+    setMenuVisible(true);
+    menuScaleAnim.setValue(0.88);
+    menuOpacityAnim.setValue(0);
+    Animated.parallel([
+      Animated.timing(menuOpacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+      Animated.timing(menuScaleAnim, { toValue: 1, duration: 200, easing: Easing.out(Easing.back(1.3)), useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  const hideMenu = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(menuOpacityAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(menuScaleAnim, { toValue: 0.92, duration: 120, useNativeDriver: true }),
+    ]).start(() => setMenuVisible(false));
+  }, []);
 
   // ── Sheets / modals ──────────────────────────────────────────────────────────
   const [menuMsg, setMenuMsg] = useState<MsMessage | null>(null);
@@ -344,41 +368,40 @@ export default function ChatScreen() {
 
   // ── Long-press menu ───────────────────────────────────────────────────────────
   const handleLongPress = useCallback((_ctx: unknown, msg: MsMessage) => {
-    setMenuMsg(msg);
-    setMenuVisible(true);
-  }, []);
+    showMenu(msg);
+  }, [showMenu]);
 
   const handleDelete = useCallback(async () => {
     if (!menuMsg) return;
-    setMenuVisible(false);
+    hideMenu();
     const id = String(menuMsg._id);
     setMessages((prev) => prev.filter((m) => m._id !== menuMsg._id));
     await deleteCachedMessage(id).catch(() => {});
     try { await deleteMessage(id); } catch {/* */}
     setMenuMsg(null);
-  }, [menuMsg, conversationId]);
+  }, [menuMsg, hideMenu]);
 
   const handleEdit = useCallback(() => {
     if (!menuMsg) return;
-    setMenuVisible(false);
+    hideMenu();
     setEditingMsg(menuMsg);
     setInputText(menuMsg.text ?? '');
     setMenuMsg(null);
-  }, [menuMsg]);
+  }, [menuMsg, hideMenu]);
 
   const handleCopy = useCallback(async () => {
     if (!menuMsg?.text) return;
-    setMenuVisible(false);
+    hideMenu();
     await ExpoClipboard.setStringAsync(menuMsg.text);
     setMenuMsg(null);
-  }, [menuMsg]);
+  }, [menuMsg, hideMenu]);
 
   const handleMenuReply = useCallback(() => {
     if (!menuMsg) return;
-    setMenuVisible(false);
+    hideMenu();
     setReplyMessage(toReplyMessage(menuMsg));
     setMenuMsg(null);
-  }, [menuMsg]);
+  }, [menuMsg, hideMenu]);
 
   // ── Reaction handler ──────────────────────────────────────────────────────────
   const handleReaction = useCallback((msg: MsMessage, emoji: string) => {
@@ -444,6 +467,17 @@ export default function ChatScreen() {
     }
   }, [conversationId, user?.id]);
 
+  // ── Voice ready — show preview before sending ─────────────────────────────────
+  const handleVoiceReady = useCallback((voice: PendingVoice) => {
+    setPendingAttachment({
+      uri: voice.uri,
+      type: 'voice',
+      mimeType: 'audio/m4a',
+      fileName: 'voice-note.m4a',
+      duration: voice.duration,
+    });
+  }, []);
+
   // ── Attachment sheet pick ─────────────────────────────────────────────────────
   const handleAttachmentResult = useCallback((result: AttachmentResult) => {
     setShowAttach(false);
@@ -479,6 +513,7 @@ export default function ChatScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: T.BG }]}>
+      <MsChatBackground />
       <StatusBar barStyle="light-content" />
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
@@ -567,6 +602,7 @@ export default function ChatScreen() {
             text={inputText}
             onChangeText={setInputText}
             onSend={handleSend}
+            onVoiceReady={handleVoiceReady}
             replyMessage={replyMessage}
             onClearReply={() => setReplyMessage(null)}
             editingMessage={editingMsg}
@@ -628,16 +664,17 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* ── Long-press context menu ──────────────────────────────────────────── */}
+      {/* ── Long-press context menu (scale + fade animation) ─────────────────── */}
       <Modal
         visible={menuVisible}
         transparent
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
+        animationType="none"
+        onRequestClose={hideMenu}
         statusBarTranslucent
       >
-        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
-          <View style={styles.menuCard}>
+        <Animated.View style={[styles.menuOverlay, { opacity: menuOpacityAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={hideMenu} />
+          <Animated.View style={[styles.menuCard, { transform: [{ scale: menuScaleAnim }] }]}>
             {/* Quick reactions */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.reactRow}>
               {QUICK_REACTIONS.map((emoji) => (
@@ -646,7 +683,7 @@ export default function ChatScreen() {
                   style={styles.reactBtn}
                   onPress={() => {
                     if (menuMsg) handleReaction(menuMsg, emoji);
-                    setMenuVisible(false);
+                    hideMenu();
                     setMenuMsg(null);
                   }}
                 >
@@ -670,8 +707,8 @@ export default function ChatScreen() {
                 onPress={handleDelete}
               />
             )}
-          </View>
-        </Pressable>
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* ── Fullscreen image viewer (swipe-down to dismiss) ─────────────────── */}
@@ -827,7 +864,7 @@ const styles = StyleSheet.create({
   },
 
   msgContainer: {
-    backgroundColor: T.BG,
+    backgroundColor: 'transparent',
     paddingHorizontal: 0,
   },
 
