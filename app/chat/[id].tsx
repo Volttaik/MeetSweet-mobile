@@ -235,6 +235,7 @@ export default function ChatScreen() {
 
     // ── Text message ─────────────────────────────────────────────────────────
     if (payload.text) {
+      const capturedReply = replyMessage;
       const optimistic: MsMessage = {
         _id: tempId,
         text: payload.text,
@@ -242,13 +243,15 @@ export default function ChatScreen() {
         user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
         sent: false,
         pending: true,
-        replyMessage: replyMessage ?? undefined,
+        replyMessage: capturedReply ?? undefined,
       };
       setMessages((prev) => Chat.append(prev, [optimistic]));
       setReplyMessage(null);
       setInputText('');
       try {
-        const res = await sendMessage(conversationId, payload.text);
+        const res = await sendMessage(conversationId, payload.text, undefined, undefined, {
+          replyToId: capturedReply ? String(capturedReply._id) : undefined,
+        });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
           prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),

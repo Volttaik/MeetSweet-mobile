@@ -1,15 +1,25 @@
 /**
  * MsCommentsSheet — YouTube-style comments section.
  *
- * Reuses shared chat components (MsTextBubble, MsComposer) for consistent
- * visual language across comments and chat.
+ * Every API call is wired to a real backend route via services/comments.ts.
+ *
+ * Backend routes used:
+ *   GET    /posts/:id/comments                          — load comment list
+ *   POST   /posts/:id/comments { body }                 — create comment
+ *   DELETE /posts/:id/comments/:commentId               — delete own comment
+ *   POST   /posts/:id/comments/:commentId/like          — like a comment
+ *   DELETE /posts/:id/comments/:commentId/like          — unlike a comment
+ *   GET    /posts/:id/comments/:commentId/replies       — load replies
+ *   POST   /posts/:id/comments/:commentId/replies       — post a reply
  *
  * Inline preview: shows the 2 most recent comments + "View all X comments" row.
- * Full sheet: all comments in a bottom-sheet modal with the MsComposer pinned at bottom.
+ * Full sheet: all comments in a bottom-sheet modal with MsComposer pinned at bottom.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
   FlatList,
   Modal,
   Pressable,
@@ -18,28 +28,25 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { ArrowBendUpLeft, Heart, X } from 'phosphor-react-native';
+import { ArrowBendUpLeft, Heart, Trash, X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsComposer } from '@/components/MsComposer';
 import { MsAvatar } from '@/components/MsAvatar';
 import { T } from '@/constants/theme';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetch } from '@/services/api';
+import {
+  getComments,
+  createComment,
+  deleteComment,
+  likeComment,
+  unlikeComment,
+  getReplies,
+  createReply,
+  type Comment,
+  type CommentReply,
+} from '@/services/comments';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Comment {
-  id: string;
-  authorName: string;
-  authorHandle: string;
-  avatarUrl: string | null;
-  text: string;
-  timestamp: string;
-  likes: number;
-  likedByMe: boolean;
-  replyTo?: string | null;
-}
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,131 +72,251 @@ function nameInitials(name: string): string {
   return (name ?? '??').substring(0, 2).toUpperCase();
 }
 
-function normalizeComment(raw: any): Comment {
-  const name = raw.author?.full_name ?? raw.author?.name ?? raw.authorName ?? 'User';
-  const username = raw.author?.username ?? raw.authorHandle?.replace('@', '') ?? '';
-  return {
-    id: raw.id ?? String(Math.random()),
-    authorName: name,
-    authorHandle: username ? `@${username}` : '',
-    avatarUrl: raw.author?.avatar_url ?? raw.author?.avatarUrl ?? null,
-    text: raw.body ?? raw.text ?? raw.content ?? '',
-    timestamp: fmtTimeAgo(raw.created_at ?? raw.createdAt),
-    likes: raw.like_count ?? raw.likes ?? 0,
-    likedByMe: raw.liked_by_me ?? raw.likedByMe ?? false,
-    replyTo: raw.reply_to ?? raw.replyTo ?? null,
-  };
-}
+// ─── Comment data hook ────────────────────────────────────────────────────────
 
 function useComments(postId: string) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await getComments(postId);
+      setComments(res.comments);
+    } catch {
+      setError('Could not load comments');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [postId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { comments, setComments, isLoading, error, refresh };
+}
+
+// ─── Replies sub-thread ───────────────────────────────────────────────────────
+
+function RepliesThread({
+  postId,
+  commentId,
+}: {
+  postId: string;
+  commentId: string;
+}) {
+  const { user } = useAuth();
+  const [replies, setReplies] = useState<CommentReply[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const token = await AsyncStorage.getItem('@ms_access_token');
-        const headers: Record<string, string> = {};
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const raw = await apiFetch<{ comments: unknown[] }>(
-          `/posts/${postId}/comments`,
-          { headers },
-        );
-        if (cancelled) return;
-        const list = Array.isArray(raw?.comments) ? raw.comments.map(normalizeComment) : [];
-        setComments(list);
-      } catch {
-        if (!cancelled) setComments([]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+        const res = await getReplies(postId, commentId);
+        if (!cancelled) setReplies(res.replies);
+      } catch {/* */} finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [postId]);
+  }, [postId, commentId]);
 
-  return { comments, setComments, isLoading };
+  const handleSendReply = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
+    const tempId = `local_${Date.now()}`;
+    const optimistic: CommentReply = {
+      id: tempId,
+      body,
+      likeCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      author: {
+        id: user?.id ?? '',
+        name: user?.name ?? 'You',
+        username: user?.username ?? '',
+        avatarUrl: user?.avatarUrl ?? null,
+      },
+    };
+    setReplies((prev) => [...prev, optimistic]);
+    setText('');
+    try {
+      const res = await createReply(postId, commentId, body);
+      setReplies((prev) => prev.map((r) => r.id === tempId ? res.reply : r));
+    } catch {
+      setReplies((prev) => prev.filter((r) => r.id !== tempId));
+      Alert.alert('Error', 'Could not post reply. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (loading) {
+    return <ActivityIndicator size="small" color={T.TEXT_3} style={{ marginVertical: 8, marginLeft: 44 }} />;
+  }
+
+  return (
+    <View style={replyStyles.wrap}>
+      {replies.map((r) => (
+        <View key={r.id} style={replyStyles.row}>
+          <MsAvatar size={26} initials={nameInitials(r.author.name)} imageUri={r.author.avatarUrl ?? undefined} />
+          <View style={replyStyles.body}>
+            <View style={replyStyles.header}>
+              <Text style={replyStyles.name}>{r.author.name}</Text>
+              <Text style={replyStyles.time}>{fmtTimeAgo(r.createdAt)}</Text>
+            </View>
+            <View style={replyStyles.bubble}>
+              <Text style={replyStyles.text}>{r.body}</Text>
+            </View>
+          </View>
+        </View>
+      ))}
+      {/* Reply composer */}
+      <View style={replyStyles.composerRow}>
+        <MsComposer
+          mode="comment"
+          value={text}
+          onChangeText={setText}
+          onSend={handleSendReply}
+          placeholder="Write a reply…"
+          disabled={sending}
+        />
+      </View>
+    </View>
+  );
 }
+
+const replyStyles = StyleSheet.create({
+  wrap: { marginLeft: 44, marginTop: 4, marginBottom: 8 },
+  row: { flexDirection: 'row', gap: 8, paddingVertical: 6 },
+  body: { flex: 1, gap: 3 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 11 },
+  time: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
+  bubble: {
+    backgroundColor: T.SURFACE_2,
+    borderRadius: 14,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    alignSelf: 'flex-start',
+  },
+  text: { color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 12, lineHeight: 18 },
+  composerRow: { marginTop: 4 },
+});
 
 // ─── Single comment row ───────────────────────────────────────────────────────
 
 function CommentRow({
   comment,
+  postId,
+  currentUserId,
   onLike,
-  onReply,
+  onUnlike,
+  onDelete,
   showDivider = true,
 }: {
   comment: Comment;
-  onLike?: (id: string) => void;
-  onReply?: (comment: Comment) => void;
+  postId: string;
+  currentUserId: string;
+  onLike: (id: string) => void;
+  onUnlike: (id: string) => void;
+  onDelete: (id: string) => void;
   showDivider?: boolean;
 }) {
+  const [showReplies, setShowReplies] = useState(false);
+
+  // Animate entrance
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+  }, []);
+
+  const isOwn = comment.author.id === currentUserId;
+
   return (
-    <View style={[rowStyles.wrap, showDivider && rowStyles.divider]}>
-      {/* Avatar */}
-      <MsAvatar
-        size={34}
-        initials={nameInitials(comment.authorName)}
-        imageUri={comment.avatarUrl ?? undefined}
-      />
+    <Animated.View style={{ opacity: fadeAnim }}>
+      <View style={[rowStyles.wrap, showDivider && rowStyles.divider]}>
+        {/* Avatar */}
+        <MsAvatar
+          size={34}
+          initials={nameInitials(comment.author.name)}
+          imageUri={comment.author.avatarUrl ?? undefined}
+        />
 
-      {/* Content */}
-      <View style={rowStyles.body}>
-        {/* Reply-to context */}
-        {comment.replyTo && (
-          <View style={rowStyles.replyContext}>
-            <ArrowBendUpLeft size={10} color={T.ACCENT} />
-            <Text style={rowStyles.replyContextText} numberOfLines={1}>
-              {comment.replyTo}
-            </Text>
-          </View>
-        )}
-
-        {/* Header */}
-        <View style={rowStyles.header}>
-          <Text style={rowStyles.name}>{comment.authorName}</Text>
-          {!!comment.authorHandle && (
-            <Text style={rowStyles.handle}>{comment.authorHandle}</Text>
-          )}
-          <Text style={rowStyles.time}>{comment.timestamp}</Text>
-        </View>
-
-        {/* Text — reuses the pill-bubble design language */}
-        <View style={rowStyles.textBubble}>
-          <Text style={rowStyles.text}>{comment.text}</Text>
-        </View>
-
-        {/* Actions */}
-        <View style={rowStyles.actions}>
-          <TouchableOpacity
-            style={rowStyles.actionBtn}
-            onPress={() => onLike?.(comment.id)}
-            hitSlop={8}
-            activeOpacity={0.7}
-          >
-            <Heart
-              size={14}
-              color={comment.likedByMe ? T.ACCENT : T.TEXT_3}
-              weight={comment.likedByMe ? 'fill' : 'regular'}
-            />
-            {comment.likes > 0 && (
-              <Text style={[rowStyles.likeCount, comment.likedByMe && rowStyles.likeCountActive]}>
-                {comment.likes}
-              </Text>
+        {/* Content */}
+        <View style={rowStyles.body}>
+          {/* Header */}
+          <View style={rowStyles.header}>
+            <Text style={rowStyles.name}>{comment.author.name}</Text>
+            {!!comment.author.username && (
+              <Text style={rowStyles.handle}>@{comment.author.username}</Text>
             )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={rowStyles.actionBtn}
-            onPress={() => onReply?.(comment)}
-            hitSlop={8}
-            activeOpacity={0.7}
-          >
-            <ArrowBendUpLeft size={14} color={T.TEXT_3} />
-            <Text style={rowStyles.replyLabel}>Reply</Text>
-          </TouchableOpacity>
+            <Text style={rowStyles.time}>{fmtTimeAgo(comment.createdAt)}</Text>
+            {isOwn && (
+              <TouchableOpacity
+                onPress={() => onDelete(comment.id)}
+                hitSlop={8}
+                style={rowStyles.deleteBtn}
+              >
+                <Trash size={12} color={T.TEXT_3} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Text bubble */}
+          <View style={rowStyles.textBubble}>
+            <Text style={rowStyles.text}>{comment.body}</Text>
+          </View>
+
+          {/* Actions */}
+          <View style={rowStyles.actions}>
+            <TouchableOpacity
+              style={rowStyles.actionBtn}
+              onPress={() => comment.likedByMe ? onUnlike(comment.id) : onLike(comment.id)}
+              hitSlop={8}
+              activeOpacity={0.7}
+            >
+              <Heart
+                size={14}
+                color={comment.likedByMe ? T.ACCENT : T.TEXT_3}
+                weight={comment.likedByMe ? 'fill' : 'regular'}
+              />
+              {comment.likeCount > 0 && (
+                <Text style={[rowStyles.likeCount, comment.likedByMe && rowStyles.likeCountActive]}>
+                  {comment.likeCount}
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={rowStyles.actionBtn}
+              onPress={() => setShowReplies((v) => !v)}
+              hitSlop={8}
+              activeOpacity={0.7}
+            >
+              <ArrowBendUpLeft size={14} color={T.TEXT_3} />
+              <Text style={rowStyles.replyLabel}>
+                {showReplies
+                  ? 'Hide replies'
+                  : comment.replyCount > 0
+                    ? `${comment.replyCount} ${comment.replyCount === 1 ? 'reply' : 'replies'}`
+                    : 'Reply'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Replies sub-thread */}
+          {showReplies && (
+            <RepliesThread postId={postId} commentId={comment.id} />
+          )}
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -205,23 +332,11 @@ const rowStyles = StyleSheet.create({
     borderBottomColor: T.BORDER,
   },
   body: { flex: 1, gap: 4 },
-  replyContext: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 2,
-  },
-  replyContextText: {
-    fontSize: 10,
-    fontFamily: T.FONT.regular,
-    color: T.ACCENT,
-    flex: 1,
-  },
   header: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12 },
   handle: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
   time: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10, marginLeft: 'auto' },
-  // Pill-shaped text area — consistent with MsTextBubble styling
+  deleteBtn: { padding: 2 },
   textBubble: {
     backgroundColor: T.SURFACE_2,
     borderRadius: 16,
@@ -259,46 +374,124 @@ function CommentsModal({
   visible,
   onClose,
   postId,
-  totalCount,
 }: {
   visible: boolean;
   onClose: () => void;
   postId: string;
-  totalCount: number;
 }) {
   const insets = useSafeAreaInsets();
-  const { comments, setComments, isLoading } = useComments(postId);
+  const { user } = useAuth();
+  const { comments, setComments, isLoading, error, refresh } = useComments(postId);
   const [text, setText] = useState('');
-  const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [sending, setSending] = useState(false);
 
-  const handleSend = async () => {
-    if (!text.trim()) return;
-    const newComment: Comment = {
-      id: `local_${Date.now()}`,
-      authorName: 'You',
-      authorHandle: '',
-      avatarUrl: null,
-      text: text.trim(),
-      timestamp: 'just now',
-      likes: 0,
-      likedByMe: false,
-      replyTo: replyTo?.authorName ?? null,
-    };
-    setComments((prev) => [newComment, ...prev]);
+  const currentUserId = user?.id ?? '';
+
+  // ── Create comment ─────────────────────────────────────────────────────────
+  const handleSend = useCallback(async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
     setText('');
-    setReplyTo(null);
-    // TODO: call createComment API
-  };
+    // Optimistic local comment — will be replaced by server response
+    const tempId = `local_${Date.now()}`;
+    const optimistic: Comment = {
+      id: tempId,
+      body,
+      isPinned: false,
+      likeCount: 0,
+      replyCount: 0,
+      likedByMe: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      author: {
+        id: user?.id ?? '',
+        name: user?.name ?? 'You',
+        username: user?.username ?? '',
+        avatarUrl: user?.avatarUrl ?? null,
+      },
+    };
+    setComments((prev) => [optimistic, ...prev]);
+    try {
+      const res = await createComment(postId, body);
+      // Replace temp with real comment from server
+      setComments((prev) => prev.map((c) => c.id === tempId ? res.comment : c));
+    } catch {
+      // Remove optimistic comment on failure
+      setComments((prev) => prev.filter((c) => c.id !== tempId));
+      Alert.alert('Error', 'Could not post comment. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  }, [text, sending, postId, user, setComments]);
 
-  const handleLike = (id: string) => {
+  // ── Like comment ────────────────────────────────────────────────────────────
+  const handleLike = useCallback(async (commentId: string) => {
+    // Optimistic
     setComments((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, likedByMe: !c.likedByMe, likes: c.likes + (c.likedByMe ? -1 : 1) }
-          : c,
-      ),
+      prev.map((c) => c.id === commentId
+        ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 }
+        : c),
     );
-  };
+    try {
+      const res = await likeComment(postId, commentId);
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c),
+      );
+    } catch {
+      // Revert on failure
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId
+          ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) }
+          : c),
+      );
+    }
+  }, [postId, setComments]);
+
+  // ── Unlike comment ──────────────────────────────────────────────────────────
+  const handleUnlike = useCallback(async (commentId: string) => {
+    // Optimistic
+    setComments((prev) =>
+      prev.map((c) => c.id === commentId
+        ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) }
+        : c),
+    );
+    try {
+      const res = await unlikeComment(postId, commentId);
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c),
+      );
+    } catch {
+      // Revert on failure
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId
+          ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 }
+          : c),
+      );
+    }
+  }, [postId, setComments]);
+
+  // ── Delete comment ──────────────────────────────────────────────────────────
+  const handleDelete = useCallback((commentId: string) => {
+    Alert.alert('Delete comment', 'Remove this comment?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          // Optimistic removal
+          setComments((prev) => prev.filter((c) => c.id !== commentId));
+          try {
+            await deleteComment(postId, commentId);
+          } catch {
+            // On failure refresh the list to restore the comment
+            refresh();
+            Alert.alert('Error', 'Could not delete comment.');
+          }
+        },
+      },
+    ]);
+  }, [postId, setComments, refresh]);
 
   return (
     <Modal
@@ -317,7 +510,7 @@ function CommentsModal({
           {/* Header */}
           <View style={modalStyles.header}>
             <Text style={modalStyles.title}>Comments</Text>
-            <Text style={modalStyles.count}>{totalCount}</Text>
+            <Text style={modalStyles.count}>{comments.length}</Text>
             <TouchableOpacity onPress={onClose} hitSlop={12} style={modalStyles.closeBtn}>
               <X size={18} color={T.TEXT_2} />
             </TouchableOpacity>
@@ -326,6 +519,13 @@ function CommentsModal({
           {/* List */}
           {isLoading ? (
             <ActivityIndicator style={modalStyles.loader} color={T.TEXT_3} />
+          ) : error ? (
+            <View style={modalStyles.emptyWrap}>
+              <Text style={modalStyles.emptyText}>{error}</Text>
+              <TouchableOpacity onPress={refresh} style={modalStyles.retryBtn}>
+                <Text style={modalStyles.retryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <FlatList
               data={comments}
@@ -333,9 +533,12 @@ function CommentsModal({
               renderItem={({ item, index }) => (
                 <CommentRow
                   comment={item}
+                  postId={postId}
+                  currentUserId={currentUserId}
                   showDivider={index < comments.length - 1}
                   onLike={handleLike}
-                  onReply={(c) => setReplyTo(c)}
+                  onUnlike={handleUnlike}
+                  onDelete={handleDelete}
                 />
               )}
               contentContainerStyle={modalStyles.listContent}
@@ -355,8 +558,8 @@ function CommentsModal({
               value={text}
               onChangeText={setText}
               onSend={handleSend}
-              placeholder={replyTo ? `Reply to ${replyTo.authorName}…` : 'Add a comment…'}
-              replyTo={replyTo ? { authorName: replyTo.authorName, onDismiss: () => setReplyTo(null) } : null}
+              placeholder="Add a comment…"
+              disabled={sending}
             />
           </View>
         </View>
@@ -408,8 +611,15 @@ const modalStyles = StyleSheet.create({
   },
   loader: { marginTop: 40 },
   listContent: { paddingBottom: 8, paddingTop: 4 },
-  emptyWrap: { paddingVertical: 40, alignItems: 'center' },
+  emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 12 },
   emptyText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 14 },
+  retryBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.pill,
+  },
+  retryText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13 },
   composerWrap: {
     borderTopWidth: 1,
     borderTopColor: T.BORDER,
@@ -425,20 +635,66 @@ interface MsCommentsSectionProps {
 }
 
 export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectionProps) {
+  const { user } = useAuth();
   const { comments, setComments, isLoading } = useComments(postId);
   const [modalOpen, setModalOpen] = useState(false);
   const totalCount = comments.length;
   const preview = comments.slice(0, previewCount);
 
-  const handleLike = (id: string) => {
+  const currentUserId = user?.id ?? '';
+
+  const handleLike = useCallback(async (commentId: string) => {
     setComments((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, likedByMe: !c.likedByMe, likes: c.likes + (c.likedByMe ? -1 : 1) }
-          : c,
-      ),
+      prev.map((c) => c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c),
     );
-  };
+    try {
+      const res = await likeComment(postId, commentId);
+      setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c));
+    } catch {
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c),
+      );
+    }
+  }, [postId, setComments]);
+
+  const handleUnlike = useCallback(async (commentId: string) => {
+    setComments((prev) =>
+      prev.map((c) => c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c),
+    );
+    try {
+      const res = await unlikeComment(postId, commentId);
+      setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c));
+    } catch {
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c),
+      );
+    }
+  }, [postId, setComments]);
+
+  const handleDelete = useCallback((commentId: string) => {
+    Alert.alert('Delete comment', 'Remove this comment?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          setComments((prev) => prev.filter((c) => c.id !== commentId));
+          try { await deleteComment(postId, commentId); } catch {/* */}
+        },
+      },
+    ]);
+  }, [postId, setComments]);
+
+  if (isLoading) {
+    return (
+      <View style={sectionStyles.wrap}>
+        <View style={sectionStyles.header}>
+          <Text style={sectionStyles.title}>💬 Comments</Text>
+        </View>
+        <ActivityIndicator style={{ marginVertical: 24 }} color={T.TEXT_3} />
+      </View>
+    );
+  }
 
   return (
     <View style={sectionStyles.wrap}>
@@ -451,15 +707,20 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         <CommentRow
           key={c.id}
           comment={c}
+          postId={postId}
+          currentUserId={currentUserId}
           showDivider={i < preview.length - 1}
           onLike={handleLike}
-          onReply={() => setModalOpen(true)}
+          onUnlike={handleUnlike}
+          onDelete={handleDelete}
         />
       ))}
 
       <TouchableOpacity style={sectionStyles.viewAll} onPress={() => setModalOpen(true)} activeOpacity={0.7}>
         <Text style={sectionStyles.viewAllText}>
-          View all {totalCount.toLocaleString()} comments
+          {totalCount > previewCount
+            ? `View all ${totalCount.toLocaleString()} comments`
+            : 'Add a comment…'}
         </Text>
       </TouchableOpacity>
 
@@ -467,7 +728,6 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         visible={modalOpen}
         onClose={() => setModalOpen(false)}
         postId={postId}
-        totalCount={totalCount}
       />
     </View>
   );

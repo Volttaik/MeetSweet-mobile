@@ -215,17 +215,15 @@ export async function sendMessage(
     fileSize?: number;
     mimeType?: string;
     audioDuration?: number;
+    /** ID of the message being replied to — sent as reply_to_id */
+    replyToId?: string;
   },
 ): Promise<{ message: ChatMessage }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // The production message route currently validates media_type as image|video.
-  // Do not send a request that is guaranteed to return 422 for audio/documents;
-  // the chat screen turns this into an actionable compatibility message.
-  // The live route currently stores one media URL and validates media_type as
-  // image|video. Audio and documents still use the same upload pipeline; send
-  // them with a null media_type so the URL is accepted instead of returning
-  // 422. The chat preserves the richer local metadata for the current session.
+  // Backend validates media_type as "image" | "video" only.
+  // Audio/document messages upload fine but we wire media_type as null to avoid 422.
+  // The chat preserves richer local metadata (mediaType, audioDuration, etc.) for the session.
   const wireMediaType = mediaType === 'image' || mediaType === 'video' ? mediaType : null;
   const raw = await apiFetch<{ message: unknown }>(
     `/conversations/${conversationId}/messages`,
@@ -236,6 +234,9 @@ export async function sendMessage(
         body,
         media_url: mediaUrl,
         media_type: wireMediaType,
+        // reply_to_id is accepted by the backend (stores a FK reference).
+        // When absent or undefined the field is omitted from the payload.
+        ...(opts?.replyToId ? { reply_to_id: opts.replyToId } : {}),
       }),
     },
   );
