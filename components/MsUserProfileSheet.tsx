@@ -6,12 +6,9 @@
  * a "View Full Profile" CTA. Swipe-to-dismiss enabled.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import {
-  Animated,
-  Modal,
   PanResponder,
-  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,6 +19,7 @@ import { ArrowRight, CheckCircle, UserPlus, X } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
+import { MsGlassSheet } from '@/components/MsGlassSheet';
 
 export interface ProfileSheetUser {
   id: string;
@@ -67,40 +65,6 @@ export function MsUserProfileSheet({
   onClose,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(400)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        damping: 22,
-        stiffness: 200,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: 400,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [visible]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_, g) => {
-        if (g.dy > 0) slideAnim.setValue(g.dy);
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dy > 80 || g.vy > 0.5) {
-          onClose();
-        } else {
-          Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 200 }).start();
-        }
-      },
-    }),
-  ).current;
 
   if (!user) return null;
 
@@ -115,87 +79,73 @@ export function MsUserProfileSheet({
   };
 
   return (
-    <Modal
+    <MsGlassSheet
       visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
+      onClose={onClose}
+      extraBottomPad={8}
+      surfaceStyle={{ paddingHorizontal: 20, paddingTop: 0 }}
     >
-      <Pressable style={s.backdrop} onPress={onClose} />
-      <Animated.View
-        style={[
-          s.sheet,
-          { paddingBottom: Math.max(insets.bottom, 24) },
-          { transform: [{ translateY: slideAnim }] },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        {/* Drag handle */}
-        <View style={s.dragHandle} />
+      {/* Close button */}
+      <TouchableOpacity style={s.closeBtn} onPress={onClose} activeOpacity={0.7}>
+        <X size={16} color={T.TEXT_2} />
+      </TouchableOpacity>
 
-        {/* Close button */}
-        <TouchableOpacity style={s.closeBtn} onPress={onClose} activeOpacity={0.7}>
-          <X size={16} color={T.TEXT_2} />
-        </TouchableOpacity>
-
-        {/* Avatar + name */}
-        <View style={s.profileSection}>
-          <MsAvatar
-            size={72}
-            initials={initials(user.name)}
-            imageUri={user.avatarUrl ?? undefined}
-          />
-          <View style={s.nameRow}>
-            <Text style={s.displayName}>{user.name}</Text>
-            {user.isVerified && (
-              <CheckCircle size={18} color={T.ACCENT} weight="fill" />
-            )}
-          </View>
-          <Text style={s.usernameText}>@{user.username}</Text>
-        </View>
-
-        {/* Stats row */}
-        {(user.followerCount !== undefined || user.followingCount !== undefined) && (
-          <View style={s.statsRow}>
-            <View style={s.stat}>
-              <Text style={s.statNum}>{fmtCount(user.followerCount)}</Text>
-              <Text style={s.statLabel}>Followers</Text>
-            </View>
-            <View style={s.statDivider} />
-            <View style={s.stat}>
-              <Text style={s.statNum}>{fmtCount(user.followingCount)}</Text>
-              <Text style={s.statLabel}>Following</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Bio */}
-        {user.bio ? (
-          <Text style={s.bio} numberOfLines={3}>{user.bio}</Text>
-        ) : null}
-
-        {/* Action buttons */}
-        <View style={s.actions}>
-          {(onFollow || onUnfollow) && (
-            <TouchableOpacity
-              style={[s.actionBtn, isFollowing ? s.actionBtnOutline : s.actionBtnFill]}
-              onPress={handleFollowToggle}
-              activeOpacity={0.8}
-            >
-              <UserPlus size={16} color={isFollowing ? T.TEXT_2 : '#fff'} />
-              <Text style={[s.actionBtnText, isFollowing && s.actionBtnTextOutline]}>
-                {isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            </TouchableOpacity>
+      {/* Avatar + name */}
+      <View style={s.profileSection}>
+        <MsAvatar
+          size={72}
+          initials={initials(user.name)}
+          imageUri={user.avatarUrl ?? undefined}
+        />
+        <View style={s.nameRow}>
+          <Text style={s.displayName}>{user.name}</Text>
+          {user.isVerified && (
+            <CheckCircle size={18} color={T.ACCENT} weight="fill" />
           )}
-          <TouchableOpacity style={s.viewProfileBtn} onPress={handleViewProfile} activeOpacity={0.8}>
-            <Text style={s.viewProfileText}>View Full Profile</Text>
-            <ArrowRight size={16} color={T.TEXT} />
-          </TouchableOpacity>
         </View>
-      </Animated.View>
-    </Modal>
+        <Text style={s.usernameText}>@{user.username}</Text>
+      </View>
+
+      {/* Stats row */}
+      {(user.followerCount !== undefined || user.followingCount !== undefined) && (
+        <View style={s.statsRow}>
+          <View style={s.stat}>
+            <Text style={s.statNum}>{fmtCount(user.followerCount)}</Text>
+            <Text style={s.statLabel}>Followers</Text>
+          </View>
+          <View style={s.statDivider} />
+          <View style={s.stat}>
+            <Text style={s.statNum}>{fmtCount(user.followingCount)}</Text>
+            <Text style={s.statLabel}>Following</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Bio */}
+      {user.bio ? (
+        <Text style={s.bio} numberOfLines={3}>{user.bio}</Text>
+      ) : null}
+
+      {/* Action buttons */}
+      <View style={[s.actions, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        {(onFollow || onUnfollow) && (
+          <TouchableOpacity
+            style={[s.actionBtn, isFollowing ? s.actionBtnOutline : s.actionBtnFill]}
+            onPress={handleFollowToggle}
+            activeOpacity={0.8}
+          >
+            <UserPlus size={16} color={isFollowing ? T.TEXT_2 : '#fff'} />
+            <Text style={[s.actionBtnText, isFollowing && s.actionBtnTextOutline]}>
+              {isFollowing ? 'Following' : 'Follow'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={s.viewProfileBtn} onPress={handleViewProfile} activeOpacity={0.8}>
+          <Text style={s.viewProfileText}>View Full Profile</Text>
+          <ArrowRight size={16} color={T.TEXT} />
+        </TouchableOpacity>
+      </View>
+    </MsGlassSheet>
   );
 }
 

@@ -1,25 +1,23 @@
 /**
- * MsEmojiPicker — animated bottom-sheet emoji keyboard.
- * Category tabs use @expo/vector-icons (Ionicons) instead of unicode glyphs.
+ * MsEmojiPicker — glassmorphic animated emoji keyboard.
+ * Category tabs use @expo/vector-icons (Ionicons).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
   Dimensions,
   FlatList,
-  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { T } from '@/constants/theme';
+import { MsGlassSheet } from '@/components/MsGlassSheet';
 
 const { height: SCREEN_H } = Dimensions.get('window');
-const SHEET_H = SCREEN_H * 0.45;
+const SHEET_H = SCREEN_H * 0.46;
 const CELL_SIZE = Math.floor((Dimensions.get('window').width - 16) / 8);
 
 // ─── Emoji data ────────────────────────────────────────────────────────────────
@@ -139,111 +137,56 @@ interface Props {
 }
 
 export function MsEmojiPicker({ visible, onClose, onEmojiSelect }: Props) {
-  const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(SHEET_H)).current;
   const [activeCat, setActiveCat] = useState(0);
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 200,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: SHEET_H,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [visible]);
 
   const currentEmojis = CATEGORIES[activeCat]?.emojis ?? [];
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
-      <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View
-        style={[
-          s.sheet,
-          { paddingBottom: Math.max(insets.bottom, 8) },
-          { transform: [{ translateY: slideAnim }] },
-        ]}
-      >
-        {/* Handle */}
-        <View style={s.handle} />
+    <MsGlassSheet visible={visible} onClose={onClose} fixedHeight={SHEET_H}>
+      {/* Category tabs — Ionicons */}
+      <FlatList
+        data={CATEGORIES}
+        keyExtractor={(_, i) => String(i)}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.catList}
+        renderItem={({ item, index }) => (
+          <TouchableOpacity
+            style={[s.catBtn, activeCat === index && s.catBtnActive]}
+            onPress={() => setActiveCat(index)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={item.icon}
+              size={20}
+              color={activeCat === index ? T.ACCENT : T.TEXT_2}
+            />
+          </TouchableOpacity>
+        )}
+      />
 
-        {/* Category tabs — Ionicons */}
-        <FlatList
-          data={CATEGORIES}
-          keyExtractor={(_, i) => String(i)}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.catList}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              style={[s.catBtn, activeCat === index && s.catBtnActive]}
-              onPress={() => setActiveCat(index)}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={item.icon}
-                size={20}
-                color={activeCat === index ? T.ACCENT : T.TEXT_2}
-              />
-            </TouchableOpacity>
-          )}
-        />
-
-        {/* Emoji grid */}
-        <FlatList
-          data={currentEmojis}
-          keyExtractor={(e) => e}
-          numColumns={8}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={s.emojiGrid}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={s.emojiCell}
-              onPress={() => onEmojiSelect(item)}
-              activeOpacity={0.7}
-            >
-              <Text style={s.emojiText}>{item}</Text>
-            </TouchableOpacity>
-          )}
-        />
-      </Animated.View>
-    </Modal>
+      {/* Emoji grid */}
+      <FlatList
+        data={currentEmojis}
+        keyExtractor={(e) => e}
+        numColumns={8}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.emojiGrid}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={s.emojiCell}
+            onPress={() => onEmojiSelect(item)}
+            activeOpacity={0.7}
+          >
+            <Text style={s.emojiText}>{item}</Text>
+          </TouchableOpacity>
+        )}
+      />
+    </MsGlassSheet>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-  },
-  sheet: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    height: SHEET_H,
-    backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  handle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: T.BORDER_2,
-    alignSelf: 'center',
-    marginTop: 10, marginBottom: 8,
-  },
   catList: { paddingHorizontal: 8, gap: 4, paddingBottom: 6 },
   catBtn: {
     width: 38, height: 38,

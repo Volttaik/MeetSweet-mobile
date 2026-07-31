@@ -307,9 +307,21 @@ export default function ChatScreen() {
         setUploadingMedia(true);
         const uploaded = await uploadMedia(uri, 'audio/m4a');
         const res = await sendMessage(conversationId, undefined, uploaded.url, 'audio', { audioDuration: duration });
+        // Server returns media_type: null for audio — preserve local audio metadata.
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
+          prev.map((m) =>
+            m._id === tempId
+              ? {
+                  ...confirmed,
+                  msMediaType: 'audio' as const,
+                  audio: confirmed.audio ?? uploaded.url,
+                  msAudioDuration: duration,
+                  pending: false,
+                  sent: true,
+                }
+              : m,
+          ),
         );
       } catch {
         setMessages((prev) =>
@@ -325,9 +337,68 @@ export default function ChatScreen() {
   const handleAttachmentConfirmed = useCallback(async (confirmed: ConfirmedAttachment) => {
     setPendingAttachment(null);
     if (!conversationId) return;
-    const { uri, type: mediaType, isPaid, paidPrice } = confirmed;
+    const { uri, type: attachType, isPaid, paidPrice } = confirmed;
     const tempId = `temp_${Date.now()}`;
     const now = new Date();
+
+    // ── Voice / audio from MsAttachmentPreview ────────────────────────────
+    // Voice notes (type==='voice') and uploaded audio files (type==='audio')
+    // must always be treated as audio — never as video.
+    if (attachType === 'voice' || attachType === 'audio') {
+      const duration = confirmed.duration ?? 0;
+      const optimistic: MsMessage = {
+        _id: tempId,
+        text: '',
+        createdAt: now,
+        user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
+        audio: uri,
+        msMediaType: 'audio',
+        msAudioDuration: duration,
+        sent: false,
+        pending: true,
+      };
+      setMessages((prev) => Chat.append(prev, [optimistic]));
+      try {
+        setUploadingMedia(true);
+        // Always upload with correct audio MIME — never video/mp4
+        const mime = confirmed.mimeType?.startsWith('audio/') ? confirmed.mimeType : 'audio/m4a';
+        const uploaded = await uploadMedia(uri, mime);
+        const res = await sendMessage(
+          conversationId,
+          undefined,
+          uploaded.url,
+          'audio',
+          { audioDuration: duration },
+        );
+        // Server sends back media_type: null for audio (backend only accepts image/video).
+        // Preserve local audio metadata so the bubble always renders as voice.
+        const conf = toMsMessage(res.message, user?.id ?? '');
+        setMessages((prev) =>
+          prev.map((m) =>
+            m._id === tempId
+              ? {
+                  ...conf,
+                  msMediaType: 'audio' as const,
+                  audio: conf.audio ?? uploaded.url,
+                  msAudioDuration: duration,
+                  pending: false,
+                  sent: true,
+                }
+              : m,
+          ),
+        );
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+        );
+      } finally {
+        setUploadingMedia(false);
+      }
+      return;
+    }
+
+    // ── Image / Video ──────────────────────────────────────────────────────
+    const mediaType = attachType as 'image' | 'video' | 'document';
     const optimistic: MsMessage = {
       _id: tempId,
       text: confirmed.caption ?? '',

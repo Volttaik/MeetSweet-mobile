@@ -1,23 +1,19 @@
 /**
- * MsAttachmentSheet — animated attachment menu bottom sheet.
- * All options are functional. Location and audio placeholders removed.
- * Audio files are picked via DocumentPicker. Images/videos via ImagePicker.
+ * MsAttachmentSheet — glassmorphic attachment menu bottom sheet.
+ * Premium glass design: blur, soft border, spring animation.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import {
   Alert,
   Animated,
-  Dimensions,
-  Modal,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Haptics from 'expo-haptics';
 import {
   Image as ImageIcon,
   Video,
@@ -26,8 +22,8 @@ import {
   Waveform,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
-
-const { height: SCREEN_H } = Dimensions.get('window');
+import { MsGlassSheet } from '@/components/MsGlassSheet';
+import { MsPressable } from '@/components/MsPressable';
 
 export interface AttachmentResult {
   type: 'image' | 'video' | 'audio' | 'document';
@@ -45,28 +41,10 @@ interface Props {
 }
 
 export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
-  const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(320)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 200,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: 320,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [visible]);
 
   const pickImage = async () => {
     onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission required', 'Please allow access to your photo library.');
@@ -91,6 +69,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
 
   const pickVideo = async () => {
     onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission required', 'Please allow access to your photo library.');
@@ -117,6 +96,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
 
   const launchCamera = async () => {
     onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission required', 'Please allow access to your camera.');
@@ -141,6 +121,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
 
   const pickAudio = async () => {
     onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await new Promise((r) => setTimeout(r, 300));
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -163,6 +144,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
 
   const pickDocument = async () => {
     onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await new Promise((r) => setTimeout(r, 300));
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -192,92 +174,54 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
   ];
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
-      <TouchableOpacity style={s.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View
-        style={[
-          s.sheet,
-          { paddingBottom: Math.max(insets.bottom, 16) },
-          { transform: [{ translateY: slideAnim }] },
-        ]}
-      >
-        <View style={s.handle} />
-        <Text style={s.title}>Share</Text>
-        <View style={s.grid}>
-          {OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt.label}
-              style={s.item}
-              onPress={opt.onPress}
-              activeOpacity={0.75}
-            >
-              <View style={[s.iconWrap, { backgroundColor: `${opt.color}22` }]}>
-                <opt.icon size={24} color={opt.color} />
-              </View>
-              <Text style={s.itemLabel}>{opt.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </Animated.View>
-    </Modal>
+    <MsGlassSheet visible={visible} onClose={onClose}>
+      <Text style={s.title}>Share</Text>
+      <View style={s.grid}>
+        {OPTIONS.map((opt) => (
+          <MsPressable
+            key={opt.label}
+            style={s.item}
+            onPress={opt.onPress}
+            scale={0.88}
+          >
+            <View style={[s.iconWrap, { backgroundColor: `${opt.color}22` }]}>
+              <opt.icon size={26} color={opt.color} weight="duotone" />
+            </View>
+            <Text style={s.itemLabel}>{opt.label}</Text>
+          </MsPressable>
+        ))}
+      </View>
+    </MsGlassSheet>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  sheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    paddingHorizontal: 20,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.BORDER_2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
   title: {
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: T.FONT.bold,
     color: T.TEXT,
-    marginBottom: 20,
+    marginBottom: 24,
+    letterSpacing: 0.2,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
+    gap: 12,
+    paddingBottom: 8,
   },
   item: {
     width: '28%',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   iconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   itemLabel: {
     fontSize: 12,

@@ -55,6 +55,7 @@ import {
   X,
 } from 'phosphor-react-native';
 import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import { T } from '@/constants/theme';
 import type { ReplyMessage } from '@kesha-antonov/react-native-chat';
 import type { MsMessage } from '@/types/chat-message';
@@ -82,6 +83,51 @@ const LOCK_THRESHOLD_Y   = -52;  // px upward to lock
 const CANCEL_THRESHOLD_X = -72;  // px leftward to cancel
 const ICON_ANIM_MS       = 180;
 const WAVEFORM_BARS      = 16;
+
+// ─── Animated pressable icon ──────────────────────────────────────────────────
+
+function IconBtn({
+  onPress,
+  disabled,
+  style,
+  children,
+}: {
+  onPress?: () => void;
+  disabled?: boolean;
+  style?: any;
+  children: React.ReactNode;
+}) {
+  const scaleA = useRef(new Animated.Value(1)).current;
+  const pressIn = () => {
+    Animated.spring(scaleA, {
+      toValue: 0.84,
+      useNativeDriver: true,
+      damping: 14,
+      stiffness: 320,
+    }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scaleA, {
+      toValue: 1,
+      useNativeDriver: true,
+      damping: 12,
+      stiffness: 260,
+    }).start();
+  };
+  return (
+    <Animated.View style={[{ transform: [{ scale: scaleA }] }, style]}>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        activeOpacity={1}
+        disabled={disabled}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -142,7 +188,6 @@ export function MsChatInputBar({
   const [recSeconds, setRecSeconds] = useState(0);
 
   // ── Mutable recording state — safe to read inside PanResponder closures ───
-  // (React state is stale inside closures; refs are always current.)
   const recRef = useRef<{
     state:          RecordingState;
     recording:      Audio.Recording | null;
@@ -163,7 +208,63 @@ export function MsChatInputBar({
     setRecState(s);
   };
 
-  // ── Hint animations (safe to call from PanResponder) ─────────────────────
+  // ── Mic button press animation ─────────────────────────────────────────────
+  const micPressScale = useRef(new Animated.Value(1)).current;
+  const micGlowAnim   = useRef(new Animated.Value(0)).current;
+
+  const animateMicPressIn = () => {
+    Animated.parallel([
+      Animated.spring(micPressScale, {
+        toValue: 0.88,
+        useNativeDriver: true,
+        damping: 12,
+        stiffness: 300,
+      }),
+      Animated.timing(micGlowAnim, {
+        toValue: 1,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const animateMicPressOut = () => {
+    Animated.parallel([
+      Animated.spring(micPressScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 10,
+        stiffness: 220,
+      }),
+      Animated.timing(micGlowAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // ── Send button press animation ────────────────────────────────────────────
+  const sendPressScale = useRef(new Animated.Value(1)).current;
+
+  const animateSendPress = () => {
+    Animated.sequence([
+      Animated.spring(sendPressScale, {
+        toValue: 0.86,
+        useNativeDriver: true,
+        damping: 10,
+        stiffness: 320,
+      }),
+      Animated.spring(sendPressScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 8,
+        stiffness: 240,
+      }),
+    ]).start();
+  };
+
+  // ── Hint animations ────────────────────────────────────────────────────────
   const lockHintAnim   = useRef(new Animated.Value(0)).current;
   const cancelHintAnim = useRef(new Animated.Value(0)).current;
   const lockedAnim     = useRef(new Animated.Value(0)).current;
@@ -195,7 +296,7 @@ export function MsChatInputBar({
     barAnims.forEach((a) => a.setValue(1));
   };
 
-  // ── Core recording actions — plain functions (no useCallback needed) ──────
+  // ── Core recording actions ─────────────────────────────────────────────────
 
   const _startRecording = async () => {
     try {
@@ -207,6 +308,10 @@ export function MsChatInputBar({
       );
       recRef.current.recording = recording;
       recRef.current.seconds   = 0;
+
+      // Haptic + glow feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      Animated.timing(micGlowAnim, { toValue: 1, duration: 160, useNativeDriver: true }).start();
 
       // Reset hint anims
       lockHintAnim.setValue(0);
@@ -232,6 +337,7 @@ export function MsChatInputBar({
       recRef.current.intervalId = null;
     }
     stopPulse();
+    animateMicPressOut();
 
     const rec = recRef.current.recording;
     recRef.current.recording = null;
@@ -242,6 +348,7 @@ export function MsChatInputBar({
     try {
       await rec.stopAndUnloadAsync();
       if (!cancel) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         const uri    = rec.getURI();
         const status = await rec.getStatusAsync();
         const dur    = Math.floor((status.durationMillis ?? 0) / 1000);
@@ -252,12 +359,15 @@ export function MsChatInputBar({
             onSend({ voice: { uri, duration: dur } });
           }
         }
+      } else {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       }
     } catch {/* ignore */}
   };
 
   const _lockRecording = () => {
     syncState('locked');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     Animated.timing(lockedAnim, {
       toValue: 1,
       duration: 220,
@@ -266,17 +376,24 @@ export function MsChatInputBar({
     }).start();
   };
 
-  // ── PanResponder (always mounted, manages full touch lifecycle) ───────────
+  // ── PanResponder ──────────────────────────────────────────────────────────
   const panResponder = useRef(
     PanResponder.create({
-      // Claim responder on touch start (for the mic button area)
       onStartShouldSetPanResponder: () => true,
-      // Keep the responder during movement (important for swipe gestures)
       onMoveShouldSetPanResponder: (_e, _gs) => recRef.current.state !== 'idle',
 
       onPanResponderGrant: () => {
         if (recRef.current.state !== 'idle') return;
-        // Start long-press timer — fires startRecording after LONG_PRESS_DELAY
+        // Visual press-in immediately
+        Animated.spring(micPressScale, {
+          toValue: 0.88,
+          useNativeDriver: true,
+          damping: 12,
+          stiffness: 300,
+        }).start();
+        Animated.timing(micGlowAnim, { toValue: 0.6, duration: 100, useNativeDriver: true }).start();
+        Haptics.selectionAsync().catch(() => {});
+
         recRef.current.longPressTimer = setTimeout(() => {
           recRef.current.longPressTimer = null;
           _startRecording();
@@ -286,11 +403,9 @@ export function MsChatInputBar({
       onPanResponderMove: (_e, gs) => {
         if (recRef.current.state !== 'active') return;
 
-        // Lock hint (swipe up)
         const lockProgress = Math.min(1, Math.max(0, -gs.dy / Math.abs(LOCK_THRESHOLD_Y)));
         lockHintAnim.setValue(lockProgress);
 
-        // Cancel hint (swipe left, only when not going up)
         if (gs.dy > -20) {
           const cancelProgress = Math.min(1, Math.max(0, -gs.dx / Math.abs(CANCEL_THRESHOLD_X)));
           cancelHintAnim.setValue(cancelProgress);
@@ -298,11 +413,12 @@ export function MsChatInputBar({
       },
 
       onPanResponderRelease: (_e, gs) => {
-        // Cancel pending long-press if released before it fired
         if (recRef.current.longPressTimer) {
           clearTimeout(recRef.current.longPressTimer);
           recRef.current.longPressTimer = null;
-          return; // short tap — not a long press, do nothing
+          // Short tap — reset press anim
+          animateMicPressOut();
+          return;
         }
 
         if (recRef.current.state !== 'active') return;
@@ -317,11 +433,11 @@ export function MsChatInputBar({
       },
 
       onPanResponderTerminate: () => {
-        // System interrupted the gesture (e.g. incoming call)
         if (recRef.current.longPressTimer) {
           clearTimeout(recRef.current.longPressTimer);
           recRef.current.longPressTimer = null;
         }
+        animateMicPressOut();
         if (recRef.current.state === 'active') {
           _stopRecording(true);
         }
@@ -341,6 +457,8 @@ export function MsChatInputBar({
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    animateSendPress();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onSend({ text: trimmed });
     onChangeText('');
   }, [text, onSend, onChangeText]);
@@ -386,8 +504,6 @@ export function MsChatInputBar({
   }
 
   // ── ACTIVE / IDLE recording state ─────────────────────────────────────────
-  // The mic button (with PanResponder) always stays in the same layout position.
-  // The pill area changes content based on recState, but the mic button tree is stable.
   return (
     <View style={s.root}>
 
@@ -429,9 +545,9 @@ export function MsChatInputBar({
 
         {/* Attach — hidden during active recording */}
         {recState === 'idle' ? (
-          <TouchableOpacity style={s.sideBtn} onPress={onAttachPress} activeOpacity={0.7} disabled={disabled}>
+          <IconBtn style={s.sideBtn} onPress={onAttachPress} disabled={disabled}>
             <Paperclip size={22} color={T.TEXT_2} />
-          </TouchableOpacity>
+          </IconBtn>
         ) : (
           <View style={s.sideBtn} />
         )}
@@ -454,9 +570,9 @@ export function MsChatInputBar({
         ) : (
           /* ── Normal input pill ──────────────────────────────────────────── */
           <View style={s.pill}>
-            <TouchableOpacity style={s.pillIcon} onPress={onEmojiPress} activeOpacity={0.7} disabled={disabled}>
+            <IconBtn style={s.pillIcon} onPress={onEmojiPress} disabled={disabled}>
               <Smiley size={22} color={T.TEXT_2} />
-            </TouchableOpacity>
+            </IconBtn>
             <TextInput
               value={text}
               onChangeText={onChangeText}
@@ -475,19 +591,27 @@ export function MsChatInputBar({
           </View>
         )}
 
-        {/* Right button area — always the same layout position */}
+        {/* Right button area */}
         <View style={s.rightBtnWrap}>
 
           {/* Send button (visible when has text) */}
           {recState === 'idle' ? (
             <Animated.View
-              style={[s.btnAbsolute, { opacity: sendAnim, transform: [{ scale: sendAnim }] }]}
+              style={[
+                s.btnAbsolute,
+                {
+                  opacity: sendAnim,
+                  transform: [
+                    { scale: Animated.multiply(sendAnim, sendPressScale) },
+                  ],
+                },
+              ]}
               pointerEvents={hasText ? 'auto' : 'none'}
             >
               <TouchableOpacity
                 style={[s.rightBtn, s.actionBtn, isEditing && s.actionBtnEdit]}
                 onPress={handleSend}
-                activeOpacity={0.8}
+                activeOpacity={0.9}
                 disabled={!hasText || disabled}
               >
                 <PaperPlaneTilt size={20} color="#fff" weight="fill" />
@@ -514,12 +638,24 @@ export function MsChatInputBar({
                 </Animated.View>
               ) : null}
 
-              {/* The mic view with PanResponder — never unmounts while mic is shown */}
-              <View
+              {/* Mic glow ring (visible during press / recording) */}
+              {recState === 'idle' && (
+                <Animated.View
+                  style={[
+                    s.micGlow,
+                    { opacity: micGlowAnim },
+                  ]}
+                  pointerEvents="none"
+                />
+              )}
+
+              {/* The mic view with PanResponder */}
+              <Animated.View
                 style={[
                   s.rightBtn,
                   s.actionBtn,
                   recState === 'active' && s.actionBtnRec,
+                  recState === 'idle' && { transform: [{ scale: micPressScale }] },
                 ]}
                 {...panResponder.panHandlers}
               >
@@ -527,7 +663,7 @@ export function MsChatInputBar({
                   ? <View style={s.recDotSmall} />
                   : <Microphone size={20} color="#fff" weight="fill" />
                 }
-              </View>
+              </Animated.View>
             </Animated.View>
           ) : null}
         </View>
@@ -678,6 +814,18 @@ const s = StyleSheet.create({
   },
   actionBtnRec:  { backgroundColor: '#EF4444', shadowColor: '#EF4444' },
   actionBtnEdit: { backgroundColor: T.SUCCESS,  shadowColor: T.SUCCESS  },
+
+  // Mic glow ring
+  micGlow: {
+    position: 'absolute',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: T.ACCENT,
+    top: -8,
+    left: -8,
+    zIndex: -1,
+  },
 
   // Lock hint (above mic during active recording)
   lockHint: {
