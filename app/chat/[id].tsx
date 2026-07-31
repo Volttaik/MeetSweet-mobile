@@ -37,6 +37,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ExpoClipboard from 'expo-clipboard';
@@ -59,7 +60,7 @@ import {
 
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
-import { MsEmojiPicker } from '@/components/MsEmojiPicker';
+
 import { MsAttachmentSheet } from '@/components/MsAttachmentSheet';
 import type { AttachmentResult } from '@/components/MsAttachmentSheet';
 import { MsAttachmentPreview } from '@/components/MsAttachmentPreview';
@@ -167,7 +168,6 @@ export default function ChatScreen() {
   // ── Sheets / modals ──────────────────────────────────────────────────────────
   const [menuMsg, setMenuMsg] = useState<MsMessage | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
-  const [showEmoji, setShowEmoji] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
@@ -234,6 +234,33 @@ export default function ChatScreen() {
     setLoadingMore(false);
   }, [hasMore, loadingMore, messages, loadMessages]);
 
+  // ── Camera press — direct camera launch ──────────────────────────────────────
+  const handleCameraPress = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow camera access to take photos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images', 'videos'],
+        quality: 0.85,
+        allowsEditing: false,
+      });
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        handleAttachmentResult({
+          uri: asset.uri,
+          type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+          mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
+          fileName: asset.fileName ?? (asset.type === 'video' ? 'video.mp4' : 'photo.jpg'),
+        });
+      }
+    } catch {
+      // user cancelled or camera unavailable
+    }
+  }, []);
+
   // ── Send handler ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async (payload: SendPayload) => {
     if (!conversationId) return;
@@ -256,6 +283,58 @@ export default function ChatScreen() {
 
     const tempId = `temp_${Date.now()}`;
     const now = new Date();
+
+    // ── Sticker (emoji sent as text) ─────────────────────────────────────────
+    if (payload.sticker) {
+      const optimistic: MsMessage = {
+        _id: tempId,
+        text: payload.sticker,
+        createdAt: now,
+        user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
+        sent: false,
+        pending: true,
+      };
+      setMessages((prev) => Chat.append(prev, [optimistic]));
+      try {
+        const res = await sendMessage(conversationId, payload.sticker);
+        const confirmed = toMsMessage(res.message, user?.id ?? '');
+        setMessages((prev) =>
+          prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
+        );
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+        );
+      }
+      return;
+    }
+
+    // ── GIF (sent as image message with the remote URL) ───────────────────────
+    if (payload.gifUrl) {
+      const optimistic: MsMessage = {
+        _id: tempId,
+        text: '',
+        createdAt: now,
+        user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
+        image: payload.gifUrl,
+        msMediaType: 'image',
+        sent: false,
+        pending: true,
+      };
+      setMessages((prev) => Chat.append(prev, [optimistic]));
+      try {
+        const res = await sendMessage(conversationId, payload.gifTitle ?? '', payload.gifUrl, 'image');
+        const confirmed = toMsMessage(res.message, user?.id ?? '');
+        setMessages((prev) =>
+          prev.map((m) => m._id === tempId ? { ...confirmed, image: payload.gifUrl, pending: false, sent: true } : m),
+        );
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+        );
+      }
+      return;
+    }
 
     // ── Text message ─────────────────────────────────────────────────────────
     if (payload.text) {
@@ -678,8 +757,8 @@ export default function ChatScreen() {
             onClearReply={() => setReplyMessage(null)}
             editingMessage={editingMsg}
             onCancelEdit={() => { setEditingMsg(null); setInputText(''); }}
-            onEmojiPress={() => setShowEmoji(true)}
             onAttachPress={() => setShowAttach(true)}
+            onCameraPress={handleCameraPress}
             disabled={uploadingMedia}
           />
         )}
@@ -688,18 +767,6 @@ export default function ChatScreen() {
 
         messagesContainerStyle={styles.msgContainer}
       />
-
-      {/* ── Emoji picker ─────────────────────────────────────────────────────── */}
-      {showEmoji && (
-        <MsEmojiPicker
-          visible={showEmoji}
-          onClose={() => setShowEmoji(false)}
-          onEmojiSelect={(emoji) => {
-            setInputText((t) => t + emoji);
-            setShowEmoji(false);
-          }}
-        />
-      )}
 
       {/* ── Attachment sheet ─────────────────────────────────────────────────── */}
       {showAttach && (
