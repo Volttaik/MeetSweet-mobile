@@ -32,3 +32,4 @@
 - [Shared video player migration complete](shared-video-player-migration.md) — all surfaces use MsVideoPlayer; fillContainer+onClose props added; chat bubble uses MsVideoThumbnail; no raw expo-av Video outside MsVideoPlayer/MsVideoThumbnail.
 - [Video lifecycle & fullscreen](video-lifecycle-fullscreen.md) — background playback fix (useFocusEffect+active prop); true fullscreen (absoluteFill root, dual StatusBar hide); free orientation via unlockAsync.
 - [Video system final polish pass](video-polish-pass.md) — buffer-clear-on-first-play fix, shimmer replacing spinners, orientation picker suspends auto-hide timer via callback.
+- [Chat system rebuild](chat-system-rebuild.md) — @kesha-antonov/react-native-chat + @shopify/flash-list installed; MsMessage extends IMessage; shared components in components/chat/; MsChatBubble routes to pill/card/voice/file; audio reactions/typing not yet wired to backend.

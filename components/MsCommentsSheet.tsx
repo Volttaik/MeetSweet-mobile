@@ -1,47 +1,47 @@
 /**
  * MsCommentsSheet — YouTube-style comments section.
  *
- * Inline preview: shows the 2 most recent comments + "View all X comments" tappable row.
- * Full sheet: all comments in a bottom-sheet modal with the MsComposer pinned at the bottom.
+ * Reuses shared chat components (MsTextBubble, MsComposer) for consistent
+ * visual language across comments and chat.
  *
- * Usage:
- *   <MsCommentsSection postId="…" previewCount={2} />
+ * Inline preview: shows the 2 most recent comments + "View all X comments" row.
+ * Full sheet: all comments in a bottom-sheet modal with the MsComposer pinned at bottom.
  */
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Heart, X } from 'phosphor-react-native';
+import { ArrowBendUpLeft, Heart, X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsComposer } from '@/components/MsComposer';
 import { MsAvatar } from '@/components/MsAvatar';
 import { T } from '@/constants/theme';
 
-// ─── Comment data ─────────────────────────────────────────────────────────────
-// Fetches real comments from GET /api/posts/:id/comments.
-// Falls back to an empty list with a graceful empty state.
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '@/services/api';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Comment {
   id: string;
   authorName: string;
   authorHandle: string;
-  authorInitials: string;
+  avatarUrl: string | null;
   text: string;
   timestamp: string;
   likes: number;
   likedByMe: boolean;
+  replyTo?: string | null;
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTimeAgo(iso: string | undefined | null): string {
   if (!iso) return '';
@@ -49,15 +49,14 @@ function fmtTimeAgo(iso: string | undefined | null): string {
   if (diffMs < 0) return 'just now';
   const mins = Math.floor(diffMs / 60_000);
   if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs}h`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days}d`;
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
+  if (weeks < 5) return `${weeks}w`;
+  return `${Math.floor(days / 30)}mo`;
 }
 
 function nameInitials(name: string): string {
@@ -66,7 +65,6 @@ function nameInitials(name: string): string {
   return (name ?? '??').substring(0, 2).toUpperCase();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeComment(raw: any): Comment {
   const name = raw.author?.full_name ?? raw.author?.name ?? raw.authorName ?? 'User';
   const username = raw.author?.username ?? raw.authorHandle?.replace('@', '') ?? '';
@@ -74,11 +72,12 @@ function normalizeComment(raw: any): Comment {
     id: raw.id ?? String(Math.random()),
     authorName: name,
     authorHandle: username ? `@${username}` : '',
-    authorInitials: nameInitials(name),
+    avatarUrl: raw.author?.avatar_url ?? raw.author?.avatarUrl ?? null,
     text: raw.body ?? raw.text ?? raw.content ?? '',
     timestamp: fmtTimeAgo(raw.created_at ?? raw.createdAt),
     likes: raw.like_count ?? raw.likes ?? 0,
     likedByMe: raw.liked_by_me ?? raw.likedByMe ?? false,
+    replyTo: raw.reply_to ?? raw.replyTo ?? null,
   };
 }
 
@@ -101,7 +100,6 @@ function useComments(postId: string) {
         const list = Array.isArray(raw?.comments) ? raw.comments.map(normalizeComment) : [];
         setComments(list);
       } catch {
-        // Backend may not have this endpoint yet — show empty state
         if (!cancelled) setComments([]);
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -110,7 +108,7 @@ function useComments(postId: string) {
     return () => { cancelled = true; };
   }, [postId]);
 
-  return { comments, isLoading };
+  return { comments, setComments, isLoading };
 }
 
 // ─── Single comment row ───────────────────────────────────────────────────────
@@ -118,36 +116,78 @@ function useComments(postId: string) {
 function CommentRow({
   comment,
   onLike,
+  onReply,
   showDivider = true,
 }: {
   comment: Comment;
   onLike?: (id: string) => void;
+  onReply?: (comment: Comment) => void;
   showDivider?: boolean;
 }) {
   return (
     <View style={[rowStyles.wrap, showDivider && rowStyles.divider]}>
-      <MsAvatar size={32} initials={comment.authorInitials} />
+      {/* Avatar */}
+      <MsAvatar
+        size={34}
+        initials={nameInitials(comment.authorName)}
+        imageUri={comment.avatarUrl ?? undefined}
+      />
+
+      {/* Content */}
       <View style={rowStyles.body}>
+        {/* Reply-to context */}
+        {comment.replyTo && (
+          <View style={rowStyles.replyContext}>
+            <ArrowBendUpLeft size={10} color={T.ACCENT} />
+            <Text style={rowStyles.replyContextText} numberOfLines={1}>
+              {comment.replyTo}
+            </Text>
+          </View>
+        )}
+
+        {/* Header */}
         <View style={rowStyles.header}>
           <Text style={rowStyles.name}>{comment.authorName}</Text>
+          {!!comment.authorHandle && (
+            <Text style={rowStyles.handle}>{comment.authorHandle}</Text>
+          )}
           <Text style={rowStyles.time}>{comment.timestamp}</Text>
         </View>
-        <Text style={rowStyles.text}>{comment.text}</Text>
-        <TouchableOpacity
-          style={rowStyles.likeRow}
-          onPress={() => onLike?.(comment.id)}
-          hitSlop={8}
-          activeOpacity={0.7}
-        >
-          <Heart
-            size={13}
-            color={comment.likedByMe ? T.ACCENT : T.TEXT_3}
-            weight={comment.likedByMe ? 'fill' : 'regular'}
-          />
-          <Text style={[rowStyles.likeCount, comment.likedByMe && rowStyles.likeCountActive]}>
-            {comment.likes}
-          </Text>
-        </TouchableOpacity>
+
+        {/* Text — reuses the pill-bubble design language */}
+        <View style={rowStyles.textBubble}>
+          <Text style={rowStyles.text}>{comment.text}</Text>
+        </View>
+
+        {/* Actions */}
+        <View style={rowStyles.actions}>
+          <TouchableOpacity
+            style={rowStyles.actionBtn}
+            onPress={() => onLike?.(comment.id)}
+            hitSlop={8}
+            activeOpacity={0.7}
+          >
+            <Heart
+              size={14}
+              color={comment.likedByMe ? T.ACCENT : T.TEXT_3}
+              weight={comment.likedByMe ? 'fill' : 'regular'}
+            />
+            {comment.likes > 0 && (
+              <Text style={[rowStyles.likeCount, comment.likedByMe && rowStyles.likeCountActive]}>
+                {comment.likes}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={rowStyles.actionBtn}
+            onPress={() => onReply?.(comment)}
+            hitSlop={8}
+            activeOpacity={0.7}
+          >
+            <ArrowBendUpLeft size={14} color={T.TEXT_3} />
+            <Text style={rowStyles.replyLabel}>Reply</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -164,17 +204,56 @@ const rowStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: T.BORDER,
   },
-  body: { flex: 1, gap: 5 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12, flexShrink: 1 },
-  time: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
-  text: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 19 },
-  likeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  body: { flex: 1, gap: 4 },
+  replyContext: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  replyContextText: {
+    fontSize: 10,
+    fontFamily: T.FONT.regular,
+    color: T.ACCENT,
+    flex: 1,
+  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 12 },
+  handle: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
+  time: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10, marginLeft: 'auto' },
+  // Pill-shaped text area — consistent with MsTextBubble styling
+  textBubble: {
+    backgroundColor: T.SURFACE_2,
+    borderRadius: 16,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  text: {
+    color: T.TEXT,
+    fontFamily: T.FONT.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginTop: 4,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   likeCount: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 11 },
   likeCountActive: { color: T.ACCENT },
+  replyLabel: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 11 },
 });
 
-// ─── Full-screen comments modal ───────────────────────────────────────────────
+// ─── Full comments modal ───────────────────────────────────────────────────────
 
 function CommentsModal({
   visible,
@@ -188,13 +267,37 @@ function CommentsModal({
   totalCount: number;
 }) {
   const insets = useSafeAreaInsets();
-  const { comments, isLoading } = useComments(postId);
+  const { comments, setComments, isLoading } = useComments(postId);
   const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!text.trim()) return;
-    // In production: call your createComment API
+    const newComment: Comment = {
+      id: `local_${Date.now()}`,
+      authorName: 'You',
+      authorHandle: '',
+      avatarUrl: null,
+      text: text.trim(),
+      timestamp: 'just now',
+      likes: 0,
+      likedByMe: false,
+      replyTo: replyTo?.authorName ?? null,
+    };
+    setComments((prev) => [newComment, ...prev]);
     setText('');
+    setReplyTo(null);
+    // TODO: call createComment API
+  };
+
+  const handleLike = (id: string) => {
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? { ...c, likedByMe: !c.likedByMe, likes: c.likes + (c.likedByMe ? -1 : 1) }
+          : c,
+      ),
+    );
   };
 
   return (
@@ -207,12 +310,7 @@ function CommentsModal({
     >
       <View style={modalStyles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
-          style={[
-            modalStyles.sheet,
-            { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 },
-          ]}
-        >
+        <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
           {/* Handle */}
           <View style={modalStyles.handle} />
 
@@ -220,16 +318,12 @@ function CommentsModal({
           <View style={modalStyles.header}>
             <Text style={modalStyles.title}>Comments</Text>
             <Text style={modalStyles.count}>{totalCount}</Text>
-            <TouchableOpacity
-              onPress={onClose}
-              hitSlop={12}
-              style={modalStyles.closeBtn}
-            >
+            <TouchableOpacity onPress={onClose} hitSlop={12} style={modalStyles.closeBtn}>
               <X size={18} color={T.TEXT_2} />
             </TouchableOpacity>
           </View>
 
-          {/* Comment list */}
+          {/* List */}
           {isLoading ? (
             <ActivityIndicator style={modalStyles.loader} color={T.TEXT_3} />
           ) : (
@@ -240,10 +334,17 @@ function CommentsModal({
                 <CommentRow
                   comment={item}
                   showDivider={index < comments.length - 1}
+                  onLike={handleLike}
+                  onReply={(c) => setReplyTo(c)}
                 />
               )}
               contentContainerStyle={modalStyles.listContent}
               showsVerticalScrollIndicator={false}
+              ListEmptyComponent={
+                <View style={modalStyles.emptyWrap}>
+                  <Text style={modalStyles.emptyText}>No comments yet. Be the first!</Text>
+                </View>
+              }
             />
           )}
 
@@ -254,7 +355,8 @@ function CommentsModal({
               value={text}
               onChangeText={setText}
               onSend={handleSend}
-              placeholder="Add a comment…"
+              placeholder={replyTo ? `Reply to ${replyTo.authorName}…` : 'Add a comment…'}
+              replyTo={replyTo ? { authorName: replyTo.authorName, onDismiss: () => setReplyTo(null) } : null}
             />
           </View>
         </View>
@@ -275,11 +377,7 @@ const modalStyles = StyleSheet.create({
     borderTopRightRadius: 26,
     maxHeight: '88%',
     paddingTop: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    elevation: 20,
+    ...T.SHADOWS.hard,
   },
   handle: {
     width: 36,
@@ -309,7 +407,9 @@ const modalStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   loader: { marginTop: 40 },
-  listContent: { paddingBottom: 8 },
+  listContent: { paddingBottom: 8, paddingTop: 4 },
+  emptyWrap: { paddingVertical: 40, alignItems: 'center' },
+  emptyText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 14 },
   composerWrap: {
     borderTopWidth: 1,
     borderTopColor: T.BORDER,
@@ -324,41 +424,45 @@ interface MsCommentsSectionProps {
   previewCount?: number;
 }
 
-export function MsCommentsSection({
-  postId,
-  previewCount = 2,
-}: MsCommentsSectionProps) {
-  const { comments, isLoading } = useComments(postId);
+export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectionProps) {
+  const { comments, setComments, isLoading } = useComments(postId);
   const [modalOpen, setModalOpen] = useState(false);
   const totalCount = comments.length;
-
   const preview = comments.slice(0, previewCount);
+
+  const handleLike = (id: string) => {
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? { ...c, likedByMe: !c.likedByMe, likes: c.likes + (c.likedByMe ? -1 : 1) }
+          : c,
+      ),
+    );
+  };
 
   return (
     <View style={sectionStyles.wrap}>
-      {/* Section header */}
       <View style={sectionStyles.header}>
         <Text style={sectionStyles.title}>💬 Comments</Text>
         <Text style={sectionStyles.total}>{totalCount.toLocaleString()}</Text>
       </View>
 
-      {/* Preview rows */}
       {preview.map((c, i) => (
-        <CommentRow key={c.id} comment={c} showDivider={i < preview.length - 1} />
+        <CommentRow
+          key={c.id}
+          comment={c}
+          showDivider={i < preview.length - 1}
+          onLike={handleLike}
+          onReply={() => setModalOpen(true)}
+        />
       ))}
 
-      {/* View all button */}
-      <TouchableOpacity
-        style={sectionStyles.viewAll}
-        onPress={() => setModalOpen(true)}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity style={sectionStyles.viewAll} onPress={() => setModalOpen(true)} activeOpacity={0.7}>
         <Text style={sectionStyles.viewAllText}>
           View all {totalCount.toLocaleString()} comments
         </Text>
       </TouchableOpacity>
 
-      {/* Full comments modal */}
       <CommentsModal
         visible={modalOpen}
         onClose={() => setModalOpen(false)}

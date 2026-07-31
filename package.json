@@ -56,6 +56,8 @@
   },
   "dependencies": {
     "@expo-google-fonts/poppins": "^0.4.1",
+    "@kesha-antonov/react-native-chat": "^4.1.0",
+    "@shopify/flash-list": "^2.0.2",
     "@tailwindcss/postcss": "^4.3.3",
     "expo-av": "^16.0.8",
     "expo-clipboard": "^8.0.8",
