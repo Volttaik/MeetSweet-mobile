@@ -1,23 +1,25 @@
 /**
- * MsVoiceBubble — pill-shaped voice note with waveform, playback, speed.
- * Used in chat bubbles for audio/voice messages.
+ * MsVoiceBubble — compact voice note with waveform, playback, speed.
+ * Matches refined bubble design: 7px radius, dark-gray theme.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Pause, Play, SpeakerHigh } from 'phosphor-react-native';
+import { Pause, Play } from 'phosphor-react-native';
 import { Audio } from 'expo-av';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/types/chat-message';
 
-// Pre-computed waveform bar heights (22 bars)
-const VOICE_BARS = Array.from({ length: 22 }, (_, i) =>
-  4 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 14,
+const BG_OWN   = '#28282F';
+const BG_OTHER = '#1C1C23';
+
+// 20 bars — slightly tighter
+const VOICE_BARS = Array.from({ length: 20 }, (_, i) =>
+  3 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 13,
 );
 
 const SPEEDS = [1, 1.5, 2];
@@ -94,9 +96,9 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
       {/* Play/Pause */}
       <TouchableOpacity onPress={togglePlayback} style={styles.playBtn} activeOpacity={0.8}>
         {isPlaying ? (
-          <Pause size={18} color="#fff" weight="fill" />
+          <Pause size={16} color="#fff" weight="fill" />
         ) : (
-          <Play size={18} color="#fff" weight="fill" />
+          <Play size={16} color="#fff" weight="fill" />
         )}
       </TouchableOpacity>
 
@@ -112,8 +114,8 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
                 {
                   height: h,
                   backgroundColor: isActive
-                    ? isOwn ? 'rgba(255,255,255,0.95)' : T.ACCENT
-                    : isOwn ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                    ? isOwn ? 'rgba(255,255,255,0.9)' : T.ACCENT
+                    : isOwn ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)',
                 },
               ]}
             />
@@ -140,31 +142,31 @@ const styles = StyleSheet.create({
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    borderRadius: 50,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    maxWidth: 280,
-    marginVertical: 2,
+    gap: 9,
+    borderRadius: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    maxWidth: 270,
+    marginVertical: 1,
   },
   bubbleLeft: {
-    backgroundColor: T.SURFACE_2,
+    backgroundColor: BG_OTHER,
     alignSelf: 'flex-start',
     marginLeft: 8,
-    borderBottomLeftRadius: 8,
+    borderBottomLeftRadius: 3,
   },
   bubbleRight: {
-    backgroundColor: T.ACCENT,
+    backgroundColor: BG_OWN,
     alignSelf: 'flex-end',
     marginRight: 8,
-    borderBottomRightRadius: 8,
+    borderBottomRightRadius: 3,
   },
 
   playBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -175,7 +177,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    height: 28,
+    height: 24,
   },
   bar: {
     flex: 1,
@@ -189,16 +191,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   duration: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: T.FONT.medium,
   },
-  durationOwn: { color: 'rgba(255,255,255,0.8)' },
+  durationOwn: { color: 'rgba(255,255,255,0.7)' },
   durationOther: { color: T.TEXT_2 },
   speed: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: T.FONT.semibold,
     letterSpacing: 0.3,
   },
-  speedOwn: { color: 'rgba(255,255,255,0.65)' },
+  speedOwn: { color: 'rgba(255,255,255,0.45)' },
   speedOther: { color: T.TEXT_3 },
 });

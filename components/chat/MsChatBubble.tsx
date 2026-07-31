@@ -2,18 +2,18 @@
  * MsChatBubble — main bubble router for the Chat component's renderBubble prop.
  *
  * Routes to the appropriate sub-component based on message type:
- *   text      → MsTextBubble (pill, ~50px radius)
- *   image     → MsMediaCard  (~5px radius)
- *   video     → MsMediaCard  (~5px radius) with play overlay
- *   audio     → MsVoiceBubble (pill with waveform)
- *   document  → MsFileCard   (~5px radius)
+ *   text      → MsTextBubble (7px radius, dark-gray)
+ *   image     → MsMediaCard  (5px radius)
+ *   video     → MsMediaCard  (5px radius) with play overlay
+ *   audio     → MsVoiceBubble (7px radius with waveform)
+ *   document  → MsFileCard   (5px radius)
  *   paid      → wraps any of above with MsPaidOverlay
  *
- * Also renders reaction bar and reply preview inline.
- * Entrance animation: scale + fade in for each new bubble.
+ * Entrance animation: subtle fade + gentle slide-up per bubble.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Clock } from 'phosphor-react-native';
 import type { BubbleProps } from '@kesha-antonov/react-native-chat';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
@@ -32,11 +32,8 @@ function formatTime(date: Date | number): string {
 
 interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage'> {
   currentMessage: MsMessage;
-  /** Called when user taps a paid unlock */
   onUnlockPaid?: (message: MsMessage) => Promise<void>;
-  /** Called when user taps a media message */
   onMediaPress?: (message: MsMessage) => void;
-  /** Called when user taps Retry on a failed message */
   onRetry?: (message: MsMessage) => void;
 }
 
@@ -52,15 +49,13 @@ export function MsChatBubble({
   const isOwn = position === 'right';
   const [unlocking, setUnlocking] = useState(false);
 
-  // ── Entrance animation ────────────────────────────────────────────────────
+  // ── Entrance animation: soft fade + 5px slide-up ──────────────────────────
   const entryAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.spring(entryAnim, {
+    Animated.timing(entryAnim, {
       toValue: 1,
+      duration: 180,
       useNativeDriver: true,
-      damping: 18,
-      stiffness: 220,
-      mass: 0.8,
     }).start();
   }, []);
 
@@ -98,10 +93,7 @@ export function MsChatBubble({
   const shouldShowLock = isPaid && !isUnlocked;
   const isFailed = msg.sent === false && msg.pending === false;
 
-  // ── Reply preview (if this message is replying to another) ─────────────────
   const replyMsg = msg.replyMessage;
-
-  // ── Reactions strip ────────────────────────────────────────────────────────
   const reactions = msg.reactions ?? [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -169,7 +161,6 @@ export function MsChatBubble({
       </View>
     );
   } else {
-    // Default: text bubble
     bubble = (
       <MsTextBubble
         message={msg}
@@ -193,15 +184,9 @@ export function MsChatBubble({
           opacity: entryAnim,
           transform: [
             {
-              scale: entryAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0.88, 1],
-              }),
-            },
-            {
               translateY: entryAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [6, 0],
+                outputRange: [5, 0],
               }),
             },
           ],
@@ -232,12 +217,13 @@ export function MsChatBubble({
               {timeString}
               {msg.msIsEdited ? ' · edited' : ''}
             </Text>
-            {/* Sending indicator for media */}
             {msg.pending && isOwn && (
-              <Text style={styles.sendStatus}>⏳</Text>
+              <View style={styles.mediaStatusIcon}>
+                <Clock size={10} color={T.TEXT_3} weight="regular" />
+              </View>
             )}
             {isFailed && isOwn && (
-              <Text style={styles.failedStatus}>⚠ Failed</Text>
+              <Text style={styles.failedStatus}>Not delivered</Text>
             )}
           </View>
         ) : null}
@@ -248,8 +234,8 @@ export function MsChatBubble({
 
 const styles = StyleSheet.create({
   row: {
-    marginVertical: 3,
-    paddingHorizontal: 8,
+    marginVertical: 2,
+    paddingHorizontal: 6,
   },
   rowLeft: { alignItems: 'flex-start' },
   rowRight: { alignItems: 'flex-end' },
@@ -263,8 +249,8 @@ const styles = StyleSheet.create({
   mediaMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
+    gap: 5,
+    marginTop: 3,
     paddingHorizontal: 4,
   },
   mediaMetaLeft: { justifyContent: 'flex-start' },
@@ -275,9 +261,9 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
   },
-  sendStatus: {
-    fontSize: 10,
-    color: T.TEXT_3,
+  mediaStatusIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   failedStatus: {
     fontSize: 10,
