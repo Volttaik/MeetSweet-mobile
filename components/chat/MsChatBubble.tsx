@@ -4,7 +4,7 @@
  * Routes by message type:
  *   text      → MsTextBubble  (or large-emoji/sticker render if single emoji)
  *   image/vid → MsMediaCard
- *   audio     → MsVoiceNoteBubble
+ *   audio     → MsVoiceBubble
  *   document  → MsFileCard
  *   paid      → above + MsPaidOverlay
  *
@@ -29,7 +29,7 @@ import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 import { MsTextBubble }         from './MsTextBubble';
 import { MsMediaCard }          from './MsMediaCard';
-import { MsVoiceNoteBubble }    from './MsVoiceNoteBubble';
+import { MsVoiceBubble }        from './MsVoiceBubble';
 import { MsFileCard }           from './MsFileCard';
 import { MsPaidOverlay }        from './MsPaidOverlay';
 import { MsReactionStrip }      from './MsReactionStrip';
@@ -162,11 +162,10 @@ export function MsChatBubble({
   } else if (hasAudio) {
     bubble = (
       <View style={styles.mediaWrap}>
-        <MsVoiceNoteBubble
+        <MsVoiceBubble
           uri={msg.audio ?? ''}
           duration={msg.msAudioDuration ?? 0}
-          isOwn={isOwn}
-          showDownload={!isOwn}
+          position={position ?? 'left'}
         />
         {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>

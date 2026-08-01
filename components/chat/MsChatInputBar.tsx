@@ -67,7 +67,8 @@ import * as Haptics from 'expo-haptics';
 import { T } from '@/constants/theme';
 import type { ReplyMessage } from '@kesha-antonov/react-native-chat';
 import type { MsMessage } from '@/types/chat-message';
-import { MsComposerPanel, type PanelTab } from './MsComposerPanel';
+import { MsComposerPanel } from './MsComposerPanel';
+import type { PanelTab } from './MsComposerPanel';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -480,10 +481,9 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   // ── Composer staged items ─────────────────────────────────────────────────
   const [pendingVoice, setPendingVoice] = useState<PendingVoice | null>(null);
-  const [pendingGif,   setPendingGif]   = useState<{ url: string; title: string } | null>(null);
 
   const hasText    = text.trim().length > 0;
-  const hasContent = hasText || !!pendingGif || !!pendingVoice || !!inlineAttachment;
+  const hasContent = hasText || !!pendingVoice || !!inlineAttachment;
 
   // ── Panel state ────────────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState<PanelTab | 'none'>('none');
@@ -585,7 +585,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   // useNativeDriver: false because we animate height
   const attachBarAnim = useRef(new Animated.Value(0)).current;
   const attachBarOpacity = useRef(new Animated.Value(0)).current;
-  const hasAttachment = !!(pendingVoice || pendingGif || inlineAttachment);
+  const hasAttachment = !!(pendingVoice || inlineAttachment);
 
   useEffect(() => {
     if (hasAttachment) {
@@ -855,15 +855,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       return;
     }
 
-    // 2. Staged GIF or image sticker
-    if (pendingGif) {
-      onSend({ gifUrl: pendingGif.url, gifTitle: text.trim() || pendingGif.title });
-      setPendingGif(null);
-      if (text.trim()) onChangeText('');
-      return;
-    }
-
-    // 3. Staged voice note
+    // 2. Staged voice note
     if (pendingVoice) {
       onSend({ voice: pendingVoice });
       setPendingVoice(null);
@@ -875,20 +867,13 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     if (!trimmed) return;
     onSend({ text: trimmed });
     onChangeText('');
-  }, [text, inlineAttachment, pendingGif, pendingVoice, onSend, onChangeText, onSendWithAttachment, animateSendPress]);
+  }, [text, inlineAttachment, pendingVoice, onSend, onChangeText, onSendWithAttachment, animateSendPress]);
 
   // ── Emoji → insert into text (NOT send) ───────────────────────────────────
   const handleEmojiInsert = useCallback((emoji: string) => {
     onChangeText(text + emoji);
     // Keep panel open so user can add more emoji
   }, [text, onChangeText]);
-
-  // ── GIF / image sticker → stage above input (NOT send) ────────────────────
-  const handleGifStage = useCallback((gifUrl: string, gifTitle: string) => {
-    setPendingGif({ url: gifUrl, title: gifTitle });
-    closePanel();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  }, [closePanel]);
 
   function fmtSecs(s: number) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -1034,13 +1019,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
             onRemove={() => setPendingVoice(null)}
           />
         )}
-        {!pendingVoice && pendingGif && (
-          <MediaAttachmentBar
-            attachment={{ type: 'gif', uri: pendingGif.url, title: pendingGif.title }}
-            onRemove={() => setPendingGif(null)}
-          />
-        )}
-        {!pendingVoice && !pendingGif && inlineAttachment && (
+        {!pendingVoice && inlineAttachment && (
           inlineAttachment.type === 'audio' ? (
             <AudioAttachmentBar
               attachment={inlineAttachment}
@@ -1202,14 +1181,13 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         </View>
       </View>
 
-      {/* ── Sticker / GIF / Emoji panel ───────────────────────────────────── */}
+      {/* ── Emoji panel ───────────────────────────────────────────────────── */}
       <MsComposerPanel
         isOpen={panelIsOpen}
         panelHeight={panelHeight}
-        activeTab={activePanel === 'none' ? 'emoji' : activePanel}
+        activeTab="emoji"
         onTabChange={setActivePanel}
-        onStickerPress={handleEmojiInsert}
-        onGifPress={handleGifStage}
+        onEmojiPress={handleEmojiInsert}
       />
     </View>
   );

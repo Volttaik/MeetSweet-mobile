@@ -218,12 +218,12 @@ const s = StyleSheet.create({
   card: {
     borderRadius: 5,
     overflow: 'hidden',
-    backgroundColor: T.SURFACE_2,
+    // No background — image/video shows without a bubble wrapper
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.28,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.32,
+    shadowRadius: 8,
+    elevation: 5,
   },
   cardLocked: { opacity: 0.55 },
 
@@ -291,6 +291,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     paddingVertical: 20,
+    backgroundColor: T.SURFACE_2,
   },
   errorIcon: {
     width: 44,

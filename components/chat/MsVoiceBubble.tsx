@@ -110,6 +110,33 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
     if (duration > 0) setTotalSecs(duration);
   }, [duration]);
 
+  // Auto-load actual duration from file when prop is 0 (backend may not send it)
+  useEffect(() => {
+    if (duration > 0) return;
+    let cancelled = false;
+    let probeSound: Audio.Sound | null = null;
+    (async () => {
+      try {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: false },
+        );
+        probeSound = sound;
+        const status = await sound.getStatusAsync();
+        if (!cancelled && status.isLoaded && status.durationMillis && status.durationMillis > 0) {
+          setTotalSecs(Math.floor(status.durationMillis / 1000));
+        }
+        await sound.unloadAsync();
+        probeSound = null;
+      } catch {/* ignore — will show 0:00 until user presses play */}
+    })();
+    return () => {
+      cancelled = true;
+      probeSound?.unloadAsync().catch(() => {});
+    };
+  }, [uri, duration]);
+
   useEffect(() => () => {
     pulseRef.current?.stop();
     soundRef.current?.unloadAsync().catch(() => {});
