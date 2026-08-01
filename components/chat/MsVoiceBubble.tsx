@@ -52,16 +52,16 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
       const stagger = barAnims.map((a, i) =>
         Animated.loop(
           Animated.sequence([
-            Animated.delay(i * 18),
+            Animated.delay(i * 40),
             Animated.timing(a, {
-              toValue: 1.6,
-              duration: 260 + (i % 5) * 35,
+              toValue: 1.25,
+              duration: 700 + (i % 7) * 120,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
             Animated.timing(a, {
-              toValue: 0.4,
-              duration: 260 + (i % 5) * 35,
+              toValue: 0.75,
+              duration: 700 + (i % 7) * 120,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),

@@ -33,8 +33,8 @@ import type { MsMessage } from '@/types/chat-message';
 import { formatDuration } from '@/types/chat-message';
 
 const SCREEN_W    = Dimensions.get('window').width;
-/** Cards use almost the full message-column width */
-const MAX_CARD_W  = Math.round(SCREEN_W - 32); // 16px margin each side
+/** Cards use 90% of the full message-column width */
+const MAX_CARD_W  = Math.round((SCREEN_W - 32) * 0.9);
 const MIN_CARD_W  = 160;
 /** Default height while we wait for natural dimensions */
 const DEFAULT_H   = Math.round(MAX_CARD_W * 0.65);
