@@ -33,8 +33,8 @@ import type { MsMessage } from '@/types/chat-message';
 import { formatDuration } from '@/types/chat-message';
 
 const SCREEN_W    = Dimensions.get('window').width;
-/** Maximum width a media bubble may occupy */
-const MAX_CARD_W  = Math.round(SCREEN_W * 0.78);
+/** Cards use almost the full message-column width */
+const MAX_CARD_W  = Math.round(SCREEN_W - 32); // 16px margin each side
 const MIN_CARD_W  = 160;
 /** Default height while we wait for natural dimensions */
 const DEFAULT_H   = Math.round(MAX_CARD_W * 0.65);
@@ -108,14 +108,12 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
   const handleLoad = useCallback((e: { nativeEvent: { source: { width: number; height: number } } }) => {
     const { width: nw, height: nh } = e.nativeEvent.source;
     if (nw > 0 && nh > 0) {
-      // Fit within MAX_CARD_W while preserving ratio
+      // Fit width within MAX_CARD_W, let height follow natural aspect ratio
       const ratio = nh / nw;
       const fw    = Math.min(Math.max(nw, MIN_CARD_W), MAX_CARD_W);
-      const fh    = Math.round(fw * ratio);
-      // Clamp height: no taller than screen * 0.55, no shorter than MIN_CARD_W * 0.5
-      const clampedH = Math.max(80, Math.min(fh, Math.round(SCREEN_W * 0.55)));
+      const fh    = Math.max(80, Math.round(fw * ratio));
       setImgW(fw);
-      setImgH(clampedH);
+      setImgH(fh);
     }
     setLoading(false);
     Animated.timing(fadeAnim, {
@@ -166,7 +164,7 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
           </View>
         ) : isVideo ? (
           /* ── Video: dark placeholder + large play ring + duration ──────── */
-          <View style={[s.videoPlaceholder, { width: MAX_CARD_W, height: Math.round(MAX_CARD_W * (9 / 16)) }]}>
+          <View style={[s.videoPlaceholder, { width: MAX_CARD_W, height: Math.round(MAX_CARD_W * (3 / 4)) }]}>
             {/* Large semi-transparent play circle */}
             <View style={s.videoPlayRing}>
               <View style={s.videoPlayInner}>

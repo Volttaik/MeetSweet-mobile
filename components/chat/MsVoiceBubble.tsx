@@ -1,55 +1,38 @@
 /**
- * MsVoiceBubble — premium audio message player.
+ * MsVoiceBubble — audio message bubble.
  *
- * Visual spec (unique — different from text/image bubbles):
- *  • Distinct colour: accent-tinted background
- *  • Compact: 56-64px height
- *  • Left: circular play/pause (36px, accent)
- *  • Center: MM:SS timer bold (prominent)
- *  • Right: animated waveform bars (24px height)
- *  • Bottom: full-width seekable progress bar (3px, accent)
- *  • Bottom-right: file size badge (10px)
- *  • Speed cycle button
- *
- * States: loading (dots) | ready | playing (waveform animated) | paused | error (retry)
+ * Design mirrors the VoiceCompactBar staging preview exactly:
+ *  • Pill-shaped, T.SURFACE background (no accent tint)
+ *  • Left : mic icon in small accent circle (28 px)
+ *  • Centre: waveform bars, flex-1, progress-coloured, animated while playing
+ *  • Right : MM:SS timer (tap to cycle speed) + accent play/pause circle (26 px)
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
-  GestureResponderEvent,
-  LayoutChangeEvent,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Pause, Play, ArrowClockwise } from 'phosphor-react-native';
+import { ArrowClockwise, Microphone, Pause, Play } from 'phosphor-react-native';
 import { Audio } from 'expo-av';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/types/chat-message';
 
-// ─── Waveform bars profile ────────────────────────────────────────────────────
-const BARS = Array.from({ length: 28 }, (_, i) =>
-  5 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 18,
-);
+// Same bar profile used in the staging preview
+const BAR_HEIGHTS = [5,9,14,8,12,16,7,10,13,6,15,9,11,14,8,12,7,10,5,13,9,14,6,11,15,8,12,7,10,13];
 const SPEEDS = [1, 1.5, 2] as const;
-
-function fmtBytes(bytes?: number): string | null {
-  if (!bytes || bytes <= 0) return null;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 interface Props {
   uri:       string;
-  duration:  number; // seconds
+  duration:  number; // seconds (0 = unknown)
   position:  'left' | 'right';
-  fileSize?: number; // bytes
+  fileSize?: number; // unused visually, kept for API compat
 }
 
-export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
+export function MsVoiceBubble({ uri, duration, position }: Props) {
   const isOwn = position === 'right';
 
   const [isPlaying,    setIsPlaying]    = useState(false);
@@ -58,15 +41,12 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
   const [speedIdx,     setSpeedIdx]     = useState(0);
   const [isLoading,    setIsLoading]    = useState(false);
   const [hasError,     setHasError]     = useState(false);
-  const [progressW,    setProgressW]    = useState(0);
 
-  const soundRef  = useRef<Audio.Sound | null>(null);
-  const barAnims  = useRef(BARS.map(() => new Animated.Value(1))).current;
-  const pulseRef  = useRef<Animated.CompositeAnimation | null>(null);
-  const iconAnim  = useRef(new Animated.Value(0)).current;
-  const rippleAnim = useRef(new Animated.Value(0)).current;
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const barAnims = useRef(BAR_HEIGHTS.map(() => new Animated.Value(1))).current;
+  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Waveform animation
+  // ── Waveform animation ───────────────────────────────────────────────────────
   useEffect(() => {
     if (isPlaying) {
       const stagger = barAnims.map((a, i) =>
@@ -74,14 +54,14 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
           Animated.sequence([
             Animated.delay(i * 18),
             Animated.timing(a, {
-              toValue: 1.7,
-              duration: 280 + (i % 5) * 40,
+              toValue: 1.6,
+              duration: 260 + (i % 5) * 35,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
             Animated.timing(a, {
               toValue: 0.4,
-              duration: 280 + (i % 5) * 40,
+              duration: 260 + (i % 5) * 35,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
@@ -97,62 +77,42 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
     }
   }, [isPlaying]);
 
-  // Icon crossfade
-  useEffect(() => {
-    Animated.timing(iconAnim, {
-      toValue: isPlaying ? 1 : 0,
-      duration: 120,
-      useNativeDriver: true,
-    }).start();
-  }, [isPlaying]);
-
+  // ── Sync duration prop ───────────────────────────────────────────────────────
   useEffect(() => {
     if (duration > 0) setTotalSecs(duration);
   }, [duration]);
 
-  // Auto-load actual duration from file when prop is 0 (backend may not send it)
+  // ── Probe actual duration when prop arrives as 0 ─────────────────────────────
   useEffect(() => {
     if (duration > 0) return;
     let cancelled = false;
-    let probeSound: Audio.Sound | null = null;
+    let probe: Audio.Sound | null = null;
     (async () => {
       try {
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const { sound } = await Audio.Sound.createAsync(
-          { uri },
-          { shouldPlay: false },
-        );
-        probeSound = sound;
+        const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: false });
+        probe = sound;
         const status = await sound.getStatusAsync();
         if (!cancelled && status.isLoaded && status.durationMillis && status.durationMillis > 0) {
           setTotalSecs(Math.floor(status.durationMillis / 1000));
         }
         await sound.unloadAsync();
-        probeSound = null;
-      } catch {/* ignore — will show 0:00 until user presses play */}
+        probe = null;
+      } catch {/* will show 0:00 until user presses play */}
     })();
     return () => {
       cancelled = true;
-      probeSound?.unloadAsync().catch(() => {});
+      probe?.unloadAsync().catch(() => {});
     };
   }, [uri, duration]);
 
+  // ── Cleanup ──────────────────────────────────────────────────────────────────
   useEffect(() => () => {
     pulseRef.current?.stop();
     soundRef.current?.unloadAsync().catch(() => {});
   }, []);
 
-  // Ripple on play press
-  const triggerRipple = () => {
-    rippleAnim.setValue(0);
-    Animated.timing(rippleAnim, {
-      toValue: 1,
-      duration: 380,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  };
-
+  // ── Playback helpers ─────────────────────────────────────────────────────────
   const loadAndPlay = async () => {
     try {
       setIsLoading(true);
@@ -163,11 +123,9 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
         { shouldPlay: true, rate: SPEEDS[speedIdx] },
         (status) => {
           if (!status.isLoaded) return;
-          const secs = Math.floor((status.positionMillis ?? 0) / 1000);
-          setPositionSecs(secs);
-          if (status.durationMillis && status.durationMillis > 0) {
+          setPositionSecs(Math.floor((status.positionMillis ?? 0) / 1000));
+          if (status.durationMillis && status.durationMillis > 0)
             setTotalSecs(Math.floor(status.durationMillis / 1000));
-          }
           if (status.didJustFinish) {
             setIsPlaying(false);
             setPositionSecs(0);
@@ -185,8 +143,7 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
     }
   };
 
-  const togglePlayback = async () => {
-    triggerRipple();
+  const togglePlay = async () => {
     try {
       if (isPlaying) {
         await soundRef.current?.pauseAsync();
@@ -210,162 +167,65 @@ export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
     await soundRef.current?.setRateAsync(SPEEDS[next], true).catch(() => {});
   };
 
-  const handleProgressTap = async (e: GestureResponderEvent) => {
-    if (progressW <= 0 || totalSecs <= 0) return;
-    const ratio  = Math.max(0, Math.min(1, e.nativeEvent.locationX / progressW));
-    const millis = Math.floor(ratio * totalSecs * 1000);
-    setPositionSecs(Math.floor(millis / 1000));
-    if (soundRef.current) {
-      try { await soundRef.current.setPositionAsync(millis); } catch {/* */}
-    } else {
-      try {
-        setIsLoading(true);
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const { sound } = await Audio.Sound.createAsync(
-          { uri },
-          { shouldPlay: false, positionMillis: millis },
-          (status) => {
-            if (!status.isLoaded) return;
-            setPositionSecs(Math.floor((status.positionMillis ?? 0) / 1000));
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setPositionSecs(0);
-              soundRef.current?.unloadAsync().catch(() => {});
-              soundRef.current = null;
-            }
-          },
-        );
-        soundRef.current = sound;
-        setIsLoading(false);
-      } catch {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  const progress  = totalSecs > 0 ? positionSecs / totalSecs : 0;
-  const clampedP  = Math.max(0, Math.min(1, progress));
-  const fileSizeLabel = fmtBytes(fileSize);
-
-  // Unique voice bubble colour scheme (accent-tinted, distinct from text bubbles)
-  const bgColor       = isOwn ? 'rgba(196,90,114,0.18)' : 'rgba(196,90,114,0.10)';
-  const playBtnBg     = isOwn ? T.ACCENT : `${T.ACCENT}30`;
-  const playIconColor = isOwn ? '#fff' : T.ACCENT;
-  const accentColor   = T.ACCENT;
-  const dimColor      = isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)';
-  const timerColor    = isOwn ? T.TEXT : T.TEXT;
+  // ── Derived ──────────────────────────────────────────────────────────────────
+  const clampedP   = totalSecs > 0 ? Math.max(0, Math.min(1, positionSecs / totalSecs)) : 0;
+  const displayTime = formatDuration(isPlaying ? positionSecs : totalSecs);
 
   return (
-    <View
-      style={[
-        s.bubble,
-        isOwn ? s.bubbleRight : s.bubbleLeft,
-        { backgroundColor: bgColor },
-        T.SHADOWS.medium,
-      ]}
-      accessibilityLabel={`Voice message, ${formatDuration(totalSecs)}`}
-      accessibilityRole="button"
-    >
-      {/* Play/Pause button */}
-      <View style={s.playBtnWrap}>
-        {/* Ripple */}
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            s.ripple,
-            {
-              borderColor: accentColor,
-              opacity: rippleAnim.interpolate({ inputRange: [0,1], outputRange: [0.5, 0] }),
-              transform: [{ scale: rippleAnim.interpolate({ inputRange: [0,1], outputRange: [0.6, 1.7] }) }],
-            },
-          ]}
-          pointerEvents="none"
-        />
-        <TouchableOpacity
-          onPress={hasError ? loadAndPlay : togglePlayback}
-          style={[s.playBtn, { backgroundColor: playBtnBg }]}
-          activeOpacity={0.78}
-          disabled={isLoading}
-          accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
-          accessibilityRole="button"
-        >
-          {hasError ? (
-            <ArrowClockwise size={16} color={T.ERROR} weight="bold" />
-          ) : isLoading ? (
-            <View style={s.loadingDots}>
-              {[0,1,2].map((i) => (
-                <View key={i} style={[s.dot, { backgroundColor: playIconColor, opacity: 0.5 + i * 0.2 }]} />
-              ))}
-            </View>
-          ) : (
-            <>
-              <Animated.View style={[StyleSheet.absoluteFill, s.iconCenter, { opacity: iconAnim.interpolate({ inputRange: [0,1], outputRange: [1,0] }) }]}>
-                <Play size={16} color={playIconColor} weight="fill" />
-              </Animated.View>
-              <Animated.View style={[StyleSheet.absoluteFill, s.iconCenter, { opacity: iconAnim }]}>
-                <Pause size={16} color={playIconColor} weight="fill" />
-              </Animated.View>
-            </>
-          )}
-        </TouchableOpacity>
+    <View style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft]}>
+
+      {/* ── Mic icon circle ──────────────────────────────────────────────── */}
+      <View style={s.micCircle}>
+        <Microphone size={14} color={T.ACCENT} weight="fill" />
       </View>
 
-      {/* Right: timer + waveform + progress + meta */}
-      <View style={s.content}>
-        {/* Timer row: bold elapsed / total */}
-        <View style={s.timerRow}>
-          <Text style={[s.timer, { color: timerColor }]}>
-            {formatDuration(isPlaying ? positionSecs : totalSecs)}
-          </Text>
-          <TouchableOpacity onPress={cycleSpeed} hitSlop={10} activeOpacity={0.7}>
-            <Text style={s.speed}>{SPEEDS[speedIdx]}×</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Waveform */}
-        <View style={s.waveform}>
-          {BARS.map((baseH, i) => {
-            const active = i / BARS.length <= clampedP;
-            return (
-              <Animated.View
-                key={i}
-                style={[
-                  s.bar,
-                  {
-                    height: baseH,
-                    transform: [{ scaleY: isPlaying && active ? barAnims[i] : 1 }],
-                    backgroundColor: active ? accentColor : dimColor,
-                  },
-                ]}
-              />
-            );
-          })}
-        </View>
-
-        {/* Progress bar — seekable */}
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={handleProgressTap}
-          onLayout={(e: LayoutChangeEvent) => setProgressW(e.nativeEvent.layout.width)}
-          style={s.progressTrack}
-          accessibilityLabel="Seek audio"
-        >
-          <View
-            style={[
-              s.progressFill,
-              {
-                width: `${Math.round(clampedP * 100)}%`,
-                backgroundColor: accentColor,
-              },
-            ]}
-          />
-        </TouchableOpacity>
-
-        {/* File size badge */}
-        {fileSizeLabel ? (
-          <Text style={s.sizeLabel}>{fileSizeLabel}</Text>
-        ) : null}
+      {/* ── Waveform bars ────────────────────────────────────────────────── */}
+      <View style={s.wave}>
+        {BAR_HEIGHTS.map((baseH, i) => {
+          const active = i / BAR_HEIGHTS.length <= clampedP;
+          return (
+            <Animated.View
+              key={i}
+              style={[
+                s.bar,
+                {
+                  height: baseH,
+                  transform: [{ scaleY: isPlaying && active ? barAnims[i] : 1 }],
+                  backgroundColor: active ? T.ACCENT : 'rgba(255,255,255,0.15)',
+                },
+              ]}
+            />
+          );
+        })}
       </View>
+
+      {/* ── Duration — tap to cycle playback speed ───────────────────────── */}
+      <TouchableOpacity onPress={cycleSpeed} hitSlop={8} activeOpacity={0.7}>
+        <Text style={s.duration}>
+          {displayTime}{speedIdx > 0 ? ` ${SPEEDS[speedIdx]}×` : ''}
+        </Text>
+      </TouchableOpacity>
+
+      {/* ── Play / Pause button ──────────────────────────────────────────── */}
+      <TouchableOpacity
+        style={s.playBtn}
+        onPress={hasError ? loadAndPlay : togglePlay}
+        activeOpacity={0.8}
+        disabled={isLoading}
+        accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+        accessibilityRole="button"
+      >
+        {hasError ? (
+          <ArrowClockwise size={12} color="#fff" weight="bold" />
+        ) : isLoading ? (
+          <View style={s.loadingDot} />
+        ) : isPlaying ? (
+          <Pause size={12} color="#fff" weight="fill" />
+        ) : (
+          <Play size={12} color="#fff" weight="fill" />
+        )}
+      </TouchableOpacity>
+
     </View>
   );
 }
@@ -374,117 +234,66 @@ const s = StyleSheet.create({
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    // Unique bubble shape: more rounded on the tail side
-    borderRadius: 16,
-    paddingHorizontal: 12,
+    gap: 8,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    width: 270,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.pill,
+    width: 260,
     marginVertical: 1,
-    overflow: 'hidden',
-    position: 'relative',
-    // Left/right accent border
-    borderWidth: 1,
-    borderColor: `${T.ACCENT}22`,
+    ...T.SHADOWS.soft,
   },
-  bubbleLeft: {
-    alignSelf: 'flex-start',
-    marginLeft: 8,
-    borderBottomLeftRadius: 4,
-    borderTopLeftRadius: 16,
-  },
-  bubbleRight: {
-    alignSelf: 'flex-end',
-    marginRight: 8,
-    borderBottomRightRadius: 4,
-    borderTopRightRadius: 16,
-  },
+  bubbleLeft:  { alignSelf: 'flex-start', marginLeft: 8 },
+  bubbleRight: { alignSelf: 'flex-end',   marginRight: 8 },
 
-  playBtnWrap: {
-    width: 36,
-    height: 36,
+  micCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: `${T.ACCENT}22`,
+    alignItems: 'center',
+    justifyContent: 'center',
     flexShrink: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ripple: {
-    borderRadius: 22,
-    borderWidth: 2,
-  },
-  iconCenter: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingDots: {
-    flexDirection: 'row',
-    gap: 3,
-    alignItems: 'center',
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
   },
 
-  content: {
+  wave: {
     flex: 1,
-    gap: 5,
-  },
-
-  timerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  timer: {
-    fontSize: 13,
-    fontFamily: T.FONT.bold,
-    letterSpacing: 0.3,
-  },
-  speed: {
-    fontSize: 9,
-    fontFamily: T.FONT.semibold,
-    color: T.TEXT_3,
-    letterSpacing: 0.3,
-  },
-
-  waveform: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    height: 24,
+    height: 20,
     overflow: 'hidden',
   },
   bar: {
-    flex: 1,
+    width: 2.5,
     borderRadius: 2,
-    minWidth: 2,
+    minHeight: 3,
   },
 
-  progressTrack: {
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-    minWidth: 4,
-  },
-
-  sizeLabel: {
-    fontSize: 9,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT_3,
-    letterSpacing: 0.2,
+  duration: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT_2,
+    flexShrink: 0,
+    minWidth: 30,
     textAlign: 'right',
+  },
+
+  playBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+
+  loadingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+    opacity: 0.7,
   },
 });
