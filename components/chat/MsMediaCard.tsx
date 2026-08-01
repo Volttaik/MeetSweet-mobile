@@ -166,7 +166,7 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
           </View>
         ) : isVideo ? (
           /* ── Video: dark placeholder + large play ring + duration ──────── */
-          <View style={[s.videoPlaceholder, { width: MAX_CARD_W, height: DEFAULT_H }]}>
+          <View style={[s.videoPlaceholder, { width: MAX_CARD_W, height: Math.round(MAX_CARD_W * (9 / 16)) }]}>
             {/* Large semi-transparent play circle */}
             <View style={s.videoPlayRing}>
               <View style={s.videoPlayInner}>
@@ -193,7 +193,7 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
               ]}
               onLoad={handleLoad as any}
               onError={handleError}
-              resizeMode="cover"
+              resizeMode="contain"
               accessibilityLabel="Photo"
             />
           </>

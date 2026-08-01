@@ -18,6 +18,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Image,
   StyleSheet,
   Text,
   View,
@@ -109,6 +110,9 @@ export function MsChatBubble({
   const isSticker = !isDeleted && !hasAudio && !hasImage && !hasVideo && !hasDoc
     && isStickerText(msg.text ?? '');
 
+  // Image sticker: sent from sticker panel as a floating image (no card background)
+  const isStickerImage = !isDeleted && !!msg.msStickerImage && !!msg.image;
+
   const replyMsg  = msg.replyMessage;
   const reactions = msg.reactions ?? [];
 
@@ -123,6 +127,24 @@ export function MsChatBubble({
         showDeleted
         timeString={timeString}
       />
+    );
+  } else if (isStickerImage) {
+    // Floating image sticker — no card background, transparent, 120px
+    bubble = (
+      <View
+        style={[styles.stickerWrap, isOwn ? styles.stickerRight : styles.stickerLeft]}
+        accessibilityLabel="Image sticker"
+      >
+        <Image
+          source={{ uri: msg.image }}
+          style={styles.stickerImage}
+          resizeMode="contain"
+          accessibilityLabel="Sticker"
+        />
+        <Text style={[styles.stickerTime, isOwn ? styles.stickerTimeRight : styles.stickerTimeLeft]}>
+          {timeString}
+        </Text>
+      </View>
     );
   } else if (isSticker) {
     // Large emoji sticker — no bubble background, floats in chat
@@ -173,7 +195,7 @@ export function MsChatBubble({
     );
   }
 
-  const isMedia = !isDeleted && !isSticker && (hasAudio || hasImage || hasVideo || hasDoc);
+  const isMedia = !isDeleted && !isSticker && !isStickerImage && (hasAudio || hasImage || hasVideo || hasDoc);
 
   return (
     <Animated.View
@@ -258,6 +280,10 @@ const styles = StyleSheet.create({
     fontSize: 72,
     lineHeight: 88,
     includeFontPadding: false,
+  },
+  stickerImage: {
+    width: 120,
+    height: 120,
   },
   stickerTime: {
     fontSize: 10,

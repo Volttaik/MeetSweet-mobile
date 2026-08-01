@@ -8,6 +8,8 @@ import type { ChatMessage } from '@/services/messages';
 export interface MsMessage extends IMessage {
   /** Explicit media type from backend (image/video/audio/document) */
   msMediaType?: 'image' | 'video' | 'audio' | 'document' | null;
+  /** True when this image message is actually an image sticker (should float, no card background) */
+  msStickerImage?: boolean;
   /** Filename for document messages */
   msFileName?: string;
   /** File size in bytes */
@@ -32,6 +34,14 @@ export interface MsMessage extends IMessage {
 
 /** Map our ChatMessage → MsMessage for the Chat component */
 export function toMsMessage(raw: ChatMessage, currentUserId: string): MsMessage {
+  // The backend returns mediaType: null for audio uploads — detect by URL extension as fallback.
+  const isAudioFallback =
+    !raw.mediaType &&
+    !!raw.mediaUrl &&
+    /\.(m4a|mp3|aac|wav|ogg|opus)(\?|$)/i.test(raw.mediaUrl);
+  const effectiveMediaType: ChatMessage['mediaType'] =
+    raw.mediaType ?? (isAudioFallback ? 'audio' : null);
+
   return {
     _id: raw.id,
     text: raw.body ?? '',
@@ -42,16 +52,16 @@ export function toMsMessage(raw: ChatMessage, currentUserId: string): MsMessage 
       avatar: raw.sender.avatarUrl ?? undefined,
     },
     // Standard library fields — used for built-in render fallbacks
-    image: raw.mediaType === 'image' ? (raw.mediaUrl ?? undefined) : undefined,
-    video: raw.mediaType === 'video' ? (raw.mediaUrl ?? undefined) : undefined,
-    audio: raw.mediaType === 'audio' ? (raw.mediaUrl ?? undefined) : undefined,
+    image: effectiveMediaType === 'image' ? (raw.mediaUrl ?? undefined) : undefined,
+    video: effectiveMediaType === 'video' ? (raw.mediaUrl ?? undefined) : undefined,
+    audio: effectiveMediaType === 'audio' ? (raw.mediaUrl ?? undefined) : undefined,
     sent: true,
     received: raw.sender.id !== currentUserId,
     pending: false,
     // Reply
     replyMessage: undefined,
     // Custom MeetSweet fields
-    msMediaType: raw.mediaType,
+    msMediaType: effectiveMediaType,
     msFileName: raw.fileName,
     msFileSize: raw.fileSize,
     msMimeType: raw.mimeType,
