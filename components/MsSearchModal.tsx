@@ -1,13 +1,14 @@
 /**
  * MsSearchModal — full-screen search modal for the Home feed.
- * Searches posts via the live backend. User search is frontend-ready but
- * requires backend implementation (documented in BACKEND_REQUIRED.md).
+ * Compact design: shimmer loading states, trending chips, result tabs.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +16,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MagnifyingGlass, X, ClockCounterClockwise, TrendUp } from 'phosphor-react-native';
+import { MagnifyingGlass, X, ClockCounterClockwise, TrendUp, Hash } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
@@ -45,7 +46,48 @@ async function clearRecent(): Promise<void> {
   await AsyncStorage.removeItem(RECENT_KEY).catch(() => {});
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+async function removeRecent(q: string): Promise<void> {
+  try {
+    const existing = await loadRecent();
+    await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(existing.filter((s) => s !== q)));
+  } catch {}
+}
+
+// ─── Shimmer ─────────────────────────────────────────────────────────────────
+
+function ShimmerRow() {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.06, 0.14] });
+
+  return (
+    <View style={shimStyles.row}>
+      <Animated.View style={[shimStyles.avatar, { opacity }]} />
+      <View style={shimStyles.lines}>
+        <Animated.View style={[shimStyles.line, { width: '60%', opacity }]} />
+        <Animated.View style={[shimStyles.line, { width: '35%', opacity }]} />
+      </View>
+    </View>
+  );
+}
+
+const shimStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 9, gap: 10 },
+  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: T.TEXT },
+  lines: { flex: 1, gap: 5 },
+  line: { height: 9, borderRadius: 4, backgroundColor: T.TEXT },
+});
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ResultItem {
   id: string;
@@ -61,38 +103,35 @@ interface MsSearchModalProps {
 }
 
 const TRENDING_TOPICS = [
-  'photography',
-  'music',
-  'fitness',
-  'art & design',
-  'travel',
-  'cooking',
+  '#photography', '#music', '#fitness', '#art', '#travel', '#cooking',
+  '#fashion', '#gaming', '#tech', '#beauty',
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ResultItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
 
-  // Focus input when modal opens
   useEffect(() => {
     if (visible) {
       loadRecent().then(setRecent);
       setQuery('');
       setResults([]);
-      const t = setTimeout(() => inputRef.current?.focus(), 350);
+      fadeAnim.setValue(0);
+      Animated.timing(fadeAnim, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+      const t = setTimeout(() => inputRef.current?.focus(), 300);
       return () => clearTimeout(t);
     }
   }, [visible]);
 
-  // Debounced search against posts feed
   const runSearch = useCallback((q: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!q.trim()) {
@@ -118,11 +157,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
             title: p.caption || `Post by @${p.author?.username ?? 'unknown'}`,
             subtitle: `@${p.author?.username ?? 'unknown'}`,
             avatarUri: p.author?.avatarUrl ?? null,
-            initials: (
-              p.author?.name?.[0] ??
-              p.author?.username?.[0] ??
-              'U'
-            ).toUpperCase(),
+            initials: (p.author?.name?.[0] ?? p.author?.username?.[0] ?? 'U').toUpperCase(),
           }));
         setResults(filtered);
       } catch {
@@ -130,7 +165,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
       } finally {
         setSearching(false);
       }
-    }, 400);
+    }, 380);
   }, []);
 
   const handleChangeText = (v: string) => {
@@ -145,9 +180,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
   };
 
   const handleResultPress = async (item: ResultItem) => {
-    if (query.trim()) {
-      await pushRecent(query.trim());
-    }
+    if (query.trim()) await pushRecent(query.trim());
     onClose();
     router.push(`/post/${item.id}`);
   };
@@ -155,6 +188,11 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
   const handleRecentPress = (s: string) => {
     setQuery(s);
     runSearch(s);
+  };
+
+  const handleDeleteRecent = async (s: string) => {
+    await removeRecent(s);
+    setRecent(await loadRecent());
   };
 
   const handleClearRecent = async () => {
@@ -172,11 +210,11 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={[styles.bg, { paddingTop: insets.top }]}>
-        {/* ── Search bar ── */}
+      <Animated.View style={[styles.bg, { paddingTop: insets.top, opacity: fadeAnim }]}>
+        {/* Search bar */}
         <View style={styles.bar}>
           <View style={styles.inputWrap}>
-            <MagnifyingGlass size={17} color={T.TEXT_3} />
+            <MagnifyingGlass size={15} color={T.TEXT_3} />
             <TextInput
               ref={inputRef}
               style={styles.input}
@@ -191,13 +229,12 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
             />
             {query.length > 0 && (
               <TouchableOpacity
-                onPress={() => {
-                  setQuery('');
-                  setResults([]);
-                }}
+                onPress={() => { setQuery(''); setResults([]); }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <X size={15} color={T.TEXT_2} />
+                <View style={styles.clearBtn}>
+                  <X size={10} color={T.TEXT_2} weight="bold" />
+                </View>
               </TouchableOpacity>
             )}
           </View>
@@ -206,72 +243,83 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
           </TouchableOpacity>
         </View>
 
-        {/* ── Content ── */}
+        {/* Content */}
         {showEmpty ? (
-          <FlatList
-            data={[]}
-            renderItem={() => null}
-            keyExtractor={(_, i) => String(i)}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-            ListHeaderComponent={
-              <View>
-                {/* Recent */}
-                {recent.length > 0 && (
-                  <>
-                    <View style={styles.sectionRow}>
-                      <Text style={styles.sectionLabel}>Recent</Text>
-                      <TouchableOpacity onPress={handleClearRecent}>
-                        <Text style={styles.sectionAction}>Clear</Text>
-                      </TouchableOpacity>
-                    </View>
-                    {recent.map((s) => (
-                      <TouchableOpacity
-                        key={s}
-                        style={styles.listRow}
-                        onPress={() => handleRecentPress(s)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.listIcon}>
-                          <ClockCounterClockwise size={15} color={T.TEXT_2} />
-                        </View>
-                        <Text style={styles.listLabel}>{s}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </>
-                )}
-
-                {/* Trending */}
+          >
+            {/* Recent */}
+            {recent.length > 0 && (
+              <View style={styles.section}>
                 <View style={styles.sectionRow}>
-                  <Text style={styles.sectionLabel}>Trending</Text>
+                  <Text style={styles.sectionLabel}>RECENT</Text>
+                  <TouchableOpacity onPress={handleClearRecent} hitSlop={8}>
+                    <Text style={styles.sectionAction}>Clear all</Text>
+                  </TouchableOpacity>
                 </View>
+                {recent.map((s) => (
+                  <View key={s} style={styles.listRow}>
+                    <View style={styles.listIcon}>
+                      <ClockCounterClockwise size={13} color={T.TEXT_3} />
+                    </View>
+                    <TouchableOpacity
+                      style={{ flex: 1 }}
+                      onPress={() => handleRecentPress(s)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.listLabel}>{s}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteRecent(s)}
+                      hitSlop={10}
+                      activeOpacity={0.7}
+                    >
+                      <X size={12} color={T.TEXT_3} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Trending chips */}
+            <View style={styles.section}>
+              <View style={styles.sectionRow}>
+                <Text style={styles.sectionLabel}>TRENDING</Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScroll}
+              >
                 {TRENDING_TOPICS.map((t) => (
                   <TouchableOpacity
                     key={t}
-                    style={styles.listRow}
-                    onPress={() => handleRecentPress(t)}
-                    activeOpacity={0.7}
+                    style={styles.chip}
+                    onPress={() => handleRecentPress(t.replace('#', ''))}
+                    activeOpacity={0.75}
                   >
-                    <View style={styles.listIcon}>
-                      <TrendUp size={15} color={T.TEXT_2} />
-                    </View>
-                    <Text style={styles.listLabel}>{t}</Text>
+                    <Hash size={10} color={T.ACCENT} weight="bold" />
+                    <Text style={styles.chipLabel}>{t.replace('#', '')}</Text>
                   </TouchableOpacity>
                 ))}
-              </View>
-            }
-          />
+              </ScrollView>
+            </View>
+          </ScrollView>
         ) : (
           <FlatList
-            data={results}
+            data={searching ? ([] as ResultItem[]) : results}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{
-              paddingTop: 8,
-              paddingBottom: insets.bottom + 40,
-            }}
+            contentContainerStyle={{ paddingTop: 6, paddingBottom: insets.bottom + 40 }}
+            ListHeaderComponent={searching ? (
+              <View>
+                {[1, 2, 3, 4, 5].map((i) => <ShimmerRow key={i} />)}
+              </View>
+            ) : null}
             ListEmptyComponent={
-              <Text style={styles.emptyText}>
-                {searching ? 'Searching…' : `No results for "${query}"`}
-              </Text>
+              !searching ? (
+                <Text style={styles.emptyText}>No results for "{query}"</Text>
+              ) : null
             }
             renderItem={({ item }) => (
               <TouchableOpacity
@@ -280,7 +328,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
                 activeOpacity={0.75}
               >
                 <MsAvatar
-                  size={38}
+                  size={32}
                   initials={item.initials}
                   imageUri={item.avatarUri ?? undefined}
                 />
@@ -294,12 +342,10 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
             )}
           />
         )}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
@@ -307,107 +353,133 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 8,
   },
   inputWrap: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.pill,
-    borderWidth: 0,
-    paddingHorizontal: 14,
-    height: 40,
+    paddingHorizontal: 12,
+    height: 36,
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
-    // Remove browser default outline
     ...(Platform.OS === 'web'
       ? { outlineStyle: 'none' as never, outlineWidth: 0 }
       : {}),
   },
-  cancelBtn: { paddingLeft: 4 },
+  clearBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtn: { paddingLeft: 2 },
   cancelLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: T.FONT.medium,
     color: T.TEXT_2,
   },
 
+  section: { paddingTop: 4 },
   sectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 22,
-    paddingBottom: 8,
+    paddingTop: 18,
+    paddingBottom: 6,
   },
   sectionLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: T.FONT.semibold,
     color: T.TEXT_3,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    letterSpacing: 1.0,
   },
   sectionAction: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: T.FONT.medium,
-    color: T.TEXT_2,
+    color: T.TEXT_3,
   },
 
   listRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
+    paddingVertical: 8,
+    gap: 10,
   },
   listIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
   },
   listLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+  },
+
+  // Trending chips
+  chipsScroll: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: T.RADIUS.pill,
+    backgroundColor: T.SURFACE,
+  },
+  chipLabel: {
+    fontSize: 11,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
   },
 
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 12,
+    paddingVertical: 8,
+    gap: 10,
   },
   resultText: { flex: 1 },
   resultTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: T.FONT.medium,
     color: T.TEXT,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   resultSub: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
   },
 
   emptyText: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
     textAlign: 'center',
-    marginTop: 48,
+    marginTop: 44,
   },
 });

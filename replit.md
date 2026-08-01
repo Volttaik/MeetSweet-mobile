@@ -62,12 +62,21 @@ These features will fail gracefully (empty state, no crash) until the backend ad
 
 ## Key features implemented
 
-- **Home search** — MagnifyingGlass button opens `MsSearchModal` (full-text post/user search with recent history)
-- **Chat** — reactions (6-emoji quick-react + long-press picker), enhanced long-press menu (react/delete/report), image sending via expo-image-picker, paid-content bubble for locked messages
-- **Create Post** — two-step onboarding: fill context (caption, visibility, paid toggle + credit price, categories, tags) → Continue → media picker modal → preview → publish
-- **Creator Dashboard** — live data from `/creator/dashboard` and `/creator/subscribers`; stat cards, period performance, recent subscribers, quick-action buttons
-- **Creator Profile** — tabbed layout: Drops / Reviews / About; star ratings, review cards, clean subscribe sheet (no more BottomSheet dependency)
-- **Input focus borders** — `selectionColor={T.ACCENT}` added to new TextInputs; `MsInput` uses pink (#FF4473) focus border
+- **Home search** — `MsSearchModal`: compact 36px bar, shimmer skeleton loading, trending hashtag chips (horizontal scroll), per-item delete in recents, smaller result text (13/11px)
+- **Paid content overlay** — `MsPremiumContent`: compact blur overlay (32px lock icon, 34px unlock button), dual-button layout (unlock + quick-pay with credits), animated fade-out on unlock
+- **Locked content** — `MsLockedContent`: compact 42px circle, 12px button, gradient scrim
+- **Context menu** — `MsContextMenu`: spring-animated bottom sheet for long-press actions, grouped items, drag handle, compact item rows
+- **Swipe-to-reply** — `MsSwipeableMessage`: PanResponder swipe-right gesture, spring snap-back, haptic trigger at threshold
+- **Double-tap like** — `MsDoubleTapLike`: heart burst overlay with spring physics, haptic feedback
+- **Credit badge** — `MsCreditBadge`: compact header badge with pop animation on balance change
+- **Video gesture overlay** — `MsVideoGestureOverlay`: double-tap left=−10s, double-tap right=+10s, swipe up/down=volume, single tap=controls
+- **Video thumbnail picker** — `MsVideoThumbnailPicker`: compact 80px preview with custom image upload
+- **Shimmer system** — `MsShimmer`, `MsSkeletonFeed`: reusable shimmer primitives for all loading states
+- **Voice bubble** — `MsVoiceBubble`: redesigned with accent-tinted background, distinct from text bubbles, 36px play button, 24px waveform, 3px progress bar, accent border
+- **Post card** — Compact sizing: 13px author, 11px meta, 12px actions, 14px padding (was 20px)
+- **Chat** — reactions, enhanced long-press menu, image/voice sending, paid-content bubble
+- **Create Post** — two-step: context → media picker → preview → publish; custom thumbnail upload
+- **Creator Dashboard** — live `/creator/dashboard` + `/creator/subscribers` data
 
 ## User preferences
 

@@ -1,10 +1,11 @@
 /**
  * MsPremiumContent — one component for premium/locked media in feed, posts, messages.
- * Added: image fade-in loading state, video poster frame + buffering indicator.
+ * Compact blur overlay with dynamic payment button + quick credits payment.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Easing,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,7 +14,7 @@ import {
 } from 'react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsVideoPreview } from '@/components/MsVideoPreview';
-import { LockSimple, Play } from 'phosphor-react-native';
+import { LockSimple, Play, Lightning, CreditCard } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -22,7 +23,6 @@ import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 export interface MsPremiumContentProps {
   uri?: string | null;
   posterUri?: string | null;
-  /** Video URL used as fallback when posterUri is absent — first frame is extracted natively. */
   videoThumbnailUri?: string | null;
   mediaType?: 'image' | 'video';
   locked?: boolean;
@@ -37,23 +37,11 @@ export interface MsPremiumContentProps {
   style?: ViewStyle;
   overlayOnly?: boolean;
   showPaymentSheet?: boolean;
-  /**
-   * When provided, tapping the play button on a video card calls this instead
-   * of starting inline playback — use in feed/card contexts to navigate to the
-   * dedicated player so there is only one active playback controller.
-   */
   onPlayPress?: () => void;
-  /**
-   * Feed preview mode: renders a silent muted 3-second looping preview instead
-   * of a static thumbnail + play button. No controls are shown.
-   * Tap handling is left entirely to the parent (card wrapper).
-   */
   previewMode?: boolean;
-  /**
-   * When previewMode=true, controls whether the preview is playing.
-   * Driven by viewability — true when card is on screen, false when off screen.
-   */
   active?: boolean;
+  /** User's current credit balance — shown on the credits button */
+  creditBalance?: number;
 }
 
 export function MsPremiumContent({
@@ -76,15 +64,37 @@ export function MsPremiumContent({
   onPlayPress,
   previewMode = false,
   active = true,
+  creditBalance,
 }: MsPremiumContentProps) {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [videoStarted, setVideoStarted] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [localUnlocked, setLocalUnlocked] = useState(false);
+
+  // Overlay fade-out on unlock
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const btnScale = useRef(new Animated.Value(0.85)).current;
 
   useEffect(() => {
     setVideoStarted(false);
+    setLocalUnlocked(false);
+    overlayOpacity.setValue(1);
   }, [uri, locked, mediaType]);
 
-  const isLocked = !unlocked && locked;
+  // Animate button in
+  useEffect(() => {
+    if (locked && !unlocked) {
+      Animated.spring(btnScale, {
+        toValue: 1,
+        damping: 12,
+        stiffness: 280,
+        mass: 1,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [locked, unlocked]);
+
+  const isLocked = !unlocked && !localUnlocked && locked;
 
   const handleUnlock = () => {
     if (showPaymentSheet) {
@@ -94,13 +104,39 @@ export function MsPremiumContent({
     onUnlock?.();
   };
 
+  const handleCreditPay = async () => {
+    setUnlocking(true);
+    // Animate overlay out
+    Animated.timing(overlayOpacity, {
+      toValue: 0,
+      duration: 280,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => setLocalUnlocked(true));
+
+    try {
+      onPurchase?.();
+      onUnlock?.();
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   const handlePayment = async () => {
     setPaymentVisible(false);
+    Animated.timing(overlayOpacity, {
+      toValue: 0,
+      duration: 280,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => setLocalUnlocked(true));
     onPurchase?.();
     onUnlock?.();
   };
 
   if (unlocked && overlayOnly) return null;
+
+  const hasSufficientCredits = creditBalance !== undefined && creditBalance >= price;
 
   return (
     <>
@@ -112,20 +148,18 @@ export function MsPremiumContent({
           style,
         ]}
       >
-        {/* Image with shared loading, fade-in and retry states */}
+        {/* Image */}
         {!overlayOnly && uri && mediaType === 'image' && (
-          <>
-            <MsMediaLoader
-              uri={uri}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
-              blurRadius={isLocked ? 20 : 0}
-              accessibleLabel="Post image"
-            />
-          </>
+          <MsMediaLoader
+            uri={uri}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            blurRadius={isLocked ? 18 : 0}
+            accessibleLabel="Post image"
+          />
         )}
 
-        {/* Video — feed preview mode: silent muted 3-second looping preview, no play button */}
+        {/* Video — feed preview */}
         {!overlayOnly && uri && mediaType === 'video' && previewMode && !isLocked && (
           <MsVideoPreview
             uri={uri}
@@ -134,7 +168,7 @@ export function MsPremiumContent({
           />
         )}
 
-        {/* Video — standard mode: static poster first; stream mounts only after explicit play */}
+        {/* Video — standard mode */}
         {!overlayOnly && uri && mediaType === 'video' && !previewMode && (
           <>
             {!videoStarted && (
@@ -146,14 +180,13 @@ export function MsPremiumContent({
                   accessibleLabel="Video poster"
                 />
               ) : videoThumbnailUri ? (
-                /* First-frame extraction — never shows a blank/black rectangle */
                 <MsVideoThumbnail
                   videoUri={videoThumbnailUri}
                   style={StyleSheet.absoluteFill}
                   visible
                 />
               ) : (
-                <View style={[StyleSheet.absoluteFill, styles.videoPosterFallback]} accessible accessibilityLabel="Video poster placeholder" />
+                <View style={[StyleSheet.absoluteFill, styles.videoPosterFallback]} />
               )
             )}
             {videoStarted && (
@@ -172,39 +205,69 @@ export function MsPremiumContent({
                 style={styles.playButton}
                 onPress={() => {
                   if (onPlayPress) {
-                    // Navigate to dedicated player — no inline playback in card mode
                     onPlayPress();
                   } else {
                     setVideoStarted(true);
                   }
                 }}
                 activeOpacity={0.82}
-                accessibilityRole="button"
-                accessibilityLabel="Play video"
               >
-                <Play size={26} color={T.TEXT} weight="fill" />
+                <Play size={22} color={T.TEXT} weight="fill" />
               </TouchableOpacity>
             )}
-            {/* Native player handles loading state; no custom spinner needed */}
           </>
         )}
 
         {!uri && !overlayOnly && <View style={styles.emptyMedia} />}
 
-        {/* Lock overlay */}
+        {/* Lock overlay — compact, blur-based, gradient fade */}
         {isLocked && (
-          <Animated.View style={StyleSheet.absoluteFill}>
-            <View style={styles.scrim} />
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: overlayOpacity }]}>
+            {/* Dark scrim with gradient fade top→bottom */}
+            <View style={styles.scrimTop} />
+            <View style={styles.scrimBottom} />
+
             <View style={styles.lockContent}>
-              <View style={styles.lockCircle}>
-                <LockSimple size={19} color={T.TEXT} weight="bold" />
+              {/* Small lock icon */}
+              <View style={styles.lockIcon}>
+                <LockSimple size={16} color={T.TEXT} weight="bold" />
               </View>
-              <Text style={styles.lockTitle}>{price > 0 ? `${price} credits` : 'Subscribers only'}</Text>
-              <Text style={styles.lockSubtitle}>Unlock to keep watching</Text>
-              <TouchableOpacity onPress={handleUnlock} style={styles.unlockButton} activeOpacity={0.82}>
-                <Play size={13} color={T.BG} weight="fill" />
-                <Text style={styles.unlockLabel}>{price > 0 ? 'Unlock' : 'Subscribe'}</Text>
-              </TouchableOpacity>
+
+              <Text style={styles.lockTitle}>
+                {price > 0 ? 'Premium Content' : 'Subscribers Only'}
+              </Text>
+
+              {/* Primary: unlock/pay button */}
+              <Animated.View style={{ transform: [{ scale: btnScale }] }}>
+                <TouchableOpacity
+                  onPress={handleUnlock}
+                  style={styles.unlockBtn}
+                  activeOpacity={0.82}
+                  disabled={unlocking}
+                >
+                  <Play size={11} color={T.BG} weight="fill" />
+                  <Text style={styles.unlockLabel}>
+                    {price > 0 ? `Unlock for ${price} credits` : 'Subscribe'}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Secondary: quick credits pay (if user has balance) */}
+              {price > 0 && creditBalance !== undefined && (
+                <TouchableOpacity
+                  onPress={hasSufficientCredits ? handleCreditPay : handleUnlock}
+                  style={styles.creditsBtn}
+                  activeOpacity={0.75}
+                  disabled={unlocking}
+                >
+                  <Lightning size={10} color={hasSufficientCredits ? T.ACCENT : T.TEXT_3} weight="fill" />
+                  <Text style={[styles.creditsLabel, !hasSufficientCredits && { color: T.TEXT_3 }]}>
+                    {hasSufficientCredits
+                      ? `Pay with credits (${creditBalance} available)`
+                      : `Need ${price - creditBalance} more credits`}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </Animated.View>
         )}
@@ -229,49 +292,80 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignSelf: 'center',
     top: '50%',
-    marginTop: -28,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    marginTop: -22,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.52)',
   },
-  videoPosterFallback: {
-    backgroundColor: T.SURFACE_2,
+  videoPosterFallback: { backgroundColor: T.SURFACE_2 },
+
+  // Gradient scrim — top dark fade + bottom stronger dark
+  scrimTop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(8,6,12,0.52)',
+  },
+  scrimBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '60%',
+    backgroundColor: 'rgba(8,6,12,0.38)',
   },
 
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(18,11,16,0.76)',
-  },
   lockContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-    paddingHorizontal: 20,
+    gap: 8,
+    paddingHorizontal: 16,
   },
-  lockCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: T.ACCENT,
+  lockIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 3,
+    marginBottom: 2,
   },
-  lockTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16 },
-  lockSubtitle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
-  unlockButton: {
+  lockTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 13,
+    letterSpacing: 0.2,
+  },
+  unlockBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    marginTop: 6,
-    paddingHorizontal: 20,
-    height: 40,
+    gap: 6,
+    paddingHorizontal: 18,
+    height: 34,
     borderRadius: T.RADIUS.pill,
     backgroundColor: T.TEXT,
   },
-  unlockLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 13 },
+  unlockLabel: {
+    color: T.BG,
+    fontFamily: T.FONT.semibold,
+    fontSize: 12,
+  },
+  creditsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: T.RADIUS.pill,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginTop: -2,
+  },
+  creditsLabel: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.medium,
+    fontSize: 10,
+    letterSpacing: 0.1,
+  },
 });
