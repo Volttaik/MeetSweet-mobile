@@ -22,8 +22,6 @@ import {
   Check,
   FilmStrip,
   Image as ImageIcon,
-  Lightning,
-  LockSimple,
   MonitorPlay,
   PlayCircle,
   VideoCamera,
@@ -102,8 +100,6 @@ export default function CreatePostScreen() {
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
   const [tags,                 setTags]                 = useState<string[]>([]);
   const [tagInput,             setTagInput]             = useState('');
-  const [isPaid,               setIsPaid]               = useState(false);
-  const [creditPrice,          setCreditPrice]          = useState('50');
   const [videoTitle,           setVideoTitle]           = useState('');
 
   // Media state
@@ -146,8 +142,6 @@ export default function CreatePostScreen() {
         if (draft.visibility) setVisibility(draft.visibility);
         if (draft.contentType && !params.type) setContentType(draft.contentType);
         if (draft.videoTitle) setVideoTitle(draft.videoTitle);
-        if (draft.creditPrice) setCreditPrice(draft.creditPrice);
-        if (draft.isPaid !== undefined) setIsPaid(draft.isPaid);
       } catch {/* ignore corrupt draft */}
     }).catch(() => {});
   }, []);
@@ -159,11 +153,11 @@ export default function CreatePostScreen() {
     if (step === 'uploading' || step === 'creating' || step === 'success') return;
     if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
     draftSaveTimer.current = setTimeout(() => {
-      const draft = { caption, tags, visibility, contentType, videoTitle, creditPrice, isPaid };
+      const draft = { caption, tags, visibility, contentType, videoTitle };
       AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
     }, 800);
     return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current); };
-  }, [caption, tags, visibility, contentType, videoTitle, creditPrice, isPaid, step]);
+  }, [caption, tags, visibility, contentType, videoTitle, step]);
 
   // ─── Media picker ─────────────────────────────────────────────────────────
 
@@ -298,11 +292,10 @@ export default function CreatePostScreen() {
 
       await createPost({
         caption:      finalCaption,
-        visibility:   isPaid ? 'subscribers' as const : visibility,
+        visibility,
         media:        mediaArr,
         categories:   selectedCategories,
         tags,
-        ...(isPaid ? { unlock_price: parseInt(creditPrice, 10) || 50 } : {}),
         content_type: backendContentType[contentType],
       });
 
@@ -676,44 +669,6 @@ export default function CreatePostScreen() {
                 );
               })}
             </View>
-          </View>
-
-          {/* Paid content toggle */}
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.toggleRow}
-              onPress={() => setIsPaid((v) => !v)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.toggleLeft}>
-                <View style={[styles.toggleIcon, { backgroundColor: isPaid ? T.ACCENT + '22' : T.SURFACE_2 }]}>
-                  <LockSimple size={16} color={isPaid ? T.ACCENT : T.TEXT_3} weight={isPaid ? 'fill' : 'regular'} />
-                </View>
-                <View>
-                  <Text style={styles.toggleLabel}>Paid Content</Text>
-                  <Text style={styles.toggleDesc}>Subscribers only can unlock this</Text>
-                </View>
-              </View>
-              <View style={[styles.toggle, isPaid && styles.toggleOn]}>
-                <View style={[styles.toggleKnob, isPaid && styles.toggleKnobOn]} />
-              </View>
-            </TouchableOpacity>
-
-            {isPaid && (
-              <View style={styles.priceRow}>
-                <Lightning size={14} color={T.ACCENT} weight="fill" />
-                <TextInput
-                  style={styles.priceInput}
-                  value={creditPrice}
-                  onChangeText={(v) => setCreditPrice(v.replace(/[^0-9]/g, ''))}
-                  keyboardType="numeric"
-                  placeholder="50"
-                  placeholderTextColor={T.TEXT_3}
-                  maxLength={6}
-                />
-                <Text style={styles.priceUnit}>credits</Text>
-              </View>
-            )}
           </View>
 
           {/* Categories */}

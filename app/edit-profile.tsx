@@ -22,6 +22,16 @@ import { apiFetch } from '@/services/api';
 import { uploadMedia } from '@/services/media';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const NAME_CHANGE_KEY = '@ms_last_name_change';
+const NAME_COOLDOWN_DAYS = 30;
+
+function daysUntilNameChange(lastChanged: string | null): number {
+  if (!lastChanged) return 0;
+  const diff = Date.now() - new Date(lastChanged).getTime();
+  const daysPassed = diff / (1000 * 60 * 60 * 24);
+  return Math.max(0, Math.ceil(NAME_COOLDOWN_DAYS - daysPassed));
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function EditProfileScreen() {
@@ -35,6 +45,9 @@ export default function EditProfileScreen() {
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
   const [focusedField, setFocused]= useState<string | null>(null);
+  const [lastNameChange, setLastNameChange] = useState<string | null>(null);
+  const nameCooldownDays = daysUntilNameChange(lastNameChange);
+  const nameIsLocked = nameCooldownDays > 0;
 
   // Local preview URIs for newly picked images (not yet uploaded)
   const [avatarUri, setAvatarUri]   = useState<string | null>(null);
@@ -49,6 +62,7 @@ export default function EditProfileScreen() {
       setWebsite((user as any)?.website ?? '');
       setLocation((user as any)?.location ?? '');
     }
+    AsyncStorage.getItem(NAME_CHANGE_KEY).then(setLastNameChange).catch(() => {});
   }, [user?.id]);
 
   const initials = name.trim()
@@ -154,6 +168,12 @@ export default function EditProfileScreen() {
       setError('Display name must be at least 2 characters');
       return;
     }
+    // Enforce 30-day name change cooldown
+    const nameChanged = name.trim() !== (user?.name ?? '');
+    if (nameChanged && nameIsLocked) {
+      setError(`You can change your name in ${nameCooldownDays} day${nameCooldownDays === 1 ? '' : 's'}`);
+      return;
+    }
     if (!hasChanges) { router.back(); return; }
 
     setError('');
@@ -172,6 +192,13 @@ export default function EditProfileScreen() {
           location: location.trim() || null,
         }),
       });
+
+      // Record name change timestamp
+      if (nameChanged) {
+        const now = new Date().toISOString();
+        await AsyncStorage.setItem(NAME_CHANGE_KEY, now);
+        setLastNameChange(now);
+      }
 
       if (user) {
         const updated = (raw as any)?.user ?? raw as any;
@@ -316,23 +343,31 @@ export default function EditProfileScreen() {
             <View
               style={[
                 styles.inputWrap,
-                focusedField === 'name' && styles.inputWrapFocused,
-                name.trim().length < 2 && name.length > 0 ? styles.inputWrapError : null,
+                nameIsLocked && styles.inputReadOnly,
+                !nameIsLocked && focusedField === 'name' && styles.inputWrapFocused,
+                !nameIsLocked && name.trim().length < 2 && name.length > 0 ? styles.inputWrapError : null,
               ]}
             >
               <TextInput
                 style={styles.input}
                 value={name}
-                onChangeText={(v) => { setName(v); setError(''); }}
-                onFocus={() => setFocused('name')}
+                onChangeText={(v) => { if (!nameIsLocked) { setName(v); setError(''); } }}
+                onFocus={() => { if (!nameIsLocked) setFocused('name'); }}
                 onBlur={() => setFocused(null)}
                 placeholder="Your display name"
                 placeholderTextColor={T.TEXT_3}
                 maxLength={50}
                 autoCorrect={false}
+                editable={!nameIsLocked}
               />
             </View>
-            <Text style={styles.charCount}>{name.length}/50</Text>
+            {nameIsLocked ? (
+              <Text style={[styles.fieldHint, { color: T.TEXT_2 }]}>
+                You can change your name in {nameCooldownDays} day{nameCooldownDays === 1 ? '' : 's'}
+              </Text>
+            ) : (
+              <Text style={styles.charCount}>{name.length}/50</Text>
+            )}
           </View>
 
           {/* Bio */}

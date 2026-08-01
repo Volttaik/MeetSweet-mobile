@@ -21,7 +21,6 @@ import {
   Lock,
   Shield,
   DeviceMobile,
-  Fingerprint,
   ClockCounterClockwise,
   Warning,
 } from 'phosphor-react-native';
@@ -297,8 +296,6 @@ export default function SecuritySettingsScreen() {
   const insets = useSafeAreaInsets();
   const [pwSheetVisible, setPwSheetVisible] = useState(false);
   const [signOutAllConfirm, setSignOutAllConfirm] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [rememberDevice, setRememberDevice] = useState(true);
 
   const handleTwoFactor = () => {
     Alert.alert(
@@ -390,30 +387,6 @@ export default function SecuritySettingsScreen() {
             label="Recovery Codes"
             description="Generate codes to regain account access"
             onPress={handleRecoveryCodes}
-          />
-        </View>
-
-        {/* Biometrics */}
-        <SectionHeader title="Biometric Login" />
-        <View style={styles.section}>
-          <ToggleRow
-            label="Fingerprint / Face ID"
-            description="Use biometrics to unlock the app"
-            value={biometricEnabled}
-            onValueChange={(v) => {
-              setBiometricEnabled(v);
-              toast.success(v ? 'Biometric login enabled' : 'Biometric login disabled');
-            }}
-          />
-          <View style={styles.divider} />
-          <ToggleRow
-            label="Remember This Device"
-            description="Stay signed in on this device"
-            value={rememberDevice}
-            onValueChange={(v) => {
-              setRememberDevice(v);
-              toast.success('Preference saved');
-            }}
           />
         </View>
 

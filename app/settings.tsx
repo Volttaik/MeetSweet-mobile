@@ -30,7 +30,6 @@ import {
   DeviceMobile,
   Eye,
   EyeSlash,
-  Fingerprint,
   Gear,
   Globe,
   Info,
@@ -57,7 +56,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   deleteAccount,
   logoutAllDevices,
-  toggleBiometric,
   updatePassword,
 } from '@/services/settings';
 import { checkUsernameAvailability, updateMe } from '@/services/users';
@@ -904,77 +902,6 @@ function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: 
   );
 }
 
-// ─── MODAL: Biometrics ────────────────────────────────────────────────────────
-
-function BiometricsModal({
-  visible,
-  onClose,
-  onEnable,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onEnable: () => Promise<void>;
-}) {
-  const [step, setStep] = useState<'explain' | 'prompting' | 'failed'>('explain');
-
-  useEffect(() => { if (visible) setStep('explain'); }, [visible]);
-
-  const handleContinue = async () => {
-    setStep('prompting');
-    // Simulate biometric prompt — requires expo-local-authentication for real native call
-    await new Promise((r) => setTimeout(r, 1500));
-    // In a real implementation: LocalAuthentication.authenticateAsync()
-    // For now, simulate success (documented in BACKEND_REQUIRED.md)
-    try {
-      await onEnable();
-      onClose();
-      toast.success('Biometric login enabled');
-    } catch (e: unknown) {
-      setStep('failed');
-      toast.error(e instanceof Error ? e.message : 'Could not enable biometric login');
-    }
-  };
-
-  return (
-    <BottomSheet visible={visible} onClose={step === 'prompting' ? () => {} : onClose} title="Biometric Login">
-      {step === 'explain' && (
-        <View style={{ gap: 16, alignItems: 'center', paddingVertical: 8 }}>
-          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
-            <Fingerprint size={32} color={T.TEXT} />
-          </View>
-          <Text style={[ms.sub, { textAlign: 'center', fontSize: 14, lineHeight: 22 }]}>
-            Use Face ID or fingerprint to unlock MeetSweet quickly and securely.{'\n\n'}
-            Your biometric data stays on your device and is never shared.
-          </Text>
-          <View style={[ms.buttons, { width: '100%' }]}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-              <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={ms.saveBtn} onPress={handleContinue} activeOpacity={0.8}>
-              <Text style={ms.saveLabel}>Enable</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-      {step === 'prompting' && (
-        <View style={{ gap: 16, alignItems: 'center', paddingVertical: 24 }}>
-          <ActivityIndicator size="large" color={T.TEXT} />
-          <Text style={ms.sub}>Requesting biometric permission…</Text>
-        </View>
-      )}
-      {step === 'failed' && (
-        <View style={{ gap: 16, alignItems: 'center', paddingVertical: 8 }}>
-          <Text style={{ color: T.ERROR, fontFamily: T.FONT.semibold, fontSize: 15 }}>Authentication failed</Text>
-          <Text style={[ms.sub, { textAlign: 'center' }]}>Biometric login was not enabled. Please try again.</Text>
-          <TouchableOpacity style={[ms.saveBtn, { width: '100%' }]} onPress={onClose} activeOpacity={0.8}>
-            <Text style={ms.saveLabel}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </BottomSheet>
-  );
-}
-
 // ─── MODAL: Active Sessions ───────────────────────────────────────────────────
 
 function ActiveSessionsModal({
@@ -1463,7 +1390,7 @@ export default function SettingsScreen() {
   // Modal open state
   const [modal, setModal] = useState<
     | 'editProfile' | 'username' | 'email' | 'phone'
-    | 'changePassword' | 'biometrics' | 'activeSessions' | 'twoFactor' | 'loginHistory'
+    | 'changePassword' | 'activeSessions' | 'twoFactor' | 'loginHistory'
     | 'profileVisibility' | 'messagePerm' | 'mentionPerm'
     | 'language' | 'help' | 'bug' | 'contact' | 'about'
     | null
@@ -1479,9 +1406,6 @@ export default function SettingsScreen() {
   const [notif, setNotif] = useState<NotifPrefs>(NOTIF_DEFAULTS);
   // Content prefs
   const [content, setContent] = useState<ContentPrefs>(CONTENT_DEFAULTS);
-
-  // Biometrics
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -1667,26 +1591,6 @@ export default function SettingsScreen() {
         <View style={rs.section}>
           <Row label="Change Password" sub="Update your account password" onPress={() => setModal('changePassword')} />
           <Divider />
-          <ToggleRow
-            label="Biometric Login"
-            sub="Fingerprint or Face ID"
-            value={biometricEnabled}
-            onValueChange={(v) => {
-              if (v) {
-                setModal('biometrics');
-              } else {
-                toggleBiometric(false)
-                  .then(() => {
-                    setBiometricEnabled(false);
-                    toast.info('Biometric login disabled');
-                  })
-                  .catch((e: unknown) => {
-                    toast.error(e instanceof Error ? e.message : 'Could not disable biometric login');
-                  });
-              }
-            }}
-          />
-          <Divider />
           <Row label="Active Sessions" sub="View and manage sign-in sessions" onPress={() => setModal('activeSessions')} />
           <Divider />
           <Row label="Login History" sub="Recent sign-in activity" onPress={() => setModal('loginHistory')} />
@@ -1793,14 +1697,6 @@ export default function SettingsScreen() {
       <ChangePasswordModal
         visible={modal === 'changePassword'}
         onClose={() => setModal(null)}
-      />
-      <BiometricsModal
-        visible={modal === 'biometrics'}
-        onClose={() => setModal(null)}
-        onEnable={async () => {
-          await toggleBiometric(true);
-          setBiometricEnabled(true);
-        }}
       />
       <ActiveSessionsModal
         visible={modal === 'activeSessions'}

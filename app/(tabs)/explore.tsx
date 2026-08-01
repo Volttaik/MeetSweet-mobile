@@ -4,7 +4,6 @@ import {
   Alert,
   Dimensions,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,14 +17,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
   Bell,
-  CaretRight,
   Compass,
-  FilmStrip,
   Images,
   Lightning,
   MagnifyingGlass as SearchIcon,
   Users,
-  Wallet,
 } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
 import type { Creator } from '@/lib/api-client-react';
@@ -44,7 +40,6 @@ import {
   MsFeaturedCreatorCard,
   MsRecommendedCreatorRow,
 } from '@/components/MsExploreVisual';
-import { ExploreCreatorCard } from '@/components/ExploreCreatorCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -55,7 +50,6 @@ import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CREATOR_IMG_WIDTH = Math.floor((SCREEN_WIDTH - 24 - 10) / 2);
 
 // ─── View mode toggle ─────────────────────────────────────────────────────────
 
@@ -148,7 +142,6 @@ interface HeaderProps {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
-  creditBalance: number;
 }
 
 function ExploreHeader({
@@ -159,7 +152,6 @@ function ExploreHeader({
   isLoading,
   isError,
   onRetry,
-  creditBalance,
 }: HeaderProps) {
   return (
     <>
@@ -174,7 +166,7 @@ function ExploreHeader({
               ? 'Search albums, creators'
               : viewMode === 'creators'
               ? 'Search creators, categories'
-              : 'Search videos, images, creators'
+              : 'Search videos, creators'
           }
           style={styles.searchInput}
           compact
@@ -206,30 +198,6 @@ function ExploreHeader({
           actionLabel="Retry"
           onAction={onRetry}
         />
-      )}
-
-      {/* Wallet banner */}
-      {!isLoading && !isError && (
-        <Pressable style={styles.creditBanner} onPress={() => router.push('/wallet')}>
-          <View style={styles.creditIcon}>
-            <Image
-              source={require('../../assets/images/logo.png')}
-              style={styles.creditLogo}
-              resizeMode="contain"
-            />
-          </View>
-          <View style={styles.creditCopy}>
-            <Text style={styles.creditEyebrow}>YOUR CREATOR WALLET</Text>
-            <Text style={styles.creditBalance}>
-              {creditBalance.toLocaleString()}
-              <Text style={styles.creditUnit}> credits</Text>
-            </Text>
-          </View>
-          <View style={styles.creditAction}>
-            <Text style={styles.creditActionText}>Top up</Text>
-            <CaretRight size={15} color={T.BG} />
-          </View>
-        </Pressable>
       )}
     </>
   );
@@ -307,11 +275,11 @@ export default function ExploreScreen() {
           comments: fmtComments,
           uploadDate,
           gradient: p.gradient,
-          isPremium: p.isPremium,
+          isPremium: false,
           kind: p.kind,
-          lockedLabel: p.lockedLabel,
+          lockedLabel: undefined,
           thumbnailUrl: p.thumbnailUrl,
-          mediaUrl: p.isPremium ? null : (p.mediaUrl ?? null),
+          mediaUrl: p.mediaUrl ?? null,
           creatorId: creator.id,
           creatorName: creator.name,
           creatorHandle: creator.handle,
@@ -328,8 +296,8 @@ export default function ExploreScreen() {
           likes: p.likes,
           comments: fmtComments,
           uploadDate,
-          isPremium: p.isPremium,
-          lockedLabel: p.lockedLabel,
+          isPremium: false,
+          lockedLabel: undefined,
           imageUrl: p.thumbnailUrl ?? p.mediaUrl ?? null,
           gradient: p.gradient,
           creatorId: creator.id,
@@ -373,8 +341,6 @@ export default function ExploreScreen() {
   const catalogPreviews       = catalog?.previews ?? [];
   const featuredCreatorIds    = catalog?.featuredCreatorIds ?? [];
   const recommendedCreatorIds = catalog?.recommendedCreatorIds ?? [];
-  const creditBalance         = Number(catalog?.creditBalance ?? 0);
-
   const visibleCreators = useMemo(() => {
     if (!catalog) return [];
     const needle = search.trim().toLowerCase();
@@ -519,10 +485,6 @@ export default function ExploreScreen() {
           <Bell size={19} color={T.TEXT} />
           <View style={styles.notificationDot} />
         </Pressable>
-        <Pressable style={styles.walletButton} onPress={() => router.push('/wallet')}>
-          <Wallet size={16} color={T.BG} />
-          <Text style={styles.walletButtonText}>{creditBalance.toLocaleString()}</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -535,7 +497,6 @@ export default function ExploreScreen() {
     isLoading,
     isError,
     onRetry: () => { catalogQuery.refetch(); feedQuery.refetch(); albumsQuery.refetch(); },
-    creditBalance,
   };
 
   // ── EXPLORE MODE — primary discovery feed (mixed video + image cards) ─────────
@@ -848,11 +809,11 @@ export default function ExploreScreen() {
                       comments,
                       uploadDate,
                       gradient:    preview.gradient,
-                      isPremium:   preview.isPremium,
+                      isPremium:   false,
                       kind:        preview.kind,
-                      lockedLabel: preview.lockedLabel,
+                      lockedLabel: undefined,
                       thumbnailUrl: preview.thumbnailUrl ?? null,
-                      mediaUrl:    preview.isPremium ? null : (preview.mediaUrl ?? null),
+                      mediaUrl:    preview.mediaUrl ?? null,
                       ...creatorBase,
                     };
                     return (
@@ -873,8 +834,8 @@ export default function ExploreScreen() {
                     likes:       preview.likes,
                     comments,
                     uploadDate,
-                    isPremium:   preview.isPremium,
-                    lockedLabel: preview.lockedLabel,
+                    isPremium:   false,
+                    lockedLabel: undefined,
                     imageUrl:    preview.thumbnailUrl ?? preview.mediaUrl ?? null,
                     gradient:    preview.gradient,
                     ...creatorBase,
@@ -999,18 +960,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: T.ACCENT,
   },
-  walletButton: {
-    height: 38,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 11,
-    borderRadius: 19,
-    backgroundColor: T.TEXT,
-    ...T.SHADOWS.soft,
-  },
-  walletButtonText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
-
   scrollContent: { paddingTop: 16, paddingBottom: 0 },
   feedListContent: { paddingTop: 16, paddingBottom: 24 },
 
@@ -1041,50 +990,6 @@ const styles = StyleSheet.create({
   clearSearch: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 22, lineHeight: 22 },
 
   loadingWrap: { paddingTop: 12 },
-
-  creditBanner: {
-    marginHorizontal: 20,
-    marginTop: 4,
-    marginBottom: 8,
-    backgroundColor: T.TEXT,
-    minHeight: 78,
-    borderRadius: T.RADIUS.lg,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    ...T.SHADOWS.medium,
-  },
-  creditIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: T.BG,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  creditLogo: {
-    width: 30,
-    height: 30,
-  },
-  creditCopy: { flex: 1 },
-  creditEyebrow: {
-    color: 'rgba(0,0,0,0.55)',
-    fontFamily: T.FONT.semibold,
-    fontSize: 8,
-    letterSpacing: 1.1,
-  },
-  creditBalance: {
-    color: T.BG,
-    fontFamily: T.FONT.bold,
-    fontSize: 22,
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
-  creditUnit: { fontFamily: T.FONT.medium, fontSize: 11 },
-  creditAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  creditActionText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
 
   sectionHeader: { paddingTop: 24, paddingBottom: 12 },
   featuredRow: { gap: 12, paddingHorizontal: 20, paddingBottom: 3 },
