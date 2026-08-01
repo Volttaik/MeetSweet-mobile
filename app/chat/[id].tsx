@@ -93,7 +93,7 @@ import { MsChatInputBar } from '@/components/chat/MsChatInputBar';
 import { MsChatBackground } from '@/components/chat/MsChatBackground';
 import { MsTypingIndicator } from '@/components/chat/MsTypingIndicator';
 import { MsDateSeparator } from '@/components/chat/MsDateSeparator';
-import type { SendPayload, PendingVoice } from '@/components/chat/MsChatInputBar';
+import type { SendPayload, PendingVoice, InlineAttachment, AttachmentSendPayload } from '@/components/chat/MsChatInputBar';
 import {
   toMsMessage,
   toReplyMessage,
@@ -171,6 +171,8 @@ export default function ChatScreen() {
   const [showAttach, setShowAttach] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [inlineAttachment, setInlineAttachment] = useState<InlineAttachment | null>(null);
+  const [showInlineImagePreview, setShowInlineImagePreview] = useState(false);
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
   const [fullscreenVideoUri, setFullscreenVideoUri] = useState<string | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -617,29 +619,39 @@ export default function ChatScreen() {
     }
   }, [conversationId, user?.id]);
 
-  // ── Voice ready — show preview before sending ─────────────────────────────────
-  const handleVoiceReady = useCallback((voice: PendingVoice) => {
-    setPendingAttachment({
-      uri: voice.uri,
-      type: 'voice',
-      mimeType: 'audio/m4a',
-      fileName: 'voice-note.m4a',
-      duration: voice.duration,
-    });
+  // ── Voice ready — handled internally by MsChatInputBar; no-op here ───────────
+  const handleVoiceReady = useCallback((_voice: PendingVoice) => {
+    // Voice is staged inside MsChatInputBar as a VoiceCompactBar above the input.
+    // It is dispatched via onSend({ voice }) — no modal needed.
   }, []);
 
-  // ── Attachment sheet pick ─────────────────────────────────────────────────────
+  // ── Attachment sheet pick — route to inline bar above input ───────────────────
   const handleAttachmentResult = useCallback((result: AttachmentResult) => {
     setShowAttach(false);
-    setPendingAttachment({
+    setInlineAttachment({
+      type: result.type as InlineAttachment['type'],
       uri: result.uri,
-      type: result.type,
       mimeType: result.mimeType,
       fileName: result.fileName,
       fileSize: result.fileSize,
       duration: result.duration,
     });
   }, []);
+
+  // ── Send with inline attachment — upload and dispatch ────────────────────────
+  const handleSendWithAttachment = useCallback(async (payload: AttachmentSendPayload) => {
+    setInlineAttachment(null);
+    // Re-use the confirmed attachment flow with the payload data
+    await handleAttachmentConfirmed({
+      uri: payload.uri,
+      type: payload.type,
+      mimeType: payload.mimeType,
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
+      duration: payload.duration,
+      caption: payload.caption,
+    });
+  }, [handleAttachmentConfirmed]);
 
   // ── Merge local reactions into messages ───────────────────────────────────────
   const messagesWithReactions = useMemo(() =>
@@ -764,6 +776,10 @@ export default function ChatScreen() {
             onAttachPress={() => setShowAttach(true)}
             onCameraPress={handleCameraPress}
             disabled={uploadingMedia}
+            inlineAttachment={inlineAttachment}
+            onRemoveInlineAttachment={() => setInlineAttachment(null)}
+            onEditInlineAttachment={() => setShowInlineImagePreview(true)}
+            onSendWithAttachment={handleSendWithAttachment}
           />
         )}
 
@@ -781,7 +797,7 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* ── Attachment preview ───────────────────────────────────────────────── */}
+      {/* ── Attachment preview (legacy modal for voice/audio previews) ─────────── */}
       {pendingAttachment && (
         <MsAttachmentPreview
           attachment={pendingAttachment}
@@ -789,6 +805,46 @@ export default function ChatScreen() {
           onCancel={() => setPendingAttachment(null)}
         />
       )}
+
+      {/* ── Inline image/video preview — opened by pen icon on staged attachment ── */}
+      <Modal
+        visible={showInlineImagePreview && !!inlineAttachment}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={() => setShowInlineImagePreview(false)}
+        statusBarTranslucent
+      >
+        <View style={styles.imgPreviewRoot}>
+          <StatusBar barStyle="light-content" backgroundColor="#000" />
+          {/* Close button */}
+          <TouchableOpacity
+            style={[styles.imgPreviewClose, { top: insets.top + 12 }]}
+            onPress={() => setShowInlineImagePreview(false)}
+            hitSlop={12}
+          >
+            <View style={styles.imgPreviewCloseBtn}>
+              <Text style={styles.imgPreviewCloseX}>✕</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Full-resolution image */}
+          {inlineAttachment && (inlineAttachment.type === 'image' || inlineAttachment.type === 'video') && (
+            <Image
+              source={{ uri: inlineAttachment.uri }}
+              style={styles.imgPreviewImg}
+              resizeMode="contain"
+            />
+          )}
+
+          {/* Caption hint */}
+          <View style={[styles.imgPreviewFooter, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={styles.imgPreviewHint}>
+              {inlineAttachment?.type === 'video' ? '📹 Video ready to send' : '📷 Image ready to send'}
+            </Text>
+            <Text style={styles.imgPreviewSubHint}>Tap the send button in the input to send</Text>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── User profile sheet ───────────────────────────────────────────────── */}
       {showProfileSheet && (
@@ -1046,6 +1102,52 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: T.FONT.medium,
     color: T.TEXT,
+  },
+
+  // Inline image/video preview modal (pen icon from staged attachment)
+  imgPreviewRoot: {
+    flex: 1,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imgPreviewClose: {
+    position: 'absolute',
+    right: 18,
+    zIndex: 10,
+  },
+  imgPreviewCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imgPreviewCloseX: { color: '#fff', fontSize: 18, fontFamily: T.FONT.regular },
+  imgPreviewImg: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height * 0.75,
+  },
+  imgPreviewFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingTop: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  imgPreviewHint: {
+    fontSize: 14,
+    fontFamily: T.FONT.semibold,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 4,
+  },
+  imgPreviewSubHint: {
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: 'rgba(255,255,255,0.45)',
   },
 
   fullscreenBg: {

@@ -282,23 +282,48 @@ const StickerImageItem = memo(function StickerImageItem({
   onPress: (url: string) => void;
 }) {
   const { scale, pressIn, pressOut } = usePressScale(0.75, { damping: 12, stiffness: 420 });
+  const [hasError, setHasError] = useState(false);
+  const [loading, setLoading] = useState(true);
   const uri = stickerUrl(code);
 
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
-        onPress={() => onPress(uri)}
-        onPressIn={pressIn}
-        onPressOut={pressOut}
+        onPress={() => !hasError && onPress(uri)}
+        onPressIn={!hasError ? pressIn : undefined}
+        onPressOut={!hasError ? pressOut : undefined}
         style={[ss.stickerImgCell, { width: size, height: size }]}
       >
-        <Image
-          source={{ uri }}
-          style={{ width: size - 12, height: size - 12 }}
-          contentFit="contain"
-          transition={120}
-          cachePolicy="memory-disk"
-        />
+        {hasError ? (
+          // Fallback: show a soft placeholder tile
+          <View
+            style={[
+              ss.stickerFallback,
+              { width: size - 12, height: size - 12 },
+            ]}
+          >
+            <Text style={ss.stickerFallbackText}>✦</Text>
+          </View>
+        ) : (
+          <>
+            {loading && (
+              <ActivityIndicator
+                size="small"
+                color={T.ACCENT}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
+            <Image
+              source={{ uri }}
+              style={{ width: size - 12, height: size - 12, opacity: loading ? 0 : 1 }}
+              contentFit="contain"
+              transition={120}
+              cachePolicy="memory-disk"
+              onLoad={() => setLoading(false)}
+              onError={() => { setLoading(false); setHasError(true); }}
+            />
+          </>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -733,6 +758,17 @@ const ss = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: T.SURFACE,
     marginBottom: 6,
+  },
+  stickerFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: T.SURFACE_2,
+  },
+  stickerFallbackText: {
+    fontSize: 18,
+    color: T.TEXT_3,
+    opacity: 0.4,
   },
 
   attribution: {

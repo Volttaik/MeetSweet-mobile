@@ -264,6 +264,99 @@ const VoiceCompactBar = memo(function VoiceCompactBar({
   );
 });
 
+// ─── AudioAttachmentBar — compact audio preview with inline playback ──────────
+
+const AudioAttachmentBar = memo(function AudioAttachmentBar({
+  attachment,
+  onRemove,
+}: {
+  attachment: InlineAttachment;
+  onRemove: () => void;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position,  setPosition]  = useState(0);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  useEffect(() => () => {
+    soundRef.current?.stopAsync().catch(() => {});
+    soundRef.current?.unloadAsync().catch(() => {});
+  }, []);
+
+  const togglePlay = async () => {
+    try {
+      if (isPlaying) {
+        await soundRef.current?.pauseAsync();
+        setIsPlaying(false);
+        return;
+      }
+      if (!soundRef.current) {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: attachment.uri },
+          { shouldPlay: true },
+          (status) => {
+            if (!status.isLoaded) return;
+            setPosition(Math.floor((status.positionMillis ?? 0) / 1000));
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+              soundRef.current?.unloadAsync().catch(() => {});
+              soundRef.current = null;
+            }
+          },
+        );
+        soundRef.current = sound;
+      } else {
+        await soundRef.current.playAsync();
+      }
+      setIsPlaying(true);
+    } catch {/* ignore */}
+  };
+
+  function fmt(s: number) {
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  const duration = attachment.duration ?? 0;
+  const barHeights = [5,9,14,8,12,16,7,10,13,6,15,9,11,14,8,12,7,10,5,13,9,14,6,11,15,8,12,7,10,13];
+
+  return (
+    <View style={sa.voiceBar}>
+      <View style={sa.voiceIcon}>
+        <Microphone size={15} color={T.ACCENT} weight="fill" />
+      </View>
+      <View style={sa.voiceWave}>
+        {barHeights.slice(0, 22).map((h, i) => (
+          <View
+            key={i}
+            style={[
+              sa.voiceWaveBar,
+              {
+                height: h,
+                backgroundColor: duration > 0 && i / 22 <= (isPlaying ? position / duration : 0)
+                  ? T.ACCENT
+                  : 'rgba(255,255,255,0.15)',
+              },
+            ]}
+          />
+        ))}
+      </View>
+      <Text style={sa.voiceDuration}>
+        {fmt(isPlaying ? position : duration)}
+      </Text>
+      <TouchableOpacity style={sa.voicePlayBtn} onPress={togglePlay} activeOpacity={0.8}>
+        {isPlaying
+          ? <Pause size={13} color="#fff" weight="fill" />
+          : <Play  size={13} color="#fff" weight="fill" />
+        }
+      </TouchableOpacity>
+      <TouchableOpacity style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
+        <X size={12} color={T.TEXT_3} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
 // ─── MediaAttachmentBar — image / video / gif / sticker / document ────────────
 
 const MediaAttachmentBar = memo(function MediaAttachmentBar({
@@ -277,7 +370,6 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
 }) {
   const isMedia  = attachment.type === 'image' || attachment.type === 'video' || attachment.type === 'gif';
   const isDoc    = attachment.type === 'document';
-  const isAudio  = attachment.type === 'audio';
   const fileName = (attachment as InlineAttachment).fileName ?? '';
   const fileSize = (attachment as InlineAttachment).fileSize;
 
@@ -304,7 +396,7 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
         </View>
       )}
 
-      {(isDoc || isAudio) && (
+      {isDoc && (
         <View style={sa.docIconWrap}>
           <File size={20} color={T.ACCENT} weight="duotone" />
         </View>
@@ -882,11 +974,18 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           />
         )}
         {!pendingVoice && !pendingGif && inlineAttachment && (
-          <MediaAttachmentBar
-            attachment={inlineAttachment}
-            onRemove={onRemoveInlineAttachment}
-            onEdit={inlineAttachment.type === 'image' || inlineAttachment.type === 'video' ? onEditInlineAttachment : undefined}
-          />
+          inlineAttachment.type === 'audio' ? (
+            <AudioAttachmentBar
+              attachment={inlineAttachment}
+              onRemove={onRemoveInlineAttachment ?? (() => {})}
+            />
+          ) : (
+            <MediaAttachmentBar
+              attachment={inlineAttachment}
+              onRemove={onRemoveInlineAttachment}
+              onEdit={inlineAttachment.type === 'image' || inlineAttachment.type === 'video' ? onEditInlineAttachment : undefined}
+            />
+          )
         )}
       </Animated.View>
 
