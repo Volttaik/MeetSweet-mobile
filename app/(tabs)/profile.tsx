@@ -78,7 +78,15 @@ function formatDuration(secs: number): string {
 
 // ─── StatItem ─────────────────────────────────────────────────────────────────
 
-function StatItem({ label, value }: { label: string; value: string | number }) {
+function StatItem({ label, value, onPress }: { label: string; value: string | number; onPress?: () => void }) {
+  if (onPress) {
+    return (
+      <TouchableOpacity style={statStyles.wrap} onPress={onPress} activeOpacity={0.7}>
+        <Text style={statStyles.value}>{value}</Text>
+        <Text style={statStyles.label}>{label}</Text>
+      </TouchableOpacity>
+    );
+  }
   return (
     <View style={statStyles.wrap}>
       <Text style={statStyles.value}>{value}</Text>
@@ -1007,11 +1015,19 @@ export default function ProfileScreen() {
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <StatItem label="Followers" value={formatCount(user?.followerCount ?? 0)} />
+          <StatItem
+            label="Followers"
+            value={formatCount(user?.followerCount ?? 0)}
+            onPress={() => router.push({ pathname: '/creator/[id]', params: { id: user?.username ?? '', tab: 'followers' } })}
+          />
           <View style={styles.statsDivider} />
-          <StatItem label="Following" value={formatCount(user?.followingCount ?? 0)} />
+          <StatItem
+            label="Following"
+            value={formatCount(user?.followingCount ?? 0)}
+            onPress={() => router.push({ pathname: '/creator/[id]', params: { id: user?.username ?? '', tab: 'following' } })}
+          />
           <View style={styles.statsDivider} />
-          <StatItem label="Posts"     value={formatCount(user?.postCount ?? 0)} />
+          <StatItem label="Posts" value={formatCount(user?.postCount ?? 0)} />
         </View>
 
         {/* Content tabs */}

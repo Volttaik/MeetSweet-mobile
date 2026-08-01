@@ -232,6 +232,26 @@ export default function ChatScreen() {
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
+  // ── Poll for new messages every 10 s (fallback for missing WebSocket) ────────
+  useEffect(() => {
+    if (!conversationId) return;
+    const interval = setInterval(() => {
+      getMessages(conversationId).then((result) => {
+        if (!result.messages?.length) return;
+        const incoming = result.messages.map((m: ChatMessage) => toMsMessage(m, user?.id ?? ''));
+        setMessages((prev) => {
+          // Merge: keep existing messages, append any new ones not already in list
+          const existingIds = new Set(prev.map((m) => String(m._id)));
+          const newOnes = incoming.filter((m: MsMessage) => !existingIds.has(String(m._id)));
+          if (newOnes.length === 0) return prev;
+          cacheMessages(conversationId, result.messages).catch(() => {});
+          return [...newOnes, ...prev];
+        });
+      }).catch(() => {/* polling failure is silent */});
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [conversationId, user?.id]);
+
   // ── Load other user from cached conversations ────────────────────────────────
   useEffect(() => {
     if (!conversationId) return;

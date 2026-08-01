@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
@@ -125,13 +126,44 @@ export default function CreatePostScreen() {
   // Media picker modal
   const [pickerVisible, setPickerVisible] = useState(false);
 
+  // ─── Draft key ────────────────────────────────────────────────────────────
+  const DRAFT_KEY = 'ms_create_post_draft';
+
   useEffect(() => {
     getCategories().then(({ categories }) => setCategories(categories)).catch(() => {});
     // If type param was passed (e.g. from profile tab)
     if (params.type === 'video')  { setContentType('video');  }
     if (params.type === 'shorts') { setContentType('shorts'); }
     if (params.type === 'album')  { setContentType('album');  }
+
+    // ── Restore draft ────────────────────────────────────────────────────────
+    AsyncStorage.getItem(DRAFT_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const draft = JSON.parse(raw);
+        if (draft.caption)    setCaption(draft.caption);
+        if (draft.tags)       setTags(draft.tags);
+        if (draft.visibility) setVisibility(draft.visibility);
+        if (draft.contentType && !params.type) setContentType(draft.contentType);
+        if (draft.videoTitle) setVideoTitle(draft.videoTitle);
+        if (draft.creditPrice) setCreditPrice(draft.creditPrice);
+        if (draft.isPaid !== undefined) setIsPaid(draft.isPaid);
+      } catch {/* ignore corrupt draft */}
+    }).catch(() => {});
   }, []);
+
+  // ── Auto-save draft on field changes ──────────────────────────────────────
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // Don't auto-save during upload/success steps
+    if (step === 'uploading' || step === 'creating' || step === 'success') return;
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = setTimeout(() => {
+      const draft = { caption, tags, visibility, contentType, videoTitle, creditPrice, isPaid };
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+    }, 800);
+    return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current); };
+  }, [caption, tags, visibility, contentType, videoTitle, creditPrice, isPaid, step]);
 
   // ─── Media picker ─────────────────────────────────────────────────────────
 
@@ -279,6 +311,8 @@ export default function CreatePostScreen() {
       setStep('success');
       await new Promise((r) => setTimeout(r, 1200));
 
+      // Clear the draft on success
+      AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
       router.replace('/(tabs)');
     } catch (err) {
       setError((err as Error).message ?? 'Publish failed. Please try again.');

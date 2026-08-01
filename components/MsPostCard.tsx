@@ -31,6 +31,9 @@ import {
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { tapLight, tapMedium, tapHeavy } from '@/lib/haptics';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNetwork } from '@/hooks/useNetwork';
+import { enqueueOfflineAction, updateCachedPost } from '@/lib/posts-db';
 
 // ── Spring presets ────────────────────────────────────────────────────────────
 const SPRING_PRESS  = { damping: 14, stiffness: 380, mass: 1 };
@@ -222,9 +225,14 @@ export function MsPostCard({
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [liking, setLiking] = useState(false);
   const [bookmarked, setBookmarked] = useState(post.bookmarkedByMe ?? false);
+  const [bookmarkCount, setBookmarkCount] = useState(post.bookmarkCount ?? 0);
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
+
+  const { user } = useAuth();
+  const { isOnline } = useNetwork();
+  const userId = user?.id ?? '';
 
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
 
@@ -232,9 +240,24 @@ export function MsPostCard({
     if (liking) return;
     setLiking(true);
     const wasLiked = liked;
-    setLiked(!wasLiked);
-    setLikeCount((c) => (wasLiked ? Math.max(0, c - 1) : c + 1));
+    const nextLiked = !wasLiked;
+    const delta = nextLiked ? 1 : -1;
+    setLiked(nextLiked);
+    setLikeCount((c) => Math.max(0, c + delta));
     tapMedium();
+
+    // Update SQLite cache optimistically
+    updateCachedPost(post.id, userId, {
+      likedByMe: nextLiked,
+      likeCount: Math.max(0, post.likeCount + delta),
+    }).catch(() => {});
+
+    if (!isOnline) {
+      enqueueOfflineAction({ type: 'like_post', postId: post.id, liked: nextLiked }, userId).catch(() => {});
+      setLiking(false);
+      return;
+    }
+
     try {
       if (wasLiked) {
         const res = await unlikePost(post.id);
@@ -245,7 +268,11 @@ export function MsPostCard({
       }
     } catch {
       setLiked(wasLiked);
-      setLikeCount((c) => (wasLiked ? c + 1 : Math.max(0, c - 1)));
+      setLikeCount((c) => Math.max(0, c - delta));
+      updateCachedPost(post.id, userId, {
+        likedByMe: wasLiked,
+        likeCount: Math.max(0, post.likeCount - delta),
+      }).catch(() => {});
     } finally {
       setLiking(false);
     }
@@ -255,13 +282,34 @@ export function MsPostCard({
     if (bookmarking) return;
     setBookmarking(true);
     const was = bookmarked;
-    setBookmarked(!was);
+    const next = !was;
+    const delta = next ? 1 : -1;
+    setBookmarked(next);
+    setBookmarkCount((c) => Math.max(0, c + delta));
     tapLight();
+
+    // Update SQLite cache optimistically
+    updateCachedPost(post.id, userId, {
+      bookmarkedByMe: next,
+      bookmarkCount: Math.max(0, bookmarkCount + delta),
+    }).catch(() => {});
+
+    if (!isOnline) {
+      enqueueOfflineAction({ type: 'save_post', postId: post.id, saved: next }, userId).catch(() => {});
+      setBookmarking(false);
+      return;
+    }
+
     try {
       if (was) await unbookmarkPost(post.id);
       else await bookmarkPost(post.id);
     } catch {
       setBookmarked(was);
+      setBookmarkCount((c) => Math.max(0, c - delta));
+      updateCachedPost(post.id, userId, {
+        bookmarkedByMe: was,
+        bookmarkCount: Math.max(0, bookmarkCount - delta),
+      }).catch(() => {});
     } finally {
       setBookmarking(false);
     }

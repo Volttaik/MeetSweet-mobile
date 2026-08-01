@@ -27,12 +27,13 @@ import {
   Star,
   Users,
 } from 'phosphor-react-native';
-import { blockUser, reportUser } from '@/services/users';
+import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
 import { useCreatorReviews, type CreatorReview } from '@/services/creators';
 import { getUser } from '@/services/users';
+import { useAuth } from '@/contexts/AuthContext';
 import { getPostsByCreator, type Post } from '@/services/posts';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -230,10 +231,13 @@ type TabKey = 'drops' | 'reviews' | 'about';
 export default function CreatorProfileScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user: currentUser } = useAuth();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('drops');
   const [refreshing, setRefreshing] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
 
   // ── Data sources ─────────────────────────────────────────────────────────────
   // 1. Explore catalog: gives us the basic creator shell (name, handle, avatar)
@@ -470,6 +474,39 @@ export default function CreatorProfileScreen() {
               <Text style={styles.metricLabel}>Drops</Text>
             </View>
           </View>
+
+          {/* Follow button (shown when viewing another user's profile) */}
+          {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
+            <TouchableOpacity
+              style={[styles.followButton, isFollowing && styles.followButtonActive]}
+              onPress={async () => {
+                if (followLoading) return;
+                setFollowLoading(true);
+                const target = realProfile?.username ?? id;
+                try {
+                  if (isFollowing) {
+                    await unfollowUser(target);
+                    setIsFollowing(false);
+                    setRealProfile((p) => p ? { ...p, followerCount: Math.max(0, (p.followerCount ?? 1) - 1) } : p);
+                  } else {
+                    await followUser(target);
+                    setIsFollowing(true);
+                    setRealProfile((p) => p ? { ...p, followerCount: (p.followerCount ?? 0) + 1 } : p);
+                  }
+                } catch {
+                  /* revert silently */
+                  setIsFollowing((f) => !f);
+                } finally {
+                  setFollowLoading(false);
+                }
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.followBtnLabel, isFollowing && styles.followBtnLabelActive]}>
+                {followLoading ? '…' : (isFollowing ? 'Following' : 'Follow')}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* Subscribe button */}
           <TouchableOpacity
@@ -815,8 +852,17 @@ const styles = StyleSheet.create({
   },
   metricDivider: { width: 1, height: 24, backgroundColor: T.BORDER_2 },
 
+  followButton: {
+    width: '100%', marginTop: 14, height: 44,
+    borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  followButtonActive: { backgroundColor: T.ACCENT_LIGHT },
+  followBtnLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  followBtnLabelActive: { color: T.ACCENT },
+
   subscribeButton: {
-    width: '100%', marginTop: 18, height: 52,
+    width: '100%', marginTop: 10, height: 52,
     borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },

@@ -318,6 +318,10 @@ function ShortPage({
   const likeStyle = useAnimatedStyle(() => ({ transform: [{ scale: likeScale.value }] }));
   const likeBtnRef = useRef<View>(null);
 
+  // Double-tap detection for like gesture
+  const tapCountRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const toggleLike = async () => {
     const next = !liked;
     setLiked(next);
@@ -348,17 +352,31 @@ function ShortPage({
     }
   };
 
+  const handleVideoAreaTap = useCallback((evt: { nativeEvent: { locationX: number; locationY: number } }) => {
+    tapCountRef.current += 1;
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    tapTimerRef.current = setTimeout(() => {
+      if (tapCountRef.current >= 2 && !liked) {
+        // Double-tap = like
+        void toggleLike();
+      }
+      tapCountRef.current = 0;
+    }, 250);
+  }, [liked, toggleLike]);
+
   return (
     <View style={[styles.page, { height: pageHeight }]}>
       {hearts.map(h => <FlyingHeart key={h.id} x={h.x} y={h.y} />)}
 
-      <MsShortsPlayer
-        item={item}
-        active={active}
-        pageHeight={pageHeight}
-        onViewProgress={onViewProgress}
-        onPremiumRequired={() => setPremiumSheetVisible(true)}
-      />
+      <Pressable style={styles.videoTapZone} onPress={handleVideoAreaTap}>
+        <MsShortsPlayer
+          item={item}
+          active={active}
+          pageHeight={pageHeight}
+          onViewProgress={onViewProgress}
+          onPremiumRequired={() => setPremiumSheetVisible(true)}
+        />
+      </Pressable>
 
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: topInset + 12 }]}>
@@ -439,6 +457,7 @@ function formatCount(value: number) {
 const styles = StyleSheet.create({
   screen: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000' },
   page: { width: SCREEN_WIDTH, backgroundColor: '#050506' },
+  videoTapZone: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13, marginTop: 14 },
   topBar: {
