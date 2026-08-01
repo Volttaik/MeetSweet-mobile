@@ -700,8 +700,12 @@ export default function ChatScreen() {
         isInverted
         disableKeyboardProvider
         keyboardAvoidingViewProps={{
-          behavior: Platform.OS === 'ios' ? 'padding' : undefined,
-          keyboardVerticalOffset: insets.top + 56,
+          // Do NOT override `behavior` — the library defaults to
+          // 'translate-with-padding' from react-native-keyboard-controller,
+          // which works correctly on both iOS and Android.
+          // Only provide the vertical offset so the KAV knows how tall our
+          // custom header is (status bar + 4px padding + 44px buttons + 10px bottom).
+          keyboardVerticalOffset: insets.top + 58,
         }}
         loadEarlierMessagesProps={{
           isAvailable: hasMore,

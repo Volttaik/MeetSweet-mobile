@@ -48,6 +48,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowBendUpLeft,
   ArrowUp,
@@ -186,21 +187,36 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 }: Props) {
   const hasText   = text.trim().length > 0;
   const isEditing = !!editingMessage;
+  const insets    = useSafeAreaInsets();
 
   // ── Panel state ────────────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState<PanelTab | 'none'>('none');
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_H);
   const inputRef = useRef<TextInput>(null);
 
-  // Track keyboard height so panel matches keyboard height exactly
+  // ── Keyboard visibility + height tracking ─────────────────────────────────
+  // We track visibility so bottom safe-area padding is only applied when the
+  // keyboard is hidden. When the keyboard is up, the KeyboardAvoidingView
+  // (react-native-keyboard-controller, translate-with-padding) already pushes
+  // the entire toolbar above the keyboard — adding insets.bottom on top of
+  // that would create an unwanted gap between the keyboard top and the bar.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const sub = Keyboard.addListener(showEvent, (e) => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvt, (e) => {
       if (e.endCoordinates.height > 100) {
         setPanelHeight(e.endCoordinates.height);
       }
+      setKeyboardVisible(true);
     });
-    return () => sub.remove();
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
   const openPanel = useCallback((tab: PanelTab) => {
@@ -512,10 +528,15 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     ? <KeyboardIcon size={22} color={T.TEXT_2} weight="regular" />
     : <SmileySticker size={22} color={T.TEXT_2} weight="regular" />;
 
+  // Bottom inset: only when keyboard is hidden and no panel is open.
+  // When keyboard is up, KAV already positions us above it.
+  // When panel is open, the panel itself fills the bottom space.
+  const bottomInset = (!keyboardVisible && !panelIsOpen) ? insets.bottom : 0;
+
   // ── LOCKED state ───────────────────────────────────────────────────────────
   if (recState === 'locked') {
     return (
-      <View style={s.root}>
+      <View style={[s.root, { paddingBottom: bottomInset }]}>
         <Animated.View
           style={[
             s.lockBadge,
@@ -546,7 +567,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   // ── Main render ────────────────────────────────────────────────────────────
   return (
-    <View style={s.root}>
+    <View style={[s.root, { paddingBottom: bottomInset }]}>
 
       {/* ── Edit banner ──────────────────────────────────────────────────── */}
       {isEditing && (
