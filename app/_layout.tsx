@@ -23,6 +23,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
+import { MsOfflineBanner } from '@/components/MsOfflineBanner';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { T } from '@/constants/theme';
 
 // Set native background colour immediately — prevents the white flash
@@ -39,6 +41,12 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function AppServices() {
+  // Drain offline queue whenever network is restored
+  useOfflineQueue();
+  return null;
+}
 
 function RootLayoutNav() {
   return (
@@ -136,7 +144,9 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <AuthProvider>
                   <PostActionsProvider>
+                    <AppServices />
                     <RootLayoutNav />
+                    <MsOfflineBanner />
                   </PostActionsProvider>
                 </AuthProvider>
               </KeyboardProvider>

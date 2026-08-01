@@ -48,6 +48,8 @@ import {
   deletePost,
   type Post,
 } from '@/services/posts';
+import { getCachedPosts, cachePosts, cacheUser, getCachedUser } from '@/lib/posts-db';
+import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -473,11 +475,21 @@ export default function ProfileScreen() {
 
   const loadPosts = useCallback(async () => {
     if (!user) return;
+    // Load cached posts instantly (user-scoped)
+    const cached = await getCachedPosts('profile', user.id, 30);
+    if (cached.length > 0) {
+      setPosts(cached);
+      setLoadingPosts(false);
+    }
+
     try {
       const data = await getPostsByCreator(user.id);
       setPosts(data.posts);
+      reportNetworkSuccess();
+      cachePosts(data.posts, 'profile', user.id).catch(() => {});
     } catch {
-      // show empty state
+      reportNetworkError();
+      // cached posts still visible
     } finally {
       setLoadingPosts(false);
       setRefreshing(false);

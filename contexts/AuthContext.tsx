@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBase, apiFetch } from '@/services/api';
+import { clearUserCache } from '@/lib/posts-db';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

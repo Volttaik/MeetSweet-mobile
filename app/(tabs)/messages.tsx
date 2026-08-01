@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -24,6 +25,11 @@ import {
   type Conversation,
   type ConversationUser,
 } from '@/services/messages';
+import {
+  getCachedConversationsList,
+  cacheConversationsList,
+} from '@/lib/posts-db';
+import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -219,12 +225,29 @@ export default function MessagesScreen() {
   const load = useCallback(
     async (showRefresh = false) => {
       if (showRefresh) setRefreshing(true);
+
+      // 1. Load from SQLite cache for instant display (all tab only)
+      if (!showRefresh && activeTab === 'All') {
+        const cached = await getCachedConversationsList(user?.id ?? '');
+        if (cached.length > 0) {
+          setConversations(cached);
+          setLoading(false);
+        }
+      }
+
+      // 2. Fetch from API
       try {
         const tab = activeTab === 'Archived' ? 'archived' : 'all';
         const data = await getConversations(tab);
         setConversations(data.conversations);
+        reportNetworkSuccess();
+        // Cache conversations list (only for 'all' tab)
+        if (activeTab === 'All') {
+          cacheConversationsList(user?.id ?? '', data.conversations).catch(() => {});
+        }
       } catch {
-        // keep existing list
+        reportNetworkError();
+        // Cached data is still visible — no error state needed
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -235,6 +258,7 @@ export default function MessagesScreen() {
 
   useEffect(() => {
     setLoading(true);
+    setConversations([]);
     load();
   }, [activeTab]);
 
@@ -260,12 +284,10 @@ export default function MessagesScreen() {
       label: convo.isArchived ? 'Unarchive' : 'Archive',
       onPress: async () => {
         const next = !convo.isArchived;
-        // Optimistic update — remove from current tab view
         setConversations((prev) => prev.filter((c) => c.id !== convo.id));
         try {
           await archiveConversation(convo.id, next);
         } catch {
-          // Revert on failure
           setConversations((prev) => [...prev, { ...convo, isArchived: next }]);
         }
       },
@@ -333,7 +355,7 @@ export default function MessagesScreen() {
       </View>
 
       {/* Content */}
-      {loading ? (
+      {loading && conversations.length === 0 ? (
         <View style={styles.loadingWrap}>
           <Spinner size="lg" color="default" />
         </View>
@@ -347,8 +369,13 @@ export default function MessagesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
-          onRefresh={() => load(true)}
-          refreshing={refreshing}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={T.TEXT}
+            />
+          }
           ListEmptyComponent={
             <MsEmptyState
               title={
@@ -395,51 +422,43 @@ export default function MessagesScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
+    paddingVertical: 12,
   },
-  title: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
+  title: { fontSize: 22, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
   iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: T.SURFACE,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 38, height: 38, borderRadius: T.RADIUS.full,
+    backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center',
   },
-
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
-    marginVertical: 12,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.md,
+    marginHorizontal: 16,
+    marginBottom: 8,
     paddingHorizontal: 14,
-    height: 42,
-    gap: 10,
+    paddingVertical: 10,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.full,
+    gap: 8,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
-    fontFamily: T.FONT.regular,
     color: T.TEXT,
-    height: '100%',
-    backgroundColor: 'transparent',
+    fontFamily: T.FONT.regular,
+    fontSize: 14,
   },
-
-  tabRow: { flexDirection: 'row', paddingHorizontal: 20, gap: 8, marginBottom: 8 },
+  tabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
+  },
   tabChip: {
     paddingHorizontal: 16,
     paddingVertical: 7,
@@ -447,115 +466,80 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE,
   },
   tabChipActive: { backgroundColor: T.TEXT },
-  tabChipLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  tabChipLabel: { fontFamily: T.FONT.medium, fontSize: 13, color: T.TEXT_2 },
   tabChipLabelActive: { color: T.BG },
-
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   convoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 12,
   },
-  convoContent: { flex: 1 },
-  convoName: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT, marginBottom: 3 },
-  bold: { fontFamily: T.FONT.bold },
+  convoContent: { flex: 1, gap: 3 },
+  convoName: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
+  bold: { fontFamily: T.FONT.semibold },
   convoMsg: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2 },
   convoMsgUnread: { color: T.TEXT, fontFamily: T.FONT.medium },
-  convoRight: { alignItems: 'flex-end', gap: 6 },
-  convoTime: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_3 },
+  convoRight: { alignItems: 'flex-end', gap: 4 },
+  convoTime: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3 },
   unreadBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: T.TEXT,
-    alignItems: 'center',
-    justifyContent: 'center',
+    minWidth: 18, height: 18, borderRadius: 9,
+    backgroundColor: T.ACCENT, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  unreadText: { fontSize: 10, fontFamily: T.FONT.bold, color: T.BG },
-  separator: { height: 1, backgroundColor: T.BORDER, marginLeft: 82 },
-
+  unreadText: { fontSize: 10, fontFamily: T.FONT.bold, color: '#fff' },
+  separator: { height: 1, backgroundColor: T.SURFACE, marginLeft: 78 },
   fab: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 96,
     right: 20,
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    ...T.SHADOWS.medium,
   },
-
-  // New message modal
+  // Modal
   modalBg: { flex: 1, backgroundColor: T.BG },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    padding: 16,
     paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
   },
-  modalTitle: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT },
+  modalTitle: { fontSize: 17, fontFamily: T.FONT.semibold, color: T.TEXT },
   modalClose: {
-    width: 36,
-    height: 36,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.SURFACE,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center',
   },
   modalSearch: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
-    marginVertical: 12,
+    margin: 16,
+    padding: 12,
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.md,
-    borderWidth: 1,
-    borderColor: T.BORDER_2,
-    paddingHorizontal: 14,
-    height: 44,
-    gap: 10,
+    borderRadius: T.RADIUS.full,
+    gap: 8,
   },
-  modalSearchInput: {
-    flex: 1,
-    fontSize: 14,
+  modalSearchInput: { flex: 1, color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14 },
+  modalHint: {
+    textAlign: 'center',
+    color: T.TEXT_3,
     fontFamily: T.FONT.regular,
-    color: T.TEXT,
-    height: '100%',
+    fontSize: 13,
+    marginTop: 24,
   },
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
   },
-  userName: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
-  userHandle: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
-  modalHint: {
-    textAlign: 'center',
-    marginTop: 40,
-    fontSize: 13,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_3,
-  },
+  userName: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
+  userHandle: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
 });

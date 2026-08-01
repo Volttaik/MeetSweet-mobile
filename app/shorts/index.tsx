@@ -28,12 +28,16 @@ import { MsShortsPlayer } from '@/components/MsShortsPlayer';
 import { PressScale } from '@/components/motion/PressScale';
 import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 import { getShortsFeed, likeContent, trackShortView, type Short } from '@/services/content';
+import { getCachedPosts, cachePosts } from '@/lib/posts-db';
+import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
+import { useAuth } from '@/contexts/AuthContext';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
+import type { Post } from '@/services/posts';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// ─── Premium paywall sheet (reuses the app's modal/sheet design language) ─────
+// ─── Premium paywall sheet ─────────────────────────────────────────────────────
 
 function PremiumSheet({
   visible,
@@ -93,6 +97,32 @@ const sheetStyles = StyleSheet.create({
   cancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
 });
 
+/** Map a cached Post (from posts-db) into the Short shape content.ts expects */
+function postToShort(post: Post): Short {
+  return {
+    id: post.id,
+    caption: post.caption ?? '',
+    videoUrl: post.mediaUrl ?? '',
+    thumbnailUrl: post.thumbnailUrl ?? null,
+    durationSecs: post.durationSecs ?? 0,
+    likeCount: post.likeCount,
+    commentCount: post.commentCount,
+    shareCount: 0,
+    viewCount: 0,
+    likedByMe: post.likedByMe,
+    isPremium: post.isPremium,
+    previewDuration: null,
+    createdAt: post.createdAt,
+    creator: {
+      id: post.author.id,
+      name: post.author.name,
+      username: post.author.username,
+      avatarUrl: post.author.avatarUrl,
+      isVerified: post.author.isVerified,
+    },
+  };
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ShortsScreen() {
@@ -106,19 +136,59 @@ export default function ShortsScreen() {
   const [error, setError]       = useState(false);
   const [commentsId, setCommentsId] = useState<string | null>(null);
   const [shareId, setShareId]   = useState<string | null>(null);
-  // Measured container height — starts at SCREEN_HEIGHT so the FlatList renders
-  // immediately, and gets refined by onLayout once the view is measured.
   const [pageHeight, setPageHeight] = useState(SCREEN_HEIGHT);
   const viewConfig = useRef({ itemVisiblePercentThreshold: 75 });
 
   const load = useCallback(async () => {
     setLoading(true);
+
+    // 1. Load cached shorts for instant display
+    const cached = await getCachedPosts('shorts', 10);
+    if (cached.length > 0) {
+      setShorts(cached.map(postToShort));
+      setLoading(false);
+    }
+
+    // 2. Fetch from API
     try {
       const page = await getShortsFeed();
       setShorts(page.items);
       setError(false);
+      reportNetworkSuccess();
+      // Cache: convert Short → Post-like shape for storage
+      const postsToCache: Post[] = page.items.map((s) => ({
+        id: s.id,
+        caption: s.caption ?? '',
+        visibility: s.isPremium ? 'subscribers' : 'public' as const,
+        contentType: 'short' as const,
+        mediaUrl: s.videoUrl,
+        mediaType: 'video' as const,
+        thumbnailUrl: s.thumbnailUrl,
+        durationSecs: s.durationSecs ?? null,
+        fileSize: null,
+        width: null,
+        height: null,
+        likeCount: s.likeCount,
+        commentCount: s.commentCount,
+        bookmarkCount: 0,
+        isPremium: s.isPremium,
+        priceCredits: null,
+        createdAt: new Date().toISOString(),
+        author: {
+          id: s.creator.id,
+          name: s.creator.name,
+          username: s.creator.username,
+          avatarUrl: s.creator.avatarUrl,
+          isVerified: s.creator.isVerified,
+          isCreator: true,
+        },
+        likedByMe: s.likedByMe,
+        bookmarkedByMe: false,
+      }));
+      cachePosts(postsToCache, 'shorts').catch(() => {});
     } catch {
-      setError(true);
+      reportNetworkError();
+      if (shorts.length === 0) setError(true);
     } finally {
       setLoading(false);
     }
@@ -131,7 +201,6 @@ export default function ShortsScreen() {
     if (!startId || !shorts.length) return;
     const idx = shorts.findIndex((s) => s.id === startId);
     if (idx > 0) {
-      // Slight delay lets the FlatList finish its initial layout
       setTimeout(() => {
         listRef.current?.scrollToIndex({ index: idx, animated: false });
         setActiveIndex(idx);
@@ -144,13 +213,13 @@ export default function ShortsScreen() {
     if (typeof index === 'number') setActiveIndex(index);
   }).current;
 
-  if (loading) return (
+  if (loading && shorts.length === 0) return (
     <View style={[styles.center, { paddingTop: insets.top }]}>
       <ActivityIndicator color={T.TEXT} size="large" />
       <Text style={styles.loadingText}>Loading Shorts</Text>
     </View>
   );
-  if (error) return (
+  if (error && shorts.length === 0) return (
     <View style={[styles.center, { paddingTop: insets.top }]}>
       <MsEmptyState title="Shorts unavailable" message="The Shorts service could not be reached." actionLabel="Try again" onAction={load} />
     </View>
@@ -244,7 +313,6 @@ function ShortPage({
   const [likeCount, setLikeCount] = useState(item.likeCount);
   const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
-  // Flying hearts + like bounce
   const { hearts, spawnHeart } = useHeartBurst();
   const likeScale = useSharedValue(1);
   const likeStyle = useAnimatedStyle(() => ({ transform: [{ scale: likeScale.value }] }));
@@ -256,12 +324,10 @@ function ShortPage({
     setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
 
     if (next) {
-      // Bounce + hearts — scale kept modest (1.18) so icon doesn't feel oversized
       likeScale.value = withSequence(
         withSpring(1.18, { damping: 5, stiffness: 340 }),
         withSpring(1.0,  { damping: 10, stiffness: 220 }),
       );
-      // Hearts rise from the horizontal centre of the screen
       const cx = SCREEN_WIDTH / 2;
       const cy = SCREEN_HEIGHT * 0.45;
       spawnHeart(cx - 10, cy);
@@ -284,7 +350,6 @@ function ShortPage({
 
   return (
     <View style={[styles.page, { height: pageHeight }]}>
-      {/* Flying hearts layer */}
       {hearts.map(h => <FlyingHeart key={h.id} x={h.x} y={h.y} />)}
 
       <MsShortsPlayer
@@ -330,7 +395,6 @@ function ShortPage({
 
       {/* Side actions */}
       <View style={[styles.actions, { paddingBottom: bottomInset + 20 }]}>
-        {/* Like — animated bounce + flying hearts */}
         <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
           <PressScale style={styles.actionCircleWrap} onPress={toggleLike} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
             <Animated.View style={[styles.actionCircle, liked && styles.actionCircleActive, likeStyle]}>
@@ -340,7 +404,6 @@ function ShortPage({
           <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
         </View>
 
-        {/* Comment */}
         <PressScale style={styles.actionButton} onPress={onComment} accessibilityLabel="Comment">
           <View style={styles.actionCircle}>
             <ChatCircle size={19} color="#fff" />
@@ -348,7 +411,6 @@ function ShortPage({
           <Text style={styles.actionCount}>{formatCount(item.commentCount)}</Text>
         </PressScale>
 
-        {/* Share */}
         <PressScale style={styles.actionButton} onPress={onShare} accessibilityLabel="Share">
           <View style={styles.actionCircle}>
             <ShareNetwork size={19} color="#fff" />
@@ -357,7 +419,6 @@ function ShortPage({
         </PressScale>
       </View>
 
-      {/* Premium paywall */}
       <PremiumSheet
         visible={premiumSheetVisible}
         creatorName={item.creator.name}
@@ -376,7 +437,6 @@ function formatCount(value: number) {
 }
 
 const styles = StyleSheet.create({
-  // Absolute fill ensures Shorts covers the full display including any tab bar.
   screen: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000' },
   page: { width: SCREEN_WIDTH, backgroundColor: '#050506' },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
@@ -393,7 +453,6 @@ const styles = StyleSheet.create({
   topTitle: { alignItems: 'center' },
   topEyebrow: { color: 'rgba(255,255,255,0.62)', fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 1.3 },
   topText: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 15, marginTop: 1 },
-
   content: { position: 'absolute', left: 18, right: 78, bottom: 36, gap: 9 },
   upgradePill: {
     alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -409,13 +468,9 @@ const styles = StyleSheet.create({
   subscribeText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 10 },
   caption: { color: '#fff', fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 21 },
   views: { color: 'rgba(255,255,255,0.68)', fontFamily: T.FONT.medium, fontSize: 11 },
-
   actions: { position: 'absolute', right: 14, bottom: 0, alignItems: 'center', gap: 18 },
   actionButton: { alignItems: 'center', gap: 4 },
-  actionCircleWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  actionCircleWrap: { alignItems: 'center', justifyContent: 'center' },
   actionCircle: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.42)', alignItems: 'center', justifyContent: 'center',

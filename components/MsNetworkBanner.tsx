@@ -1,67 +1,53 @@
 /**
  * MsNetworkBanner — subtle offline/slow-network indicator.
- * Shows at the top of the screen when network is unavailable.
+ * Uses the app's own useNetwork hook (no external netinfo dependency).
+ * @deprecated Use MsOfflineBanner instead.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import NetInfo from '@react-native-community/netinfo';
 import { T } from '@/constants/theme';
-import { WifiNone } from 'phosphor-react-native';
+import { useNetwork } from '@/hooks/useNetwork';
 
 export function MsNetworkBanner() {
-  const [offline, setOffline] = useState(false);
+  const { isOnline } = useNetwork();
   const slideAnim = useRef(new Animated.Value(-40)).current;
 
   useEffect(() => {
-    // Try to use NetInfo if available, otherwise skip
-    try {
-      const unsub = NetInfo.addEventListener((state) => {
-        const isOffline = state.isConnected === false;
-        setOffline(isOffline);
-      });
-      return unsub;
-    } catch {
-      return () => {};
-    }
-  }, []);
-
-  useEffect(() => {
     Animated.spring(slideAnim, {
-      toValue: offline ? 0 : -40,
-      damping: 16,
-      stiffness: 260,
+      toValue: isOnline ? -40 : 0,
       useNativeDriver: true,
+      damping: 15,
+      stiffness: 200,
     }).start();
-  }, [offline]);
+  }, [isOnline, slideAnim]);
 
-  if (!offline) return null;
+  if (isOnline) return null;
 
   return (
-    <Animated.View style={[styles.banner, { transform: [{ translateY: slideAnim }] }]}>
-      <WifiNone size={13} color="#fff" weight="bold" />
-      <Text style={styles.label}>No internet connection</Text>
+    <Animated.View
+      style={[styles.banner, { transform: [{ translateY: slideAnim }] }]}
+      pointerEvents="none"
+    >
+      <Text style={styles.text}>No internet connection</Text>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#333',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 999,
+    zIndex: 9998,
+    backgroundColor: '#C0392B',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
   },
-  label: {
-    fontSize: 12,
-    fontFamily: T.FONT.medium,
+  text: {
     color: '#fff',
+    fontFamily: T.FONT.medium,
+    fontSize: 12,
   },
 });
