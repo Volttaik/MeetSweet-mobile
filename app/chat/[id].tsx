@@ -183,7 +183,9 @@ export default function ChatScreen() {
   const [inlineAttachment, setInlineAttachment] = useState<InlineAttachment | null>(null);
   const [showInlineImagePreview, setShowInlineImagePreview] = useState(false);
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
+  const [fullscreenImageIsOwn, setFullscreenImageIsOwn] = useState(false);
   const [fullscreenVideoUri, setFullscreenVideoUri] = useState<string | null>(null);
+  const [fullscreenVideoIsOwn, setFullscreenVideoIsOwn] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // ── Delete confirmation state ────────────────────────────────────────────────
@@ -358,8 +360,9 @@ export default function ChatScreen() {
       return;
     }
 
-    // ── GIF (sent as image message with the remote URL) ───────────────────────
+    // ── GIF or image sticker (sent as image message with the remote URL) ────────
     if (payload.gifUrl) {
+      const isImageSticker = payload.gifTitle === 'sticker';
       const optimistic: MsMessage = {
         _id: tempId,
         text: '',
@@ -367,6 +370,7 @@ export default function ChatScreen() {
         user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
         image: payload.gifUrl,
         msMediaType: 'image',
+        msStickerImage: isImageSticker || undefined,
         sent: false,
         pending: true,
       };
@@ -375,7 +379,11 @@ export default function ChatScreen() {
         const res = await sendMessage(conversationId, payload.gifTitle ?? '', payload.gifUrl, 'image');
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...confirmed, image: payload.gifUrl, pending: false, sent: true } : m),
+          prev.map((m) =>
+            m._id === tempId
+              ? { ...confirmed, image: payload.gifUrl, msStickerImage: isImageSticker || undefined, pending: false, sent: true }
+              : m,
+          ),
         );
       } catch {
         setMessages((prev) =>
@@ -717,9 +725,15 @@ export default function ChatScreen() {
 
   // ── Media press ───────────────────────────────────────────────────────────────
   const handleMediaPress = useCallback((msg: MsMessage) => {
-    if (msg.video || msg.msMediaType === 'video') setFullscreenVideoUri(msg.video ?? null);
-    else if (msg.image || msg.msMediaType === 'image') setFullscreenImageUri(msg.image ?? null);
-  }, []);
+    const isOwn = msg.user._id === (user?.id ?? '');
+    if (msg.video || msg.msMediaType === 'video') {
+      setFullscreenVideoUri(msg.video ?? null);
+      setFullscreenVideoIsOwn(isOwn);
+    } else if (msg.image || msg.msMediaType === 'image') {
+      setFullscreenImageUri(msg.image ?? null);
+      setFullscreenImageIsOwn(isOwn);
+    }
+  }, [user?.id]);
 
   // ── Retry failed send ────────────────────────────────────────────────────────
   const handleRetry = useCallback(async (failedMsg: MsMessage) => {
@@ -1211,6 +1225,7 @@ export default function ChatScreen() {
         <FullscreenImageViewer
           uri={fullscreenImageUri}
           onClose={() => setFullscreenImageUri(null)}
+          isOwn={fullscreenImageIsOwn}
         />
       ) : null}
 
@@ -1223,9 +1238,20 @@ export default function ChatScreen() {
         statusBarTranslucent
       >
         <View style={styles.fullscreenBg}>
-          <TouchableOpacity style={styles.fullscreenClose} onPress={() => setFullscreenVideoUri(null)}>
-            <Text style={styles.fullscreenCloseText}>✕</Text>
-          </TouchableOpacity>
+          <View style={[styles.fsvHeader, { paddingTop: 48 }]}>
+            <TouchableOpacity style={styles.fsvBtn} onPress={() => setFullscreenVideoUri(null)}>
+              <Text style={styles.fullscreenCloseText}>✕</Text>
+            </TouchableOpacity>
+            {!fullscreenVideoIsOwn && fullscreenVideoUri ? (
+              <TouchableOpacity
+                style={styles.fsvBtn}
+                onPress={() => Share.share({ url: fullscreenVideoUri, message: fullscreenVideoUri })}
+                accessibilityLabel="Save video"
+              >
+                <DownloadSimple size={20} color="#fff" weight="bold" />
+              </TouchableOpacity>
+            ) : <View style={styles.fsvBtn} />}
+          </View>
           {fullscreenVideoUri ? (
             <MsVideoPlayer
               videoId={`chat-fullscreen-${fullscreenVideoUri}`}
@@ -1242,7 +1268,7 @@ export default function ChatScreen() {
 
 // ─── Fullscreen Image Viewer — pinch-to-zoom, double-tap, swipe-down, share ──
 
-function FullscreenImageViewer({ uri, onClose }: { uri: string; onClose: () => void }) {
+function FullscreenImageViewer({ uri, onClose, isOwn }: { uri: string; onClose: () => void; isOwn: boolean }) {
   const insets = useSafeAreaInsets();
   const SCREEN = Dimensions.get('window');
 
@@ -1370,9 +1396,11 @@ function FullscreenImageViewer({ uri, onClose }: { uri: string; onClose: () => v
           <TouchableOpacity style={styles.fsvBtn} onPress={onClose} accessibilityLabel="Close image viewer">
             <Text style={styles.fullscreenCloseText}>✕</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.fsvBtn} onPress={handleShare} accessibilityLabel="Share image">
-            <DownloadSimple size={20} color="#fff" weight="bold" />
-          </TouchableOpacity>
+          {!isOwn && (
+            <TouchableOpacity style={styles.fsvBtn} onPress={handleShare} accessibilityLabel="Save image">
+              <DownloadSimple size={20} color="#fff" weight="bold" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Image — supports pinch, pan, double-tap */}

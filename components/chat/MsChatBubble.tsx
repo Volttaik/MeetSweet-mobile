@@ -4,7 +4,7 @@
  * Routes by message type:
  *   text      → MsTextBubble  (or large-emoji/sticker render if single emoji)
  *   image/vid → MsMediaCard
- *   audio     → MsVoiceBubble
+ *   audio     → MsVoiceNoteBubble
  *   document  → MsFileCard
  *   paid      → above + MsPaidOverlay
  *
@@ -29,7 +29,7 @@ import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 import { MsTextBubble }         from './MsTextBubble';
 import { MsMediaCard }          from './MsMediaCard';
-import { MsVoiceBubble }        from './MsVoiceBubble';
+import { MsVoiceNoteBubble }    from './MsVoiceNoteBubble';
 import { MsFileCard }           from './MsFileCard';
 import { MsPaidOverlay }        from './MsPaidOverlay';
 import { MsReactionStrip }      from './MsReactionStrip';
@@ -37,7 +37,7 @@ import { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
 
 const SCREEN_W   = Dimensions.get('window').width;
 // Fixed pixel max-width avoids percentage-of-percentage sizing bugs
-const MAX_BUBBLE = SCREEN_W * 0.74;
+const MAX_BUBBLE = SCREEN_W * 0.84;
 
 // Detects if a string is composed entirely of emoji characters (1–4 of them).
 const EMOJI_RE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F){1,4}$/u;
@@ -162,7 +162,12 @@ export function MsChatBubble({
   } else if (hasAudio) {
     bubble = (
       <View style={styles.mediaWrap}>
-        <MsVoiceBubble uri={msg.audio ?? ''} duration={msg.msAudioDuration ?? 0} position={position ?? 'left'} />
+        <MsVoiceNoteBubble
+          uri={msg.audio ?? ''}
+          duration={msg.msAudioDuration ?? 0}
+          isOwn={isOwn}
+          showDownload={!isOwn}
+        />
         {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>
     );

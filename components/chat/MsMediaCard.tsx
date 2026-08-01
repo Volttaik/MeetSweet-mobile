@@ -34,7 +34,7 @@ import { formatDuration } from '@/types/chat-message';
 
 const SCREEN_W    = Dimensions.get('window').width;
 /** Maximum width a media bubble may occupy */
-const MAX_CARD_W  = Math.round(SCREEN_W * 0.68);
+const MAX_CARD_W  = Math.round(SCREEN_W * 0.78);
 const MIN_CARD_W  = 160;
 /** Default height while we wait for natural dimensions */
 const DEFAULT_H   = Math.round(MAX_CARD_W * 0.65);
