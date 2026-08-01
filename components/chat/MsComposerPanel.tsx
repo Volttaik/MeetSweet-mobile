@@ -1,5 +1,5 @@
 /**
- * MsComposerPanel — Sticker & GIF panel that behaves exactly like the keyboard.
+ * MsComposerPanel — Emoji, Sticker & GIF panel that behaves exactly like the keyboard.
  *
  * Architecture
  * ────────────
@@ -7,8 +7,13 @@
  * • Height animates from 0 → panelHeight on open, and back to 0 on close.
  * • Because it lives inside `renderInputToolbar`, the Chat list naturally
  *   shrinks when the panel is open — same effect as the keyboard rising.
- * • Stickers: emoji-based packs, no external dependency, works offline.
- * • GIFs: Tenor API v2 (EXPO_PUBLIC_TENOR_API_KEY); graceful no-key state.
+ *
+ * Three tabs:
+ * ── Emoji   : system-style emoji packs sent as text characters (offline, zero deps)
+ * ── Stickers: OpenMoji image stickers (CC BY-SA 4.0) sent as image messages
+ * ── GIFs    : Tenor API v2 (EXPO_PUBLIC_TENOR_API_KEY); graceful no-key state
+ *
+ * No borders. Separation via shadows, elevation, and spacing.
  */
 
 import React, {
@@ -22,7 +27,9 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,14 +37,14 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { T } from '@/constants/theme';
 import { MagnifyingGlass, X } from 'phosphor-react-native';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type PanelTab = 'stickers' | 'gifs';
+export type PanelTab = 'emoji' | 'stickers' | 'gifs';
 
 interface Props {
   /** Whether the panel is open */
@@ -51,21 +58,21 @@ interface Props {
   onGifPress: (gifUrl: string, gifTitle: string) => void;
 }
 
-// ─── Sticker packs ───────────────────────────────────────────────────────────
+// ─── Emoji packs (system emoji, sent as text) ────────────────────────────────
 
-interface StickerPack {
+interface EmojiPack {
   id: string;
   name: string;
   icon: string;
-  stickers: string[];
+  items: string[];
 }
 
-const STICKER_PACKS: StickerPack[] = [
+const EMOJI_PACKS: EmojiPack[] = [
   {
     id: 'expressions',
     name: 'Expressions',
     icon: '😊',
-    stickers: [
+    items: [
       '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊',
       '😇','🥰','😍','🤩','😘','😗','☺️','😚','😙','🥲','😋','😛',
       '😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','😐','😑','😶','😏',
@@ -76,7 +83,7 @@ const STICKER_PACKS: StickerPack[] = [
     id: 'animals',
     name: 'Animals',
     icon: '🐶',
-    stickers: [
+    items: [
       '🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮',
       '🐷','🐸','🐵','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐺',
       '🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️',
@@ -87,7 +94,7 @@ const STICKER_PACKS: StickerPack[] = [
     id: 'food',
     name: 'Food',
     icon: '🍕',
-    stickers: [
+    items: [
       '🍕','🍔','🌮','🌯','🥗','🍣','🍱','🍜','🍝','🍛','🍚','🍙',
       '🍦','🍩','🍪','🎂','🍰','🧁','🍫','🍬','🍭','🍮','🍯','🍧',
       '🥤','🧃','☕','🍵','🧋','🍺','🍻','🥂','🍷','🍸','🍹','🧉',
@@ -98,7 +105,7 @@ const STICKER_PACKS: StickerPack[] = [
     id: 'hearts',
     name: 'Hearts',
     icon: '❤️',
-    stickers: [
+    items: [
       '❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕',
       '💞','💓','💗','💖','💝','💘','💟','❤️‍🔥','❤️‍🩹','💌','💋','😍',
       '🥰','😘','🫀','🩷','🩵','🩶','🌹','🌷','💐','✨','💫','⭐',
@@ -109,7 +116,7 @@ const STICKER_PACKS: StickerPack[] = [
     id: 'activities',
     name: 'Activities',
     icon: '⚽',
-    stickers: [
+    items: [
       '⚽','🏀','🏈','⚾','🎾','🏐','🏉','🎱','🏓','🏸','🥊','⛸️',
       '🎿','🛷','🏋️','🤸','⛹️','🏌️','🏇','🤺','🥋','🥅','⛳','🎣',
       '🤿','🎽','🎯','🎳','🎮','🕹️','🎲','🧩','🎨','🎭','🎪','🎬',
@@ -120,7 +127,7 @@ const STICKER_PACKS: StickerPack[] = [
     id: 'travel',
     name: 'Travel',
     icon: '✈️',
-    stickers: [
+    items: [
       '✈️','🚀','🛸','🚁','🛥️','⛵','🚢','🚂','🚆','🚌','🚎','🏎️',
       '🚓','🚑','🚒','🛻','🚐','🚚','🚛','🏍️','🛵','🚲','🛴','🛹',
       '🗺️','🧭','🏔️','⛰️','🌋','🗻','🏕️','🏖️','🏜️','🏝️','🌅','🌄',
@@ -129,22 +136,85 @@ const STICKER_PACKS: StickerPack[] = [
   },
 ];
 
+// ─── OpenMoji image sticker packs (CC BY-SA 4.0) ─────────────────────────────
+// Images served from official CDN — free for use with attribution.
+
+const OPENMOJI_BASE = 'https://openmoji.org/data/color/72x72/';
+
+interface StickerPack {
+  id: string;
+  name: string;
+  icon: string;
+  /** Unicode hex codepoints, e.g. "1F600" */
+  codes: string[];
+}
+
+const IMAGE_STICKER_PACKS: StickerPack[] = [
+  {
+    id: 'vibes',
+    name: 'Vibes',
+    icon: '🙌',
+    codes: [
+      '1F60A','1F602','1F970','1F929','1F973','1F60E',
+      '1F914','1F62D','1F631','1F92F','1F634','1F624',
+      '1F976','1F975','1F4AA','1F918',
+    ],
+  },
+  {
+    id: 'love',
+    name: 'Love',
+    icon: '❤️',
+    codes: [
+      '2764','1F9E1','1F49B','1F49A','1F499','1F49C',
+      '1F496','1F48C','1F48B','1F618','1FAF6','1F91D',
+      '1F44F','1F64C','1F490','1F339',
+    ],
+  },
+  {
+    id: 'party',
+    name: 'Party',
+    icon: '🎉',
+    codes: [
+      '1F389','1F38A','1F381','1F382','1F942','1F37E',
+      '2B50','1F31F','2728','1F4AB','1F525','1F3C6',
+      '1F947','1F680','1F4AF','1F44D',
+    ],
+  },
+  {
+    id: 'animals',
+    name: 'Animals',
+    icon: '🐶',
+    codes: [
+      '1F436','1F431','1F43B','1F43C','1F428','1F42F',
+      '1F981','1F438','1F430','1F98A','1F427','1F425',
+      '1F98B','1F433','1F42C','1F99C',
+    ],
+  },
+];
+
+function stickerUrl(code: string): string {
+  return `${OPENMOJI_BASE}${code}.png`;
+}
+
 // ─── Tenor GIF API ────────────────────────────────────────────────────────────
 
-const TENOR_KEY = (process.env.EXPO_PUBLIC_TENOR_API_KEY ?? '').trim();
+const TENOR_KEY  = (process.env.EXPO_PUBLIC_TENOR_API_KEY ?? '').trim();
 const TENOR_BASE = 'https://tenor.googleapis.com/v2';
-const GIF_LIMIT = 24;
+const GIF_LIMIT  = 24;
 
 interface TenorGif {
   id: string;
   title: string;
-  url: string;       // tinygif
-  fullUrl: string;   // gif
+  url: string;
+  fullUrl: string;
   width: number;
   height: number;
 }
 
-async function fetchTenorGifs(query: string, next?: string): Promise<{ gifs: TenorGif[]; next: string }> {
+async function fetchTenorGifs(
+  query: string,
+  next?: string,
+): Promise<{ gifs: TenorGif[]; next: string }> {
   if (!TENOR_KEY) return { gifs: [], next: '' };
   const endpoint = query.trim()
     ? `${TENOR_BASE}/search?q=${encodeURIComponent(query)}&key=${TENOR_KEY}&client_key=meetsweet&limit=${GIF_LIMIT}&media_filter=tinygif,gif${next ? `&pos=${next}` : ''}`
@@ -164,34 +234,77 @@ async function fetchTenorGifs(query: string, next?: string): Promise<{ gifs: Ten
   return { gifs, next: data.next ?? '' };
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Shared animated press helper ────────────────────────────────────────────
 
-const StickerItem = memo(function StickerItem({
-  sticker,
+function usePressScale(
+  toValue = 0.82,
+  config = { damping: 14, stiffness: 380 },
+) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const pressIn  = () => Animated.spring(scale, { toValue,   useNativeDriver: true, ...config }).start();
+  const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 10, stiffness: 280 }).start();
+  return { scale, pressIn, pressOut };
+}
+
+// ─── EmojiItem ────────────────────────────────────────────────────────────────
+
+const EmojiItem = memo(function EmojiItem({
+  emoji,
   onPress,
 }: {
-  sticker: string;
-  onPress: (s: string) => void;
+  emoji: string;
+  onPress: (e: string) => void;
 }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const pressIn = () =>
-    Animated.spring(scale, { toValue: 0.78, useNativeDriver: true, damping: 14, stiffness: 400 }).start();
-  const pressOut = () =>
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 10, stiffness: 300 }).start();
-
+  const { scale, pressIn, pressOut } = usePressScale(0.78, { damping: 14, stiffness: 400 });
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
-        onPress={() => onPress(sticker)}
+        onPress={() => onPress(emoji)}
         onPressIn={pressIn}
         onPressOut={pressOut}
-        style={ss.stickerCell}
+        style={ss.emojiCell}
       >
-        <Text style={ss.stickerText}>{sticker}</Text>
+        <Text style={ss.emojiText}>{emoji}</Text>
       </Pressable>
     </Animated.View>
   );
 });
+
+// ─── StickerImageItem ─────────────────────────────────────────────────────────
+
+const StickerImageItem = memo(function StickerImageItem({
+  code,
+  size,
+  onPress,
+}: {
+  code: string;
+  size: number;
+  onPress: (url: string) => void;
+}) {
+  const { scale, pressIn, pressOut } = usePressScale(0.75, { damping: 12, stiffness: 420 });
+  const uri = stickerUrl(code);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={() => onPress(uri)}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        style={[ss.stickerImgCell, { width: size, height: size }]}
+      >
+        <Image
+          source={{ uri }}
+          style={{ width: size - 12, height: size - 12 }}
+          contentFit="contain"
+          transition={120}
+          cachePolicy="memory-disk"
+        />
+      </Pressable>
+    </Animated.View>
+  );
+});
+
+// ─── GifItem ─────────────────────────────────────────────────────────────────
 
 const GifItem = memo(function GifItem({
   gif,
@@ -203,53 +316,52 @@ const GifItem = memo(function GifItem({
   onPress: (gif: TenorGif) => void;
 }) {
   const aspect = gif.height > 0 ? gif.width / gif.height : 1;
-  const displayHeight = colWidth / aspect;
+  const displayH = Math.min(colWidth / aspect, colWidth * 1.4);
+  const { scale, pressIn, pressOut } = usePressScale(0.96, { damping: 16, stiffness: 380 });
 
   return (
-    <Pressable
-      onPress={() => onPress(gif)}
-      style={[ss.gifItem, { width: colWidth, height: Math.min(displayHeight, colWidth * 1.4) }]}
-    >
-      <Image
-        source={{ uri: gif.url }}
+    <Animated.View style={[ss.gifItem, { width: colWidth, height: displayH }, { transform: [{ scale }] }]}>
+      <Pressable
+        onPress={() => onPress(gif)}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
         style={StyleSheet.absoluteFill}
-        resizeMode="cover"
-      />
-    </Pressable>
+      >
+        <Image
+          source={{ uri: gif.url }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          transition={150}
+          cachePolicy="memory-disk"
+        />
+      </Pressable>
+    </Animated.View>
   );
 });
 
-// ─── Sticker panel content ────────────────────────────────────────────────────
+// ─── EmojiContent ─────────────────────────────────────────────────────────────
 
-const StickerContent = memo(function StickerContent({
-  onStickerPress,
+const EmojiContent = memo(function EmojiContent({
+  onEmojiPress,
 }: {
-  onStickerPress: (s: string) => void;
+  onEmojiPress: (s: string) => void;
 }) {
   const [activePack, setActivePack] = useState(0);
-
-  const stickers = useMemo(
-    () => STICKER_PACKS[activePack]?.stickers ?? [],
-    [activePack],
-  );
-
-  const renderSticker = useCallback(
-    ({ item }: { item: string }) => (
-      <StickerItem sticker={item} onPress={onStickerPress} />
-    ),
-    [onStickerPress],
+  const items = useMemo(() => EMOJI_PACKS[activePack]?.items ?? [], [activePack]);
+  const renderItem = useCallback(
+    ({ item }: { item: string }) => <EmojiItem emoji={item} onPress={onEmojiPress} />,
+    [onEmojiPress],
   );
 
   return (
     <View style={ss.fillContent}>
-      {/* Pack tabs */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={ss.packTabScroll}
         contentContainerStyle={ss.packTabContent}
       >
-        {STICKER_PACKS.map((pack, i) => (
+        {EMOJI_PACKS.map((pack, i) => (
           <TouchableOpacity
             key={pack.id}
             onPress={() => setActivePack(i)}
@@ -260,15 +372,13 @@ const StickerContent = memo(function StickerContent({
           </TouchableOpacity>
         ))}
       </ScrollView>
-
-      {/* Sticker grid */}
       <FlatList
-        data={stickers}
-        renderItem={renderSticker}
+        data={items}
+        renderItem={renderItem}
         keyExtractor={(item, i) => `${item}-${i}`}
         numColumns={7}
-        columnWrapperStyle={ss.stickerRow}
-        contentContainerStyle={ss.stickerGrid}
+        columnWrapperStyle={ss.emojiRow}
+        contentContainerStyle={ss.emojiGrid}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews
       />
@@ -276,7 +386,59 @@ const StickerContent = memo(function StickerContent({
   );
 });
 
-// ─── GIF panel content ────────────────────────────────────────────────────────
+// ─── StickerContent (image stickers) ─────────────────────────────────────────
+
+const StickerContent = memo(function StickerContent({
+  onStickerImagePress,
+}: {
+  onStickerImagePress: (url: string) => void;
+}) {
+  const [activePack, setActivePack] = useState(0);
+  const codes = useMemo(() => IMAGE_STICKER_PACKS[activePack]?.codes ?? [], [activePack]);
+  const STICKER_SIZE = 70;
+
+  const renderItem = useCallback(
+    ({ item }: { item: string }) => (
+      <StickerImageItem code={item} size={STICKER_SIZE} onPress={onStickerImagePress} />
+    ),
+    [onStickerImagePress],
+  );
+
+  return (
+    <View style={ss.fillContent}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={ss.packTabScroll}
+        contentContainerStyle={ss.packTabContent}
+      >
+        {IMAGE_STICKER_PACKS.map((pack, i) => (
+          <TouchableOpacity
+            key={pack.id}
+            onPress={() => setActivePack(i)}
+            style={[ss.packTab, activePack === i && ss.packTabActive]}
+          >
+            <Text style={ss.packTabIcon}>{pack.icon}</Text>
+            {activePack === i && <Text style={ss.packTabName}>{pack.name}</Text>}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+      <FlatList
+        data={codes}
+        renderItem={renderItem}
+        keyExtractor={(item) => item}
+        numColumns={4}
+        columnWrapperStyle={ss.stickerRow}
+        contentContainerStyle={ss.stickerGrid}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+      />
+      <Text style={ss.attribution}>Stickers by OpenMoji — CC BY-SA 4.0</Text>
+    </View>
+  );
+});
+
+// ─── GifContent ───────────────────────────────────────────────────────────────
 
 const GifContent = memo(function GifContent({
   colWidth,
@@ -285,46 +447,39 @@ const GifContent = memo(function GifContent({
   colWidth: number;
   onGifPress: (url: string, title: string) => void;
 }) {
-  const [query, setQuery] = useState('');
+  const [query,     setQuery]     = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
-  const [gifs, setGifs] = useState<TenorGif[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [nextPos, setNextPos] = useState('');
+  const [gifs,      setGifs]      = useState<TenorGif[]>([]);
+  const [loading,   setLoading]   = useState(false);
+  const [nextPos,   setNextPos]   = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounce query
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedQ(query), 400);
+    debounceRef.current = setTimeout(() => setDebouncedQ(query), 380);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
 
-  // Fetch on query change
   useEffect(() => {
     if (!TENOR_KEY) return;
     setLoading(true);
     setGifs([]);
-    fetchTenorGifs(debouncedQ).then(({ gifs: g, next }) => {
-      setGifs(g);
-      setNextPos(next);
-    }).catch(() => {}).finally(() => setLoading(false));
+    fetchTenorGifs(debouncedQ)
+      .then(({ gifs: g, next }) => { setGifs(g); setNextPos(next); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [debouncedQ]);
 
   const loadMore = useCallback(() => {
     if (!nextPos || loading || !TENOR_KEY) return;
-    fetchTenorGifs(debouncedQ, nextPos).then(({ gifs: g, next }) => {
-      setGifs((prev) => [...prev, ...g]);
-      setNextPos(next);
-    }).catch(() => {});
+    fetchTenorGifs(debouncedQ, nextPos)
+      .then(({ gifs: g, next }) => { setGifs((prev) => [...prev, ...g]); setNextPos(next); })
+      .catch(() => {});
   }, [nextPos, loading, debouncedQ]);
 
   const renderGif = useCallback(
     ({ item }: { item: TenorGif }) => (
-      <GifItem
-        gif={item}
-        colWidth={colWidth}
-        onPress={(g) => onGifPress(g.fullUrl, g.title)}
-      />
+      <GifItem gif={item} colWidth={colWidth} onPress={(g) => onGifPress(g.fullUrl, g.title)} />
     ),
     [colWidth, onGifPress],
   );
@@ -334,8 +489,7 @@ const GifContent = memo(function GifContent({
       <View style={ss.noKeyState}>
         <Text style={ss.noKeyTitle}>GIFs not configured</Text>
         <Text style={ss.noKeyBody}>
-          Add{' '}
-          <Text style={ss.noKeyCode}>EXPO_PUBLIC_TENOR_API_KEY</Text>
+          Add <Text style={ss.noKeyCode}>EXPO_PUBLIC_TENOR_API_KEY</Text>
           {'\n'}to your environment to enable GIF search.
         </Text>
       </View>
@@ -344,9 +498,9 @@ const GifContent = memo(function GifContent({
 
   return (
     <View style={ss.fillContent}>
-      {/* Search bar */}
+      {/* Search pill */}
       <View style={ss.gifSearchRow}>
-        <MagnifyingGlass size={16} color={T.TEXT_3} />
+        <MagnifyingGlass size={15} color={T.TEXT_3} />
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -359,14 +513,14 @@ const GifContent = memo(function GifContent({
         />
         {query.length > 0 && (
           <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
-            <X size={14} color={T.TEXT_3} />
+            <X size={13} color={T.TEXT_3} />
           </TouchableOpacity>
         )}
       </View>
 
       {loading && gifs.length === 0 ? (
         <View style={ss.gifLoading}>
-          <ActivityIndicator color={T.ACCENT} />
+          <ActivityIndicator color={T.ACCENT} size="small" />
         </View>
       ) : (
         <FlatList
@@ -400,6 +554,8 @@ const GifContent = memo(function GifContent({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+const PANEL_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
+
 export const MsComposerPanel = memo(function MsComposerPanel({
   isOpen,
   panelHeight,
@@ -409,52 +565,63 @@ export const MsComposerPanel = memo(function MsComposerPanel({
   onGifPress,
 }: Props) {
   const heightAnim = useRef(new Animated.Value(0)).current;
-  const GIF_COL_WIDTH = useMemo(() => {
-    // will be roughly half screen - padding
-    return 160; // set dynamically via onLayout if needed
-  }, []);
+  const [measuredColWidth, setMeasuredColWidth] = useState(160);
 
   useEffect(() => {
     Animated.timing(heightAnim, {
       toValue: isOpen ? panelHeight : 0,
-      duration: 250,
+      duration: 260,
+      easing: PANEL_EASING,
       useNativeDriver: false,
     }).start();
   }, [isOpen, panelHeight]);
 
-  const [measuredColWidth, setMeasuredColWidth] = useState(160);
+  // Image stickers sent via onGifPress (they're image URLs)
+  const handleStickerImagePress = useCallback(
+    (url: string) => onGifPress(url, 'sticker'),
+    [onGifPress],
+  );
+
+  const tabs: { id: PanelTab; label: string; icon: string }[] = [
+    { id: 'emoji',    label: 'Emoji',    icon: '😊' },
+    { id: 'stickers', label: 'Stickers', icon: '🎭' },
+    { id: 'gifs',     label: 'GIF',      icon: '🎬' },
+  ];
 
   return (
     <Animated.View
       style={[ss.panel, { height: heightAnim }]}
       onLayout={(e) => {
         const w = e.nativeEvent.layout.width;
-        setMeasuredColWidth(Math.floor((w - 24) / 2));
+        setMeasuredColWidth(Math.floor((w - 20) / 2));
       }}
     >
-      {/* Top tab bar */}
+      {/* Tab bar — pill style, no borders */}
       <View style={ss.tabBar}>
-        <TouchableOpacity
-          style={[ss.tab, activeTab === 'stickers' && ss.tabActive]}
-          onPress={() => onTabChange('stickers')}
-        >
-          <Text style={[ss.tabLabel, activeTab === 'stickers' && ss.tabLabelActive]}>
-            🙂 Stickers
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[ss.tab, activeTab === 'gifs' && ss.tabActive]}
-          onPress={() => onTabChange('gifs')}
-        >
-          <Text style={[ss.tabLabel, activeTab === 'gifs' && ss.tabLabelActive]}>
-            GIF
-          </Text>
-        </TouchableOpacity>
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={[ss.tab, active && ss.tabActive]}
+              onPress={() => onTabChange(tab.id)}
+              activeOpacity={0.75}
+            >
+              <Text style={ss.tabIcon}>{tab.icon}</Text>
+              <Text style={[ss.tabLabel, active && ss.tabLabelActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      {/* Content */}
+      {/* Content — only rendered when open */}
+      {isOpen && activeTab === 'emoji' && (
+        <EmojiContent onEmojiPress={onStickerPress} />
+      )}
       {isOpen && activeTab === 'stickers' && (
-        <StickerContent onStickerPress={onStickerPress} />
+        <StickerContent onStickerImagePress={handleStickerImagePress} />
       )}
       {isOpen && activeTab === 'gifs' && (
         <GifContent colWidth={measuredColWidth} onGifPress={onGifPress} />
@@ -469,28 +636,44 @@ const ss = StyleSheet.create({
   panel: {
     backgroundColor: T.BG,
     overflow: 'hidden',
-    borderTopWidth: 1,
-    borderTopColor: T.SURFACE_2,
+    // Shadow replaces the top border
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.18,
+        shadowRadius: 8,
+      },
+      android: { elevation: 8 },
+    }),
   },
 
-  // Tab bar
+  // Tab bar — no border, spacing-based separation
   tabBar: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: T.SURFACE_2,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+    gap: 6,
   },
   tab: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: T.SURFACE,
   },
   tabActive: {
-    borderBottomColor: T.ACCENT,
+    backgroundColor: T.ACCENT_LIGHT ?? `${T.ACCENT}22`,
+  },
+  tabIcon: {
+    fontSize: 14,
   },
   tabLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: T.FONT.medium,
     color: T.TEXT_3,
   },
@@ -500,7 +683,7 @@ const ss = StyleSheet.create({
 
   fillContent: { flex: 1 },
 
-  // Pack tabs (sticker)
+  // Pack tabs (emoji / sticker)
   packTabScroll: {
     flexShrink: 0,
     maxHeight: 48,
@@ -520,7 +703,7 @@ const ss = StyleSheet.create({
     gap: 4,
   },
   packTabActive: {
-    backgroundColor: T.ACCENT_LIGHT,
+    backgroundColor: T.ACCENT_LIGHT ?? `${T.ACCENT}22`,
   },
   packTabIcon: { fontSize: 20 },
   packTabName: {
@@ -529,29 +712,50 @@ const ss = StyleSheet.create({
     color: T.ACCENT,
   },
 
-  // Sticker grid
-  stickerGrid: { padding: 8 },
-  stickerRow: { justifyContent: 'space-around' },
-  stickerCell: {
+  // Emoji grid
+  emojiGrid: { padding: 8 },
+  emojiRow: { justifyContent: 'space-around' },
+  emojiCell: {
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
   },
-  stickerText: { fontSize: 30 },
+  emojiText: { fontSize: 30 },
+
+  // Image sticker grid
+  stickerGrid: { padding: 10 },
+  stickerRow: { gap: 6, justifyContent: 'space-around' },
+  stickerImgCell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: T.SURFACE,
+    marginBottom: 6,
+  },
+
+  attribution: {
+    fontSize: 9,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+    textAlign: 'center',
+    paddingBottom: 6,
+    opacity: 0.5,
+  },
 
   // GIF search
   gifSearchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginHorizontal: 12,
-    marginVertical: 8,
+    marginHorizontal: 10,
+    marginTop: 8,
+    marginBottom: 6,
     backgroundColor: T.SURFACE,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: T.RADIUS?.pill ?? 24,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 9 : 7,
   },
   gifSearchInput: {
     flex: 1,
@@ -559,6 +763,7 @@ const ss = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT,
     paddingVertical: 0,
+    includeFontPadding: false,
   },
   gifLoading: {
     flex: 1,
@@ -566,10 +771,10 @@ const ss = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 32,
   },
-  gifGrid: { paddingHorizontal: 8, paddingBottom: 8 },
-  gifRow: { gap: 4, marginBottom: 4 },
+  gifGrid: { paddingHorizontal: 6, paddingBottom: 8 },
+  gifRow: { gap: 5, marginBottom: 5 },
   gifItem: {
-    borderRadius: 8,
+    borderRadius: 10,
     overflow: 'hidden',
     backgroundColor: T.SURFACE,
   },

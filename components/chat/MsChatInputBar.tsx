@@ -56,7 +56,7 @@ import {
   Keyboard as KeyboardIcon,
   Lock,
   Microphone,
-  PaperPlaneTilt,
+  PaperPlane,
   Paperclip,
   SmileySticker,
   Square,
@@ -191,6 +191,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   // ── Panel state ────────────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState<PanelTab | 'none'>('none');
+  // PanelTab: 'emoji' | 'stickers' | 'gifs' | 'none'
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_H);
   const inputRef = useRef<TextInput>(null);
 
@@ -234,7 +235,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       closePanel();
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
-      openPanel('stickers');
+      openPanel('emoji');
     }
   }, [activePanel, openPanel, closePanel]);
 
@@ -248,17 +249,19 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(sendAnim, {
+      Animated.spring(sendAnim, {
         toValue: hasText ? 1 : 0,
-        duration: ICON_ANIM_MS,
-        easing: Easing.out(Easing.quad),
         useNativeDriver: true,
+        damping: 18,
+        stiffness: 320,
+        mass: 0.8,
       }),
-      Animated.timing(micAnim, {
+      Animated.spring(micAnim, {
         toValue: hasText ? 0 : 1,
-        duration: ICON_ANIM_MS,
-        easing: Easing.out(Easing.quad),
         useNativeDriver: true,
+        damping: 18,
+        stiffness: 320,
+        mass: 0.8,
       }),
     ]).start();
   }, [hasText]);
@@ -272,14 +275,14 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     Animated.parallel([
       Animated.timing(cameraWidthAnim, {
         toValue: hasText ? 0 : 44,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
+        duration: 220,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
       }),
       Animated.timing(cameraOpacityAnim, {
         toValue: hasText ? 0 : 1,
-        duration: 160,
-        easing: Easing.out(Easing.quad),
+        duration: 180,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
       }),
     ]).start();
@@ -572,7 +575,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       {/* ── Edit banner ──────────────────────────────────────────────────── */}
       {isEditing && (
         <View style={s.contextBar}>
-          <PaperPlaneTilt size={14} color={T.SUCCESS} />
+          <PaperPlane size={14} color={T.SUCCESS} />
           <Text style={s.contextBarText} numberOfLines={1}>
             Editing: {editingMessage?.text ?? ''}
           </Text>
@@ -703,8 +706,8 @@ export const MsChatInputBar = memo(function MsChatInputBar({
                 activeOpacity={0.88}
                 disabled={!hasText || disabled}
               >
-                {/* Forward-facing paper plane (not upward) */}
-                <PaperPlaneTilt size={21} color="#fff" weight="fill" />
+                {/* Horizontal forward-facing paper plane */}
+                <PaperPlane size={20} color="#fff" weight="fill" />
               </TouchableOpacity>
             </Animated.View>
           ) : null}
@@ -757,7 +760,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       <MsComposerPanel
         isOpen={panelIsOpen}
         panelHeight={panelHeight}
-        activeTab={activePanel === 'none' ? 'stickers' : activePanel}
+        activeTab={activePanel === 'none' ? 'emoji' : activePanel}
         onTabChange={setActivePanel}
         onStickerPress={handleStickerPress}
         onGifPress={handleGifPress}
