@@ -51,7 +51,7 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PROFILE_TABS = ['Posts', 'Media', 'Saved'] as const;
+const PROFILE_TABS = ['Posts', 'Albums', 'Videos', 'Shorts', 'Saved'] as const;
 type ProfileTab = typeof PROFILE_TABS[number];
 
 const VISIBILITY_OPTIONS = [
@@ -663,8 +663,11 @@ export default function ProfileScreen() {
   // ── Tab content ─────────────────────────────────────────────────────────────
 
   const tabContent = () => {
-    // Posts tab — full MsPostCard rendering like everywhere else
+    // Posts tab — full MsPostCard rendering
     if (activeTab === 'Posts') {
+      const feedPosts = posts.filter((p) =>
+        !p.contentType || p.contentType === 'post' || p.contentType === 'album'
+      );
       if (loadingPosts) {
         return (
           <View style={{ gap: 1 }}>
@@ -674,7 +677,7 @@ export default function ProfileScreen() {
           </View>
         );
       }
-      if (posts.length === 0) {
+      if (feedPosts.length === 0) {
         return (
           <MsEmptyState
             title="No posts yet"
@@ -686,7 +689,7 @@ export default function ProfileScreen() {
       }
       return (
         <FlatList
-          data={posts}
+          data={feedPosts}
           keyExtractor={(p) => p.id}
           scrollEnabled={false}
           renderItem={({ item }) => (
@@ -710,13 +713,8 @@ export default function ProfileScreen() {
               }
               onAuthorPress={() => {}}
               onDeleted={handlePostDeleted}
-              onEditPress={(post) => {
-                router.push(`/edit-post/${post.id}`);
-              }}
-              onAnalyticsPress={(post) => {
-                setActionPost(post);
-                setAnalyticsSheet(true);
-              }}
+              onEditPress={(post) => { router.push(`/edit-post/${post.id}`); }}
+              onAnalyticsPress={(post) => { setActionPost(post); setAnalyticsSheet(true); }}
             />
           )}
           ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: T.BORDER }} />}
@@ -724,9 +722,9 @@ export default function ProfileScreen() {
       );
     }
 
-    // Media tab — grid of thumbnails with MsMediaLoader
-    if (activeTab === 'Media') {
-      const mediaPosts = posts.filter((p) => !!p.mediaUrl);
+    // Albums tab — grid of album thumbnails
+    if (activeTab === 'Albums') {
+      const albumPosts = posts.filter((p) => p.contentType === 'album');
       if (loadingPosts) {
         return (
           <View style={styles.grid}>
@@ -736,12 +734,145 @@ export default function ProfileScreen() {
           </View>
         );
       }
-      if (mediaPosts.length === 0) {
-        return <MsEmptyState title="No media yet" message="Post photos or videos to see them here." />;
+      if (albumPosts.length === 0) {
+        return (
+          <MsEmptyState
+            title="No albums yet"
+            message="Create an album to curate a premium collection of photos and videos."
+            actionLabel="Create album"
+            onAction={() => router.push('/create-album')}
+          />
+        );
       }
       return (
         <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
-          {mediaPosts.map((p) => <GridTile key={p.id} item={p} />)}
+          {albumPosts.map((p) => <GridTile key={p.id} item={p} />)}
+        </View>
+      );
+    }
+
+    // Videos tab — grid of video thumbnails (video content type only)
+    if (activeTab === 'Videos') {
+      const videoPosts = posts.filter((p) => p.contentType === 'video' || (p.mediaType === 'video' && p.contentType !== 'short'));
+      if (loadingPosts) {
+        return (
+          <View style={styles.grid}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <MsSkeletonCard key={i} style={{ width: (width - 2) / 2, height: (width - 2) / 2 * 9 / 16 + 60 }} radius={0} />
+            ))}
+          </View>
+        );
+      }
+      if (videoPosts.length === 0) {
+        return (
+          <MsEmptyState
+            title="No videos yet"
+            message="Upload long-form videos to appear in the Explore section."
+            actionLabel="Upload video"
+            onAction={() => router.push({ pathname: '/create-post', params: { type: 'video' } })}
+          />
+        );
+      }
+      // 2-column grid for videos
+      const videoColSize = Math.floor((width - 2) / 2);
+      return (
+        <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
+          {videoPosts.map((p) => (
+            <TouchableOpacity
+              key={p.id}
+              style={{ width: videoColSize, backgroundColor: T.SURFACE }}
+              activeOpacity={0.8}
+              onPress={() => router.push(`/videos/${p.id}`)}
+              onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
+              delayLongPress={400}
+            >
+              {p.mediaUrl ? (
+                <MsMediaLoader
+                  uri={p.thumbnailUrl ?? p.mediaUrl}
+                  style={{ width: '100%', height: videoColSize * 9 / 16 }}
+                  resizeMode="cover"
+                  accessibleLabel="Video thumbnail"
+                />
+              ) : (
+                <View style={{ width: '100%', height: videoColSize * 9 / 16, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
+                  <FilmStrip size={28} color={T.TEXT_3} />
+                </View>
+              )}
+              <View style={{ padding: 8 }}>
+                <Text style={{ fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT, lineHeight: 16 }} numberOfLines={2}>
+                  {p.caption || 'Video'}
+                </Text>
+                {p.durationSecs != null && (
+                  <Text style={{ fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2 }}>
+                    {formatDuration(p.durationSecs)}
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+
+    // Shorts tab — grid of vertical thumbnails
+    if (activeTab === 'Shorts') {
+      const shortPosts = posts.filter((p) => p.contentType === 'short');
+      if (loadingPosts) {
+        return (
+          <View style={styles.grid}>
+            {Array.from({ length: 9 }).map((_, i) => (
+              <MsSkeletonCard key={i} style={{ width: gridItemSize, height: gridItemSize * 1.5 }} radius={0} />
+            ))}
+          </View>
+        );
+      }
+      if (shortPosts.length === 0) {
+        return (
+          <MsEmptyState
+            title="No shorts yet"
+            message="Create vertical short-form videos (up to 60 seconds) to appear in the Shorts feed."
+            actionLabel="Create short"
+            onAction={() => router.push({ pathname: '/create-post', params: { type: 'shorts' } })}
+          />
+        );
+      }
+      const shortColSize = Math.floor((width - 2) / 3);
+      return (
+        <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
+          {shortPosts.map((p) => (
+            <TouchableOpacity
+              key={p.id}
+              style={{ width: shortColSize, height: shortColSize * 16 / 9, backgroundColor: T.SURFACE }}
+              activeOpacity={0.8}
+              onPress={() => router.push(`/shorts?startId=${p.id}`)}
+              onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
+              delayLongPress={400}
+            >
+              {p.mediaUrl ? (
+                <MsMediaLoader
+                  uri={p.thumbnailUrl ?? p.mediaUrl}
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="cover"
+                  accessibleLabel="Short thumbnail"
+                />
+              ) : (
+                <View style={{ flex: 1, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 24 }}>▶</Text>
+                </View>
+              )}
+              {/* Duration badge */}
+              {p.durationSecs != null && (
+                <View style={[styles.videoOverlay, { bottom: 5, right: 5, left: 'auto' }]}>
+                  <Text style={styles.videoDuration}>{formatDuration(p.durationSecs)}</Text>
+                </View>
+              )}
+              {Boolean(p.isLocked) && (
+                <View style={styles.lockBadge}>
+                  <LockSimple size={10} color="#fff" weight="bold" />
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
       );
     }

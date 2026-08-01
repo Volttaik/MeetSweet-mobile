@@ -7,7 +7,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, type Icon } from 'phosphor-react-native';
+import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, VideoCamera, MonitorPlay, TextT, type Icon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { tapLight, tapMedium } from '@/lib/haptics';
 
@@ -133,14 +133,14 @@ function CreateActionSheet({
           <TouchableOpacity
             style={sheetStyles.option}
             activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => router.push('/create-post'), 150); }}
+            onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'post' } }), 150); }}
           >
-            <View style={sheetStyles.optionIcon}>
-              <FilmStrip size={24} color={T.ACCENT} />
+            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(196,90,114,0.14)' }]}>
+              <TextT size={22} color={T.ACCENT} weight="bold" />
             </View>
             <View style={sheetStyles.optionText}>
-              <Text style={sheetStyles.optionLabel}>Create Post</Text>
-              <Text style={sheetStyles.optionDesc}>Share a single photo or video</Text>
+              <Text style={sheetStyles.optionLabel}>Post</Text>
+              <Text style={sheetStyles.optionDesc}>Text + images · shows in Home feed</Text>
             </View>
           </TouchableOpacity>
 
@@ -149,12 +149,40 @@ function CreateActionSheet({
             activeOpacity={0.8}
             onPress={() => { onClose(); setTimeout(() => router.push('/create-album'), 150); }}
           >
-            <View style={sheetStyles.optionIcon}>
-              <Images size={24} color={T.ACCENT} />
+            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(124,92,202,0.14)' }]}>
+              <Images size={22} color="#7C5CCA" />
             </View>
             <View style={sheetStyles.optionText}>
-              <Text style={sheetStyles.optionLabel}>Create Album</Text>
-              <Text style={sheetStyles.optionDesc}>Curate a premium collection of media</Text>
+              <Text style={sheetStyles.optionLabel}>Album</Text>
+              <Text style={sheetStyles.optionDesc}>Gallery of photos/videos · Home feed</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={sheetStyles.option}
+            activeOpacity={0.8}
+            onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'video' } }), 150); }}
+          >
+            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(37,99,235,0.14)' }]}>
+              <MonitorPlay size={22} color="#2563EB" />
+            </View>
+            <View style={sheetStyles.optionText}>
+              <Text style={sheetStyles.optionLabel}>Video</Text>
+              <Text style={sheetStyles.optionDesc}>Long-form video · shows in Explore</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={sheetStyles.option}
+            activeOpacity={0.8}
+            onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'shorts' } }), 150); }}
+          >
+            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(220,38,38,0.14)' }]}>
+              <VideoCamera size={22} color="#DC2626" />
+            </View>
+            <View style={sheetStyles.optionText}>
+              <Text style={sheetStyles.optionLabel}>Shorts</Text>
+              <Text style={sheetStyles.optionDesc}>Vertical video up to 60s · Shorts feed</Text>
             </View>
           </TouchableOpacity>
 

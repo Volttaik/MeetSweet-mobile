@@ -52,6 +52,7 @@ import {
 
 import {
   ArrowLeft,
+  DotsThreeVertical,
   Info,
   PencilSimple,
   Trash,
@@ -60,6 +61,11 @@ import {
   DownloadSimple,
   UserMinus,
 } from 'phosphor-react-native';
+import { MsChatHeaderMenu } from '@/components/chat/MsChatHeaderMenu';
+import { MsChatSearch }     from '@/components/chat/MsChatSearch';
+import { MsChatBgPicker }   from '@/components/chat/MsChatBgPicker';
+import type { ChatBackground } from '@/components/chat/MsChatBgPicker';
+import { MsStickerPicker }  from '@/components/chat/MsStickerPicker';
 
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -190,6 +196,13 @@ export default function ChatScreen() {
   // ── Message info modal ───────────────────────────────────────────────────────
   const [infoMsg, setInfoMsg] = useState<MsMessage | null>(null);
   const [showMsgInfo, setShowMsgInfo] = useState(false);
+
+  // ── Chat header menu ─────────────────────────────────────────────────────────
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showChatSearch, setShowChatSearch] = useState(false);
+  const [showBgPicker,   setShowBgPicker]   = useState(false);
+  const [chatBackground, setChatBackground] = useState<ChatBackground>({ type: 'default' });
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
 
   // ── Load messages ────────────────────────────────────────────────────────────
   const loadMessages = useCallback(async (before?: string) => {
@@ -794,27 +807,19 @@ export default function ChatScreen() {
         </Pressable>
         <TouchableOpacity
           style={styles.headerBtn}
-          onPress={() => {
-            Alert.alert(
-              otherUser.name || 'Chat',
-              undefined,
-              [
-                { text: 'View Profile', onPress: () => setShowProfileSheet(true) },
-                {
-                  text: isBlocked ? 'Unblock User' : 'Block User',
-                  style: isBlocked ? 'default' : 'destructive',
-                  onPress: handleBlockUser,
-                },
-                { text: 'Clear Conversation', style: 'destructive', onPress: handleClearConversation },
-                { text: 'Delete Conversation', style: 'destructive', onPress: handleDeleteConversation },
-                { text: 'Cancel', style: 'cancel' },
-              ],
-            );
-          }}
+          onPress={() => setShowHeaderMenu(true)}
         >
-          <Info size={22} color={T.TEXT_2} />
+          <DotsThreeVertical size={22} color={T.TEXT_2} weight="bold" />
         </TouchableOpacity>
       </View>
+
+      {/* ── Chat search bar (slides in below header) ─────────────────────────── */}
+      <MsChatSearch
+        visible={showChatSearch}
+        messages={messagesWithReactions}
+        onClose={() => setShowChatSearch(false)}
+        onJump={() => {/* Flash highlight TODO */}}
+      />
 
       {/* ── Chat Component ───────────────────────────────────────────────────── */}
       <Chat<MsMessage>
@@ -971,6 +976,28 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* ── Chat header menu ─────────────────────────────────────────────────── */}
+      <MsChatHeaderMenu
+        visible={showHeaderMenu}
+        onClose={() => setShowHeaderMenu(false)}
+        isBlocked={isBlocked}
+        otherName={otherUser.name || 'User'}
+        onBackground={() => setShowBgPicker(true)}
+        onSearch={() => setShowChatSearch(true)}
+        onProfile={() => setShowProfileSheet(true)}
+        onBlock={handleBlockUser}
+        onClear={handleClearConversation}
+        onDelete={handleDeleteConversation}
+      />
+
+      {/* ── Chat background picker ───────────────────────────────────────────── */}
+      <MsChatBgPicker
+        visible={showBgPicker}
+        current={chatBackground}
+        onSelect={(bg) => setChatBackground(bg)}
+        onClose={() => setShowBgPicker(false)}
+      />
 
       {/* ── User profile sheet ───────────────────────────────────────────────── */}
       {showProfileSheet && (

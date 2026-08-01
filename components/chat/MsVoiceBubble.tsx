@@ -1,14 +1,16 @@
 /**
- * MsVoiceBubble — premium voice note player.
+ * MsVoiceBubble — premium audio message player.
  *
- * Features:
- *  • Animated waveform bars that pulse during playback
- *  • Progress-aware bar coloring
- *  • Seekable tap-on-progress-bar
- *  • Elapsed / total duration display
- *  • Speed selector (1× / 1.5× / 2×)
- *  • Smooth icon transition Play ↔ Pause
- *  • Skeleton while loading, error state with retry
+ * Visual spec:
+ *  • Gradient card background
+ *  • Left-aligned circular play/pause button with ripple
+ *  • Duration timer (MM:SS, bold, center)
+ *  • Animated waveform bars reacting to playback
+ *  • Full-width seekable progress bar
+ *  • File size badge bottom-right
+ *  • 5px rounded corners, soft shadow, 12/16 padding
+ *
+ * States: loading (shimmer) | ready | playing (waveform animated) | paused | error (retry)
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -26,21 +28,34 @@ import { Audio } from 'expo-av';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/types/chat-message';
 
-const BG_OWN   = '#28282F';
-const BG_OTHER = '#1C1C23';
+// ─── Colours ──────────────────────────────────────────────────────────────────
+const BG_OWN_TOP    = '#2E2E38';
+const BG_OWN_BOT    = '#23232C';
+const BG_OTHER_TOP  = '#1E1E27';
+const BG_OTHER_BOT  = '#16161E';
 
-const BARS   = Array.from({ length: 22 }, (_, i) =>
-  3 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 14,
+const BARS = Array.from({ length: 26 }, (_, i) =>
+  5 + Math.abs(Math.sin(i * 1.7 + 0.5) * Math.cos(i * 0.9)) * 18,
 );
 const SPEEDS = [1, 1.5, 2] as const;
 
-interface Props {
-  uri:      string;
-  duration: number; // seconds
-  position: 'left' | 'right';
+function fmtBytes(bytes?: number): string | null {
+  if (!bytes || bytes <= 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function MsVoiceBubble({ uri, duration, position }: Props) {
+interface Props {
+  uri:       string;
+  duration:  number; // seconds
+  position:  'left' | 'right';
+  fileSize?: number; // bytes
+}
+
+export function MsVoiceBubble({ uri, duration, position, fileSize }: Props) {
+  const isOwn = position === 'right';
+
   const [isPlaying,    setIsPlaying]    = useState(false);
   const [positionSecs, setPositionSecs] = useState(0);
   const [totalSecs,    setTotalSecs]    = useState(duration);
@@ -48,28 +63,29 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
   const [isLoading,    setIsLoading]    = useState(false);
   const [hasError,     setHasError]     = useState(false);
   const [progressW,    setProgressW]    = useState(0);
-  const soundRef = useRef<Audio.Sound | null>(null);
 
-  // One Animated.Value per bar for the "active" pulse
-  const barAnims = useRef(BARS.map(() => new Animated.Value(1))).current;
-  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
+  const soundRef  = useRef<Audio.Sound | null>(null);
+  const barAnims  = useRef(BARS.map(() => new Animated.Value(1))).current;
+  const pulseRef  = useRef<Animated.CompositeAnimation | null>(null);
+  const iconAnim  = useRef(new Animated.Value(0)).current;
+  const rippleAnim = useRef(new Animated.Value(0)).current;
 
-  // Start / stop the waveform pulse animation
+  // Waveform animation
   useEffect(() => {
     if (isPlaying) {
       const stagger = barAnims.map((a, i) =>
         Animated.loop(
           Animated.sequence([
-            Animated.delay(i * 28),
+            Animated.delay(i * 22),
             Animated.timing(a, {
-              toValue: 1.55,
-              duration: 350 + (i % 5) * 40,
+              toValue: 1.6,
+              duration: 320 + (i % 5) * 45,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
             Animated.timing(a, {
-              toValue: 1,
-              duration: 350 + (i % 5) * 40,
+              toValue: 0.5,
+              duration: 320 + (i % 5) * 45,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
@@ -85,6 +101,15 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
     }
   }, [isPlaying]);
 
+  // Icon crossfade
+  useEffect(() => {
+    Animated.timing(iconAnim, {
+      toValue: isPlaying ? 1 : 0,
+      duration: 130,
+      useNativeDriver: true,
+    }).start();
+  }, [isPlaying]);
+
   useEffect(() => {
     if (duration > 0) setTotalSecs(duration);
   }, [duration]);
@@ -93,6 +118,17 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
     pulseRef.current?.stop();
     soundRef.current?.unloadAsync().catch(() => {});
   }, []);
+
+  // Ripple on play press
+  const triggerRipple = () => {
+    rippleAnim.setValue(0);
+    Animated.timing(rippleAnim, {
+      toValue: 1,
+      duration: 400,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  };
 
   const loadAndPlay = async () => {
     try {
@@ -106,7 +142,6 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
           if (!status.isLoaded) return;
           const secs = Math.floor((status.positionMillis ?? 0) / 1000);
           setPositionSecs(secs);
-          // Get actual duration from metadata if available
           if (status.durationMillis && status.durationMillis > 0) {
             setTotalSecs(Math.floor(status.durationMillis / 1000));
           }
@@ -128,6 +163,7 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
   };
 
   const togglePlayback = async () => {
+    triggerRipple();
     try {
       if (isPlaying) {
         await soundRef.current?.pauseAsync();
@@ -151,7 +187,6 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
     await soundRef.current?.setRateAsync(SPEEDS[next], true).catch(() => {});
   };
 
-  // Seek when user taps on the progress bar
   const handleProgressTap = async (e: GestureResponderEvent) => {
     if (progressW <= 0 || totalSecs <= 0) return;
     const ratio  = Math.max(0, Math.min(1, e.nativeEvent.locationX / progressW));
@@ -160,7 +195,6 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
     if (soundRef.current) {
       try { await soundRef.current.setPositionAsync(millis); } catch {/* */}
     } else {
-      // Not loaded yet — load and seek
       try {
         setIsLoading(true);
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
@@ -186,52 +220,87 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
     }
   };
 
-  const isOwn    = position === 'right';
-  const progress = totalSecs > 0 ? positionSecs / totalSecs : 0;
-  const clampedP = Math.max(0, Math.min(1, progress));
+  const progress  = totalSecs > 0 ? positionSecs / totalSecs : 0;
+  const clampedP  = Math.max(0, Math.min(1, progress));
+  const fileSizeLabel = fmtBytes(fileSize);
 
-  // Icon opacity for smooth Play ↔ Pause transition
-  const iconAnim = useRef(new Animated.Value(isPlaying ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(iconAnim, {
-      toValue: isPlaying ? 1 : 0,
-      duration: 120,
-      useNativeDriver: true,
-    }).start();
-  }, [isPlaying]);
+  // Colours
+  const accentColor  = isOwn ? 'rgba(255,255,255,0.9)' : T.ACCENT;
+  const dimColor     = isOwn ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)';
+  const playBtnBg    = isOwn ? 'rgba(255,255,255,0.16)' : `${T.ACCENT}28`;
+  const playIconColor= isOwn ? '#FFFFFF' : T.ACCENT;
 
   return (
     <View
-      style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft]}
+      style={[
+        s.bubble,
+        isOwn ? s.bubbleRight : s.bubbleLeft,
+        T.SHADOWS.medium,
+      ]}
       accessibilityLabel={`Voice message, ${formatDuration(totalSecs)}`}
       accessibilityRole="button"
     >
-      {/* Play / Pause */}
-      <TouchableOpacity
-        onPress={hasError ? loadAndPlay : togglePlayback}
-        style={[s.playBtn, hasError && s.playBtnError]}
-        activeOpacity={0.8}
-        disabled={isLoading}
-        accessibilityLabel={isPlaying ? 'Pause voice message' : 'Play voice message'}
-        accessibilityRole="button"
-      >
-        {hasError ? (
-          <ArrowClockwise size={14} color="#fff" weight="bold" />
-        ) : (
-          <>
-            <Animated.View style={[StyleSheet.absoluteFill, s.iconCenter, { opacity: iconAnim.interpolate({ inputRange: [0,1], outputRange: [1,0] }) }]}>
-              <Play size={14} color="#fff" weight="fill" />
-            </Animated.View>
-            <Animated.View style={[StyleSheet.absoluteFill, s.iconCenter, { opacity: iconAnim }]}>
-              <Pause size={14} color="#fff" weight="fill" />
-            </Animated.View>
-          </>
-        )}
-      </TouchableOpacity>
+      {/* Gradient-like layered background */}
+      <View style={[StyleSheet.absoluteFill, s.bgLayer, {
+        backgroundColor: isOwn ? BG_OWN_TOP : BG_OTHER_TOP,
+        opacity: 0.6,
+      }]} />
+      <View style={[StyleSheet.absoluteFill, s.bgLayerBottom, {
+        backgroundColor: isOwn ? BG_OWN_BOT : BG_OTHER_BOT,
+      }]} />
 
-      {/* Right: waveform + progress bar + meta */}
+      {/* Play/Pause button */}
+      <View style={s.playBtnWrap}>
+        {/* Ripple */}
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            s.ripple,
+            {
+              borderColor: accentColor,
+              opacity: rippleAnim.interpolate({ inputRange: [0,1], outputRange: [0.4, 0] }),
+              transform: [{ scale: rippleAnim.interpolate({ inputRange: [0,1], outputRange: [0.7, 1.6] }) }],
+            },
+          ]}
+          pointerEvents="none"
+        />
+        <TouchableOpacity
+          onPress={hasError ? loadAndPlay : togglePlayback}
+          style={[s.playBtn, { backgroundColor: playBtnBg }]}
+          activeOpacity={0.75}
+          disabled={isLoading}
+          accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+          accessibilityRole="button"
+        >
+          {hasError ? (
+            <ArrowClockwise size={17} color={T.ERROR} weight="bold" />
+          ) : isLoading ? (
+            <View style={s.loadingDots}>
+              {[0,1,2].map((i) => (
+                <View key={i} style={[s.dot, { backgroundColor: playIconColor, opacity: 0.5 + i * 0.2 }]} />
+              ))}
+            </View>
+          ) : (
+            <>
+              <Animated.View style={[StyleSheet.absoluteFill, s.iconCenter, { opacity: iconAnim.interpolate({ inputRange: [0,1], outputRange: [1,0] }) }]}>
+                <Play size={18} color={playIconColor} weight="fill" />
+              </Animated.View>
+              <Animated.View style={[StyleSheet.absoluteFill, s.iconCenter, { opacity: iconAnim }]}>
+                <Pause size={18} color={playIconColor} weight="fill" />
+              </Animated.View>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Right: waveform + timer + progress + meta */}
       <View style={s.content}>
-        {/* Waveform bars */}
+        {/* Timer — bold, centered */}
+        <Text style={[s.timer, { color: isOwn ? 'rgba(255,255,255,0.85)' : T.TEXT }]}>
+          {formatDuration(isPlaying ? positionSecs : totalSecs)}
+        </Text>
+
+        {/* Waveform */}
         <View style={s.waveform}>
           {BARS.map((baseH, i) => {
             const active = i / BARS.length <= clampedP;
@@ -243,9 +312,7 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
                   {
                     height: baseH,
                     transform: [{ scaleY: isPlaying && active ? barAnims[i] : 1 }],
-                    backgroundColor: active
-                      ? (isOwn ? 'rgba(255,255,255,0.88)' : T.ACCENT)
-                      : (isOwn ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.09)'),
+                    backgroundColor: active ? accentColor : dimColor,
                   },
                 ]}
               />
@@ -253,9 +320,9 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
           })}
         </View>
 
-        {/* Seekable progress bar */}
+        {/* Progress bar */}
         <TouchableOpacity
-          activeOpacity={0.8}
+          activeOpacity={1}
           onPress={handleProgressTap}
           onLayout={(e: LayoutChangeEvent) => setProgressW(e.nativeEvent.layout.width)}
           style={s.progressTrack}
@@ -266,25 +333,26 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
               s.progressFill,
               {
                 width: `${Math.round(clampedP * 100)}%`,
-                backgroundColor: isOwn ? 'rgba(255,255,255,0.72)' : T.ACCENT,
+                backgroundColor: accentColor,
               },
             ]}
           />
         </TouchableOpacity>
 
-        {/* Meta row: elapsed + speed */}
+        {/* Meta row: speed + file size */}
         <View style={s.metaRow}>
-          <Text style={[s.duration, isOwn ? s.durOwn : s.durOther]}>
-            {formatDuration(isPlaying ? positionSecs : 0)}{' '}
-            <Text style={[s.totalDur, isOwn ? s.durOwn : s.durOther]}>
-              / {formatDuration(totalSecs)}
-            </Text>
-          </Text>
           <TouchableOpacity onPress={cycleSpeed} hitSlop={8} activeOpacity={0.7}>
-            <Text style={[s.speed, isOwn ? s.speedOwn : s.speedOther]}>
+            <Text style={[s.speed, { color: isOwn ? 'rgba(255,255,255,0.4)' : T.TEXT_3 }]}>
               {SPEEDS[speedIdx]}×
             </Text>
           </TouchableOpacity>
+          {fileSizeLabel ? (
+            <View style={[s.sizeBadge, { backgroundColor: isOwn ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.04)' }]}>
+              <Text style={[s.sizeLabel, { color: isOwn ? 'rgba(255,255,255,0.32)' : T.TEXT_3 }]}>
+                {fileSizeLabel}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </View>
@@ -294,64 +362,90 @@ export function MsVoiceBubble({ uri, duration, position }: Props) {
 const s = StyleSheet.create({
   bubble: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    width: 268,
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    width: 280,
     marginVertical: 1,
+    overflow: 'hidden',
+    position: 'relative',
   },
+  bgLayer:       { borderRadius: 14 },
+  bgLayerBottom: { borderRadius: 14 },
   bubbleLeft: {
-    backgroundColor: BG_OTHER,
     alignSelf: 'flex-start',
     marginLeft: 8,
-    borderBottomLeftRadius: 3,
+    borderBottomLeftRadius: 5,
   },
   bubbleRight: {
-    backgroundColor: BG_OWN,
     alignSelf: 'flex-end',
     marginRight: 8,
-    borderBottomRightRadius: 3,
+    borderBottomRightRadius: 5,
   },
 
-  playBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+  playBtnWrap: {
+    width: 42,
+    height: 42,
     flexShrink: 0,
-    position: 'relative',
-    marginTop: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  playBtnError: { backgroundColor: 'rgba(239,68,68,0.22)' },
+  playBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ripple: {
+    borderRadius: 24,
+    borderWidth: 2,
+  },
   iconCenter: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  loadingDots: {
+    flexDirection: 'row',
+    gap: 3,
+    alignItems: 'center',
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
 
   content: {
     flex: 1,
-    gap: 5,
+    gap: 6,
+  },
+
+  timer: {
+    fontSize: 13,
+    fontFamily: T.FONT.semibold,
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
 
   waveform: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    height: 24,
+    height: 28,
     overflow: 'hidden',
   },
   bar: {
     flex: 1,
-    borderRadius: 1.5,
+    borderRadius: 2,
     minWidth: 2,
   },
 
-  // Seekable progress bar
   progressTrack: {
     height: 3,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -366,12 +460,19 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  duration:  { fontSize: 10, fontFamily: T.FONT.medium },
-  totalDur:  { fontSize: 10, fontFamily: T.FONT.regular },
-  durOwn:    { color: 'rgba(255,255,255,0.55)' },
-  durOther:  { color: T.TEXT_2 },
-
-  speed:       { fontSize: 9, fontFamily: T.FONT.semibold, letterSpacing: 0.2 },
-  speedOwn:   { color: 'rgba(255,255,255,0.35)' },
-  speedOther: { color: T.TEXT_3 },
+  speed: {
+    fontSize: 10,
+    fontFamily: T.FONT.semibold,
+    letterSpacing: 0.3,
+  },
+  sizeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  sizeLabel: {
+    fontSize: 9,
+    fontFamily: T.FONT.medium,
+    letterSpacing: 0.2,
+  },
 });

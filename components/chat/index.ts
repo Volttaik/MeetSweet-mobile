@@ -14,3 +14,7 @@ export { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
 export { MsTypingIndicator } from './MsTypingIndicator';
 export { MsDateSeparator } from './MsDateSeparator';
 export type { SendPayload, PendingVoice } from './MsChatInputBar';
+export { MsChatHeaderMenu } from './MsChatHeaderMenu';
+export { MsChatSearch }     from './MsChatSearch';
+export { MsChatBgPicker }   from './MsChatBgPicker';
+export { MsStickerPicker }  from './MsStickerPicker';
