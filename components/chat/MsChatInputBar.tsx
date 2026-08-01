@@ -112,6 +112,8 @@ const CANCEL_THRESHOLD_X = -72;
 const ICON_ANIM_MS       = 180;
 const WAVEFORM_BARS      = 16;
 const DEFAULT_PANEL_H    = 300;
+const MAX_REC_SECS       = 300; // 5 minutes
+const WARN_AT_SECS       = 270; // 4 minutes 30 seconds
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -618,8 +620,10 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   }, [hasAttachment]);
 
   // ── Recording UI state ─────────────────────────────────────────────────────
-  const [recState,   setRecState]   = useState<RecordingState>('idle');
-  const [recSeconds, setRecSeconds] = useState(0);
+  const [recState,    setRecState]    = useState<RecordingState>('idle');
+  const [recSeconds,  setRecSeconds]  = useState(0);
+  const [recWarning,  setRecWarning]  = useState(false);   // 4:30 warning
+  const [micDenied,   setMicDenied]   = useState(false);   // permission denied banner
 
   const recRef = useRef<{
     state:          RecordingState;
@@ -704,25 +708,41 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   const _startRecording = async () => {
     try {
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) return;
+      const { granted, canAskAgain } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        setMicDenied(true);
+        animateMicPressOut();
+        return;
+      }
+      setMicDenied(false);
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       recRef.current.recording = recording;
       recRef.current.seconds   = 0;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       Animated.timing(micGlowAnim, { toValue: 1, duration: 160, useNativeDriver: true }).start();
       lockHintAnim.setValue(0);
       cancelHintAnim.setValue(0);
       lockedAnim.setValue(0);
+      setRecWarning(false);
       recRef.current.intervalId = setInterval(() => {
         recRef.current.seconds += 1;
-        setRecSeconds(recRef.current.seconds);
+        const s = recRef.current.seconds;
+        setRecSeconds(s);
+        // Warning at 4:30
+        if (s === WARN_AT_SECS) {
+          setRecWarning(true);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+        }
+        // Auto-stop at 5:00
+        if (s >= MAX_REC_SECS) {
+          _stopRecording(false);
+        }
       }, 1000);
       syncState('active');
       setRecSeconds(0);
       startPulse();
-    } catch {/* permission denied */}
+    } catch {/* permission denied or device error */}
   };
 
   const _stopRecording = async (cancel = false) => {
@@ -733,6 +753,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     recRef.current.recording = null;
     syncState('idle');
     setRecSeconds(0);
+    setRecWarning(false);
     if (!rec) return;
     try {
       await rec.stopAndUnloadAsync();
@@ -884,6 +905,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   if (recState === 'locked') {
     return (
       <View style={s.root} pointerEvents="box-none">
+        {/* Lock badge floating above */}
         <Animated.View
           style={[
             s.lockBadge,
@@ -891,21 +913,42 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           ]}
           pointerEvents="none"
         >
-          <Lock size={12} color={T.ACCENT} weight="fill" />
-          <Text style={s.lockBadgeText}>Locked</Text>
+          <Lock size={12} color={T.SUCCESS} weight="fill" />
+          <Text style={[s.lockBadgeText, { color: T.SUCCESS }]}>Locked</Text>
         </Animated.View>
+
+        {/* Warning banner at 4:30 */}
+        {recWarning && (
+          <View style={s.recWarningBanner}>
+            <Text style={s.recWarningText}>⚠️ Max recording time in 30 seconds</Text>
+          </View>
+        )}
+
         <View style={s.lockedRow}>
+          {/* Animated waveform */}
           <View style={s.lockedWave}>
             {barAnims.map((a, i) => (
               <Animated.View key={i} style={[s.lockedBar, { transform: [{ scaleY: a }] }]} />
             ))}
           </View>
-          <Text style={s.lockedTimer}>{fmtSecs(recSeconds)}</Text>
-          <TouchableOpacity style={s.lockedCancel} onPress={() => _stopRecording(true)} activeOpacity={0.8}>
+
+          {/* Timer */}
+          <Text style={[s.lockedTimer, recWarning && { color: '#EF4444' }]}>
+            {fmtSecs(recSeconds)}
+          </Text>
+
+          {/* Cancel */}
+          <TouchableOpacity style={s.lockedCancel} onPress={() => _stopRecording(true)} activeOpacity={0.8}
+            accessibilityLabel="Cancel recording"
+          >
             <X size={16} color={T.TEXT_2} />
           </TouchableOpacity>
-          <TouchableOpacity style={s.lockedStop} onPress={() => _stopRecording(false)} activeOpacity={0.85}>
-            <Square size={14} color="#fff" weight="fill" />
+
+          {/* Stop / confirm — green after lock */}
+          <TouchableOpacity style={s.lockedStop} onPress={() => _stopRecording(false)} activeOpacity={0.85}
+            accessibilityLabel="Stop and confirm recording"
+          >
+            <Lock size={15} color="#fff" weight="fill" />
           </TouchableOpacity>
         </View>
       </View>
@@ -915,6 +958,30 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   // ── Main render ────────────────────────────────────────────────────────────
   return (
     <View style={[s.root, { paddingBottom: bottomInset }]}>
+
+      {/* ── Microphone permission denied banner ───────────────────────────── */}
+      {micDenied && (
+        <TouchableOpacity
+          style={s.micDeniedBanner}
+          onPress={async () => {
+            const { Linking } = await import('react-native');
+            Linking.openSettings();
+          }}
+          activeOpacity={0.85}
+          accessibilityLabel="Microphone access required. Tap to open settings."
+          accessibilityRole="button"
+        >
+          <Microphone size={14} color="#fff" weight="fill" />
+          <Text style={s.micDeniedText}>Microphone access required. Tap to open settings.</Text>
+          <TouchableOpacity
+            hitSlop={10}
+            onPress={() => setMicDenied(false)}
+            accessibilityLabel="Dismiss"
+          >
+            <X size={14} color="rgba(255,255,255,0.55)" />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      )}
 
       {/* ── Edit banner ──────────────────────────────────────────────────── */}
       {isEditing && (
@@ -969,7 +1036,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         )}
         {!pendingVoice && pendingGif && (
           <MediaAttachmentBar
-            attachment={{ type: 'gif', uri: pendingGif.url, title: pendingGif.title, mimeType: 'image/gif', fileName: 'gif' }}
+            attachment={{ type: 'gif', uri: pendingGif.url, title: pendingGif.title }}
             onRemove={() => setPendingGif(null)}
           />
         )}
@@ -982,7 +1049,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           ) : (
             <MediaAttachmentBar
               attachment={inlineAttachment}
-              onRemove={onRemoveInlineAttachment}
+              onRemove={onRemoveInlineAttachment ?? (() => {})}
               onEdit={inlineAttachment.type === 'image' || inlineAttachment.type === 'video' ? onEditInlineAttachment : undefined}
             />
           )
@@ -1001,9 +1068,9 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
         {/* Input pill */}
         {recState === 'active' ? (
-          <View style={[s.pill, s.pillRec]}>
-            <View style={s.recDot} />
-            <Text style={s.recTimer}>{fmtSecs(recSeconds)}</Text>
+          <View style={[s.pill, s.pillRec, recWarning && s.pillRecWarn]}>
+            <View style={[s.recDot, recWarning && s.recDotWarn]} />
+            <Text style={[s.recTimer, recWarning && s.recTimerWarn]}>{fmtSecs(recSeconds)}</Text>
             <View style={s.recWave}>
               {barAnims.map((a, i) => (
                 <Animated.View key={i} style={[s.recBar, { transform: [{ scaleY: a }] }]} />
@@ -1307,7 +1374,47 @@ const s = StyleSheet.create({
   lockedBar: { flex: 1, minWidth: 2, height: 12, borderRadius: 1.5, backgroundColor: T.ACCENT, opacity: 0.65 },
   lockedTimer: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT, flexShrink: 0, minWidth: 38, textAlign: 'right' },
   lockedCancel: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  lockedStop: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  // Green stop button after lock
+  lockedStop: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.SUCCESS, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+
+  // Warning variant styles
+  recWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(239,68,68,0.15)',
+  },
+  recWarningText: {
+    fontSize: 12,
+    fontFamily: T.FONT.medium,
+    color: '#EF4444',
+    textAlign: 'center',
+  },
+  pillRecWarn: {
+    backgroundColor: 'rgba(239,68,68,0.12)',
+  },
+  recDotWarn:   { backgroundColor: '#FF6B6B' },
+  recTimerWarn: { color: '#EF4444' },
+
+  // Mic permission denied banner
+  micDeniedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(239,68,68,0.18)',
+    borderRadius: 0,
+  },
+  micDeniedText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: T.FONT.medium,
+    color: '#fff',
+    flexShrink: 1,
+  },
 });
 
 // ── Attachment bar styles ────────────────────────────────────────────────────

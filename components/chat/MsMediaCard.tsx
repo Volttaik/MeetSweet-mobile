@@ -2,15 +2,16 @@
  * MsMediaCard — premium media message card.
  *
  * Images:
+ *  • Natural aspect ratio from onLoad dimensions
  *  • Skeleton shimmer while loading
  *  • Smooth Animated fade-in on load
- *  • Rounded 6 px corners
+ *  • 5px rounded corners
+ *  • Soft shadow
  *  • Tap → fullscreen (handled by parent)
  *
  * Videos:
- *  • Dark placeholder (first-frame thumbnails not available without native module)
- *  • Small centred play indicator — NOT a full-width play button
- *  • Duration badge bottom-right (if msAudioDuration supplied)
+ *  • Large centred play button with semi-transparent ring
+ *  • Duration badge bottom-right
  *  • Tap → shared VideoPlayer
  *
  * Never shows in-bubble playback controls.
@@ -26,27 +27,31 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Play, ArrowClockwise } from 'phosphor-react-native';
+import { Play, ArrowClockwise, Image as ImageIcon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 import { formatDuration } from '@/types/chat-message';
 
-const SCREEN_W = Dimensions.get('window').width;
-const CARD_W   = SCREEN_W * 0.62;
-const CARD_H   = CARD_W  * 0.75;
+const SCREEN_W    = Dimensions.get('window').width;
+/** Maximum width a media bubble may occupy */
+const MAX_CARD_W  = Math.round(SCREEN_W * 0.68);
+const MIN_CARD_W  = 160;
+/** Default height while we wait for natural dimensions */
+const DEFAULT_H   = Math.round(MAX_CARD_W * 0.65);
 
 // ── Shimmer placeholder ───────────────────────────────────────────────────────
 
 function Shimmer({ width, height }: { width: number; height: number }) {
   const anim = useRef(new Animated.Value(0)).current;
   React.useEffect(() => {
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 1, duration: 820, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 820, useNativeDriver: true }),
       ]),
-    ).start();
-    return () => anim.stopAnimation();
+    );
+    loop.start();
+    return () => loop.stop();
   }, []);
 
   return (
@@ -55,7 +60,7 @@ function Shimmer({ width, height }: { width: number; height: number }) {
         width,
         height,
         backgroundColor: T.SURFACE_2,
-        opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] }),
+        opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }),
       }}
     />
   );
@@ -75,20 +80,23 @@ function DurationBadge({ secs }: { secs: number }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface Props {
-  message: MsMessage;
-  position: 'left' | 'right';
-  onPress?: () => void;
-  isLocked?: boolean;
+  message:    MsMessage;
+  position:   'left' | 'right';
+  onPress?:   () => void;
+  isLocked?:  boolean;
 }
 
 export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
-  const isOwn  = position === 'right';
+  const isOwn   = position === 'right';
   const isVideo = message.msMediaType === 'video' || !!message.video;
 
-  // For images, use image URI; for videos, try image field as thumbnail fallback
-  const imageUri  = message.image || (isVideo ? undefined : message.audio) || '';
-  const hasThumb  = !isVideo && !!imageUri;
-  const videoDur  = message.msAudioDuration ?? 0;
+  const imageUri = message.image || (isVideo ? undefined : message.audio) || '';
+  const hasThumb = !isVideo && !!imageUri;
+  const videoDur = message.msAudioDuration ?? 0;
+
+  // Natural image dimensions
+  const [imgW, setImgW] = useState<number>(MAX_CARD_W);
+  const [imgH, setImgH] = useState<number>(DEFAULT_H);
 
   const [loading,  setLoading]  = useState(hasThumb);
   const [error,    setError]    = useState(false);
@@ -96,14 +104,31 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
 
   // Smooth fade-in
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const handleLoad = useCallback(() => {
+
+  const handleLoad = useCallback((e: { nativeEvent: { source: { width: number; height: number } } }) => {
+    const { width: nw, height: nh } = e.nativeEvent.source;
+    if (nw > 0 && nh > 0) {
+      // Fit within MAX_CARD_W while preserving ratio
+      const ratio = nh / nw;
+      const fw    = Math.min(Math.max(nw, MIN_CARD_W), MAX_CARD_W);
+      const fh    = Math.round(fw * ratio);
+      // Clamp height: no taller than screen * 0.55, no shorter than MIN_CARD_W * 0.5
+      const clampedH = Math.max(80, Math.min(fh, Math.round(SCREEN_W * 0.55)));
+      setImgW(fw);
+      setImgH(clampedH);
+    }
     setLoading(false);
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 220,
+      duration: 240,
       useNativeDriver: true,
     }).start();
   }, [fadeAnim]);
+
+  const handleError = useCallback(() => {
+    setLoading(false);
+    setError(true);
+  }, []);
 
   const handleRetry = useCallback(() => {
     setError(false);
@@ -117,10 +142,22 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
       onPress={onPress}
       style={[s.container, isOwn ? s.containerRight : s.containerLeft]}
       android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
+      accessibilityLabel={isVideo ? 'Video message. Tap to play.' : 'Image message. Tap to view.'}
+      accessibilityRole="button"
     >
-      <View style={[s.card, isLocked && s.cardLocked]}>
+      <View
+        style={[
+          s.card,
+          isLocked && s.cardLocked,
+          { width: isVideo ? MAX_CARD_W : imgW },
+        ]}
+      >
         {error ? (
-          <View style={s.errorWrap}>
+          /* ── Error state ─────────────────────────────────────────────────── */
+          <View style={[s.errorWrap, { width: MAX_CARD_W, height: DEFAULT_H * 0.55 }]}>
+            <View style={s.errorIcon}>
+              <ImageIcon size={24} color={T.TEXT_3} weight="regular" />
+            </View>
             <Text style={s.errorText}>Failed to load</Text>
             <TouchableOpacity style={s.retryBtn} onPress={handleRetry} activeOpacity={0.7}>
               <ArrowClockwise size={16} color={T.ACCENT} />
@@ -128,32 +165,36 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
             </TouchableOpacity>
           </View>
         ) : isVideo ? (
-          /* ── Video: dark placeholder + centred play ring + duration badge ── */
-          <View style={s.videoPlaceholder}>
+          /* ── Video: dark placeholder + large play ring + duration ──────── */
+          <View style={[s.videoPlaceholder, { width: MAX_CARD_W, height: DEFAULT_H }]}>
+            {/* Large semi-transparent play circle */}
             <View style={s.videoPlayRing}>
-              <Play size={20} color="#fff" weight="fill" />
+              <View style={s.videoPlayInner}>
+                <Play size={26} color="#fff" weight="fill" style={{ marginLeft: 3 }} />
+              </View>
             </View>
             <DurationBadge secs={videoDur} />
           </View>
         ) : (
-          /* ── Image: shimmer → fade-in image ─────────────────────────────── */
+          /* ── Image: shimmer → fade-in ────────────────────────────────────── */
           <>
             {loading && (
-              <View style={s.shimmerWrap} pointerEvents="none">
-                <Shimmer width={CARD_W} height={CARD_H} />
+              <View style={[s.shimmerWrap, { width: imgW, height: imgH }]} pointerEvents="none">
+                <Shimmer width={imgW} height={imgH} />
               </View>
             )}
             <Animated.Image
               key={retryKey}
               source={{ uri: imageUri }}
               style={[
-                s.image,
+                { width: imgW, height: imgH },
                 isLocked && s.imageLocked,
                 { opacity: error ? 0 : fadeAnim },
               ]}
-              onLoad={handleLoad}
-              onError={() => { setLoading(false); setError(true); }}
+              onLoad={handleLoad as any}
+              onError={handleError}
               resizeMode="cover"
+              accessibilityLabel="Photo"
             />
           </>
         )}
@@ -161,7 +202,7 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
         {/* Caption */}
         {message.msCaption ? (
           <View style={s.captionWrap}>
-            <Text style={s.caption} numberOfLines={2}>{message.msCaption}</Text>
+            <Text style={s.caption} numberOfLines={3}>{message.msCaption}</Text>
           </View>
         ) : null}
       </View>
@@ -175,11 +216,14 @@ const s = StyleSheet.create({
   containerRight: { alignSelf: 'flex-end',   marginRight: 8 },
 
   card: {
-    width: CARD_W,
-    borderRadius: 6,
+    borderRadius: 5,
     overflow: 'hidden',
     backgroundColor: T.SURFACE_2,
-    ...T.SHADOWS.medium,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 4,
   },
   cardLocked: { opacity: 0.55 },
 
@@ -189,27 +233,29 @@ const s = StyleSheet.create({
     zIndex: 1,
   },
 
-  image: {
-    width: CARD_W,
-    height: CARD_H,
-  },
   imageLocked: { opacity: 0.3 },
 
   // Video placeholder
   videoPlaceholder: {
-    width: CARD_W,
-    height: CARD_H,
-    backgroundColor: '#111116',
+    backgroundColor: '#0E0E14',
     alignItems: 'center',
     justifyContent: 'center',
   },
   videoPlayRing: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: 'rgba(255,255,255,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -218,7 +264,7 @@ const s = StyleSheet.create({
     position: 'absolute',
     bottom: 8,
     right: 8,
-    backgroundColor: 'rgba(0,0,0,0.62)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -241,14 +287,21 @@ const s = StyleSheet.create({
   },
 
   errorWrap: {
-    width: CARD_W,
-    height: CARD_H * 0.55,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
+    paddingVertical: 20,
+  },
+  errorIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   errorText: {
-    fontSize: 13,
+    fontSize: 12,
     color: T.TEXT_3,
     fontFamily: T.FONT.regular,
   },

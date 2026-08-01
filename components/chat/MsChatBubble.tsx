@@ -2,7 +2,7 @@
  * MsChatBubble — main bubble router for renderBubble in the Chat component.
  *
  * Routes by message type:
- *   text      → MsTextBubble
+ *   text      → MsTextBubble  (or large-emoji/sticker render if single emoji)
  *   image/vid → MsMediaCard
  *   audio     → MsVoiceBubble
  *   document  → MsFileCard
@@ -26,17 +26,25 @@ import { Clock } from 'phosphor-react-native';
 import type { BubbleProps } from '@kesha-antonov/react-native-chat';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
-import { MsTextBubble }        from './MsTextBubble';
-import { MsMediaCard }         from './MsMediaCard';
-import { MsVoiceBubble }       from './MsVoiceBubble';
-import { MsFileCard }          from './MsFileCard';
-import { MsPaidOverlay }       from './MsPaidOverlay';
-import { MsReactionStrip }     from './MsReactionStrip';
+import { MsTextBubble }         from './MsTextBubble';
+import { MsMediaCard }          from './MsMediaCard';
+import { MsVoiceBubble }        from './MsVoiceBubble';
+import { MsFileCard }           from './MsFileCard';
+import { MsPaidOverlay }        from './MsPaidOverlay';
+import { MsReactionStrip }      from './MsReactionStrip';
 import { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
 
 const SCREEN_W   = Dimensions.get('window').width;
 // Fixed pixel max-width avoids percentage-of-percentage sizing bugs
 const MAX_BUBBLE = SCREEN_W * 0.74;
+
+// Detects if a string is composed entirely of emoji characters (1–4 of them).
+const EMOJI_RE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F){1,4}$/u;
+function isStickerText(text: string): boolean {
+  const t = text.trim();
+  if (!t || t.length > 16) return false;
+  return EMOJI_RE.test(t);
+}
 
 function formatTime(date: Date | number): string {
   const d = typeof date === 'number' ? new Date(date) : date;
@@ -97,6 +105,10 @@ export function MsChatBubble({
   const showLock  = isPaid && !isUnlocked;
   const isFailed  = msg.sent === false && msg.pending === false;
 
+  // Sticker: text-only, no media, matches emoji pattern
+  const isSticker = !isDeleted && !hasAudio && !hasImage && !hasVideo && !hasDoc
+    && isStickerText(msg.text ?? '');
+
   const replyMsg  = msg.replyMessage;
   const reactions = msg.reactions ?? [];
 
@@ -111,6 +123,19 @@ export function MsChatBubble({
         showDeleted
         timeString={timeString}
       />
+    );
+  } else if (isSticker) {
+    // Large emoji sticker — no bubble background, floats in chat
+    bubble = (
+      <View
+        style={[styles.stickerWrap, isOwn ? styles.stickerRight : styles.stickerLeft]}
+        accessibilityLabel={`Sticker: ${msg.text?.trim()}`}
+      >
+        <Text style={styles.stickerEmoji}>{msg.text?.trim()}</Text>
+        <Text style={[styles.stickerTime, isOwn ? styles.stickerTimeRight : styles.stickerTimeLeft]}>
+          {timeString}
+        </Text>
+      </View>
     );
   } else if (hasAudio) {
     bubble = (
@@ -148,7 +173,7 @@ export function MsChatBubble({
     );
   }
 
-  const isMedia = !isDeleted && (hasAudio || hasImage || hasVideo || hasDoc);
+  const isMedia = !isDeleted && !isSticker && (hasAudio || hasImage || hasVideo || hasDoc);
 
   return (
     <Animated.View
@@ -175,7 +200,7 @@ export function MsChatBubble({
       ]}
     >
       {/* Fixed-pixel max-width prevents percentage-of-percentage bugs */}
-      <View style={[styles.column, { maxWidth: MAX_BUBBLE }]}>
+      <View style={[styles.column, { maxWidth: isSticker ? undefined : MAX_BUBBLE }]}>
 
         {replyMsg ? (
           <MsReplyPreviewBubble reply={replyMsg} position={position ?? 'left'} />
@@ -187,7 +212,7 @@ export function MsChatBubble({
           <MsReactionStrip reactions={reactions} position={position ?? 'left'} />
         ) : null}
 
-        {/* Media meta row — text bubbles show time inside themselves */}
+        {/* Media meta row — text/sticker bubbles show time inside themselves */}
         {isMedia ? (
           <View style={[styles.mediaMeta, isOwn ? styles.mediaMetaRight : styles.mediaMetaLeft]}>
             <Text numberOfLines={1} style={styles.mediaTime}>
@@ -220,6 +245,28 @@ const styles = StyleSheet.create({
   column: {},
 
   mediaWrap: { position: 'relative' },
+
+  // Sticker: large emoji, no background
+  stickerWrap: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  stickerLeft:  { alignSelf: 'flex-start', marginLeft: 8 },
+  stickerRight: { alignSelf: 'flex-end',   marginRight: 8 },
+  stickerEmoji: {
+    fontSize: 72,
+    lineHeight: 88,
+    includeFontPadding: false,
+  },
+  stickerTime: {
+    fontSize: 10,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+    marginTop: 2,
+  },
+  stickerTimeLeft:  { textAlign: 'left' },
+  stickerTimeRight: { textAlign: 'right' },
 
   mediaMeta: {
     flexDirection: 'row',

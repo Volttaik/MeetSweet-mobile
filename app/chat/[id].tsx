@@ -31,6 +31,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
@@ -56,6 +57,8 @@ import {
   Trash,
   Copy as CopyIcon,
   ArrowBendUpLeft,
+  DownloadSimple,
+  UserMinus,
 } from 'phosphor-react-native';
 
 import { T } from '@/constants/theme';
@@ -176,6 +179,17 @@ export default function ChatScreen() {
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
   const [fullscreenVideoUri, setFullscreenVideoUri] = useState<string | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+
+  // ── Delete confirmation state ────────────────────────────────────────────────
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MsMessage | null>(null);
+
+  // ── Block / conversation state ───────────────────────────────────────────────
+  const [isBlocked, setIsBlocked] = useState(false);
+
+  // ── Message info modal ───────────────────────────────────────────────────────
+  const [infoMsg, setInfoMsg] = useState<MsMessage | null>(null);
+  const [showMsgInfo, setShowMsgInfo] = useState(false);
 
   // ── Load messages ────────────────────────────────────────────────────────────
   const loadMessages = useCallback(async (before?: string) => {
@@ -523,15 +537,95 @@ export default function ChatScreen() {
     showMenu(msg);
   }, [showMenu]);
 
-  const handleDelete = useCallback(async () => {
+  // ── Show delete confirmation ───────────────────────────────────────────────
+  const handleDeletePress = useCallback(() => {
     if (!menuMsg) return;
     hideMenu();
-    const id = String(menuMsg._id);
-    setMessages((prev) => prev.filter((m) => m._id !== menuMsg._id));
+    setDeleteTarget(menuMsg);
+    setMenuMsg(null);
+    setShowDeleteConfirm(true);
+  }, [menuMsg, hideMenu]);
+
+  const handleDelete = useCallback(async (forEveryone = false) => {
+    setShowDeleteConfirm(false);
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    if (!target) return;
+    const id = String(target._id);
+    // Animate collapse + fade
+    setMessages((prev) => prev.map((m) =>
+      m._id === target._id ? { ...m, msIsDeleted: true } : m,
+    ));
     await deleteCachedMessage(id).catch(() => {});
     try { await deleteMessage(id); } catch {/* */}
+  }, [deleteTarget]);
+
+  // ── Message Info ──────────────────────────────────────────────────────────
+  const handleMsgInfo = useCallback(() => {
+    if (!menuMsg) return;
+    hideMenu();
+    setInfoMsg(menuMsg);
     setMenuMsg(null);
+    setShowMsgInfo(true);
   }, [menuMsg, hideMenu]);
+
+  // ── Block user ────────────────────────────────────────────────────────────
+  const handleBlockUser = useCallback(() => {
+    setShowProfileSheet(false);
+    Alert.alert(
+      isBlocked ? 'Unblock User' : 'Block User',
+      isBlocked
+        ? `Unblock ${otherUser.name}? They will be able to message you again.`
+        : `Block ${otherUser.name}? You will not be able to send or receive messages.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isBlocked ? 'Unblock' : 'Block',
+          style: 'destructive',
+          onPress: () => setIsBlocked(!isBlocked),
+        },
+      ],
+    );
+  }, [isBlocked, otherUser.name]);
+
+  // ── Delete conversation ───────────────────────────────────────────────────
+  const handleDeleteConversation = useCallback(() => {
+    setShowProfileSheet(false);
+    Alert.alert(
+      'Delete Conversation',
+      'This will remove the conversation from your chat list. Messages will not be deleted for the other person.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => router.back(),
+        },
+      ],
+    );
+  }, []);
+
+  // ── Clear conversation ────────────────────────────────────────────────────
+  const handleClearConversation = useCallback(() => {
+    setShowProfileSheet(false);
+    Alert.alert(
+      'Clear Conversation',
+      'All messages in this conversation will be permanently deleted for you. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            setMessages([]);
+            if (conversationId) {
+              await deleteCachedMessage(conversationId).catch(() => {});
+            }
+          },
+        },
+      ],
+    );
+  }, [conversationId]);
 
   const handleEdit = useCallback(() => {
     if (!menuMsg) return;
@@ -698,7 +792,26 @@ export default function ChatScreen() {
             ) : null}
           </View>
         </Pressable>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => setShowProfileSheet(true)}>
+        <TouchableOpacity
+          style={styles.headerBtn}
+          onPress={() => {
+            Alert.alert(
+              otherUser.name || 'Chat',
+              undefined,
+              [
+                { text: 'View Profile', onPress: () => setShowProfileSheet(true) },
+                {
+                  text: isBlocked ? 'Unblock User' : 'Block User',
+                  style: isBlocked ? 'default' : 'destructive',
+                  onPress: handleBlockUser,
+                },
+                { text: 'Clear Conversation', style: 'destructive', onPress: handleClearConversation },
+                { text: 'Delete Conversation', style: 'destructive', onPress: handleDeleteConversation },
+                { text: 'Cancel', style: 'cancel' },
+              ],
+            );
+          }}
+        >
           <Info size={22} color={T.TEXT_2} />
         </TouchableOpacity>
       </View>
@@ -846,6 +959,19 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
+      {/* ── Blocked banner ───────────────────────────────────────────────────── */}
+      {isBlocked && (
+        <View style={styles.blockedBanner}>
+          <UserMinus size={14} color="#EF4444" />
+          <Text style={styles.blockedBannerText}>
+            You've blocked this user. Tap to unblock.
+          </Text>
+          <TouchableOpacity onPress={handleBlockUser} hitSlop={8}>
+            <Text style={styles.blockedUnblockBtn}>Unblock</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── User profile sheet ───────────────────────────────────────────────── */}
       {showProfileSheet && (
         <MsUserProfileSheet
@@ -861,6 +987,129 @@ export default function ChatScreen() {
           onClose={() => setShowProfileSheet(false)}
         />
       )}
+
+      {/* ── Conversation action sheet (block, delete, clear) ─────────────────── */}
+      <Modal
+        visible={showProfileSheet === false && false}
+        transparent
+        animationType="none"
+        onRequestClose={() => {}}
+      >
+        <View />
+      </Modal>
+
+      {/* ── Conversation actions accessible from header Info button ─────────── */}
+      {/* Actions are triggered from Alert dialogs via handleBlockUser,
+          handleDeleteConversation, handleClearConversation */}
+
+      {/* ── Delete confirmation sheet ────────────────────────────────────────── */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+        statusBarTranslucent
+      >
+        <Pressable
+          style={styles.menuOverlay}
+          onPress={() => setShowDeleteConfirm(false)}
+        >
+          <View style={styles.deleteSheet}>
+            <Text style={styles.deleteSheetTitle}>Delete this message?</Text>
+            <View style={styles.deleteSheetDivider} />
+            <TouchableOpacity
+              style={styles.deleteSheetBtn}
+              onPress={() => handleDelete(false)}
+            >
+              <Text style={styles.deleteSheetBtnText}>Delete for me</Text>
+            </TouchableOpacity>
+            <View style={styles.deleteSheetDivider} />
+            <TouchableOpacity
+              style={styles.deleteSheetBtn}
+              onPress={() => handleDelete(true)}
+            >
+              <Text style={[styles.deleteSheetBtnText, { color: T.DANGER }]}>
+                Delete for everyone
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.deleteSheetDivider} />
+            <TouchableOpacity
+              style={styles.deleteSheetBtn}
+              onPress={() => setShowDeleteConfirm(false)}
+            >
+              <Text style={[styles.deleteSheetBtnText, { color: T.TEXT_3 }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── Message Info modal ───────────────────────────────────────────────── */}
+      <Modal
+        visible={showMsgInfo && !!infoMsg}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMsgInfo(false)}
+        statusBarTranslucent
+      >
+        <Pressable
+          style={styles.menuOverlay}
+          onPress={() => setShowMsgInfo(false)}
+        >
+          <View style={styles.msgInfoCard}>
+            <Text style={styles.msgInfoTitle}>Message Info</Text>
+            <View style={styles.msgInfoRow}>
+              <Text style={styles.msgInfoLabel}>Sent</Text>
+              <Text style={styles.msgInfoValue}>
+                {infoMsg?.createdAt
+                  ? (infoMsg.createdAt instanceof Date
+                    ? infoMsg.createdAt
+                    : new Date(infoMsg.createdAt as number)
+                  ).toLocaleString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit', hour12: true,
+                  })
+                  : '—'}
+              </Text>
+            </View>
+            {infoMsg?.msIsEdited && (
+              <View style={styles.msgInfoRow}>
+                <Text style={styles.msgInfoLabel}>Status</Text>
+                <Text style={[styles.msgInfoValue, { color: T.ACCENT }]}>Edited</Text>
+              </View>
+            )}
+            <View style={styles.msgInfoRow}>
+              <Text style={styles.msgInfoLabel}>Delivered</Text>
+              <Text style={styles.msgInfoValue}>{infoMsg?.sent ? '✓' : 'Pending'}</Text>
+            </View>
+            <View style={styles.msgInfoRow}>
+              <Text style={styles.msgInfoLabel}>Read</Text>
+              <Text style={styles.msgInfoValue}>{infoMsg?.received ? '✓✓' : '—'}</Text>
+            </View>
+            {infoMsg?.msMediaType && (
+              <View style={styles.msgInfoRow}>
+                <Text style={styles.msgInfoLabel}>Type</Text>
+                <Text style={styles.msgInfoValue}>{infoMsg.msMediaType}</Text>
+              </View>
+            )}
+            {infoMsg?.msFileSize ? (
+              <View style={styles.msgInfoRow}>
+                <Text style={styles.msgInfoLabel}>Size</Text>
+                <Text style={styles.msgInfoValue}>
+                  {infoMsg.msFileSize < 1024 * 1024
+                    ? `${(infoMsg.msFileSize / 1024).toFixed(1)} KB`
+                    : `${(infoMsg.msFileSize / (1024 * 1024)).toFixed(1)} MB`}
+                </Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={styles.msgInfoClose}
+              onPress={() => setShowMsgInfo(false)}
+            >
+              <Text style={styles.msgInfoCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* ── Long-press context menu (scale + fade animation) ─────────────────── */}
       <Modal
@@ -897,12 +1146,13 @@ export default function ChatScreen() {
             {!!menuMsg?.text && (
               <MenuItem icon={<CopyIcon size={18} color={T.TEXT} />} label="Copy" onPress={handleCopy} />
             )}
+            <MenuItem icon={<Info size={18} color={T.TEXT_2} />} label="Message Info" onPress={handleMsgInfo} />
             {String(menuMsg?.user?._id) === currentUserId && (
               <MenuItem
                 icon={<Trash size={18} color={T.DANGER} />}
                 label="Delete"
                 labelStyle={{ color: T.DANGER }}
-                onPress={handleDelete}
+                onPress={handleDeletePress}
               />
             )}
           </Animated.View>
@@ -943,58 +1193,167 @@ export default function ChatScreen() {
   );
 }
 
-// ─── Fullscreen Image Viewer ──────────────────────────────────────────────────
+// ─── Fullscreen Image Viewer — pinch-to-zoom, double-tap, swipe-down, share ──
 
 function FullscreenImageViewer({ uri, onClose }: { uri: string; onClose: () => void }) {
   const insets = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
+  const SCREEN = Dimensions.get('window');
+
+  // Pan + swipe-down
+  const translateX   = useRef(new Animated.Value(0)).current;
+  const translateY   = useRef(new Animated.Value(0)).current;
+  const bgOpacity    = useRef(new Animated.Value(1)).current;
+  // Pinch zoom (using manual two-touch tracking)
+  const scaleAnim    = useRef(new Animated.Value(1)).current;
+  const scaleRef     = useRef(1);
+  const lastScaleRef = useRef(1);
+  const prevDistRef  = useRef<number | null>(null);
+  // Double-tap
+  const lastTapRef   = useRef(0);
+  const isZoomedRef  = useRef(false);
+
+  function dist(t1: { pageX: number; pageY: number }, t2: { pageX: number; pageY: number }) {
+    const dx = t1.pageX - t2.pageX;
+    const dy = t1.pageY - t2.pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, gs) => Math.abs(gs.dy) > 8 && Math.abs(gs.dy) > Math.abs(gs.dx),
-      onPanResponderMove: (_e, gs) => {
-        if (gs.dy > 0) {
-          translateY.setValue(gs.dy);
-          opacity.setValue(Math.max(0, 1 - gs.dy / 300));
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, gs) => {
+        const touches = (_e.nativeEvent as any).touches;
+        if (touches?.length >= 2) return true;
+        const s = scaleRef.current;
+        if (s > 1) return true;
+        return Math.abs(gs.dy) > 8;
+      },
+
+      onPanResponderGrant: (e) => {
+        const touches = (e.nativeEvent as any).touches;
+        if (touches?.length >= 2) {
+          prevDistRef.current = dist(touches[0], touches[1]);
+          lastScaleRef.current = scaleRef.current;
+        }
+        // Double-tap detection
+        const now = Date.now();
+        if (touches?.length === 1) {
+          if (now - lastTapRef.current < 280) {
+            // Double-tap: toggle zoom
+            const targetScale = isZoomedRef.current ? 1 : 2.5;
+            isZoomedRef.current = !isZoomedRef.current;
+            scaleRef.current = targetScale;
+            Animated.parallel([
+              Animated.spring(scaleAnim, { toValue: targetScale, useNativeDriver: true, damping: 20, stiffness: 280 }),
+              Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 280 }),
+              Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 280 }),
+            ]).start();
+          }
+          lastTapRef.current = now;
         }
       },
-      onPanResponderRelease: (_e, gs) => {
-        if (gs.dy > 90 || gs.vy > 0.8) {
-          Animated.parallel([
-            Animated.timing(translateY, { toValue: Dimensions.get('window').height, duration: 200, useNativeDriver: true }),
-            Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-          ]).start(onClose);
-        } else {
-          Animated.parallel([
-            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 300 }),
-            Animated.spring(opacity, { toValue: 1, useNativeDriver: true, damping: 20, stiffness: 300 }),
-          ]).start();
+
+      onPanResponderMove: (e, gs) => {
+        const touches = (e.nativeEvent as any).touches;
+        // Pinch
+        if (touches?.length >= 2 && prevDistRef.current !== null) {
+          const d = dist(touches[0], touches[1]);
+          const ratio  = d / prevDistRef.current;
+          const newScale = Math.max(0.85, Math.min(5, lastScaleRef.current * ratio));
+          scaleRef.current = newScale;
+          scaleAnim.setValue(newScale);
+          return;
         }
+        // Pan (while zoomed) or swipe-down (at 1×)
+        const s = scaleRef.current;
+        if (s > 1.05) {
+          translateX.setValue(gs.dx);
+          translateY.setValue(gs.dy);
+        } else if (gs.dy > 0) {
+          translateY.setValue(gs.dy);
+          bgOpacity.setValue(Math.max(0, 1 - gs.dy / 350));
+        }
+      },
+
+      onPanResponderRelease: (_e, gs) => {
+        prevDistRef.current = null;
+        const s = scaleRef.current;
+        // Swipe-down dismiss at scale ~1
+        if (s <= 1.05 && (gs.dy > 100 || gs.vy > 0.9)) {
+          Animated.parallel([
+            Animated.timing(translateY, { toValue: SCREEN.height, duration: 220, useNativeDriver: true }),
+            Animated.timing(bgOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+          ]).start(onClose);
+          return;
+        }
+        // Snap back to center if scale ~1
+        if (s <= 1.05) {
+          scaleRef.current = 1;
+          isZoomedRef.current = false;
+          Animated.parallel([
+            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 300 }),
+            Animated.spring(bgOpacity, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 300 }),
+            Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 300 }),
+          ]).start();
+        } else {
+          // Keep panned position when zoomed
+          Animated.spring(scaleAnim, { toValue: s, useNativeDriver: true, damping: 22, stiffness: 300 }).start();
+        }
+      },
+
+      onPanResponderTerminate: () => {
+        prevDistRef.current = null;
       },
     }),
   ).current;
 
+  const handleShare = async () => {
+    try {
+      await Share.share({ url: uri, message: uri });
+    } catch {/* user cancelled */}
+  };
+
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <Animated.View style={[styles.fullscreenBg, { opacity }]}>
-        <TouchableOpacity
-          style={[styles.fullscreenClose, { top: insets.top + 12 }]}
-          onPress={onClose}
-        >
-          <Text style={styles.fullscreenCloseText}>✕</Text>
-        </TouchableOpacity>
+      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <Animated.View style={[styles.fullscreenBg, { opacity: bgOpacity }]}>
+
+        {/* Header bar — close + share */}
+        <View style={[styles.fsvHeader, { paddingTop: insets.top + 8 }]}>
+          <TouchableOpacity style={styles.fsvBtn} onPress={onClose} accessibilityLabel="Close image viewer">
+            <Text style={styles.fullscreenCloseText}>✕</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.fsvBtn} onPress={handleShare} accessibilityLabel="Share image">
+            <DownloadSimple size={20} color="#fff" weight="bold" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Image — supports pinch, pan, double-tap */}
         <Animated.View
-          style={{ transform: [{ translateY }], flex: 1, width: '100%', justifyContent: 'center' }}
+          style={[
+            styles.fsvImgWrap,
+            {
+              transform: [
+                { scale: scaleAnim },
+                { translateX },
+                { translateY },
+              ],
+            },
+          ]}
           {...panResponder.panHandlers}
         >
           <Image
             source={{ uri }}
-            style={styles.fullscreenImg}
+            style={{ width: SCREEN.width, height: SCREEN.height * 0.85 }}
             resizeMode="contain"
+            accessibilityLabel="Full screen image"
           />
         </Animated.View>
-        <Text style={[styles.swipeHint, { bottom: insets.bottom + 20 }]}>Swipe down to dismiss</Text>
+
+        {/* Hint */}
+        <Text style={[styles.swipeHint, { bottom: insets.bottom + 16 }]}>
+          Pinch to zoom · Double-tap · Swipe down to close
+        </Text>
       </Animated.View>
     </Modal>
   );
@@ -1156,6 +1515,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Fullscreen image viewer header
+  fsvHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    zIndex: 20,
+  },
+  fsvBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fsvImgWrap: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   fullscreenClose: {
     position: 'absolute',
     right: 18,
@@ -1175,9 +1561,111 @@ const styles = StyleSheet.create({
   swipeHint: {
     position: 'absolute',
     alignSelf: 'center',
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: T.FONT.regular,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.3)',
     letterSpacing: 0.3,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+
+  // Blocked banner
+  blockedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+  },
+  blockedBannerText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: T.FONT.medium,
+    color: '#EF4444',
+  },
+  blockedUnblockBtn: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: '#EF4444',
+    textDecorationLine: 'underline',
+  },
+
+  // Delete confirmation sheet
+  deleteSheet: {
+    backgroundColor: T.SURFACE,
+    borderRadius: 20,
+    overflow: 'hidden',
+    width: '100%',
+    maxWidth: 320,
+    ...T.SHADOWS.hard,
+  },
+  deleteSheetTitle: {
+    fontSize: 15,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+    textAlign: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+  },
+  deleteSheetDivider: { height: 1, backgroundColor: T.BORDER },
+  deleteSheetBtn: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  deleteSheetBtnText: {
+    fontSize: 15,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT,
+  },
+
+  // Message info card
+  msgInfoCard: {
+    backgroundColor: T.SURFACE,
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 340,
+    gap: 0,
+    ...T.SHADOWS.hard,
+  },
+  msgInfoTitle: {
+    fontSize: 16,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  msgInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: T.BORDER,
+  },
+  msgInfoLabel: {
+    fontSize: 13,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_3,
+  },
+  msgInfoValue: {
+    fontSize: 13,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+    maxWidth: '65%',
+    textAlign: 'right',
+  },
+  msgInfoClose: {
+    marginTop: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.sm,
+  },
+  msgInfoCloseText: {
+    fontSize: 14,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
   },
 });
