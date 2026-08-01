@@ -15,6 +15,7 @@ interface Props {
   active: boolean;
   pageHeight?: number;
   onViewProgress?: (seconds: number) => void;
+  onDoubleTap?: () => void;
   onPremiumRequired?: () => void;
   onError?: () => void;
 }
@@ -26,6 +27,7 @@ export function MsShortsPlayer({
   active,
   pageHeight,
   onViewProgress,
+  onDoubleTap,
   onPremiumRequired,
   onError,
 }: Props) {
@@ -40,6 +42,7 @@ export function MsShortsPlayer({
       isPremium={item.isPremium}
       onPremiumRequired={onPremiumRequired}
       onViewProgress={onViewProgress}
+      onDoubleTap={onDoubleTap}
       onError={onError}
     />
   );

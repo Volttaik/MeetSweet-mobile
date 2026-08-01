@@ -115,6 +115,8 @@ export interface MsVideoPlayerProps {
   active?: boolean;
   /** Shorts: called with seconds watched when the item goes inactive. */
   onViewProgress?: (seconds: number) => void;
+  /** Shorts: fired when user double-taps the video (allows parent to toggle like). */
+  onDoubleTap?: () => void;
   onError?: () => void;
   /**
    * When fillContainer=true (e.g. inside a fullscreen Modal), provide this to
@@ -154,6 +156,7 @@ export function MsVideoPlayer({
   pageHeight,
   active,
   onViewProgress,
+  onDoubleTap,
   onError,
   onClose,
 }: MsVideoPlayerProps) {

@@ -9,7 +9,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bell, Compass, MagnifyingGlass } from 'phosphor-react-native';
+import { Bell, Compass, MagnifyingGlass, Lightning } from 'phosphor-react-native';
+import { MsCreditBadge } from '@/components/MsCreditBadge';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
