@@ -6,26 +6,21 @@
  *   Empty  : [Sticker] [Input Pill] [Attach] [Camera] [Mic]
  *   Typing : [Sticker] [Input Pill] [Attach] [Camera→0] [Send]
  *
- * Interaction patterns (ref: WhatsApp screenshots)
- * ─────────────────────────────────────────────────
- * • Camera button animates to 0 width + 0 opacity when user types.
- * • Mic morphs into Send (cross-fade + scale) when text is non-empty.
- * • Sticker button toggles the sticker/GIF panel; becomes keyboard icon
- *   when panel is open (tapping returns to normal keyboard).
- * • Sticker/GIF panel is embedded below this component's root View.
- *   When open it behaves exactly like the keyboard — same height, slides
- *   smoothly, pushes the message list upward.
- * • Native keyboard provides emoji via the OS emoji key — we do NOT
- *   bundle a custom emoji database.
- * • Voice recording: hold mic to record, slide up to lock, slide left
- *   to cancel. PanResponder owns the full gesture lifecycle.
+ * Composer staging model
+ * ──────────────────────
+ * NOTHING sends automatically. The input is the central holding area.
+ * • Emoji        → inserted into text field (never auto-send)
+ * • Sticker img  → staged above input as thumbnail (press send to dispatch)
+ * • GIF          → staged above input as thumbnail (press send to dispatch)
+ * • Voice note   → compact playback bar above input (press send to dispatch)
+ * • Image/Video  → thumbnail above input; pen icon → full MsAttachmentPreview
+ * • Document     → file chip above input (press send to dispatch)
  *
  * Keyboard behaviour
  * ──────────────────
- * • This component tracks keyboard height via Keyboard events.
- * • When the sticker panel opens the keyboard is dismissed first.
- * • Panel height matches the last-seen keyboard height.
- * • Focusing the input while the panel is open closes the panel.
+ * • Tracks keyboard height via Keyboard events.
+ * • Sticker panel open → keyboard dismissed; panel fills same height.
+ * • Focusing input while panel is open → panel closes.
  */
 
 import React, {
@@ -48,16 +43,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowBendUpLeft,
   ArrowUp,
   Camera,
+  File,
   Keyboard as KeyboardIcon,
   Lock,
   Microphone,
-  PaperPlane,
+  PaperPlaneRight,
   Paperclip,
+  Pause,
+  PencilSimple,
+  Play,
   SmileySticker,
   Square,
   X,
@@ -76,13 +76,28 @@ export interface PendingVoice {
   duration: number;
 }
 
+/** Inline attachment staged above the input before sending */
+export interface InlineAttachment {
+  type: 'image' | 'video' | 'audio' | 'voice' | 'document';
+  uri: string;
+  mimeType: string;
+  fileName: string;
+  fileSize?: number;
+  duration?: number;
+}
+
+/** What the parent receives when send is pressed with an attachment */
+export interface AttachmentSendPayload extends InlineAttachment {
+  caption?: string;
+}
+
 export interface SendPayload {
   text?: string;
   voice?: PendingVoice;
   isPaid?: boolean;
-  /** Sticker emoji */
+  /** Emoji character (text message) */
   sticker?: string;
-  /** GIF remote URL */
+  /** GIF or image sticker URL */
   gifUrl?: string;
   gifTitle?: string;
 }
@@ -97,6 +112,12 @@ const CANCEL_THRESHOLD_X = -72;
 const ICON_ANIM_MS       = 180;
 const WAVEFORM_BARS      = 16;
 const DEFAULT_PANEL_H    = 300;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // ─── Animated pressable helper ────────────────────────────────────────────────
 
@@ -152,13 +173,175 @@ const IconBtn = memo(function IconBtn({
   );
 });
 
+// ─── VoiceCompactBar — compact audio preview above input ─────────────────────
+
+const VoiceCompactBar = memo(function VoiceCompactBar({
+  voice,
+  onRemove,
+}: {
+  voice: PendingVoice;
+  onRemove: () => void;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position,  setPosition]  = useState(0);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  useEffect(() => () => {
+    soundRef.current?.stopAsync().catch(() => {});
+    soundRef.current?.unloadAsync().catch(() => {});
+  }, []);
+
+  const togglePlay = async () => {
+    try {
+      if (isPlaying) {
+        await soundRef.current?.pauseAsync();
+        setIsPlaying(false);
+        return;
+      }
+      if (!soundRef.current) {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: voice.uri },
+          { shouldPlay: true },
+          (status) => {
+            if (!status.isLoaded) return;
+            setPosition(Math.floor((status.positionMillis ?? 0) / 1000));
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+              soundRef.current?.unloadAsync().catch(() => {});
+              soundRef.current = null;
+            }
+          },
+        );
+        soundRef.current = sound;
+      } else {
+        await soundRef.current.playAsync();
+      }
+      setIsPlaying(true);
+    } catch {/* ignore */}
+  };
+
+  function fmt(s: number) {
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  const barHeights = useRef([5,9,14,8,12,16,7,10,13,6,15,9,11,14,8,12,7,10,5,13,9,14,6,11,15,8,12,7,10,13]).current;
+
+  return (
+    <View style={sa.voiceBar}>
+      <View style={sa.voiceIcon}>
+        <Microphone size={15} color={T.ACCENT} weight="fill" />
+      </View>
+      {/* Static waveform */}
+      <View style={sa.voiceWave}>
+        {barHeights.slice(0, 22).map((h, i) => (
+          <View
+            key={i}
+            style={[
+              sa.voiceWaveBar,
+              {
+                height: h,
+                backgroundColor: i / 22 <= (voice.duration > 0 ? position / voice.duration : 0)
+                  ? T.ACCENT
+                  : 'rgba(255,255,255,0.15)',
+              },
+            ]}
+          />
+        ))}
+      </View>
+      <Text style={sa.voiceDuration}>{fmt(isPlaying ? position : voice.duration)}</Text>
+      <TouchableOpacity style={sa.voicePlayBtn} onPress={togglePlay} activeOpacity={0.8}>
+        {isPlaying
+          ? <Pause size={13} color="#fff" weight="fill" />
+          : <Play  size={13} color="#fff" weight="fill" />
+        }
+      </TouchableOpacity>
+      <TouchableOpacity style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
+        <X size={12} color={T.TEXT_3} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
+// ─── MediaAttachmentBar — image / video / gif / sticker / document ────────────
+
+const MediaAttachmentBar = memo(function MediaAttachmentBar({
+  attachment,
+  onRemove,
+  onEdit,
+}: {
+  attachment: InlineAttachment | { type: 'gif'; uri: string; title: string };
+  onRemove: () => void;
+  onEdit?: () => void;
+}) {
+  const isMedia  = attachment.type === 'image' || attachment.type === 'video' || attachment.type === 'gif';
+  const isDoc    = attachment.type === 'document';
+  const isAudio  = attachment.type === 'audio';
+  const fileName = (attachment as InlineAttachment).fileName ?? '';
+  const fileSize = (attachment as InlineAttachment).fileSize;
+
+  return (
+    <View style={sa.mediaBar}>
+      {isMedia && (
+        <View style={sa.mediaThumbnailWrap}>
+          <Image
+            source={{ uri: attachment.uri }}
+            style={sa.mediaThumbnail}
+            contentFit="cover"
+            transition={120}
+          />
+          {attachment.type === 'video' && (
+            <View style={sa.videoOverlay}>
+              <Play size={12} color="#fff" weight="fill" />
+            </View>
+          )}
+          {attachment.type === 'gif' && (
+            <View style={sa.gifBadge}>
+              <Text style={sa.gifBadgeText}>GIF</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {(isDoc || isAudio) && (
+        <View style={sa.docIconWrap}>
+          <File size={20} color={T.ACCENT} weight="duotone" />
+        </View>
+      )}
+
+      <View style={sa.mediaInfo}>
+        <Text style={sa.mediaName} numberOfLines={1}>
+          {attachment.type === 'gif'
+            ? ((attachment as any).title || 'GIF')
+            : attachment.type === 'image' ? 'Photo'
+            : attachment.type === 'video' ? 'Video'
+            : fileName}
+        </Text>
+        {fileSize ? (
+          <Text style={sa.mediaSize}>{formatFileSize(fileSize)}</Text>
+        ) : null}
+      </View>
+
+      {onEdit && (
+        <TouchableOpacity style={sa.editBtn} onPress={onEdit} hitSlop={6}>
+          <PencilSimple size={14} color={T.TEXT_2} />
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
+        <X size={12} color={T.TEXT_3} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
 // ─── Component props ──────────────────────────────────────────────────────────
 
 interface Props {
   text: string;
   onChangeText: (text: string) => void;
   onSend: (payload: SendPayload) => void;
-  onVoiceReady?: (voice: PendingVoice) => void;
+  onVoiceReady?: (voice: PendingVoice) => void; // kept for compat, internal preview preferred
   replyMessage?: ReplyMessage | null;
   onClearReply?: () => void;
   editingMessage?: MsMessage | null;
@@ -166,8 +349,18 @@ interface Props {
   onAttachPress?: () => void;
   onCameraPress?: () => void;
   disabled?: boolean;
-  /** @deprecated — use internal panel; kept for API compat */
+  /** @deprecated — use internal panel */
   onEmojiPress?: () => void;
+
+  // ── Inline attachment staging (image/video/doc from picker) ──────────────
+  /** Pending media attachment to preview above the input */
+  inlineAttachment?: InlineAttachment | null;
+  /** Called when user taps ✕ on inline attachment */
+  onRemoveInlineAttachment?: () => void;
+  /** Called when user taps ✏ on inline attachment — open full preview */
+  onEditInlineAttachment?: () => void;
+  /** Called when send is pressed while an inline attachment is staged */
+  onSendWithAttachment?: (payload: AttachmentSendPayload) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -176,7 +369,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   text,
   onChangeText,
   onSend,
-  onVoiceReady,
   replyMessage,
   onClearReply,
   editingMessage,
@@ -184,23 +376,27 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   onAttachPress,
   onCameraPress,
   disabled,
+  inlineAttachment,
+  onRemoveInlineAttachment,
+  onEditInlineAttachment,
+  onSendWithAttachment,
 }: Props) {
-  const hasText   = text.trim().length > 0;
   const isEditing = !!editingMessage;
   const insets    = useSafeAreaInsets();
 
+  // ── Composer staged items ─────────────────────────────────────────────────
+  const [pendingVoice, setPendingVoice] = useState<PendingVoice | null>(null);
+  const [pendingGif,   setPendingGif]   = useState<{ url: string; title: string } | null>(null);
+
+  const hasText    = text.trim().length > 0;
+  const hasContent = hasText || !!pendingGif || !!pendingVoice || !!inlineAttachment;
+
   // ── Panel state ────────────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState<PanelTab | 'none'>('none');
-  // PanelTab: 'emoji' | 'stickers' | 'gifs' | 'none'
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_H);
   const inputRef = useRef<TextInput>(null);
 
-  // ── Keyboard visibility + height tracking ─────────────────────────────────
-  // We track visibility so bottom safe-area padding is only applied when the
-  // keyboard is hidden. When the keyboard is up, the KeyboardAvoidingView
-  // (react-native-keyboard-controller, translate-with-padding) already pushes
-  // the entire toolbar above the keyboard — adding insets.bottom on top of
-  // that would create an unwanted gap between the keyboard top and the bar.
+  // ── Keyboard tracking ─────────────────────────────────────────────────────
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
@@ -208,14 +404,10 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const showSub = Keyboard.addListener(showEvt, (e) => {
-      if (e.endCoordinates.height > 100) {
-        setPanelHeight(e.endCoordinates.height);
-      }
+      if (e.endCoordinates.height > 100) setPanelHeight(e.endCoordinates.height);
       setKeyboardVisible(true);
     });
-    const hideSub = Keyboard.addListener(hideEvt, () => {
-      setKeyboardVisible(false);
-    });
+    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
 
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
@@ -225,13 +417,10 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     setActivePanel(tab);
   }, []);
 
-  const closePanel = useCallback(() => {
-    setActivePanel('none');
-  }, []);
+  const closePanel = useCallback(() => setActivePanel('none'), []);
 
   const handleStickerBtnPress = useCallback(() => {
     if (activePanel !== 'none') {
-      // Switch back to keyboard
       closePanel();
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
@@ -243,31 +432,30 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     if (activePanel !== 'none') closePanel();
   }, [activePanel, closePanel]);
 
-  // ── Mic ↔ Send animation ───────────────────────────────────────────────────
-  const sendAnim = useRef(new Animated.Value(hasText ? 1 : 0)).current;
-  const micAnim  = useRef(new Animated.Value(hasText ? 0 : 1)).current;
+  // ── Mic ↔ Send spring animation ────────────────────────────────────────────
+  const sendAnim = useRef(new Animated.Value(hasContent ? 1 : 0)).current;
+  const micAnim  = useRef(new Animated.Value(hasContent ? 0 : 1)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.spring(sendAnim, {
-        toValue: hasText ? 1 : 0,
+        toValue: hasContent ? 1 : 0,
         useNativeDriver: true,
         damping: 18,
         stiffness: 320,
         mass: 0.8,
       }),
       Animated.spring(micAnim, {
-        toValue: hasText ? 0 : 1,
+        toValue: hasContent ? 0 : 1,
         useNativeDriver: true,
         damping: 18,
         stiffness: 320,
         mass: 0.8,
       }),
     ]).start();
-  }, [hasText]);
+  }, [hasContent]);
 
-  // ── Camera collapse animation ──────────────────────────────────────────────
-  // useNativeDriver: false because we animate `width`
+  // ── Camera collapse — still driven by hasText ──────────────────────────────
   const cameraWidthAnim   = useRef(new Animated.Value(hasText ? 0 : 44)).current;
   const cameraOpacityAnim = useRef(new Animated.Value(hasText ? 0 : 1)).current;
 
@@ -298,6 +486,44 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       useNativeDriver: true,
     }).start();
   }, [!!replyMessage]);
+
+  // ── Attachment bar animation ───────────────────────────────────────────────
+  // useNativeDriver: false because we animate height
+  const attachBarAnim = useRef(new Animated.Value(0)).current;
+  const attachBarOpacity = useRef(new Animated.Value(0)).current;
+  const hasAttachment = !!(pendingVoice || pendingGif || inlineAttachment);
+
+  useEffect(() => {
+    if (hasAttachment) {
+      Animated.parallel([
+        Animated.spring(attachBarAnim, {
+          toValue: 1,
+          useNativeDriver: false,
+          damping: 20,
+          stiffness: 280,
+        }),
+        Animated.timing(attachBarOpacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(attachBarAnim, {
+          toValue: 0,
+          duration: 160,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(attachBarOpacity, {
+          toValue: 0,
+          duration: 120,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }
+  }, [hasAttachment]);
 
   // ── Recording UI state ─────────────────────────────────────────────────────
   const [recState,   setRecState]   = useState<RecordingState>('idle');
@@ -424,8 +650,8 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         const status = await rec.getStatusAsync();
         const dur    = Math.floor((status.durationMillis ?? 0) / 1000);
         if (uri && dur > 0) {
-          if (onVoiceReady) onVoiceReady({ uri, duration: dur });
-          else onSend({ voice: { uri, duration: dur } });
+          // Stage as compact preview above input — user presses send to dispatch
+          setPendingVoice({ uri, duration: dur });
         }
       } else {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -501,26 +727,55 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     recRef.current.recording?.stopAndUnloadAsync().catch(() => {});
   }, []);
 
-  // ── Send text ──────────────────────────────────────────────────────────────
+  // ── Send handler — multi-path ──────────────────────────────────────────────
   const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
     animateSendPress();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
+    // 1. Inline attachment (image/video/doc from picker)
+    if (inlineAttachment && onSendWithAttachment) {
+      onSendWithAttachment({
+        ...inlineAttachment,
+        caption: text.trim() || undefined,
+      });
+      onChangeText('');
+      return;
+    }
+
+    // 2. Staged GIF or image sticker
+    if (pendingGif) {
+      onSend({ gifUrl: pendingGif.url, gifTitle: text.trim() || pendingGif.title });
+      setPendingGif(null);
+      if (text.trim()) onChangeText('');
+      return;
+    }
+
+    // 3. Staged voice note
+    if (pendingVoice) {
+      onSend({ voice: pendingVoice });
+      setPendingVoice(null);
+      return;
+    }
+
+    // 4. Plain text
+    const trimmed = text.trim();
+    if (!trimmed) return;
     onSend({ text: trimmed });
     onChangeText('');
-  }, [text, onSend, onChangeText, animateSendPress]);
+  }, [text, inlineAttachment, pendingGif, pendingVoice, onSend, onChangeText, onSendWithAttachment, animateSendPress]);
 
-  // ── Sticker / GIF from panel ──────────────────────────────────────────────
-  const handleStickerPress = useCallback((sticker: string) => {
-    onSend({ sticker });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  }, [onSend]);
+  // ── Emoji → insert into text (NOT send) ───────────────────────────────────
+  const handleEmojiInsert = useCallback((emoji: string) => {
+    onChangeText(text + emoji);
+    // Keep panel open so user can add more emoji
+  }, [text, onChangeText]);
 
-  const handleGifPress = useCallback((gifUrl: string, gifTitle: string) => {
-    onSend({ gifUrl, gifTitle });
+  // ── GIF / image sticker → stage above input (NOT send) ────────────────────
+  const handleGifStage = useCallback((gifUrl: string, gifTitle: string) => {
+    setPendingGif({ url: gifUrl, title: gifTitle });
+    closePanel();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  }, [onSend]);
+  }, [closePanel]);
 
   function fmtSecs(s: number) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -531,15 +786,12 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     ? <KeyboardIcon size={22} color={T.TEXT_2} weight="regular" />
     : <SmileySticker size={22} color={T.TEXT_2} weight="regular" />;
 
-  // Bottom inset: only when keyboard is hidden and no panel is open.
-  // When keyboard is up, KAV already positions us above it.
-  // When panel is open, the panel itself fills the bottom space.
   const bottomInset = (!keyboardVisible && !panelIsOpen) ? insets.bottom : 0;
 
   // ── LOCKED state ───────────────────────────────────────────────────────────
   if (recState === 'locked') {
     return (
-      <View style={[s.root, { paddingBottom: bottomInset }]}>
+      <View style={s.root} pointerEvents="box-none">
         <Animated.View
           style={[
             s.lockBadge,
@@ -575,7 +827,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       {/* ── Edit banner ──────────────────────────────────────────────────── */}
       {isEditing && (
         <View style={s.contextBar}>
-          <PaperPlane size={14} color={T.SUCCESS} />
+          <PaperPlaneRight size={14} color={T.SUCCESS} />
           <Text style={s.contextBarText} numberOfLines={1}>
             Editing: {editingMessage?.text ?? ''}
           </Text>
@@ -606,6 +858,38 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         </Animated.View>
       ) : null}
 
+      {/* ── Attachment staging bar ────────────────────────────────────────── */}
+      <Animated.View
+        style={[
+          s.attachmentBarWrap,
+          {
+            maxHeight: attachBarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 72] }),
+            opacity: attachBarOpacity,
+          },
+        ]}
+        pointerEvents={hasAttachment ? 'auto' : 'none'}
+      >
+        {pendingVoice && (
+          <VoiceCompactBar
+            voice={pendingVoice}
+            onRemove={() => setPendingVoice(null)}
+          />
+        )}
+        {!pendingVoice && pendingGif && (
+          <MediaAttachmentBar
+            attachment={{ type: 'gif', uri: pendingGif.url, title: pendingGif.title, mimeType: 'image/gif', fileName: 'gif' }}
+            onRemove={() => setPendingGif(null)}
+          />
+        )}
+        {!pendingVoice && !pendingGif && inlineAttachment && (
+          <MediaAttachmentBar
+            attachment={inlineAttachment}
+            onRemove={onRemoveInlineAttachment}
+            onEdit={inlineAttachment.type === 'image' || inlineAttachment.type === 'video' ? onEditInlineAttachment : undefined}
+          />
+        )}
+      </Animated.View>
+
       {/* ── Input row ────────────────────────────────────────────────────── */}
       <View style={s.row}>
 
@@ -618,7 +902,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
         {/* Input pill */}
         {recState === 'active' ? (
-          /* Recording active */
           <View style={[s.pill, s.pillRec]}>
             <View style={s.recDot} />
             <Text style={s.recTimer}>{fmtSecs(recSeconds)}</Text>
@@ -637,7 +920,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
             </Animated.Text>
           </View>
         ) : (
-          /* Normal input */
           <View style={s.pill}>
             <TextInput
               ref={inputRef}
@@ -679,8 +961,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
             pointerEvents={hasText ? 'none' : 'auto'}
           >
             <IconBtn style={s.cameraBtn} onPress={onCameraPress} disabled={disabled || hasText}>
-              {/* Camera icon using a simple UTF-8 or phosphor CameraIcon */}
-              <CameraIcon />
+              <Camera size={22} color={T.TEXT_2} />
             </IconBtn>
           </Animated.View>
         ) : null}
@@ -698,22 +979,21 @@ export const MsChatInputBar = memo(function MsChatInputBar({
                   transform: [{ scale: Animated.multiply(sendAnim, sendPressScale) }],
                 },
               ]}
-              pointerEvents={hasText ? 'auto' : 'none'}
+              pointerEvents={hasContent ? 'auto' : 'none'}
             >
               <TouchableOpacity
                 style={[s.rightBtn, s.actionBtn, isEditing && s.actionBtnEdit]}
                 onPress={handleSend}
                 activeOpacity={0.88}
-                disabled={!hasText || disabled}
+                disabled={!hasContent || disabled}
               >
-                {/* Horizontal forward-facing paper plane */}
-                <PaperPlane size={20} color="#fff" weight="fill" />
+                <PaperPlaneRight size={20} color="#fff" weight="fill" />
               </TouchableOpacity>
             </Animated.View>
           ) : null}
 
           {/* Mic button */}
-          {!hasText || recState !== 'idle' ? (
+          {!hasContent || recState !== 'idle' ? (
             <Animated.View
               style={[
                 s.btnAbsolute,
@@ -756,23 +1036,18 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         </View>
       </View>
 
-      {/* ── Sticker / GIF panel ───────────────────────────────────────────── */}
+      {/* ── Sticker / GIF / Emoji panel ───────────────────────────────────── */}
       <MsComposerPanel
         isOpen={panelIsOpen}
         panelHeight={panelHeight}
         activeTab={activePanel === 'none' ? 'emoji' : activePanel}
         onTabChange={setActivePanel}
-        onStickerPress={handleStickerPress}
-        onGifPress={handleGifPress}
+        onStickerPress={handleEmojiInsert}
+        onGifPress={handleGifStage}
       />
     </View>
   );
 });
-
-// ─── Camera icon helper ───────────────────────────────────────────────────────
-function CameraIcon() {
-  return <Camera size={22} color={T.TEXT_2} />;
-}
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -792,6 +1067,12 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontFamily: T.FONT.medium,
     color: T.TEXT_2,
+  },
+
+  // Attachment staging bar
+  attachmentBarWrap: {
+    overflow: 'hidden',
+    backgroundColor: T.BG,
   },
 
   row: {
@@ -816,7 +1097,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Input pill
   pill: {
     flex: 1,
     flexDirection: 'row',
@@ -845,7 +1125,6 @@ const s = StyleSheet.create({
     maxHeight: 130,
   },
 
-  // Recording pill
   recDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#EF4444', flexShrink: 0 },
   recDotSmall: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' },
   recTimer: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT, flexShrink: 0, minWidth: 36 },
@@ -853,7 +1132,6 @@ const s = StyleSheet.create({
   recBar: { flex: 1, minWidth: 2, height: 10, borderRadius: 1.5, backgroundColor: T.ACCENT, opacity: 0.7 },
   slideHint: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, flexShrink: 0 },
 
-  // Right button area
   rightBtnWrap: {
     width: 48,
     height: 48,
@@ -881,7 +1159,6 @@ const s = StyleSheet.create({
   actionBtnRec:  { backgroundColor: '#EF4444', shadowColor: '#EF4444' },
   actionBtnEdit: { backgroundColor: T.SUCCESS,  shadowColor: T.SUCCESS  },
 
-  // Mic glow ring
   micGlow: {
     position: 'absolute',
     width: 64,
@@ -893,7 +1170,6 @@ const s = StyleSheet.create({
     zIndex: -1,
   },
 
-  // Lock hint (above mic)
   lockHint: {
     position: 'absolute',
     top: -36,
@@ -904,7 +1180,6 @@ const s = StyleSheet.create({
   },
   lockHintText: { fontSize: 9, fontFamily: T.FONT.medium, color: T.TEXT_3, letterSpacing: 0.3 },
 
-  // Locked recording state
   lockBadge: {
     position: 'absolute',
     top: -28,
@@ -934,4 +1209,147 @@ const s = StyleSheet.create({
   lockedTimer: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT, flexShrink: 0, minWidth: 38, textAlign: 'right' },
   lockedCancel: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   lockedStop: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+});
+
+// ── Attachment bar styles ────────────────────────────────────────────────────
+
+const sa = StyleSheet.create({
+  // Voice compact bar
+  voiceBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: T.SURFACE,
+    marginHorizontal: 10,
+    marginTop: 6,
+    borderRadius: T.RADIUS.pill,
+  },
+  voiceIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: `${T.ACCENT}22`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  voiceWave: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    height: 20,
+  },
+  voiceWaveBar: {
+    width: 2.5,
+    borderRadius: 2,
+    minHeight: 3,
+  },
+  voiceDuration: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT_2,
+    flexShrink: 0,
+    minWidth: 32,
+    textAlign: 'right',
+  },
+  voicePlayBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+
+  // Media / attachment bar
+  mediaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: T.SURFACE,
+    marginHorizontal: 10,
+    marginTop: 6,
+    borderRadius: 16,
+  },
+  mediaThumbnailWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: T.SURFACE_2,
+    flexShrink: 0,
+    position: 'relative',
+  },
+  mediaThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  videoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gifBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+  },
+  gifBadgeText: {
+    fontSize: 7,
+    fontFamily: T.FONT.bold,
+    color: '#fff',
+    letterSpacing: 0.3,
+  },
+  docIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: `${T.ACCENT}18`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  mediaInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  mediaName: {
+    fontSize: 13,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT,
+  },
+  mediaSize: {
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+  },
+  editBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  attachRemoveBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
 });
