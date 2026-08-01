@@ -30,6 +30,7 @@ import {
   cacheConversationsList,
 } from '@/lib/posts-db';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -214,6 +215,7 @@ function NewMessageModal({
 
 export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<MsgTab>('All');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,7 +255,7 @@ export default function MessagesScreen() {
         setRefreshing(false);
       }
     },
-    [activeTab],
+    [activeTab, user?.id],
   );
 
   useEffect(() => {

@@ -128,6 +128,7 @@ function postToShort(post: Post): Short {
 export default function ShortsScreen() {
   const insets = useSafeAreaInsets();
   const { startId } = useLocalSearchParams<{ startId?: string }>();
+  const { user } = useAuth();
   const listRef = useRef<FlatList>(null);
 
   const [shorts, setShorts]     = useState<Short[]>([]);
@@ -143,7 +144,7 @@ export default function ShortsScreen() {
     setLoading(true);
 
     // 1. Load cached shorts for instant display
-    const cached = await getCachedPosts('shorts', 10);
+    const cached = await getCachedPosts('shorts', user?.id ?? 'guest', 10);
     if (cached.length > 0) {
       setShorts(cached.map(postToShort));
       setLoading(false);
@@ -185,14 +186,14 @@ export default function ShortsScreen() {
         likedByMe: s.likedByMe,
         bookmarkedByMe: false,
       }));
-      cachePosts(postsToCache, 'shorts').catch(() => {});
+      cachePosts(postsToCache, 'shorts', user?.id ?? 'guest').catch(() => {});
     } catch {
       reportNetworkError();
       if (shorts.length === 0) setError(true);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => { load(); }, [load]);
 

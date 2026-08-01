@@ -24,6 +24,7 @@ import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { MsOfflineBanner } from '@/components/MsOfflineBanner';
+import { MsToastHost } from '@/components/MsToast';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { T } from '@/constants/theme';
 
@@ -147,6 +148,7 @@ export default function RootLayout() {
                     <AppServices />
                     <RootLayoutNav />
                     <MsOfflineBanner />
+                    <MsToastHost />
                   </PostActionsProvider>
                 </AuthProvider>
               </KeyboardProvider>
