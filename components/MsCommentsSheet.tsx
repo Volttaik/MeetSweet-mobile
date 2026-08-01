@@ -370,7 +370,7 @@ const rowStyles = StyleSheet.create({
 
 // ─── Full comments modal ───────────────────────────────────────────────────────
 
-function CommentsModal({
+export function CommentsModal({
   visible,
   onClose,
   postId,

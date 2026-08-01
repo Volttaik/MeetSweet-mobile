@@ -39,7 +39,7 @@ import {
 } from 'phosphor-react-native';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
-import { MsContentComments } from '@/components/MsContentComments';
+import { CommentsModal } from '@/components/MsCommentsSheet';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
@@ -452,12 +452,10 @@ export default function VideoWatchScreen() {
       </ScrollView>
 
       {/* ── Sheets ───────────────────────────────────────────────────────── */}
-      <MsContentComments
-        kind="video"
-        contentId={post.id}
+      <CommentsModal
         visible={commentsVisible}
         onClose={() => setCommentsVisible(false)}
-        count={post.commentCount}
+        postId={post.id}
       />
 
       <MsShareSheet

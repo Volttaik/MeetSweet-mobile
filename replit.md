@@ -28,6 +28,38 @@ HTTPS port `3000`. The Expo workflow uses:
 https://$REPLIT_DEV_DOMAIN:3000/api
 ```
 
+## Key features implemented
+
+### Shimmer skeleton loading (components/MsShimmer.tsx)
+- `MsShimmer` — base component with LinearGradient sweep animation
+- Presets: `MsShimmerPostCard`, `MsShimmerUserRow`, `MsShimmerVideoCard`, `MsShimmerGridCard`, `MsShimmerExploreGrid`, `MsShimmerCommentRow`, `MsShimmerCommentsList`, `MsShimmerChatMessage`, `MsShimmerChatList`, `MsShimmerSearchResult`, `MsShimmerSearchList`
+
+### Comments system (components/MsCommentsSheet.tsx)
+- `CommentsModal` — full YouTube-style comment sheet (now exported)
+- `MsCommentsSection` — inline preview + modal trigger
+- Wired to: `app/videos/[id].tsx`, `app/shorts/index.tsx`, `app/content/[id].tsx`
+- Services: `services/comments.ts` (canonical), routes `/posts/:id/comments`
+
+### Credit buying — Paystack/Naira (app/wallet.tsx)
+- Packages in Naira: 10c=₦500, 50c=₦2,000, 100c=₦3,500, 500c=₦15,000
+- Flow: select package → initiate (get unique account) → transfer → verify
+- Backend placeholders: `POST /api/payments/initiate-paystack`, `POST /api/payments/verify-paystack`
+
+### Creator withdrawal — Naira (app/creator-payout.tsx)
+- Nigerian bank list, bank details form (bankName/accountNumber/accountName)
+- Minimum withdrawal: ₦1,000
+- Backend placeholders: `GET/POST /api/payments/balance|save-bank-details|withdraw|withdrawal-history`
+
+### Chat infinite scroll (app/chat/[id].tsx)
+- Uses `isInfiniteScrollEnabled: true` in `loadEarlierMessagesProps`
+- `renderLoadEarlier={() => null}` hides the manual button
+- Auto-triggers on scroll to top of conversation
+
+### Wallet service (services/wallet.ts)
+- Added: `initiatePaystackCredit`, `verifyPaystackCredit`, `getCreditHistory`
+- Added: `getCreatorBalance`, `saveBankDetails`, `requestWithdrawal`, `getWithdrawalHistory`
+- `CREDIT_PACKAGES` and `NIGERIAN_BANKS` constants exported
+
 Both `Start application` and `Start Backend` must be running to exercise the local
 API from Expo Go. Paystack and Resend remain intentionally unset.
 

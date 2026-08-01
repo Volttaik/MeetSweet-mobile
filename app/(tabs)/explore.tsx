@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.ACCENT,
   },
   scrollContent: { paddingTop: 16, paddingBottom: 0 },
-  feedListContent: { paddingTop: 16, paddingBottom: 24 },
+  feedListContent: { paddingTop: 12, paddingBottom: 24 },
 
   modeToggleWrap: {
     marginVertical: 13,
@@ -997,9 +997,9 @@ const styles = StyleSheet.create({
   recommendedWrap: { backgroundColor: T.SURFACE, marginHorizontal: 20, borderRadius: T.RADIUS.xl, overflow: 'hidden', ...T.SHADOWS.soft },
   bottomSpace: { height: 28 },
 
-  // Feed list
-  feedItemWrap:  { paddingHorizontal: 16, paddingBottom: 22 },
-  videoItemWrap: { paddingHorizontal: 12, paddingBottom: 22 },
+  // Feed list — compact 8px spacing
+  feedItemWrap:  { paddingHorizontal: 12, paddingBottom: 12 },
+  videoItemWrap: { paddingHorizontal: 10, paddingBottom: 12 },
 
   // Album row injected into content feed
   albumRowWrap: { paddingBottom: 20 },

@@ -21,7 +21,7 @@ import Animated, {
 import { ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
-import { MsContentComments } from '@/components/MsContentComments';
+import { CommentsModal } from '@/components/MsCommentsSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsShortsPlayer } from '@/components/MsShortsPlayer';
@@ -268,12 +268,10 @@ export default function ShortsScreen() {
         overScrollMode="always"
       />
       {commentsId ? (
-        <MsContentComments
-          kind="short"
-          contentId={commentsId}
+        <CommentsModal
           visible
           onClose={() => setCommentsId(null)}
-          count={shorts.find((item) => item.id === commentsId)?.commentCount}
+          postId={commentsId}
         />
       ) : null}
       {shareId ? (

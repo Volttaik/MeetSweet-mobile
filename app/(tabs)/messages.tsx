@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Spinner } from 'heroui-native';
+import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PencilSimple, Plus, MagnifyingGlass, X } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -177,8 +178,10 @@ function NewMessageModal({
           />
         </View>
         {searching ? (
-          <View style={{ marginTop: 40, alignItems: 'center' }}>
-            <Spinner size="lg" color="default" />
+          <View style={{ paddingTop: 8 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <MsShimmerUserRow key={i} />
+            ))}
           </View>
         ) : results.length > 0 ? (
           <FlatList
@@ -358,8 +361,17 @@ export default function MessagesScreen() {
 
       {/* Content */}
       {loading && conversations.length === 0 ? (
-        <View style={styles.loadingWrap}>
-          <Spinner size="lg" color="default" />
+        <View style={{ paddingTop: 4 }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
+              <MsShimmer width={48} height={48} borderRadius={24} />
+              <View style={{ flex: 1, gap: 7 }}>
+                <MsShimmer width="55%" height={13} />
+                <MsShimmer width="70%" height={11} />
+              </View>
+              <MsShimmer width={32} height={10} />
+            </View>
+          ))}
         </View>
       ) : (
         <FlatList

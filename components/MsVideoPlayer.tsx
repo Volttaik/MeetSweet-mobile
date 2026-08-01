@@ -869,10 +869,7 @@ export function MsVideoPlayer({
           <MsShimmer
             style={StyleSheet.absoluteFill as any}
             height={4}
-            radius={0}
-            baseColor="transparent"
-            highlightColor="rgba(255,255,255,0.05)"
-            duration={1200}
+            borderRadius={0}
           />
         </Animated.View>
       ) : null}
@@ -1284,10 +1281,7 @@ function FullscreenModal({
           <MsShimmer
             style={StyleSheet.absoluteFill as any}
             height={4}
-            radius={0}
-            baseColor="transparent"
-            highlightColor="rgba(255,255,255,0.05)"
-            duration={1200}
+            borderRadius={0}
           />
         </Animated.View>
 

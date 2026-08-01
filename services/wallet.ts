@@ -10,6 +10,43 @@ export interface Transaction {
   createdAt: string;
 }
 
+export interface CreditPackage {
+  id: string;
+  credits: number;
+  priceNaira: number;
+  label: string;
+}
+
+export const CREDIT_PACKAGES: CreditPackage[] = [
+  { id: '10_credits',  credits: 10,  priceNaira: 500,    label: 'Starter' },
+  { id: '50_credits',  credits: 50,  priceNaira: 2000,   label: 'Popular' },
+  { id: '100_credits', credits: 100, priceNaira: 3500,   label: 'Best Value' },
+  { id: '500_credits', credits: 500, priceNaira: 15000,  label: 'Creator Pack' },
+];
+
+export const NIGERIAN_BANKS = [
+  'Access Bank',
+  'First Bank',
+  'GTBank',
+  'UBA',
+  'Zenith Bank',
+  'Sterling Bank',
+  'Fidelity Bank',
+  'FCMB',
+  'Union Bank',
+  'Stanbic IBTC',
+  'Ecobank',
+  'Heritage Bank',
+  'Keystone Bank',
+  'Polaris Bank',
+  'Providus Bank',
+  'Wema Bank',
+  'Opay',
+  'Kuda Bank',
+  'Moniepoint',
+  'PalmPay',
+];
+
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem('@ms_access_token');
 }
@@ -26,14 +63,27 @@ function normalizeTransaction(raw: any): Transaction {
     amount: raw.amount,
     description: raw.description ?? '',
     status: raw.status ?? 'success',
-    createdAt: raw.created_at,
+    createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
   };
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeWithdrawal(raw: any): WithdrawalRecord {
+  return {
+    id: raw.id,
+    amount: raw.amount,
+    status: raw.status ?? 'pending',
+    bankName: raw.bank_name ?? raw.bankName ?? '',
+    accountNumber: raw.account_number ?? raw.accountNumber ?? '',
+    createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
+  };
+}
+
+// ─── Wallet balance & history ──────────────────────────────────────────────────
 
 export async function getWallet(): Promise<{ balance: number; transactions: Transaction[] }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // Spec: GET /wallet returns balance; GET /transactions returns transaction list
   const [walletRaw, txRaw] = await Promise.all([
     apiFetch<{ balance: number }>('/wallet', { headers: authHeader(token) }).catch(() => ({ balance: 0 })),
     apiFetch<{ transactions: unknown[] }>('/transactions?limit=20', { headers: authHeader(token) }).catch(() => ({ transactions: [] })),
@@ -59,13 +109,200 @@ export async function getTransactions(limit = 20): Promise<{ transactions: Trans
   };
 }
 
+// ─── Paystack credit purchase (Naira) ─────────────────────────────────────────
+
+export interface PaystackInitResult {
+  transactionId: string;
+  accountNumber: string;
+  bankName: string;
+  amount: number;
+  reference: string;
+  expiresAt?: string;
+}
+
+export async function initiatePaystackCredit(packageId: string, amountNaira: number): Promise<PaystackInitResult> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  // POST /api/payments/initiate-paystack
+  const raw = await apiFetch<{
+    transactionId?: string;
+    transaction_id?: string;
+    accountNumber?: string;
+    account_number?: string;
+    bankName?: string;
+    bank_name?: string;
+    amount?: number;
+    reference?: string;
+    expiresAt?: string;
+    expires_at?: string;
+  }>('/payments/initiate-paystack', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ package: packageId, amount: amountNaira }),
+  });
+  return {
+    transactionId: raw.transactionId ?? raw.transaction_id ?? `txn_${Date.now()}`,
+    accountNumber:  raw.accountNumber  ?? raw.account_number ?? '',
+    bankName:       raw.bankName       ?? raw.bank_name      ?? 'Paystack Bank',
+    amount:         raw.amount         ?? amountNaira,
+    reference:      raw.reference      ?? `ref_${Date.now()}`,
+    expiresAt:      raw.expiresAt      ?? raw.expires_at,
+  };
+}
+
+export interface PaystackVerifyResult {
+  success: boolean;
+  credits: number;
+  newBalance: number;
+  message?: string;
+}
+
+export async function verifyPaystackCredit(transactionId: string): Promise<PaystackVerifyResult> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  // POST /api/payments/verify-paystack
+  const raw = await apiFetch<{
+    success?: boolean;
+    credits?: number;
+    new_balance?: number;
+    newBalance?: number;
+    message?: string;
+  }>('/payments/verify-paystack', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ transactionId }),
+  });
+  return {
+    success:    raw.success    ?? false,
+    credits:    raw.credits    ?? 0,
+    newBalance: raw.newBalance ?? raw.new_balance ?? 0,
+    message:    raw.message,
+  };
+}
+
+export async function getCreditHistory(): Promise<{ transactions: Transaction[] }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ transactions: unknown[] }>('/payments/credit-history', {
+    headers: authHeader(token),
+  }).catch(() => ({ transactions: [] }));
+  return {
+    transactions: Array.isArray(raw?.transactions)
+      ? raw.transactions.map(normalizeTransaction)
+      : [],
+  };
+}
+
+// ─── Creator withdrawal (Naira) ───────────────────────────────────────────────
+
+export interface BankDetails {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+}
+
+export interface WithdrawalRecord {
+  id: string;
+  amount: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  bankName: string;
+  accountNumber: string;
+  createdAt: string;
+}
+
+interface BalanceResponse {
+  balance?: number;
+  pending_withdrawals?: number;
+  pendingWithdrawals?: number;
+  available_for_withdrawal?: number;
+  availableForWithdrawal?: number;
+}
+
+export async function getCreatorBalance(): Promise<{
+  balance: number;
+  pendingWithdrawals: number;
+  availableForWithdrawal: number;
+}> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw: BalanceResponse = await apiFetch<BalanceResponse>('/payments/balance', {
+    headers: authHeader(token),
+  }).catch((): BalanceResponse => ({ balance: 0 }));
+  const balance = raw?.balance ?? 0;
+  const pending = raw?.pendingWithdrawals ?? raw?.pending_withdrawals ?? 0;
+  return {
+    balance,
+    pendingWithdrawals:     pending,
+    availableForWithdrawal: raw?.availableForWithdrawal ?? raw?.available_for_withdrawal ?? Math.max(0, balance - pending),
+  };
+}
+
+export async function saveBankDetails(details: BankDetails): Promise<{ success: boolean }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ success: boolean }>('/payments/save-bank-details', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({
+      bankName:      details.bankName,
+      accountNumber: details.accountNumber,
+      accountName:   details.accountName,
+    }),
+  });
+  return { success: raw?.success ?? true };
+}
+
+export async function requestWithdrawal(
+  amountNaira: number,
+  bankDetails: BankDetails,
+): Promise<{ success: boolean; withdrawalId: string; status: string }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{
+    success?: boolean;
+    withdrawalId?: string;
+    withdrawal_id?: string;
+    status?: string;
+  }>('/payments/withdraw', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({
+      amount:      amountNaira,
+      bankDetails: {
+        bankName:      bankDetails.bankName,
+        accountNumber: bankDetails.accountNumber,
+        accountName:   bankDetails.accountName,
+      },
+    }),
+  });
+  return {
+    success:      raw?.success     ?? true,
+    withdrawalId: raw?.withdrawalId ?? raw?.withdrawal_id ?? `wd_${Date.now()}`,
+    status:       raw?.status      ?? 'pending',
+  };
+}
+
+export async function getWithdrawalHistory(): Promise<{ withdrawals: WithdrawalRecord[] }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ withdrawals: unknown[] }>('/payments/withdrawal-history', {
+    headers: authHeader(token),
+  }).catch(() => ({ withdrawals: [] }));
+  return {
+    withdrawals: Array.isArray(raw?.withdrawals)
+      ? raw.withdrawals.map(normalizeWithdrawal)
+      : [],
+  };
+}
+
+// ─── Legacy (kept for compatibility) ──────────────────────────────────────────
+
 export async function initializePayment(amount: number): Promise<{
   authorization_url: string;
   reference: string;
 }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // Spec: POST /credentials/payment — Paystack payment initialisation via broker
   return apiFetch('/credentials/payment', {
     method: 'POST',
     headers: authHeader(token),

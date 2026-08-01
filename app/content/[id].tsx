@@ -30,7 +30,7 @@ import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
-import { MsContentComments } from '@/components/MsContentComments';
+import { CommentsModal } from '@/components/MsCommentsSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -216,12 +216,10 @@ export default function ContentDetailScreen() {
       </ScrollView>
 
       {/* Sheets */}
-      <MsContentComments
-        kind="video"
-        contentId={post.id}
+      <CommentsModal
         visible={commentsVisible}
         onClose={() => setCommentsVisible(false)}
-        count={post.commentCount}
+        postId={post.id}
       />
       <MsShareSheet
         visible={shareVisible}

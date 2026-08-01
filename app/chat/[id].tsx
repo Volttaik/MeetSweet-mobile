@@ -871,8 +871,10 @@ export default function ChatScreen() {
           // custom header is (status bar + 4px padding + 44px buttons + 10px bottom).
           keyboardVerticalOffset: insets.top + 58,
         }}
+        renderLoadEarlier={() => null}
         loadEarlierMessagesProps={{
           isAvailable: hasMore,
+          isInfiniteScrollEnabled: true,
           onPress: handleLoadEarlier,
           isLoading: loadingMore,
         }}

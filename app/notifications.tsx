@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Spinner } from 'heroui-native';
+import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, BellSlash, Check } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -205,8 +206,17 @@ export default function NotificationsScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.loadingWrap}>
-          <Spinner size="lg" color="default" />
+        <View style={{ paddingTop: 8 }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <View key={i} style={{ paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <MsShimmer width={42} height={42} borderRadius={21} />
+              <View style={{ flex: 1, gap: 7 }}>
+                <MsShimmer width="75%" height={12} />
+                <MsShimmer width="45%" height={10} />
+              </View>
+              <MsShimmer width={36} height={10} />
+            </View>
+          ))}
         </View>
       ) : notifications.length === 0 ? (
         <MsEmptyState

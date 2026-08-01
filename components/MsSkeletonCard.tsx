@@ -23,10 +23,7 @@ export function MsSkeletonCard({
   return (
     <MsShimmer
       height={height}
-      radius={radius}
-      baseColor={T.SURFACE}
-      highlightColor="rgba(255,255,255,0.07)"
-      duration={1300}
+      borderRadius={radius}
       style={style}
     />
   );
@@ -48,10 +45,7 @@ export function MsSkeletonRow({
     <MsShimmer
       width={width as any}
       height={height}
-      radius={radius}
-      baseColor={T.SURFACE_2}
-      highlightColor="rgba(255,255,255,0.06)"
-      duration={1500}
+      borderRadius={radius}
       style={style}
     />
   );
