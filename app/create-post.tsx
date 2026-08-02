@@ -34,6 +34,8 @@ import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
 import type { PostMediaInput } from '@/services/posts';
 import { getCategories, type Category } from '@/services/categories';
+import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
+import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,6 +131,49 @@ export default function CreatePostScreen() {
 
   // Media picker modal
   const [pickerVisible, setPickerVisible] = useState(false);
+
+  // Post creation onboarding state
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check for post creation onboarding on mount
+  useEffect(() => {
+    shouldShowOnboarding('post_creation_onboarded').then((shouldShow) => {
+      if (shouldShow) setShowOnboarding(true);
+    });
+  }, []);
+
+  const handleOnboardingComplete = async () => {
+    await completeOnboarding('post_creation_onboarded');
+    setShowOnboarding(false);
+  };
+
+  // Post creation onboarding screens
+  const POST_CREATION_ONBOARDING: OnboardingScreen[] = [
+    {
+      title: 'Create Content',
+      subtitle: 'Share Posts, Albums, Videos, and Shorts with your audience on MeetSweet.',
+      icon: 'video',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Choose Content Type',
+      subtitle: 'Select from Posts, Albums, Videos, or Shorts. Each type has different features.',
+      icon: 'text',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Add Media & Caption',
+      subtitle: 'Upload photos or videos, add a caption, and choose who can see your content.',
+      icon: 'image',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Set Visibility',
+      subtitle: 'Choose Public (everyone), Subscribers only, or Draft (private) for each post.',
+      icon: 'shield',
+      buttonLabel: 'Start Creating',
+    },
+  ];
 
   // ─── Draft key ────────────────────────────────────────────────────────────
   const DRAFT_KEY = 'ms_create_post_draft';
@@ -798,6 +843,13 @@ export default function CreatePostScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* Post creation onboarding modal */}
+      <MsOnboardingModal
+        visible={showOnboarding}
+        screens={POST_CREATION_ONBOARDING}
+        onComplete={handleOnboardingComplete}
+      />
     </View>
   );
 }
