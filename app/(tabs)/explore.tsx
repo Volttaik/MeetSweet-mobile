@@ -44,8 +44,6 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
-import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
-import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
 import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
@@ -592,7 +590,7 @@ export default function ExploreScreen() {
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.loadMoreWrap}>
-                <ActivityIndicator size="small" color={T.TEXT_2} />
+                <MsPostSkeleton />
               </View>
             ) : null
           }
@@ -779,67 +777,43 @@ export default function ExploreScreen() {
                     if (!haystack.includes(needle)) return null;
                   }
 
-                  const uploadDate = fmtTimeAgo(preview.createdAt ?? '');
-                  const comments   = String(preview.commentCount ?? 0);
-                  const creatorBase = {
-                    creatorId:          creator.id,
-                    creatorName:        creator.name,
-                    creatorHandle:      creator.handle,
-                    creatorInitials:    creator.initials,
-                    creatorIsVerified:  creator.isVerified ?? false,
-                    creatorIsOnline:    creator.isOnline  ?? false,
-                    creatorAvatarUrl:   creator.avatarUrl ?? null,
+                  const post: Post = {
+                    id:            preview.id,
+                    caption:       preview.title || '',
+                    visibility:    'public',
+                    contentType:   (preview.contentType as Post['contentType']) ?? 'post',
+                    mediaUrl:      preview.mediaUrl ?? null,
+                    mediaType:     (preview.kind === 'video' ? 'video' : 'image') as Post['mediaType'],
+                    thumbnailUrl:  preview.thumbnailUrl ?? null,
+                    durationSecs:  null,
+                    fileSize:      null,
+                    width:         null,
+                    height:        null,
+                    likeCount:     0,
+                    commentCount:  preview.commentCount ?? 0,
+                    bookmarkCount: 0,
+                    isPremium:     preview.isPremium ?? false,
+                    priceCredits:  null,
+                    tier:          'free',
+                    createdAt:     preview.createdAt ?? '',
+                    author: {
+                      id:         creator.id,
+                      name:       creator.name,
+                      username:   creator.handle.replace('@', ''),
+                      avatarUrl:  creator.avatarUrl ?? null,
+                      isVerified: creator.isVerified ?? false,
+                      isCreator:  true,
+                    },
+                    likedByMe:     false,
+                    bookmarkedByMe: false,
                   };
 
-                  if (preview.kind === 'video' || preview.kind === 'audio') {
-                    const card: MsFeedVideoCardData = {
-                      id:          preview.id,
-                      title:       preview.title || 'Untitled',
-                      duration:    preview.duration,
-                      likes:       preview.likes,
-                      comments,
-                      uploadDate,
-                      gradient:    preview.gradient,
-                      isPremium:   false,
-                      kind:        preview.kind,
-                      lockedLabel: undefined,
-                      thumbnailUrl: preview.thumbnailUrl ?? null,
-                      mediaUrl:    preview.mediaUrl ?? null,
-                      ...creatorBase,
-                    };
-                    return (
-                      <View key={preview.id} style={styles.videoItemWrap}>
-                        <MsFeedVideoCard
-                          card={card}
-                          onPress={() => router.push(`/videos/${preview.id}`)}
-                          onCreatorPress={() => router.push(`/creator/${creator.id}`)}
-                          onUnlockPress={() => router.push(`/videos/${preview.id}`)}
-                        />
-                      </View>
-                    );
-                  }
-
-                  const imgCard: ExploreImageCardData = {
-                    id:          preview.id,
-                    caption:     preview.title || '',
-                    likes:       preview.likes,
-                    comments,
-                    uploadDate,
-                    isPremium:   false,
-                    lockedLabel: undefined,
-                    imageUrl:    preview.thumbnailUrl ?? preview.mediaUrl ?? null,
-                    gradient:    preview.gradient,
-                    ...creatorBase,
-                  };
                   return (
-                    <View key={preview.id} style={styles.feedItemWrap}>
-                      <ExploreImageCard
-                        card={imgCard}
-                        onPress={() => router.push(`/post/${preview.id}`)}
-                        onCreatorPress={() => router.push(`/creator/${creator.id}`)}
-                        onUnlockPress={() => router.push(`/post/${preview.id}`)}
-                      />
-                    </View>
+                    <MsPostCard
+                      key={preview.id}
+                      post={post}
+                      onAuthorPress={() => openCreator(creator)}
+                    />
                   );
                 })}
               </View>

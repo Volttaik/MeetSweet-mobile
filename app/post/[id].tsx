@@ -11,11 +11,12 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, ChatCircle, DotsThree, Lock } from 'phosphor-react-native';
+import { ArrowLeft, ChatCircle, DotsThree } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { MsComposer } from '@/components/MsComposer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -147,7 +148,19 @@ export default function PostDetailScreen() {
   };
 
   if (loading) {
-    return <View style={[styles.center, { paddingTop: insets.top }]}><Text style={styles.muted}>Loading post…</Text></View>;
+    return (
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
+        <View style={[styles.header, { paddingTop: 8 }]}>
+          <Pressable style={styles.iconButton} onPress={() => router.back()}>
+            <ArrowLeft size={20} color={T.TEXT} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Post</Text>
+          <View style={styles.iconButton} />
+        </View>
+        <MsPostSkeleton />
+        <MsPostSkeleton />
+      </View>
+    );
   }
 
   if (error || !post) {
@@ -217,10 +230,10 @@ export default function PostDetailScreen() {
           </View>
         )}
         ListEmptyComponent={
-          <View style={styles.emptyComments}>
-            <Lock size={18} color={T.TEXT_3} />
-            <Text style={styles.muted}>Start the conversation.</Text>
-          </View>
+          <MsEmptyState
+            title="No comments yet"
+            message="Start the conversation."
+          />
         }
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}

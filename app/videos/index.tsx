@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { ArrowLeft, ChatCircle, Clock, Heart, ShareNetwork, Users } from 'phosphor-react-native';
+import { ArrowLeft, ChatCircle, Clock, Heart, ShareNetwork } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { useVideoFeed, type LongFormVideo } from '@/services/content';
 import { T } from '@/constants/theme';
 
@@ -35,7 +36,13 @@ export default function VideosFeedScreen() {
         <View style={styles.heading}><Text style={styles.eyebrow}>LONG-FORM</Text><Text style={styles.title}>Videos</Text></View>
         <Pressable style={styles.shortsButton} onPress={() => router.push('/shorts')}><Text style={styles.shortsLabel}>Shorts</Text></Pressable>
       </View>
-      {query.isLoading ? <View style={styles.center}><ActivityIndicator color={T.TEXT_2} size="large" /></View> : query.isError ? (
+      {query.isLoading ? (
+        <View style={{ marginTop: 8 }}>
+          <MsPostSkeleton />
+          <MsPostSkeleton />
+          <MsPostSkeleton />
+        </View>
+      ) : query.isError ? (
         <MsEmptyState title="Videos unavailable" message="The long-form video service could not be reached." actionLabel="Try again" onAction={() => query.refetch()} />
       ) : (
         <FlatList
@@ -46,7 +53,7 @@ export default function VideosFeedScreen() {
           ListEmptyComponent={<MsEmptyState title="No videos yet" message="Long-form videos from creators will appear here." />}
           onEndReached={() => query.hasNextPage && !query.isFetchingNextPage && query.fetchNextPage()}
           onEndReachedThreshold={0.45}
-          ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator color={T.TEXT_2} style={styles.footer} /> : null}
+          ListFooterComponent={query.isFetchingNextPage ? <View style={styles.footer}><MsPostSkeleton /></View> : null}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />}
           showsVerticalScrollIndicator={false}
