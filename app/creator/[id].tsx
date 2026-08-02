@@ -20,14 +20,16 @@ import {
   ArrowLeft,
   CaretRight,
   Check,
+  ChatCircle,
   Lock,
   Sparkle,
   Star,
   Users,
+  X,
 } from 'phosphor-react-native';
 import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { TIER_PRICES, type SubscriptionTier, subscribeTier } from '@/services/subscriptions';
+import { TIER_PRICES, type SubscriptionTier, subscribeTier, getCreatorMessagingSettings, isSubscribedTo } from '@/services/subscriptions';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -285,12 +287,38 @@ export default function CreatorProfileScreen() {
   // Subscription onboarding state
   const [showSubscriptionOnboarding, setShowSubscriptionOnboarding] = useState(false);
 
+  // Messaging restriction state
+  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [loadingMessaging, setLoadingMessaging] = useState(false);
+
   // Check for subscription onboarding on mount
   useEffect(() => {
     shouldShowOnboarding('subscription_onboarded').then((shouldShow) => {
       if (shouldShow) setShowSubscriptionOnboarding(true);
     });
   }, []);
+
+  // Fetch messaging settings and subscription status on mount
+  useEffect(() => {
+    if (!id || !currentUser) return;
+    
+    const fetchMessagingData = async () => {
+      try {
+        const [settings, subscribed] = await Promise.all([
+          getCreatorMessagingSettings(id),
+          isSubscribedTo(id),
+        ]);
+        setWhoCanMessage(settings.who_can_message);
+        setIsSubscribed(subscribed);
+      } catch {
+        // Default to everyone if API fails
+        setWhoCanMessage('everyone');
+      }
+    };
+    
+    fetchMessagingData();
+  }, [id, currentUser]);
 
   const handleSubscriptionOnboardingComplete = async () => {
     await completeOnboarding('subscription_onboarded');
@@ -318,6 +346,31 @@ export default function CreatorProfileScreen() {
   // Handle subscribe button with onboarding
   const handleSubscribePress = () => {
     setSheetOpen(true);
+  };
+
+  // Handle message button based on messaging restrictions
+  const handleMessagePress = async () => {
+    // Can't message
+    if (whoCanMessage === 'none') {
+      Alert.alert('Cannot Message', 'This creator is not accepting messages right now.');
+      return;
+    }
+    
+    // Subscribers only and not subscribed
+    if (whoCanMessage === 'subscribers' && !isSubscribed) {
+      Alert.alert(
+        'Subscription Required',
+        'You need to subscribe to message this creator.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Subscribe', onPress: () => setSheetOpen(true) },
+        ],
+      );
+      return;
+    }
+    
+    // Open chat
+    router.push(`/chat/${id}`);
   };
 
   // ── Data sources ─────────────────────────────────────────────────────────────
@@ -576,6 +629,38 @@ export default function CreatorProfileScreen() {
             <Lock size={16} color={T.BG} />
             <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
           </TouchableOpacity>
+
+          {/* Message button - shown when viewing another user's profile and not own profile */}
+          {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
+            <TouchableOpacity
+              style={[
+                styles.messageButton,
+                whoCanMessage === 'none' && styles.messageButtonDisabled,
+              ]}
+              onPress={handleMessagePress}
+              disabled={loadingMessaging || whoCanMessage === 'none'}
+              activeOpacity={0.85}
+            >
+              {loadingMessaging ? (
+                <Spinner size="sm" color="default" />
+              ) : whoCanMessage === 'none' ? (
+                <>
+                  <X size={16} color={T.TEXT_3} />
+                  <Text style={styles.messageBtnLabelDisabled}>Cannot Message</Text>
+                </>
+              ) : whoCanMessage === 'subscribers' && !isSubscribed ? (
+                <>
+                  <Lock size={16} color={T.ACCENT} />
+                  <Text style={styles.messageBtnLabelLocked}>Subscribe to Message</Text>
+                </>
+              ) : (
+                <>
+                  <ChatCircle size={16} color={T.BG} weight="fill" />
+                  <Text style={styles.messageBtnLabel}>Message</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* ── Tabs ── */}
@@ -876,6 +961,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   subscribeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
+
+  // Message button
+  messageButton: {
+    width: '100%', marginTop: 10, height: 52,
+    borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE_2,
+    borderWidth: 1, borderColor: T.BORDER_2,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  messageButtonDisabled: {
+    backgroundColor: T.SURFACE,
+    borderColor: T.BORDER,
+  },
+  messageBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
+  messageBtnLabelLocked: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT },
+  messageBtnLabelDisabled: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT_3 },
 
   // Tabs
   tabs: {

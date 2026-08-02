@@ -146,3 +146,34 @@ export async function cancelSubscription(subscriptionId: string): Promise<void> 
     headers: authHeader(token),
   });
 }
+
+/** Get creator's messaging settings (who can message) */
+export async function getCreatorMessagingSettings(
+  creatorId: string,
+): Promise<{ who_can_message: 'everyone' | 'subscribers' | 'none' }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  // Try API first, fallback to default
+  try {
+    return await apiFetch(`/creators/${creatorId}/messaging-settings`, {
+      headers: authHeader(token),
+    });
+  } catch {
+    return { who_can_message: 'everyone' };
+  }
+}
+
+/** Check if user is subscribed to a specific creator */
+export async function isSubscribedTo(creatorId: string): Promise<boolean> {
+  const token = await getToken();
+  if (!token) return false;
+  try {
+    const raw = await apiFetch<{ subscribed?: boolean; is_subscribed?: boolean }>(
+      `/subscriptions/check/${creatorId}`,
+      { headers: authHeader(token) },
+    );
+    return raw.subscribed === true || raw.is_subscribed === true;
+  } catch {
+    return false;
+  }
+}

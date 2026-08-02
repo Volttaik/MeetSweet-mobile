@@ -60,6 +60,7 @@ import {
   Play,
   SmileySticker,
   Square,
+  Sticker,
   X,
 } from 'phosphor-react-native';
 import { Audio } from 'expo-av';
@@ -68,6 +69,7 @@ import { T } from '@/constants/theme';
 import type { ReplyMessage } from '@kesha-antonov/react-native-chat';
 import type { MsMessage } from '@/types/chat-message';
 import { MsComposerPanel } from './MsComposerPanel';
+import { MsStickerPicker } from './MsStickerPicker';
 import type { PanelTab } from './MsComposerPanel';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -488,6 +490,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   // ── Panel state ────────────────────────────────────────────────────────────
   const [activePanel, setActivePanel] = useState<PanelTab | 'none'>('none');
   const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_H);
+  const [stickerPickerVisible, setStickerPickerVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   // ── Keyboard tracking ─────────────────────────────────────────────────────
@@ -514,13 +517,22 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   const closePanel = useCallback(() => setActivePanel('none'), []);
 
   const handleStickerBtnPress = useCallback(() => {
+    // Close emoji panel if open, then show sticker picker
     if (activePanel !== 'none') {
       closePanel();
-      setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      openPanel('emoji');
     }
-  }, [activePanel, openPanel, closePanel]);
+    setStickerPickerVisible(true);
+  }, [activePanel, closePanel]);
+
+  const handleStickerSend = useCallback((sticker: string) => {
+    // Insert sticker as text (emoji)
+    onChangeText(text + sticker);
+    setStickerPickerVisible(false);
+  }, [text, onChangeText]);
+
+  const handleStickerPickerClose = useCallback(() => {
+    setStickerPickerVisible(false);
+  }, []);
 
   const handleInputFocus = useCallback(() => {
     if (activePanel !== 'none') closePanel();
@@ -880,9 +892,8 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   }
 
   const panelIsOpen = activePanel !== 'none';
-  const stickerBtnIcon = panelIsOpen
-    ? <KeyboardIcon size={22} color={T.TEXT_2} weight="regular" />
-    : <SmileySticker size={22} color={T.TEXT_2} weight="regular" />;
+  // Sticker button uses Sticker icon (separate from emoji)
+  const stickerBtnIcon = <Sticker size={22} color={T.TEXT_2} weight="regular" />;
 
   const bottomInset = (!keyboardVisible && !panelIsOpen) ? insets.bottom : 0;
 
@@ -1188,6 +1199,13 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         activeTab="emoji"
         onTabChange={setActivePanel}
         onEmojiPress={handleEmojiInsert}
+      />
+
+      {/* ── Sticker picker ────────────────────────────────────────────────── */}
+      <MsStickerPicker
+        visible={stickerPickerVisible}
+        onSend={handleStickerSend}
+        onClose={handleStickerPickerClose}
       />
     </View>
   );
