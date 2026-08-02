@@ -80,8 +80,8 @@ function bg(gradient: string) {
 
 function priceLabel(lockedLabel?: string): string {
   if (!lockedLabel) return '';
-  const match = lockedLabel.match(/(\d+)/);
-  return match ? `${match[1]} cr` : lockedLabel;
+  // lockedLabel is already formatted as ₦X from the service layer
+  return lockedLabel;
 }
 
 export function ExploreImageCard({

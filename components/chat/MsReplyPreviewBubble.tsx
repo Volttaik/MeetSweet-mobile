@@ -37,7 +37,7 @@ export function MsReplyPreviewBubble({ reply, position }: Props) {
           </View>
         ) : (
           <Text style={[styles.text, isOwn ? styles.textOwn : styles.textOther]} numberOfLines={2}>
-            {reply.text || (reply.audio ? '🎤 Voice note' : 'Attachment')}
+            {reply.text || (reply.audio ? 'Voice note' : 'Attachment')}
           </Text>
         )}
       </View>

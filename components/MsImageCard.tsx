@@ -2,7 +2,7 @@
  * MsImageCard — Wide image card for photo posts in the Explore feed.
  *
  * Full-width 4:3 image preview with creator identity overlaid at the bottom.
- * Premium posts show a blurred image, a lock overlay, the credit price,
+ * Premium posts show a blurred image, a lock overlay, the Naira price,
  * and an Unlock button — never exposing the protected image.
  */
 import React from 'react';
@@ -66,11 +66,10 @@ function bg(gradient: string) {
   return FALLBACK[gradient] ?? T.SURFACE_2;
 }
 
-/** Extract numeric price from lockedLabel like "50 credits" → "50cr" */
+/** Extract price from lockedLabel (already formatted as ₦X from service layer) */
 function priceLabel(lockedLabel?: string): string {
   if (!lockedLabel) return '';
-  const match = lockedLabel.match(/(\d+)/);
-  return match ? `${match[1]} cr` : lockedLabel;
+  return lockedLabel;
 }
 
 export function MsImageCard({

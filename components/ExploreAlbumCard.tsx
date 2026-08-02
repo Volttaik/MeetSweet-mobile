@@ -131,7 +131,7 @@ export function ExploreAlbumCard({
                 {album.priceCredits ? (
                   <View style={styles.lockPriceRow}>
                     <Star size={12} color={T.ACCENT} weight="fill" />
-                    <Text style={styles.lockPrice}>{album.priceCredits} cr</Text>
+                    <Text style={styles.lockPrice}>₦{album.priceCredits.toLocaleString()}</Text>
                   </View>
                 ) : null}
                 <TouchableOpacity
@@ -229,7 +229,7 @@ export function ExploreAlbumCard({
                 >
                   <Lock size={11} color="#fff" weight="bold" />
                   <Text style={styles.ctaUnlockText}>
-                    Unlock · {album.priceCredits}cr
+                    Unlock · ₦{album.priceCredits.toLocaleString()}
                   </Text>
                 </TouchableOpacity>
               ) : (
