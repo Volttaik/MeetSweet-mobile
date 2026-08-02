@@ -31,7 +31,7 @@ import {
   Clock,
   Copy,
   CreditCard,
-  Sparkle,
+  Diamond,
   Wallet,
   Warning,
 } from 'phosphor-react-native';
@@ -540,10 +540,14 @@ export default function WalletScreen() {
 
         {/* Balance card */}
         <View style={styles.balanceCard}>
-          <View style={styles.walletIcon}>
-            <Wallet size={20} color={T.BG} />
+          {/* Diamond icon top-right */}
+          <View style={styles.diamondWrap}>
+            <Diamond size={22} color="rgba(0,0,0,0.55)" weight="fill" />
           </View>
-          <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
+          <View style={styles.walletIcon}>
+            <Diamond size={22} color="#B45309" weight="fill" />
+          </View>
+          <Text style={styles.balanceLabel}>CREDIT BALANCE</Text>
           {loadingWallet ? (
             <MsShimmer width="50%" height={36} borderRadius={8} style={{ marginTop: 6 }} />
           ) : (
@@ -603,7 +607,7 @@ export default function WalletScreen() {
         </View>
 
         <View style={styles.note}>
-          <Sparkle size={15} color={T.TEXT_2} />
+          <Diamond size={15} color="#B45309" weight="fill" />
           <Text style={styles.noteText}>
             Credits never expire and go directly toward creator subscriptions and premium content.
           </Text>
@@ -664,36 +668,49 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 48 },
 
   balanceCard: {
-    backgroundColor: T.TEXT,
+    backgroundColor: '#78350F',
     borderRadius: T.RADIUS.xl,
     padding: 22,
     minHeight: 160,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  diamondWrap: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.3,
+    transform: [{ scale: 3 }],
   },
   walletIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: T.BG,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   balanceLabel: {
-    color: 'rgba(0,0,0,0.45)',
+    color: 'rgba(255,220,100,0.75)',
     fontFamily: T.FONT.semibold,
     fontSize: 9,
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
     marginTop: 16,
   },
   balance: {
-    color: T.BG,
+    color: '#FEF3C7',
     fontFamily: T.FONT.bold,
-    fontSize: 32,
+    fontSize: 34,
     letterSpacing: -1,
     marginTop: 2,
   },
-  balanceUnit: { fontFamily: T.FONT.medium, fontSize: 13 },
+  balanceUnit: { fontFamily: T.FONT.medium, fontSize: 14, color: '#FDE68A' },
   balanceHint: {
-    color: 'rgba(0,0,0,0.4)',
+    color: 'rgba(255,220,100,0.55)',
     fontFamily: T.FONT.regular,
     fontSize: 11,
     marginTop: 8,

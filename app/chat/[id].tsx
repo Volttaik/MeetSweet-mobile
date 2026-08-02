@@ -65,7 +65,6 @@ import { MsChatHeaderMenu } from '@/components/chat/MsChatHeaderMenu';
 import { MsChatSearch }     from '@/components/chat/MsChatSearch';
 import { MsChatBgPicker }   from '@/components/chat/MsChatBgPicker';
 import type { ChatBackground } from '@/components/chat/MsChatBgPicker';
-import { MsStickerPicker }  from '@/components/chat/MsStickerPicker';
 
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -204,7 +203,6 @@ export default function ChatScreen() {
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [showBgPicker,   setShowBgPicker]   = useState(false);
   const [chatBackground, setChatBackground] = useState<ChatBackground>({ type: 'default' });
-  const [showStickerPicker, setShowStickerPicker] = useState(false);
 
   // ── Load messages ────────────────────────────────────────────────────────────
   const loadMessages = useCallback(async (before?: string) => {
@@ -351,39 +349,6 @@ export default function ChatScreen() {
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
           prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
-        );
-      } catch {
-        setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
-        );
-      }
-      return;
-    }
-
-    // ── GIF or image sticker (sent as image message with the remote URL) ────────
-    if (payload.gifUrl) {
-      const isImageSticker = payload.gifTitle === 'sticker';
-      const optimistic: MsMessage = {
-        _id: tempId,
-        text: '',
-        createdAt: now,
-        user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
-        image: payload.gifUrl,
-        msMediaType: 'image',
-        msStickerImage: isImageSticker || undefined,
-        sent: false,
-        pending: true,
-      };
-      setMessages((prev) => Chat.append(prev, [optimistic]));
-      try {
-        const res = await sendMessage(conversationId, payload.gifTitle ?? '', payload.gifUrl, 'image');
-        const confirmed = toMsMessage(res.message, user?.id ?? '');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m._id === tempId
-              ? { ...confirmed, image: payload.gifUrl, msStickerImage: isImageSticker || undefined, pending: false, sent: true }
-              : m,
-          ),
         );
       } catch {
         setMessages((prev) =>
@@ -993,7 +958,7 @@ export default function ChatScreen() {
           {/* Caption hint */}
           <View style={[styles.imgPreviewFooter, { paddingBottom: insets.bottom + 16 }]}>
             <Text style={styles.imgPreviewHint}>
-              {inlineAttachment?.type === 'video' ? '📹 Video ready to send' : '📷 Image ready to send'}
+              {inlineAttachment?.type === 'video' ? 'Video ready to send' : 'Image ready to send'}
             </Text>
             <Text style={styles.imgPreviewSubHint}>Tap the send button in the input to send</Text>
           </View>

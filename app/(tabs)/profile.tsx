@@ -18,9 +18,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  Bookmark,
   Camera,
+  ChatCircle,
   FilmStrip,
   Gear,
+  Heart,
   LockSimple,
   ShareNetwork,
   X,
@@ -343,9 +346,9 @@ function AnalyticsSheet({
 
   const stats = data
     ? [
-        { label: 'Likes',    value: data.likeCount,     icon: '❤️' },
-        { label: 'Comments', value: data.commentCount,   icon: '💬' },
-        { label: 'Saves',    value: data.bookmarkCount,  icon: '🔖' },
+        { label: 'Likes',    value: data.likeCount,    Icon: Heart },
+        { label: 'Comments', value: data.commentCount,  Icon: ChatCircle },
+        { label: 'Saves',    value: data.bookmarkCount, Icon: Bookmark },
       ]
     : [];
 
@@ -373,7 +376,7 @@ function AnalyticsSheet({
               <View style={ans.statsGrid}>
                 {stats.map((s) => (
                   <View key={s.label} style={ans.statCard}>
-                    <Text style={ans.statEmoji}>{s.icon}</Text>
+                    <s.Icon size={22} color={T.TEXT_2} />
                     <Text style={ans.statValue}>{formatCount(s.value)}</Text>
                     <Text style={ans.statLabel}>{s.label}</Text>
                   </View>
@@ -412,7 +415,6 @@ const ans = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  statEmoji: { fontSize: 22 },
   statValue:  { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.5 },
   statLabel:  { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_2 },
   note: {

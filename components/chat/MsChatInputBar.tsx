@@ -905,7 +905,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         {/* Warning banner at 4:30 */}
         {recWarning && (
           <View style={s.recWarningBanner}>
-            <Text style={s.recWarningText}>⚠️ Max recording time in 30 seconds</Text>
+            <Text style={s.recWarningText}>Max recording time in 30 seconds</Text>
           </View>
         )}
 

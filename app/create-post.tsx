@@ -731,10 +731,10 @@ export default function CreatePostScreen() {
           {/* Routing info banner */}
           <View style={[styles.routingBanner, { backgroundColor: selectedCt.accentColor + '12' }]}>
             <Text style={[styles.routingText, { color: selectedCt.accentColor }]}>
-              {contentType === 'post'   ? '📱 Will appear in Home feed & your Profile' :
-               contentType === 'album'  ? '📸 Will appear in Home feed & your Profile' :
-               contentType === 'video'  ? '🎬 Will appear in Explore & your Profile' :
-               '⚡ Will appear in Shorts & your Profile'}
+              {contentType === 'post'   ? 'Will appear in Home feed & your Profile' :
+               contentType === 'album'  ? 'Will appear in Home feed & your Profile' :
+               contentType === 'video'  ? 'Will appear in Explore & your Profile' :
+               'Will appear in Shorts & your Profile'}
             </Text>
           </View>
 

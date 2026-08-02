@@ -7,25 +7,37 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X } from 'phosphor-react-native';
+import {
+  ChartBar,
+  ChatCircle,
+  CurrencyDollar,
+  Diamond,
+  DeviceMobile,
+  Lock,
+  Users,
+  Wallet,
+  X,
+} from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 
-const FEATURES = [
-  { emoji: '💎', title: 'Exclusive Content',  desc: 'Share premium content with paying subscribers only' },
-  { emoji: '📱', title: 'Subscriptions',       desc: 'Earn monthly recurring revenue from your fans' },
-  { emoji: '🔒', title: 'Private Posts',       desc: 'Posts only your subscribers can access and view' },
-  { emoji: '💬', title: 'Private Messaging',   desc: 'Chat directly and privately with your community' },
-  { emoji: '📊', title: 'Creator Analytics',   desc: 'Deep audience insights and growth tracking tools' },
-  { emoji: '💰', title: 'Monthly Earnings',    desc: 'Transparent dashboard with automated monthly payouts' },
-  { emoji: '👥', title: 'Audience Insights',   desc: 'Understand your fans with demographic data' },
-  { emoji: '🏧', title: 'Withdrawal System',   desc: 'Withdraw to bank, card, or crypto wallet instantly' },
+const FEATURES: { Icon: React.ComponentType<{ size: number; color: string }>; title: string; desc: string }[] = [
+  { Icon: Diamond,         title: 'Exclusive Content',  desc: 'Share premium content with paying subscribers only' },
+  { Icon: DeviceMobile,    title: 'Subscriptions',       desc: 'Earn monthly recurring revenue from your fans' },
+  { Icon: Lock,            title: 'Private Posts',       desc: 'Posts only your subscribers can access and view' },
+  { Icon: ChatCircle,      title: 'Private Messaging',   desc: 'Chat directly and privately with your community' },
+  { Icon: ChartBar,        title: 'Creator Analytics',   desc: 'Deep audience insights and growth tracking tools' },
+  { Icon: CurrencyDollar,  title: 'Monthly Earnings',    desc: 'Transparent dashboard with automated monthly payouts' },
+  { Icon: Users,           title: 'Audience Insights',   desc: 'Understand your fans with demographic data' },
+  { Icon: Wallet,          title: 'Withdrawal System',   desc: 'Withdraw to your bank account instantly' },
 ];
 
-function FeatureCard({ emoji, title, desc }: { emoji: string; title: string; desc: string }) {
+function FeatureCard({ Icon, title, desc }: { Icon: React.ComponentType<{ size: number; color: string }>; title: string; desc: string }) {
   return (
     <View style={styles.featureCard}>
-      <Text style={styles.featureEmoji}>{emoji}</Text>
+      <View style={styles.featureIconWrap}>
+        <Icon size={20} color={T.TEXT} />
+      </View>
       <Text style={styles.featureTitle}>{title}</Text>
       <Text style={styles.featureDesc}>{desc}</Text>
     </View>
@@ -209,7 +221,15 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
-  featureEmoji: { fontSize: 24, lineHeight: 30 },
+  featureIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
   featureTitle: {
     fontSize: 13,
     fontFamily: T.FONT.semibold,

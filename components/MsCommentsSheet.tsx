@@ -21,14 +21,16 @@ import {
   Alert,
   Animated,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { ArrowBendUpLeft, Heart, Trash, X } from 'phosphor-react-native';
+import { ArrowBendUpLeft, ChatCircle, Heart, Trash, X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsComposer } from '@/components/MsComposer';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -501,6 +503,10 @@ export function CommentsModal({
       onRequestClose={onClose}
       statusBarTranslucent
     >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <View style={modalStyles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
@@ -564,6 +570,7 @@ export function CommentsModal({
           </View>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -689,7 +696,8 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
     return (
       <View style={sectionStyles.wrap}>
         <View style={sectionStyles.header}>
-          <Text style={sectionStyles.title}>💬 Comments</Text>
+          <ChatCircle size={16} color={T.TEXT} />
+          <Text style={sectionStyles.title}>Comments</Text>
         </View>
         <ActivityIndicator style={{ marginVertical: 24 }} color={T.TEXT_3} />
       </View>
@@ -699,7 +707,8 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
   return (
     <View style={sectionStyles.wrap}>
       <View style={sectionStyles.header}>
-        <Text style={sectionStyles.title}>💬 Comments</Text>
+        <ChatCircle size={16} color={T.TEXT} />
+        <Text style={sectionStyles.title}>Comments</Text>
         <Text style={sectionStyles.total}>{totalCount.toLocaleString()}</Text>
       </View>
 
