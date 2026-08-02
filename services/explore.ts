@@ -153,11 +153,10 @@ function creatorFromPost(post: RawPost): Creator {
     handle: `@${post.creator_username ?? 'creator'}`,
     initials: initials(post.creator_display_name ?? post.creator_username ?? '??'),
     // Fields below are not available from the posts feed.
-    // They will be populated with real values from GET /creators/:id
+    // They will be populated with real values from GET /api/users/:username
     // when the creator profile page is opened.
     bio: '',
     category: '',
-    followers: '',
     subscriberCount: 0,
     monthlyCredits: 0,
     isVerified: post.creator_is_verified ?? false,

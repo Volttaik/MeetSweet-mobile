@@ -29,6 +29,7 @@ function normalizeUser(raw: any): User {
     role: raw.role ?? 'user',
     followerCount: raw.follower_count ?? 0,
     followingCount: raw.following_count ?? 0,
+    subscriberCount: raw.subscriber_count ?? 0,
     postCount: raw.post_count ?? 0,
     createdAt: raw.created_at ?? new Date().toISOString(),
   };

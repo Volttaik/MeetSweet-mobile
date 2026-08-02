@@ -52,7 +52,7 @@ const VISIBILITY_OPTIONS: Array<{
 type TierValue = 'free' | 'normal' | 'premium' | 'vip';
 
 const TIER_OPTIONS: Array<{ value: TierValue; label: string; color: string; desc: string }> = [
-  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All followers' },
+  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All subscribers' },
   { value: 'normal',  label: 'Normal',  color: '#4B9EFF', desc: '₦200/mo' },
   { value: 'premium', label: 'Premium', color: '#FFB800', desc: '₦500/mo' },
   { value: 'vip',     label: 'VIP',     color: '#C45A72', desc: '₦1,000/mo' },
@@ -247,7 +247,7 @@ export default function EditPostScreen() {
             </View>
             <Text style={styles.tierHint}>
               {tier === 'free'
-                ? 'Visible to all your followers for free.'
+                ? 'Visible to all your subscribers for free.'
                 : `Visible only to ${tier}-tier subscribers and above.`}
             </Text>
           </View>

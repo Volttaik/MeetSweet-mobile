@@ -66,7 +66,7 @@ export async function getCreatorByUsername(username: string): Promise<CreatorPro
       ...u,
       subscription_price: null,
       follower_count: u.followerCount ?? 0,
-      subscriber_count: 0,
+      subscriber_count: u.subscriberCount ?? 0,
       post_count: u.postCount ?? 0,
       is_verified: u.isVerified,
       is_online: false,

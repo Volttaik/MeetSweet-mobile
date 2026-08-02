@@ -49,7 +49,7 @@ const VISIBILITY_OPTIONS = [
 ];
 
 const TIER_OPTIONS: { value: 'free' | 'normal' | 'premium' | 'vip'; label: string; color: string; desc: string }[] = [
-  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All followers' },
+  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All subscribers' },
   { value: 'normal',  label: 'Normal',  color: '#4B9EFF', desc: '₦200/mo' },
   { value: 'premium', label: 'Premium', color: '#FFB800', desc: '₦500/mo' },
   { value: 'vip',     label: 'VIP',     color: '#C45A72', desc: '₦1000/mo' },
