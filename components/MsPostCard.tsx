@@ -14,8 +14,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, LockOpen, Lock, Crown, Diamond } from 'phosphor-react-native';
+import { T, TIERS } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsPremiumContent } from '@/components/MsPremiumContent';
@@ -408,11 +408,18 @@ export function MsPostCard({
         </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {post.isPremium && (
-            <View style={styles.premiumBadge}>
-              <Text style={styles.premiumText}>PREMIUM</Text>
-            </View>
-          )}
+          {/* Tier badge — always shown (Free=bronze, Normal=blue, Premium=gold, VIP=purple) */}
+          {(() => {
+            const tier = post.tier ?? 'free';
+            const def = TIERS[tier];
+            const Icon = tier === 'free' ? LockOpen : tier === 'normal' ? Lock : tier === 'vip' ? Diamond : Crown;
+            return (
+              <View style={[styles.tierBadge, { backgroundColor: def.bg }]}>
+                <Icon size={10} color={def.color} weight="fill" />
+                <Text style={[styles.tierText, { color: def.color }]}>{def.label.toUpperCase()}</Text>
+              </View>
+            );
+          })()}
           <TouchableOpacity
             style={styles.moreBtn}
             activeOpacity={0.7}
@@ -593,16 +600,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   authorRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  premiumBadge: {
+  tierBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: T.RADIUS.xs,
-    backgroundColor: T.SURFACE_2,
   },
-  premiumText: {
+  tierText: {
     fontSize: 8,
     fontFamily: T.FONT.bold,
-    color: T.TEXT,
     letterSpacing: 0.5,
   },
   moreBtn: {

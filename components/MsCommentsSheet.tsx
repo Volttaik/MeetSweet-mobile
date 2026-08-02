@@ -503,13 +503,13 @@ export function CommentsModal({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={modalStyles.overlay}>
+      {/* KAV is the outermost element so it can push the sheet above the keyboard on both platforms */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={modalStyles.kvWrap}
+      >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={modalStyles.kvWrap}
-        >
-          <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
+        <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
             {/* Handle */}
             <View style={modalStyles.handle} />
 
@@ -570,8 +570,8 @@ export function CommentsModal({
               />
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -583,8 +583,11 @@ const modalStyles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   kvWrap: {
-    // KeyboardAvoidingView sits at the bottom, sheet is inside it
-    width: '100%',
+    // KAV is outermost — flex:1 + justifyContent:'flex-end' pushes sheet to bottom
+    // and allows the keyboard to resize this container on both iOS and Android.
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(8,5,8,0.72)',
   },
   sheet: {
     backgroundColor: T.SURFACE,

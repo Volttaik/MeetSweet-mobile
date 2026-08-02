@@ -73,7 +73,7 @@ function DiscoveryState() {
         </View>
         <View style={discoveryStyles.howRow}>
           <View style={discoveryStyles.howStep}><Text style={discoveryStyles.howNum}>2</Text></View>
-          <Text style={discoveryStyles.howText}>Subscribe to a creator with your credits</Text>
+          <Text style={discoveryStyles.howText}>Subscribe to a creator to unlock their content</Text>
         </View>
         <View style={discoveryStyles.howRow}>
           <View style={discoveryStyles.howStep}><Text style={discoveryStyles.howNum}>3</Text></View>
@@ -269,7 +269,7 @@ export default function HomeScreen() {
   const initials = user?.name
     ? user.name.split(' ').map((w) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('')
     : 'U';
-  const creditBalance = useCredits();
+  const walletBalance = useCredits();
 
   return (
     <MsAmbientBackground style={[styles.bg, { paddingTop: insets.top }]}>
@@ -284,7 +284,7 @@ export default function HomeScreen() {
           <Text style={styles.handle}>@{user?.username ?? 'username'}</Text>
         </View>
         <View style={styles.topActions}>
-          <MsCreditBadge balance={creditBalance} />
+          <MsCreditBadge balance={walletBalance} />
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => router.push('/notifications')}>
             <Bell size={20} color={T.TEXT} />
           </TouchableOpacity>

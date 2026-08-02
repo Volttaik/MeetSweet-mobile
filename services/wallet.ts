@@ -10,19 +10,8 @@ export interface Transaction {
   createdAt: string;
 }
 
-export interface CreditPackage {
-  id: string;
-  credits: number;
-  priceNaira: number;
-  label: string;
-}
-
-export const CREDIT_PACKAGES: CreditPackage[] = [
-  { id: '10_credits',  credits: 10,  priceNaira: 500,    label: 'Starter' },
-  { id: '50_credits',  credits: 50,  priceNaira: 2000,   label: 'Popular' },
-  { id: '100_credits', credits: 100, priceNaira: 3500,   label: 'Best Value' },
-  { id: '500_credits', credits: 500, priceNaira: 15000,  label: 'Creator Pack' },
-];
+/** Quick-add amounts for the wallet top-up UI (Naira) */
+export const WALLET_QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000];
 
 export const NIGERIAN_BANKS = [
   'Access Bank',
@@ -109,9 +98,9 @@ export async function getTransactions(limit = 20): Promise<{ transactions: Trans
   };
 }
 
-// ─── Paystack credit purchase (Naira) ─────────────────────────────────────────
+// ─── Wallet deposit via Paystack (Naira) ─────────────────────────────────────
 
-export interface PaystackInitResult {
+export interface DepositInitResult {
   transactionId: string;
   accountNumber: string;
   bankName: string;
@@ -120,10 +109,9 @@ export interface PaystackInitResult {
   expiresAt?: string;
 }
 
-export async function initiatePaystackCredit(packageId: string, amountNaira: number): Promise<PaystackInitResult> {
+export async function initiateWalletDeposit(amountNaira: number): Promise<DepositInitResult> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // POST /api/payments/initiate-paystack
   const raw = await apiFetch<{
     transactionId?: string;
     transaction_id?: string;
@@ -138,7 +126,7 @@ export async function initiatePaystackCredit(packageId: string, amountNaira: num
   }>('/payments/initiate-paystack', {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ package: packageId, amount: amountNaira }),
+    body: JSON.stringify({ amount: amountNaira }),
   });
   return {
     transactionId: raw.transactionId ?? raw.transaction_id ?? `txn_${Date.now()}`,
@@ -150,20 +138,21 @@ export async function initiatePaystackCredit(packageId: string, amountNaira: num
   };
 }
 
-export interface PaystackVerifyResult {
+export interface DepositVerifyResult {
   success: boolean;
-  credits: number;
+  amountAdded: number;
   newBalance: number;
   message?: string;
 }
 
-export async function verifyPaystackCredit(transactionId: string): Promise<PaystackVerifyResult> {
+export async function verifyWalletDeposit(transactionId: string): Promise<DepositVerifyResult> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // POST /api/payments/verify-paystack
   const raw = await apiFetch<{
     success?: boolean;
     credits?: number;
+    amount?: number;
+    amount_added?: number;
     new_balance?: number;
     newBalance?: number;
     message?: string;
@@ -173,23 +162,10 @@ export async function verifyPaystackCredit(transactionId: string): Promise<Payst
     body: JSON.stringify({ transactionId }),
   });
   return {
-    success:    raw.success    ?? false,
-    credits:    raw.credits    ?? 0,
-    newBalance: raw.newBalance ?? raw.new_balance ?? 0,
-    message:    raw.message,
-  };
-}
-
-export async function getCreditHistory(): Promise<{ transactions: Transaction[] }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ transactions: unknown[] }>('/payments/credit-history', {
-    headers: authHeader(token),
-  }).catch(() => ({ transactions: [] }));
-  return {
-    transactions: Array.isArray(raw?.transactions)
-      ? raw.transactions.map(normalizeTransaction)
-      : [],
+    success:     raw.success    ?? false,
+    amountAdded: raw.amount_added ?? raw.amount ?? raw.credits ?? 0,
+    newBalance:  raw.newBalance ?? raw.new_balance ?? 0,
+    message:     raw.message,
   };
 }
 
@@ -295,7 +271,7 @@ export async function getWithdrawalHistory(): Promise<{ withdrawals: WithdrawalR
   };
 }
 
-// ─── Legacy (kept for compatibility) ──────────────────────────────────────────
+// ─── Legacy payment helpers (kept for compatibility) ──────────────────────────
 
 export async function initializePayment(amount: number): Promise<{
   authorization_url: string;

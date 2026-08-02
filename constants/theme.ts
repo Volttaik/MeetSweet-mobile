@@ -91,6 +91,37 @@ export const T = {
 } as const;
 
 /**
+ * Subscription tier definitions.
+ * Free = bronze (explore only), Normal/Premium/VIP = home feed (paid tiers).
+ */
+export const TIERS = {
+  free: {
+    label:      'Free',
+    priceNaira: 0,
+    color:      '#CD7F32',  // bronze
+    bg:         'rgba(205,127,50,0.15)',
+  },
+  normal: {
+    label:      'Normal',
+    priceNaira: 200,
+    color:      '#2196F3',  // blue
+    bg:         'rgba(33,150,243,0.15)',
+  },
+  premium: {
+    label:      'Premium',
+    priceNaira: 500,
+    color:      '#FFD700',  // gold
+    bg:         'rgba(255,215,0,0.15)',
+  },
+  vip: {
+    label:      'VIP',
+    priceNaira: 1000,
+    color:      '#9C27B0',  // purple
+    bg:         'rgba(156,39,176,0.15)',
+  },
+} as const;
+
+/**
  * The application's background gradient — ash shadow grey, premium, subtle.
  * Used on every screen as the backdrop. NOT an accent colour.
  */
