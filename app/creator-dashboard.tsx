@@ -41,6 +41,8 @@ import {
   type CreatorDashboard,
   type PeriodStat,
 } from '@/services/creator';
+import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
+import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -216,6 +218,49 @@ export default function CreatorDashboardScreen() {
   const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
   const [subsCanMsgFree, setSubsCanMsgFree] = useState(true);
   const [nonSubsCanPayMsg, setNonSubsCanPayMsg] = useState(false);
+
+  // Onboarding state
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check for creator onboarding on mount
+  useEffect(() => {
+    shouldShowOnboarding('creator_onboarded').then((shouldShow) => {
+      if (shouldShow) setShowOnboarding(true);
+    });
+  }, []);
+
+  const handleOnboardingComplete = async () => {
+    await completeOnboarding('creator_onboarded');
+    setShowOnboarding(false);
+  };
+
+  // Creator onboarding screens
+  const CREATOR_ONBOARDING: OnboardingScreen[] = [
+    {
+      title: 'Welcome, Creator!',
+      subtitle: 'You\'re now a creator on MeetSweet. Here\'s how to start earning.',
+      icon: 'rocket',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Create Content',
+      subtitle: 'Create Posts, Albums, Videos, and Shorts to share with your audience.',
+      icon: 'video',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Set Subscription Tiers',
+      subtitle: 'Set up Normal, Premium, and VIP tiers to start earning from subscribers.',
+      icon: 'money',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Withdraw Earnings',
+      subtitle: 'Once you have ₦1,000 or more, withdraw directly to your bank account.',
+      icon: 'piggy',
+      buttonLabel: 'Get Started',
+    },
+  ];
 
   const load = async () => {
     try {
@@ -589,6 +634,13 @@ export default function CreatorDashboardScreen() {
 
         </ScrollView>
       )}
+
+      {/* Creator onboarding modal */}
+      <MsOnboardingModal
+        visible={showOnboarding}
+        screens={CREATOR_ONBOARDING}
+        onComplete={handleOnboardingComplete}
+      />
     </View>
   );
 }

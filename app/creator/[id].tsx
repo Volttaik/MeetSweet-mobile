@@ -41,6 +41,8 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
+import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
+import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -279,6 +281,44 @@ export default function CreatorProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+
+  // Subscription onboarding state
+  const [showSubscriptionOnboarding, setShowSubscriptionOnboarding] = useState(false);
+
+  // Check for subscription onboarding on mount
+  useEffect(() => {
+    shouldShowOnboarding('subscription_onboarded').then((shouldShow) => {
+      if (shouldShow) setShowSubscriptionOnboarding(true);
+    });
+  }, []);
+
+  const handleSubscriptionOnboardingComplete = async () => {
+    await completeOnboarding('subscription_onboarded');
+    setShowSubscriptionOnboarding(false);
+    // Open the subscribe sheet after onboarding
+    setSheetOpen(true);
+  };
+
+  // Subscription onboarding screens
+  const SUBSCRIPTION_ONBOARDING: OnboardingScreen[] = [
+    {
+      title: 'Subscribe to Creators',
+      subtitle: 'Unlock exclusive content, private messages, and more by subscribing to your favorite creators.',
+      icon: 'star',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Choose Your Tier',
+      subtitle: 'Select Normal, Premium, or VIP access. Each tier unlocks different content and perks.',
+      icon: 'money',
+      buttonLabel: 'Subscribe Now',
+    },
+  ];
+
+  // Handle subscribe button with onboarding
+  const handleSubscribePress = () => {
+    setSheetOpen(true);
+  };
 
   // ── Data sources ─────────────────────────────────────────────────────────────
   // 1. Explore catalog: gives us the basic creator shell (name, handle, avatar)
@@ -530,7 +570,7 @@ export default function CreatorProfileScreen() {
           {/* Subscribe button */}
           <TouchableOpacity
             style={styles.subscribeButton}
-            onPress={() => setSheetOpen(true)}
+            onPress={handleSubscribePress}
             activeOpacity={0.85}
           >
             <Lock size={16} color={T.BG} />
@@ -756,6 +796,13 @@ export default function CreatorProfileScreen() {
           },
         ] satisfies ActionItem[]}
         onClose={() => setMoreSheetOpen(false)}
+      />
+
+      {/* Subscription onboarding modal */}
+      <MsOnboardingModal
+        visible={showSubscriptionOnboarding}
+        screens={SUBSCRIPTION_ONBOARDING}
+        onComplete={handleSubscriptionOnboardingComplete}
       />
     </View>
   );

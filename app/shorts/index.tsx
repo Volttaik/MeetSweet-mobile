@@ -18,7 +18,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowBentUp, ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
+import { ArrowUp, ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
 import { CommentsModal } from '@/components/MsCommentsSheet';
@@ -34,6 +34,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import type { Post } from '@/services/posts';
+import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
+import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -139,6 +141,43 @@ export default function ShortsScreen() {
   const [shareId, setShareId]   = useState<string | null>(null);
   const [pageHeight, setPageHeight] = useState(SCREEN_HEIGHT);
   const viewConfig = useRef({ itemVisiblePercentThreshold: 75 });
+
+  // Onboarding state
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check for shorts onboarding on mount
+  useEffect(() => {
+    shouldShowOnboarding('shorts_onboarded').then((shouldShow) => {
+      if (shouldShow) setShowOnboarding(true);
+    });
+  }, []);
+
+  const handleOnboardingComplete = async () => {
+    await completeOnboarding('shorts_onboarded');
+    setShowOnboarding(false);
+  };
+
+  // Shorts onboarding screens
+  const SHORTS_ONBOARDING: OnboardingScreen[] = [
+    {
+      title: 'Welcome to Shorts',
+      subtitle: 'Watch and create short-form videos from your favorite creators.',
+      icon: 'video',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Swipe to Navigate',
+      subtitle: 'Swipe up for the next short. Swipe down for the previous one.',
+      icon: 'globe',
+      buttonLabel: 'Next',
+    },
+    {
+      title: 'Double Tap to Like',
+      subtitle: 'Double tap anywhere on the video to like it. Tap the heart icon anytime.',
+      icon: 'star',
+      buttonLabel: 'Start Watching',
+    },
+  ];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -286,6 +325,13 @@ export default function ShortsScreen() {
           onClose={() => setShareId(null)}
         />
       ) : null}
+
+      {/* Shorts onboarding modal */}
+      <MsOnboardingModal
+        visible={showOnboarding}
+        screens={SHORTS_ONBOARDING}
+        onComplete={handleOnboardingComplete}
+      />
     </View>
   );
 }
@@ -419,7 +465,7 @@ function ShortPage({
         {/* Swipe up indicator - TikTok style */}
         {!isLast && (
           <View style={styles.swipeIndicator}>
-            <ArrowBentUp size={16} color="rgba(255,255,255,0.7)" weight="bold" />
+            <ArrowUp size={16} color="rgba(255,255,255,0.7)" weight="bold" />
             <Text style={styles.swipeText}>Swipe up for more</Text>
           </View>
         )}
