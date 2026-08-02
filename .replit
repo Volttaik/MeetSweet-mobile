@@ -39,8 +39,12 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd backend_source/Meetsweet-main/server && pnpm exec next dev --hostname 0.0.0.0 --port 3001"
+args = "cd backend_source/Meetsweet-main/server && PATH=/nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin:$PATH node_modules/.bin/next dev --hostname 0.0.0.0 --port 3001"
 waitForPort = 3001
+
+[[ports]]
+localPort = 3001
+externalPort = 3000
 
 [[ports]]
 localPort = 5000

@@ -46,6 +46,13 @@ const VISIBILITY_OPTIONS = [
   { value: 'draft' as const,       label: 'Draft',       description: 'Only you' },
 ];
 
+const TIER_OPTIONS: { value: 'free' | 'normal' | 'premium' | 'vip'; label: string; color: string; desc: string }[] = [
+  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All followers' },
+  { value: 'normal',  label: 'Normal',  color: '#4B9EFF', desc: '₦200/mo' },
+  { value: 'premium', label: 'Premium', color: '#FFB800', desc: '₦500/mo' },
+  { value: 'vip',     label: 'VIP',     color: '#C45A72', desc: '₦1000/mo' },
+];
+
 // Content type definitions for the type picker carousel
 const CONTENT_TYPES: {
   type: ContentType;
@@ -96,6 +103,7 @@ export default function CreatePostScreen() {
   // Onboarding fields
   const [caption,              setCaption]              = useState('');
   const [visibility,           setVisibility]           = useState<'public' | 'subscribers' | 'draft'>('public');
+  const [tier,                 setTier]                 = useState<'free' | 'normal' | 'premium' | 'vip'>('free');
   const [categories,           setCategories]           = useState<Category[]>([]);
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
   const [tags,                 setTags]                 = useState<string[]>([]);
@@ -297,6 +305,7 @@ export default function CreatePostScreen() {
         categories:   selectedCategories,
         tags,
         content_type: backendContentType[contentType],
+        tier,
       });
 
       setStep('processing');
@@ -671,6 +680,27 @@ export default function CreatePostScreen() {
             </View>
           </View>
 
+          {/* Audience Tier */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Audience Tier</Text>
+            <View style={styles.tierRow}>
+              {TIER_OPTIONS.map((opt) => {
+                const active = opt.value === tier;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.tierOpt, active && { borderColor: opt.color }]}
+                    onPress={() => setTier(opt.value)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.tierLabel, active && { color: opt.color }]}>{opt.label}</Text>
+                    <Text style={styles.tierOptDesc}>{opt.desc}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
           {/* Categories */}
           {categories.length > 0 && (
             <View style={styles.section}>
@@ -1029,6 +1059,20 @@ const styles = StyleSheet.create({
   visOptActive: { backgroundColor: 'rgba(255,255,255,0.1)' },
   visLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_3 },
   visLabelActive: { color: T.TEXT },
+
+  tierRow: { flexDirection: 'row', gap: 8 },
+  tierOpt: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  tierLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.TEXT },
+  tierOptDesc: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2 },
 
   toggleRow: {
     flexDirection: 'row',

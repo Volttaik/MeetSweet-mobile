@@ -171,6 +171,7 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
     },
     likedByMe: false,
     bookmarkedByMe: false,
+    tier: 'free' as const,
   };
 }
 

@@ -28,6 +28,8 @@ import {
   Users,
 } from 'phosphor-react-native';
 import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
+import { TIER_PRICES, type SubscriptionTier, subscribeTier } from '@/services/subscriptions';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -142,48 +144,74 @@ const revStyles = StyleSheet.create({
 
 // ─── Subscribe sheet ──────────────────────────────────────────────────────────
 
+const SUBSCRIBE_TIERS: { tier: SubscriptionTier; label: string; price: number; color: string; desc: string }[] = [
+  { tier: 'normal',  label: 'Normal',  price: TIER_PRICES.normal,  color: '#4B9EFF', desc: 'Full premium feed' },
+  { tier: 'premium', label: 'Premium', price: TIER_PRICES.premium, color: '#FFB800', desc: 'Exclusive drops' },
+  { tier: 'vip',     label: 'VIP',     price: TIER_PRICES.vip,     color: '#C45A72', desc: 'All access + DMs' },
+];
+
 function SubscribeSheet({
   visible,
   creator,
-  canSubscribe,
-  creditBalance,
+  walletBalance,
   onConfirm,
   onWallet,
   onClose,
 }: {
   visible: boolean;
   creator: Creator;
-  canSubscribe: boolean;
-  creditBalance: number;
-  onConfirm: () => void;
+  walletBalance: number;
+  onConfirm: (tier: SubscriptionTier) => void;
   onWallet: () => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('normal');
+  const price = TIER_PRICES[selectedTier];
+  const canAfford = walletBalance >= price;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={shStyles.overlay} activeOpacity={1} onPress={onClose}>
         <View style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={shStyles.handle} />
-          <View style={shStyles.lockIcon}>
-            <Lock size={22} color={T.ACCENT} />
+          <Text style={shStyles.title}>Subscribe to {creator.name}</Text>
+          <Text style={shStyles.subtitle}>Choose a tier to unlock their content</Text>
+
+          {/* Tier cards */}
+          <View style={shStyles.tierRow}>
+            {SUBSCRIBE_TIERS.map(({ tier, label, price: p, color, desc }) => {
+              const active = selectedTier === tier;
+              return (
+                <TouchableOpacity
+                  key={tier}
+                  style={[shStyles.tierCard, active && { borderColor: color }]}
+                  onPress={() => setSelectedTier(tier)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[shStyles.tierLabel, active && { color }]}>{label}</Text>
+                  <Text style={[shStyles.tierPrice, active && { color }]}>₦{p}</Text>
+                  <Text style={shStyles.tierDesc}>{desc}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <Text style={shStyles.title}>
-            {canSubscribe ? `Subscribe to ${creator.name}` : 'More credits needed'}
-          </Text>
-          <Text style={shStyles.desc}>
-            {canSubscribe
-              ? `${creator.monthlyCredits} credits unlock this creator's complete premium feed. Your balance will update after confirmation.`
-              : `You need ${creator.monthlyCredits - creditBalance} more credits to subscribe to ${creator.name}.`}
-          </Text>
+
+          {/* Wallet balance */}
+          <View style={shStyles.walletRow}>
+            <Text style={shStyles.walletLabel}>Wallet balance</Text>
+            <Text style={[shStyles.walletAmt, !canAfford && { color: T.ERROR }]}>
+              ₦{walletBalance.toLocaleString()}
+            </Text>
+          </View>
 
           <TouchableOpacity
-            style={shStyles.primaryBtn}
+            style={[shStyles.primaryBtn, !canAfford && shStyles.primaryBtnOutline]}
             activeOpacity={0.85}
-            onPress={canSubscribe ? onConfirm : onWallet}
+            onPress={canAfford ? () => onConfirm(selectedTier) : onWallet}
           >
-            <Text style={shStyles.primaryLabel}>
-              {canSubscribe ? `Confirm · ${creator.monthlyCredits} credits` : 'Open wallet'}
+            <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
+              {canAfford ? `Subscribe · ₦${price.toLocaleString()}` : 'Top up wallet'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
@@ -200,24 +228,39 @@ const shStyles = StyleSheet.create({
   sheet: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 24, paddingTop: 12, gap: 12,
+    paddingHorizontal: 20, paddingTop: 12, gap: 12,
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
-    backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 8,
-  },
-  lockIcon: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: T.ACCENT_LIGHT,
-    alignItems: 'center', justifyContent: 'center',
-    alignSelf: 'center',
+    backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 4,
   },
   title: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center', letterSpacing: -0.4 },
-  desc: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', lineHeight: 20 },
+  subtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', marginTop: -4 },
+  tierRow: { flexDirection: 'row', gap: 8 },
+  tierCard: {
+    flex: 1, borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE_2,
+    borderWidth: 2, borderColor: 'transparent',
+    padding: 10, alignItems: 'center', gap: 2,
+  },
+  tierLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
+  tierPrice: { fontSize: 16, fontFamily: T.FONT.bold, color: T.TEXT },
+  tierDesc: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, textAlign: 'center', marginTop: 2 },
+  walletRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 4, paddingVertical: 6,
+    borderTopWidth: 1, borderTopColor: T.BORDER,
+  },
+  walletLabel: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+  walletAmt: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
   primaryBtn: {
     height: 52, borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
     alignItems: 'center', justifyContent: 'center',
+  },
+  primaryBtnOutline: {
+    backgroundColor: T.SURFACE_2,
+    borderWidth: 1.5, borderColor: T.ACCENT,
   },
   primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
   cancelBtn: { alignItems: 'center', paddingVertical: 10 },
@@ -348,8 +391,7 @@ export default function CreatorProfileScreen() {
     };
   }, [id, catalogCreator, realProfile]);
 
-  const creditBalance = Number(catalogQuery.data?.creditBalance ?? 0);
-  const canSubscribe  = Boolean(creator && creator.monthlyCredits > 0 && creditBalance >= creator.monthlyCredits);
+  const walletBalance = useWalletBalance();
 
   // Reviews (always empty — backend has no reviews endpoint)
   const reviews      = reviewsQuery.data?.reviews ?? [];
@@ -463,10 +505,8 @@ export default function CreatorProfileScreen() {
             </View>
             <View style={styles.metricDivider} />
             <View>
-              <Text style={styles.metricValue}>
-                {creator.monthlyCredits > 0 ? creator.monthlyCredits : '—'}
-              </Text>
-              <Text style={styles.metricLabel}>Credits / mo</Text>
+              <Text style={styles.metricValue}>{creator.subscriberCount > 0 ? fmtCount(creator.subscriberCount) : '—'}</Text>
+              <Text style={styles.metricLabel}>Subscribers</Text>
             </View>
             <View style={styles.metricDivider} />
             <View>
@@ -515,11 +555,7 @@ export default function CreatorProfileScreen() {
             activeOpacity={0.85}
           >
             <Lock size={16} color={T.BG} />
-            <Text style={styles.subscribeBtnLabel}>
-              {creator.monthlyCredits > 0
-                ? (canSubscribe ? `Subscribe · ${creator.monthlyCredits} credits` : 'Get more credits to subscribe')
-                : 'Subscribe'}
-            </Text>
+            <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
           </TouchableOpacity>
         </View>
 
@@ -677,15 +713,11 @@ export default function CreatorProfileScreen() {
                   <View style={styles.infoDivider} />
                 </>
               ) : null}
-              {creator.monthlyCredits > 0 && (
-                <>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Monthly credits</Text>
-                    <Text style={styles.infoValue}>{creator.monthlyCredits} credits</Text>
-                  </View>
-                  <View style={styles.infoDivider} />
-                </>
-              )}
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Subscription</Text>
+                <Text style={styles.infoValue}>From ₦{TIER_PRICES.normal}/mo</Text>
+              </View>
+              <View style={styles.infoDivider} />
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Availability</Text>
                 <View style={styles.onlineRow}>
@@ -709,9 +741,16 @@ export default function CreatorProfileScreen() {
       <SubscribeSheet
         visible={sheetOpen}
         creator={creator}
-        canSubscribe={canSubscribe}
-        creditBalance={creditBalance}
-        onConfirm={() => { setSheetOpen(false); }}
+        walletBalance={walletBalance}
+        onConfirm={async (selectedTier) => {
+          setSheetOpen(false);
+          try {
+            await subscribeTier(creator.id, selectedTier);
+            Alert.alert('Subscribed!', `You are now subscribed to ${creator.name} on the ${selectedTier} tier.`);
+          } catch (err) {
+            Alert.alert('Subscription failed', (err as Error).message ?? 'Please try again.');
+          }
+        }}
         onWallet={() => { setSheetOpen(false); router.push('/wallet'); }}
         onClose={() => setSheetOpen(false)}
       />

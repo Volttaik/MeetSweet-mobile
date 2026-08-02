@@ -185,6 +185,7 @@ export default function ShortsScreen() {
         },
         likedByMe: s.likedByMe,
         bookmarkedByMe: false,
+        tier: 'free' as const,
       }));
       cachePosts(postsToCache, 'shorts', user?.id ?? 'guest').catch(() => {});
     } catch {

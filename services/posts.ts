@@ -227,6 +227,8 @@ export interface CreatePostData {
   tags?: string[];
   /** Backend content_type — drives which feed/tab the post appears in. */
   content_type?: 'post' | 'video' | 'short' | 'album';
+  /** Minimum subscription tier required to view this post. */
+  tier?: 'free' | 'normal' | 'premium' | 'vip';
 }
 
 export async function createPost(data: CreatePostData): Promise<{ id: string }> {

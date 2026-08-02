@@ -505,7 +505,7 @@ export function CommentsModal({
     >
       {/* KAV is the outermost element so it can push the sheet above the keyboard on both platforms */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={modalStyles.kvWrap}
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
@@ -570,7 +570,6 @@ export function CommentsModal({
               />
             </View>
           </View>
-        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

@@ -50,12 +50,29 @@ export function MsCreditBadge({ balance, onPress }: MsCreditBadgeProps) {
 
   return (
     <TouchableOpacity onPress={handlePress} activeOpacity={0.75}>
-      <Animated.View style={[styles.badge, { transform: [{ scale: scaleAnim }] }]}>
+      <Animated.View style={[badge_styles.badge, { transform: [{ scale: scaleAnim }] }]}>
         <Wallet size={12} color={T.SUCCESS} weight="fill" />
         {displayBalance != null && (
-          <Text style={styles.label}>{displayBalance}</Text>
+          <Text style={badge_styles.label}>{displayBalance}</Text>
         )}
       </Animated.View>
     </TouchableOpacity>
   );
 }
+
+const badge_styles = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  label: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: T.SUCCESS,
+  },
+});

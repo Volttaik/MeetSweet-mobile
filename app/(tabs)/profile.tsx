@@ -33,7 +33,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { MsSkeletonCard } from '@/components/MsSkeletonCard';
+import { MsSkeletonCard, MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsActionSheet } from '@/components/MsActionSheet';
@@ -694,7 +694,7 @@ export default function ProfileScreen() {
         return (
           <View style={{ gap: 1 }}>
             {Array.from({ length: 3 }).map((_, i) => (
-              <MsSkeletonCard key={i} style={{ height: 200 }} radius={0} />
+              <MsPostSkeleton key={i} />
             ))}
           </View>
         );
