@@ -1,6 +1,6 @@
 /**
  * MsPremiumContent — one component for premium/locked media in feed, posts, messages.
- * Compact blur overlay with dynamic payment button + quick credits payment.
+ * Compact blur overlay with dynamic payment button + wallet-based payment.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsVideoPreview } from '@/components/MsVideoPreview';
-import { LockSimple, Play, Lightning, CreditCard } from 'phosphor-react-native';
+import { LockSimple, Play, Lightning } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -27,6 +27,7 @@ export interface MsPremiumContentProps {
   mediaType?: 'image' | 'video';
   locked?: boolean;
   unlocked?: boolean;
+  /** Price in Naira (₦) */
   price?: number;
   previewSeconds?: number;
   onUnlock?: () => void;
@@ -40,8 +41,8 @@ export interface MsPremiumContentProps {
   onPlayPress?: () => void;
   previewMode?: boolean;
   active?: boolean;
-  /** User's current credit balance — shown on the credits button */
-  creditBalance?: number;
+  /** User's wallet balance in Naira — shown on the pay button */
+  walletBalance?: number;
 }
 
 export function MsPremiumContent({
@@ -64,7 +65,7 @@ export function MsPremiumContent({
   onPlayPress,
   previewMode = false,
   active = true,
-  creditBalance,
+  walletBalance,
 }: MsPremiumContentProps) {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [videoStarted, setVideoStarted] = useState(false);
@@ -136,7 +137,7 @@ export function MsPremiumContent({
 
   if (unlocked && overlayOnly) return null;
 
-  const hasSufficientCredits = creditBalance !== undefined && creditBalance >= price;
+  const hasSufficientBalance = walletBalance !== undefined && walletBalance >= price;
 
   return (
     <>
@@ -247,24 +248,24 @@ export function MsPremiumContent({
                 >
                   <Play size={11} color={T.BG} weight="fill" />
                   <Text style={styles.unlockLabel}>
-                    {price > 0 ? `Unlock for ${price} credits` : 'Subscribe'}
+                    {price > 0 ? `Unlock for ₦${price.toLocaleString()}` : 'Subscribe'}
                   </Text>
                 </TouchableOpacity>
               </Animated.View>
 
-              {/* Secondary: quick credits pay (if user has balance) */}
-              {price > 0 && creditBalance !== undefined && (
+              {/* Secondary: quick wallet pay (if user has balance) */}
+              {price > 0 && walletBalance !== undefined && (
                 <TouchableOpacity
-                  onPress={hasSufficientCredits ? handleCreditPay : handleUnlock}
-                  style={styles.creditsBtn}
+                  onPress={hasSufficientBalance ? handleCreditPay : handleUnlock}
+                  style={styles.walletBtn}
                   activeOpacity={0.75}
                   disabled={unlocking}
                 >
-                  <Lightning size={10} color={hasSufficientCredits ? T.ACCENT : T.TEXT_3} weight="fill" />
-                  <Text style={[styles.creditsLabel, !hasSufficientCredits && { color: T.TEXT_3 }]}>
-                    {hasSufficientCredits
-                      ? `Pay with credits (${creditBalance} available)`
-                      : `Need ${price - creditBalance} more credits`}
+                  <Lightning size={10} color={hasSufficientBalance ? T.ACCENT : T.TEXT_3} weight="fill" />
+                  <Text style={[styles.walletLabel, !hasSufficientBalance && { color: T.TEXT_3 }]}>
+                    {hasSufficientBalance
+                      ? `Pay from wallet (₦${walletBalance.toLocaleString()} available)`
+                      : `Need ₦${(price - (walletBalance ?? 0)).toLocaleString()} more`}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -352,7 +353,7 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.semibold,
     fontSize: 12,
   },
-  creditsBtn: {
+  walletBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
@@ -362,7 +363,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
     marginTop: -2,
   },
-  creditsLabel: {
+  walletLabel: {
     color: T.ACCENT,
     fontFamily: T.FONT.medium,
     fontSize: 10,

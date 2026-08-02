@@ -142,7 +142,7 @@ export function MsFeaturedCreatorCard({
           <Text style={featuredStyles.metricText}>{creator.followers}</Text>
         </View>
         {creator.monthlyCredits > 0 && (
-          <Text style={featuredStyles.credits}>{creator.monthlyCredits} credits / mo</Text>
+          <Text style={featuredStyles.price}>₦{creator.monthlyCredits.toLocaleString()} / mo</Text>
         )}
       </View>
 
@@ -392,7 +392,7 @@ const featuredStyles = StyleSheet.create({
   },
   metric: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   metricText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
-  credits: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 10 },
+  price: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 10 },
   subscribeBtn: {
     marginTop: 12,
     height: 36,

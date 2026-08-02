@@ -76,7 +76,7 @@ export default function CreateAlbumScreen() {
   const [description,         setDescription]         = useState('');
   const [visibility,          setVisibility]          = useState<'public' | 'subscribers' | 'draft'>('public');
   const [isPaid,              setIsPaid]              = useState(false);
-  const [creditPrice,         setCreditPrice]         = useState('50');
+  const [price, setPrice] = useState('500');
   const [categories,          setCategories]          = useState<Category[]>([]);
   const [selectedCategories,  setSelectedCategories]  = useState<string[]>([]);
 
@@ -201,7 +201,7 @@ export default function CreateAlbumScreen() {
         title:          title.trim(),
         description:    description.trim() || undefined,
         visibility:     isPaid ? 'subscribers' : visibility,
-        unlock_price:   isPaid ? (parseInt(creditPrice, 10) || 50) : undefined,
+        unlock_price:   isPaid ? (parseInt(price, 10) || 500) : undefined,
         cover_media_id: uploadedCover.id,
         media_ids:      itemIds,
         categories:     selectedCategories,
@@ -296,7 +296,7 @@ export default function CreateAlbumScreen() {
           {isPaid && (
             <View style={styles.paidBadge}>
               <LockSimple size={14} color={T.ACCENT} />
-              <Text style={styles.paidBadgeText}>Paid album · {creditPrice} credits to unlock</Text>
+              <Text style={styles.paidBadgeText}>Paid album · ₦{parseInt(price, 10).toLocaleString()} to unlock</Text>
             </View>
           )}
 
@@ -622,10 +622,10 @@ export default function CreateAlbumScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.paidToggleLabel, isPaid && styles.paidToggleLabelActive]}>
-                  Charge credits to unlock
+                  Charge Naira to unlock
                 </Text>
                 <Text style={styles.paidToggleDesc}>
-                  Subscribers pay credits to access this album
+                  Subscribers pay from wallet to access this album
                 </Text>
               </View>
             </View>
@@ -635,18 +635,17 @@ export default function CreateAlbumScreen() {
           </TouchableOpacity>
 
           {isPaid && (
-            <View style={styles.creditPriceRow}>
-              <Text style={styles.creditPriceLabel}>Credits to unlock</Text>
-              <View style={styles.creditPriceInput}>
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Price (Naira ₦)</Text>
+              <View style={styles.priceInput}>
                 <TextInput
-                  value={creditPrice}
-                  onChangeText={(v) => setCreditPrice(v.replace(/[^0-9]/g, ''))}
+                  value={price}
+                  onChangeText={(v) => setPrice(v.replace(/[^0-9]/g, ''))}
                   keyboardType="number-pad"
-                  style={styles.creditPriceField}
+                  style={styles.priceField}
                   placeholderTextColor={T.TEXT_3}
                   selectionColor="#888"
                 />
-                <Text style={styles.creditUnit}>credits</Text>
               </View>
             </View>
           )}
@@ -951,7 +950,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.BG,
     alignSelf: 'flex-end',
   },
-  creditPriceRow: {
+  priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -959,9 +958,9 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.md,
     padding: 14,
   },
-  creditPriceLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
-  creditPriceInput: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  creditPriceField: {
+  priceLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
+  priceInput: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  priceField: {
     width: 70, height: 36,
     backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.sm,
@@ -969,7 +968,6 @@ const styles = StyleSheet.create({
     fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT,
     textAlign: 'center',
   },
-  creditUnit: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_2 },
 
   // Access note
   accessNote: {

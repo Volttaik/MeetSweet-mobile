@@ -18,7 +18,7 @@ export interface MsCreatorCardData {
   category?: string;
   /** Pre-formatted subscriber count string, e.g. "12.4K" */
   subscriberCount?: string;
-  /** Subscription price in credits per month */
+  /** Subscription price in Naira (₦) per month */
   subscriptionPrice?: number;
   isOnline?: boolean;
   isVerified?: boolean;
@@ -101,7 +101,7 @@ export function MsCreatorCard({
             </View>
           ) : null}
           {creator.subscriptionPrice ? (
-            <Text style={styles.priceText}>{creator.subscriptionPrice} cr/mo</Text>
+            <Text style={styles.priceText}>₦{creator.subscriptionPrice.toLocaleString()}/mo</Text>
           ) : null}
         </View>
       ) : null}

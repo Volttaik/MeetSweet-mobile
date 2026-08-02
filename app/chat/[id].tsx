@@ -676,7 +676,7 @@ export default function ChatScreen() {
 
   // ── Unlock paid content ───────────────────────────────────────────────────────
   const handleUnlockPaid = useCallback(async (msg: MsMessage) => {
-    Alert.alert('Unlock', `Unlock for ${msg.msPaidPrice ?? 0} credits?`, [
+    Alert.alert('Unlock', `Unlock for ₦${(msg.msPaidPrice ?? 0).toLocaleString()}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Unlock',

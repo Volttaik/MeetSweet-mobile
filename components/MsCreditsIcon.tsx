@@ -18,7 +18,7 @@ export function MsCreditsIcon({ size = 32 }: { size?: number }) {
           borderRadius: size / 2,
         },
       ]}
-      accessibilityLabel="MeetSweet credits"
+      accessibilityLabel="MeetSweet wallet"
     >
       <View
         style={[

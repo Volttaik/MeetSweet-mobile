@@ -203,7 +203,7 @@ function previewFromPost(post: RawPost): ContentPreview {
     commentCount: post.comment_count ?? 0,
     isPremium,
     gradient: gradientFor(post.id),
-    lockedLabel: isPremium ? `${post.unlock_price} credits` : 'Free',
+    lockedLabel: isPremium ? `₦${post.unlock_price?.toLocaleString()}` : 'Free',
     thumbnailUrl,
     mediaUrl,
     createdAt: post.created_at ?? post.published_at,

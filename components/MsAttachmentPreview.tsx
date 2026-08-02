@@ -199,7 +199,7 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
     if (!attachment) return;
     const price = parseFloat(paidPrice);
     if (isPaid && (isNaN(price) || price <= 0)) {
-      Alert.alert('Invalid price', 'Please enter a valid credit price for paid content.');
+      Alert.alert('Invalid price', 'Please enter a valid price in Naira for paid content.');
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -428,7 +428,7 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
                     selectionColor="#888"
                     maxLength={6}
                   />
-                  <Text style={s.priceSuffix}>credits</Text>
+                  <Text style={s.priceSuffix}>Naira (₦)</Text>
                 </View>
               )}
             </View>

@@ -150,7 +150,7 @@ export function ExploreCreatorCard({
             {!hasContent && creator.monthlyCredits > 0 && (
               <View style={styles.priceTag}>
                 <Star size={9} color={T.ACCENT} weight="fill" />
-                <Text style={styles.priceText}>{creator.monthlyCredits} cr/mo</Text>
+                <Text style={styles.priceText}>₦{creator.monthlyCredits.toLocaleString()}/mo</Text>
               </View>
             )}
           </View>
@@ -163,7 +163,7 @@ export function ExploreCreatorCard({
           {creator.monthlyCredits > 0 ? (
             <View style={styles.pricePill}>
               <Star size={10} color={T.ACCENT} weight="fill" />
-              <Text style={styles.pricePillText}>{creator.monthlyCredits} credits/mo</Text>
+              <Text style={styles.pricePillText}>₦{creator.monthlyCredits.toLocaleString()}/mo</Text>
             </View>
           ) : (
             <View style={styles.freePill}>

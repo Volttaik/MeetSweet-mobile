@@ -77,11 +77,11 @@ export default function AlbumScreen() {
     if (!album) return;
     Alert.alert(
       'Unlock Album',
-      `Unlock "${album.title}" for ${album.priceCredits} credits?`,
+      `Unlock "${album.title}" for ₦${album.priceCredits?.toLocaleString()}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: `Unlock · ${album.priceCredits}cr`,
+          text: `Unlock · ₦${album.priceCredits?.toLocaleString()}`,
           style: 'default',
           onPress: async () => {
             setUnlocking(true);
@@ -231,7 +231,7 @@ export default function AlbumScreen() {
           {album.isPremium && (
             <View style={styles.heroPriceBadge}>
               <Star size={10} color={T.ACCENT} weight="fill" />
-              <Text style={styles.heroPriceText}>{album.priceCredits} credits</Text>
+              <Text style={styles.heroPriceText}>₦{album.priceCredits?.toLocaleString()}</Text>
             </View>
           )}
         </View>
@@ -284,7 +284,7 @@ export default function AlbumScreen() {
                 <Text style={[styles.statValue, { color: T.ACCENT }]}>
                   {album.priceCredits}
                 </Text>
-                <Text style={styles.statLabel}>credits</Text>
+                <Text style={styles.statLabel}>Naira</Text>
               </View>
             )}
             <View style={styles.stat}>
@@ -305,7 +305,7 @@ export default function AlbumScreen() {
             <View style={styles.unlockCopy}>
               <Text style={styles.unlockTitle}>Premium Collection</Text>
               <Text style={styles.unlockSub}>
-                Unlock all {album.itemCount} items for {album.priceCredits} credits.
+                Unlock all {album.itemCount} items for ₦{album.priceCredits?.toLocaleString()}.
               </Text>
             </View>
             <TouchableOpacity

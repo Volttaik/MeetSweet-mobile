@@ -1,8 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { LockSimple, Sparkle } from 'phosphor-react-native';
+import { LockSimple, Sparkle, Wallet } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
-import { MsCreditsIcon } from '@/components/MsCreditsIcon';
 import { MsModal } from '@/components/MsModal';
 
 export type MsPaymentKind = 'unlock' | 'subscribe' | 'tip' | 'purchase';
@@ -14,13 +13,15 @@ export interface MsPaymentSheetProps {
   kind?: MsPaymentKind;
   title?: string;
   description?: string;
+  /** Amount in Naira (₦) */
   amount: number;
+  /** Wallet balance in Naira */
   balance?: number;
   loading?: boolean;
 }
 
 const copy: Record<MsPaymentKind, { title: string; action: string }> = {
-  unlock: { title: 'Unlock this drop', action: 'Unlock content' },
+  unlock: { title: 'Unlock this content', action: 'Unlock' },
   subscribe: { title: 'Subscribe to creator', action: 'Subscribe' },
   tip: { title: 'Send a tip', action: 'Send tip' },
   purchase: { title: 'Complete purchase', action: 'Purchase' },
@@ -45,7 +46,7 @@ export function MsPaymentSheet({
       visible={visible}
       onClose={loading ? () => {} : onClose}
       title={title ?? labels.title}
-      subtitle={description ?? 'Use MeetSweet Credits to keep the moment going.'}
+      subtitle={description ?? 'Pay from your MeetSweet wallet.'}
       footer={
         <TouchableOpacity
           style={[styles.confirm, (insufficient || loading) && styles.disabled]}
@@ -57,29 +58,31 @@ export function MsPaymentSheet({
             <ActivityIndicator color={T.BG} />
           ) : (
             <Text style={styles.confirmText}>
-              {insufficient ? 'Not enough credits' : labels.action}
+              {insufficient ? 'Insufficient balance' : labels.action}
             </Text>
           )}
         </TouchableOpacity>
       }
     >
       <View style={styles.amountCard}>
-        <MsCreditsIcon size={46} />
+        <View style={styles.walletIcon}>
+          <Wallet size={24} color={T.ACCENT} weight="duotone" />
+        </View>
         <View style={styles.amountCopy}>
-          <Text style={styles.amount}>{amount.toLocaleString()}</Text>
-          <Text style={styles.unit}>MeetSweet Credits</Text>
+          <Text style={styles.amount}>₦{amount.toLocaleString()}</Text>
+          <Text style={styles.unit}>Naira</Text>
         </View>
         <Sparkle size={20} color={T.ACCENT} weight="fill" />
       </View>
       {balance !== undefined && (
         <View style={styles.balanceRow}>
-          <Text style={styles.balanceLabel}>Your balance</Text>
-          <Text style={styles.balanceValue}>{balance.toLocaleString()} credits</Text>
+          <Text style={styles.balanceLabel}>Wallet balance</Text>
+          <Text style={styles.balanceValue}>₦{balance.toLocaleString()}</Text>
         </View>
       )}
       <View style={styles.secureRow}>
         <View style={styles.secureIcon}><LockSimple size={14} color={T.ACCENT} /></View>
-        <Text style={styles.secureText}>Secure, one-time confirmation</Text>
+        <Text style={styles.secureText}>Secure, instant transfer</Text>
       </View>
     </MsModal>
   );
@@ -93,6 +96,14 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: T.RADIUS.lg,
     backgroundColor: T.SURFACE_2,
+  },
+  walletIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: T.ACCENT_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   amountCopy: { flex: 1 },
   amount: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 24, letterSpacing: -0.6 },

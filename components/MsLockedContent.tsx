@@ -97,7 +97,7 @@ export function MsLockedContent({
 
         {price !== undefined && (
           <Text style={styles.price}>
-            {price === 0 ? 'Subscribe to view' : `${price} credits`}
+            {price === 0 ? 'Subscribe to view' : `₦${price.toLocaleString()}`}
           </Text>
         )}
 
