@@ -10,7 +10,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -42,7 +41,8 @@ import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
 import { CommentsModal } from '@/components/MsCommentsSheet';
 import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
-import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
+import { MsPostCard } from '@/components/MsPostCard';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { PressScale } from '@/components/motion/PressScale';
 import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 import {
@@ -190,7 +190,7 @@ export default function VideoWatchScreen() {
 
   // Build related videos from the explore catalog (exclude the current post).
   // Deduplicate both by post ID and by creator ID so each creator only appears once.
-  const relatedVideos = useMemo<MsFeedVideoCardData[]>(() => {
+  const relatedVideos = useMemo<Post[]>(() => {
     if (!catalog) return [];
     const previews  = catalog.previews  ?? [];
     const creators  = catalog.creators  ?? [];
@@ -211,28 +211,37 @@ export default function VideoWatchScreen() {
       .flatMap((p) => {
         const creator = creators.find((c) => c.id === p.creatorId);
         if (!creator) return [];
-        const card: MsFeedVideoCardData = {
-          id:               p.id,
-          title:            p.title || 'Untitled',
-          duration:         p.duration,
-          likes:            p.likes,
-          comments:         String(p.commentCount ?? 0),
-          uploadDate:       fmtTimeAgo(p.createdAt ?? ''),
-          gradient:         p.gradient,
-          isPremium:        p.isPremium,
-          kind:             p.kind,
-          lockedLabel:      p.lockedLabel,
-          thumbnailUrl:     p.thumbnailUrl  ?? null,
-          mediaUrl:         p.isPremium ? null : (p.mediaUrl ?? null),
-          creatorId:        creator.id,
-          creatorName:      creator.name,
-          creatorHandle:    creator.handle,
-          creatorInitials:  creator.initials,
-          creatorIsVerified: creator.isVerified ?? false,
-          creatorIsOnline:  creator.isOnline   ?? false,
-          creatorAvatarUrl: creator.avatarUrl  ?? null,
+        const post: Post = {
+          id:            p.id,
+          caption:       p.title || '',
+          visibility:    'public',
+          contentType:   (p.contentType as Post['contentType']) ?? 'video',
+          mediaUrl:      p.isPremium ? null : (p.mediaUrl ?? null),
+          mediaType:     'video',
+          thumbnailUrl:  p.thumbnailUrl ?? null,
+          durationSecs:  null,
+          fileSize:      null,
+          width:         null,
+          height:        null,
+          likeCount:     0,
+          commentCount:  p.commentCount ?? 0,
+          bookmarkCount: 0,
+          isPremium:     p.isPremium ?? false,
+          priceCredits:  null,
+          tier:          'free',
+          createdAt:     p.createdAt ?? '',
+          author: {
+            id:         creator.id,
+            name:       creator.name,
+            username:   creator.handle.replace('@', ''),
+            avatarUrl:  creator.avatarUrl ?? null,
+            isVerified: creator.isVerified ?? false,
+            isCreator:  true,
+          },
+          likedByMe:      false,
+          bookmarkedByMe: false,
         };
-        return [card];
+        return [post];
       });
   }, [catalog, id]);
 
@@ -241,9 +250,19 @@ export default function VideoWatchScreen() {
   if (loading) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
-        <View style={styles.center}>
-          <ActivityIndicator color={T.TEXT_2} size="large" />
+        <View style={styles.topBar}>
+          <PressScale
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            accessibilityLabel="Go back"
+            hitSlop={12}
+          >
+            <ArrowLeft size={19} color={T.TEXT} weight="bold" />
+          </PressScale>
         </View>
+        <MsPostSkeleton />
+        <MsPostSkeleton />
+        <MsPostSkeleton />
       </View>
     );
   }
@@ -433,22 +452,22 @@ export default function VideoWatchScreen() {
         )}
 
         {/* ── Related videos ────────────────────────────────────────────── */}
-        {relatedVideos.length > 0 && (
+        {catalogQuery.isLoading ? (
           <View style={styles.relatedSection}>
-            <Text style={styles.relatedTitle}>More Videos</Text>
+            <MsPostSkeleton />
+            <MsPostSkeleton />
+          </View>
+        ) : relatedVideos.length > 0 ? (
+          <View style={styles.relatedSection}>
             {relatedVideos.map((video) => (
-              <View key={video.id} style={styles.relatedCard}>
-                <MsFeedVideoCard
-                  card={video}
-                  compact
-                  onPress={() => router.push(`/videos/${video.id}`)}
-                  onCreatorPress={() => router.push(`/creator/${video.creatorId}`)}
-                  onUnlockPress={() => router.push(`/videos/${video.id}`)}
-                />
-              </View>
+              <MsPostCard
+                key={video.id}
+                post={video}
+                onAuthorPress={() => router.push(`/creator/${video.author.id}`)}
+              />
             ))}
           </View>
-        )}
+        ) : null}
       </ScrollView>
 
       {/* ── Sheets ───────────────────────────────────────────────────────── */}

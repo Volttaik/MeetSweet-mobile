@@ -1,14 +1,9 @@
 /**
  * Edit Post Screen — /edit-post/[id]
  *
- * Full dedicated screen for editing a post's content.
- * Replaces the old inline modal (EditPostSheet).
- *
- * Backend-supported fields sent on save:
- *   caption, visibility, unlock_price (premium price)
- *
- * On save: updates backend, calls markEdited() to propagate to all feeds,
- * then navigates back.
+ * Editable fields: caption, visibility, audience tier.
+ * Tier controls who can see the post and maps to the backend unlock_price.
+ * On save: updates backend, calls markEdited() to propagate to all feeds.
  */
 import React, { useEffect, useState } from 'react';
 import {
@@ -28,19 +23,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   Check,
-  CurrencyDollar,
   Eye,
   Lock,
-  LockSimple,
   Users,
   type Icon,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { getPost, editPost, type Post } from '@/services/posts';
+import { TIER_PRICES } from '@/services/subscriptions';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { toast } from '@/components/MsToast';
 
-// ─── Visibility option ────────────────────────────────────────────────────────
+// ─── Visibility options ───────────────────────────────────────────────────────
 
 const VISIBILITY_OPTIONS: Array<{
   value: 'public' | 'subscribers' | 'draft';
@@ -48,10 +42,27 @@ const VISIBILITY_OPTIONS: Array<{
   description: string;
   Icon: Icon;
 }> = [
-  { value: 'public',      label: 'Public',      description: 'Everyone can see this post',      Icon: Eye },
-  { value: 'subscribers', label: 'Subscribers',  description: 'Only your subscribers can view',  Icon: Users },
-  { value: 'draft',       label: 'Draft',        description: 'Only visible to you',             Icon: Lock },
+  { value: 'public',      label: 'Public',      description: 'Everyone can see this post',     Icon: Eye },
+  { value: 'subscribers', label: 'Subscribers',  description: 'Only your subscribers can view', Icon: Users },
+  { value: 'draft',       label: 'Draft',        description: 'Only visible to you',            Icon: Lock },
 ];
+
+// ─── Audience tier options (mirrors create-post) ──────────────────────────────
+
+type TierValue = 'free' | 'normal' | 'premium' | 'vip';
+
+const TIER_OPTIONS: Array<{ value: TierValue; label: string; color: string; desc: string }> = [
+  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All followers' },
+  { value: 'normal',  label: 'Normal',  color: '#4B9EFF', desc: '₦200/mo' },
+  { value: 'premium', label: 'Premium', color: '#FFB800', desc: '₦500/mo' },
+  { value: 'vip',     label: 'VIP',     color: '#C45A72', desc: '₦1,000/mo' },
+];
+
+// Map tier → backend unlock_price
+function tierToPrice(tier: TierValue): number {
+  if (tier === 'free') return 0;
+  return TIER_PRICES[tier] ?? 0;
+}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -67,8 +78,7 @@ export default function EditPostScreen() {
   // Editable fields
   const [caption,    setCaption]    = useState('');
   const [visibility, setVisibility] = useState<'public' | 'subscribers' | 'draft'>('public');
-  const [isPremium,  setIsPremium]  = useState(false);
-  const [price,      setPrice]      = useState('');
+  const [tier,       setTier]       = useState<TierValue>('free');
 
   // ── Load post ───────────────────────────────────────────────────────────────
 
@@ -80,9 +90,7 @@ export default function EditPostScreen() {
         setPost(p);
         setCaption(p.caption ?? '');
         setVisibility(p.visibility);
-        const hasPremiumPrice = p.priceCredits != null && p.priceCredits > 0;
-        setIsPremium(hasPremiumPrice);
-        setPrice(hasPremiumPrice ? String(p.priceCredits) : '');
+        setTier((p.tier as TierValue) ?? 'free');
       })
       .catch(() => toast.error('Could not load post'))
       .finally(() => setLoading(false));
@@ -92,26 +100,20 @@ export default function EditPostScreen() {
 
   const handleSave = async () => {
     if (!post || !id) return;
-    if (isPremium) {
-      const parsed = parseInt(price, 10);
-      if (isNaN(parsed) || parsed <= 0) {
-        toast.error('Enter a valid credit price');
-        return;
-      }
-    }
     setSaving(true);
     try {
-      const unlock_price = isPremium ? parseInt(price, 10) : 0;
+      const unlock_price = tierToPrice(tier);
       await editPost(id, {
         caption: caption.trim(),
         visibility,
         unlock_price,
+        tier,
       });
       markEdited(id, {
         caption: caption.trim(),
         visibility,
-        isPremium: isPremium && unlock_price > 0,
-        priceCredits: isPremium ? unlock_price : null,
+        isPremium: unlock_price > 0,
+        priceCredits: unlock_price > 0 ? unlock_price : null,
       });
       toast.success('Post updated');
       router.back();
@@ -222,44 +224,32 @@ export default function EditPostScreen() {
             </View>
           </View>
 
-          {/* ── Premium / price ── */}
+          {/* ── Audience Tier ── */}
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Monetisation</Text>
-            <View style={styles.premiumCard}>
-              <TouchableOpacity
-                style={styles.premiumToggleRow}
-                onPress={() => setIsPremium((v) => !v)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.premiumIconWrap}>
-                  <LockSimple size={16} color={T.ACCENT} />
-                </View>
-                <View style={styles.premiumTextGroup}>
-                  <Text style={styles.premiumLabel}>Paid content</Text>
-                  <Text style={styles.premiumSub}>Subscribers pay credits to unlock</Text>
-                </View>
-                <View style={[styles.toggle, isPremium && styles.toggleOn]}>
-                  <View style={[styles.toggleThumb, isPremium && styles.toggleThumbOn]} />
-                </View>
-              </TouchableOpacity>
-
-              {isPremium && (
-                <View style={styles.priceRow}>
-                  <CurrencyDollar size={15} color={T.TEXT_2} />
-                  <TextInput
-                    style={styles.priceInput}
-                    value={price}
-                    onChangeText={setPrice}
-                    placeholder="Credit price (e.g. 50)"
-                    placeholderTextColor={T.TEXT_3}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    selectionColor="#888"
-                  />
-                  <Text style={styles.priceSuffix}>credits</Text>
-                </View>
-              )}
+            <Text style={styles.sectionLabel}>Audience Tier</Text>
+            <View style={styles.tierRow}>
+              {TIER_OPTIONS.map((opt) => {
+                const active = opt.value === tier;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.tierOpt, active && { borderColor: opt.color }]}
+                    onPress={() => setTier(opt.value)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.tierLabel, active && { color: opt.color }]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={styles.tierDesc}>{opt.desc}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+            <Text style={styles.tierHint}>
+              {tier === 'free'
+                ? 'Visible to all your followers for free.'
+                : `Visible only to ${tier}-tier subscribers and above.`}
+            </Text>
           </View>
 
           {/* ── Post type info (read-only) ── */}
@@ -424,79 +414,34 @@ const styles = StyleSheet.create({
     backgroundColor: T.ACCENT,
   },
 
-  // Premium
-  premiumCard: {
+  // Audience tier
+  tierRow: { flexDirection: 'row', gap: 8 },
+  tierOpt: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.xl,
-    overflow: 'hidden',
-  },
-  premiumToggleRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    gap: 3,
   },
-  premiumIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: T.ACCENT_LIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  premiumTextGroup: { flex: 1, gap: 2 },
-  premiumLabel: {
-    fontSize: 14,
+  tierLabel: {
+    fontSize: 12,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
   },
-  premiumSub: {
-    fontSize: 11,
+  tierDesc: {
+    fontSize: 10,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
   },
-  toggle: {
-    width: 46,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: T.SURFACE_2,
-    padding: 3,
-    justifyContent: 'center',
-  },
-  toggleOn: { backgroundColor: T.ACCENT },
-  toggleThumb: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: T.TEXT_3,
-    alignSelf: 'flex-start',
-  },
-  toggleThumbOn: {
-    backgroundColor: '#fff',
-    alignSelf: 'flex-end',
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 2,
-  },
-  priceInput: {
-    flex: 1,
-    fontSize: 15,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  priceSuffix: {
-    fontSize: 13,
+  tierHint: {
+    fontSize: 11,
     fontFamily: T.FONT.regular,
-    color: T.TEXT_2,
+    color: T.TEXT_3,
+    marginTop: 2,
   },
 
   // Info card

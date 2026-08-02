@@ -1,16 +1,13 @@
 /**
- * ExploreAlbumCard — Dedicated card for Album collections.
+ * ExploreAlbumCard — Premium collection card with a 3D stacked-cards effect.
  *
- * Albums are premium curated collections — they deserve an elevated,
- * distinct visual presentation that communicates:
- *   "This is a premium collection, not a single post."
+ * Three physical cards rendered in depth:
+ *   - Two back cards (rotated, semi-transparent) that peek out from behind
+ *   - One front card using the ExploreImageCard design language
  *
- * Design language:
- * - Taller cover image with layered stack preview thumbnails
- * - Prominent COLLECTION badge
- * - Creator identity, item count, description
- * - For premium: accent-coloured unlock button with credit price
- * - Subscribe-then-purchase workflow communicated via UI
+ * The stacked-card silhouette communicates "collection" without any label.
+ * The front face is identical to the explore image card so the feed feels
+ * unified — large cover, creator chip overlay, caption + stats below.
  */
 import React from 'react';
 import {
@@ -23,6 +20,7 @@ import {
 } from 'react-native';
 import {
   CheckCircle,
+  Heart,
   Images,
   Lock,
   Star,
@@ -33,9 +31,8 @@ import { T } from '@/constants/theme';
 import type { AlbumCardData } from '@/services/albums';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - 32;
-// Taller cover — collections deserve vertical space
-const COVER_HEIGHT = 240;
+const CARD_WIDTH  = SCREEN_WIDTH - 32;
+const IMAGE_HEIGHT = Math.round(CARD_WIDTH * 0.88);
 
 const TONE: Record<string, string> = {
   violet:  '#1B1128',
@@ -48,11 +45,11 @@ const TONE: Record<string, string> = {
   fuchsia: '#1A0E1C',
 };
 
-function tone(gradient: string) {
+function tone(gradient: string): string {
   return TONE[gradient] ?? T.SURFACE_2;
 }
 
-interface ExploreAlbumCardProps {
+export interface ExploreAlbumCardProps {
   album: AlbumCardData;
   onPress: () => void;
   onCreatorPress?: () => void;
@@ -67,208 +64,309 @@ export function ExploreAlbumCard({
   onUnlockPress,
   onLongPress,
 }: ExploreAlbumCardProps) {
+  const bg = tone(album.gradient);
+
   return (
-    <Pressable
-      style={styles.card}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={400}
-      accessibilityRole="button"
-      accessibilityLabel={`Album: ${album.title} by ${album.creatorName}, ${album.itemCount} items`}
-    >
-      {/* ── Cover image ────────────────────────────────────── */}
-      <View style={[styles.coverWrap, { backgroundColor: tone(album.gradient) }]}>
+    /**
+     * Stack wrapper — overflow visible so the rotated back-card corners
+     * can peek out below the front card. paddingTop absorbs the few pixels
+     * the back cards' top corners extend upward. paddingBottom gives room
+     * for the larger bottom extension.
+     */
+    <View style={styles.stackWrapper}>
 
-        {/* Main cover */}
-        {album.coverUrl ? (
-          <MsMediaLoader
-            uri={album.coverUrl}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            accessibleLabel={`${album.title} cover`}
-            errorMessage=""
-            fallback={null}
-          />
-        ) : null}
+      {/* ── Back card 2 (furthest) ─────────────────────────────────────── */}
+      <View
+        style={[
+          styles.backCard,
+          styles.backCard2,
+          { backgroundColor: bg },
+        ]}
+      />
 
-        {/* Rich dark scrim for legibility */}
-        <View style={styles.coverScrim} pointerEvents="none" />
+      {/* ── Back card 1 (middle) ──────────────────────────────────────── */}
+      <View
+        style={[
+          styles.backCard,
+          styles.backCard1,
+          { backgroundColor: bg },
+        ]}
+      />
 
-        {/* Stacked preview thumbnails — top-right, fanned out */}
-        {album.previewUrls.length >= 2 && (
-          <View style={styles.stackWrap}>
-            {album.previewUrls.slice(0, 3).reverse().map((url, i) => (
-              <View
-                key={url + i}
-                style={[
-                  styles.stackThumb,
-                  {
-                    right: i * 12,
-                    zIndex: i,
-                    opacity: 1 - i * 0.20,
-                    transform: [{ rotate: `${i * 4}deg` }],
-                  },
-                ]}
-              >
-                <MsMediaLoader
-                  uri={url}
-                  style={StyleSheet.absoluteFill}
-                  resizeMode="cover"
-                  accessibleLabel=""
-                  errorMessage=""
-                  fallback={null}
-                />
+      {/* ── Front card ────────────────────────────────────────────────── */}
+      <Pressable
+        style={styles.frontShadow}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={400}
+        accessibilityRole="button"
+        accessibilityLabel={`Album: ${album.title} by ${album.creatorName}, ${album.itemCount} items`}
+      >
+        <View style={styles.frontCard}>
+
+          {/* ── Cover image ─────────────────────────────────────────── */}
+          <View style={[styles.imageWrap, { backgroundColor: bg }]}>
+
+            {album.coverUrl ? (
+              <MsMediaLoader
+                uri={album.coverUrl}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+                accessibleLabel={`${album.title} cover`}
+                errorMessage=""
+                fallback={null}
+              />
+            ) : null}
+
+            {/* Bottom scrim */}
+            <View style={styles.bottomScrim} pointerEvents="none" />
+
+            {/* Premium lock overlay */}
+            {album.isPremium && (
+              <View style={styles.lockOverlay} pointerEvents="box-none">
+                <View style={styles.lockCircle}>
+                  <Lock size={22} color={T.TEXT} weight="bold" />
+                </View>
+                <Text style={styles.lockTitle}>Premium Collection</Text>
+                {album.priceCredits ? (
+                  <View style={styles.lockPriceRow}>
+                    <Star size={12} color={T.ACCENT} weight="fill" />
+                    <Text style={styles.lockPrice}>{album.priceCredits} cr</Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.unlockButton}
+                  onPress={onUnlockPress ?? onPress}
+                  activeOpacity={0.85}
+                >
+                  <Lock size={12} color={T.BG} weight="bold" />
+                  <Text style={styles.unlockText}>Unlock</Text>
+                </TouchableOpacity>
               </View>
-            ))}
-          </View>
-        )}
+            )}
 
-        {/* COLLECTION badge — top left */}
-        <View style={styles.collectionBadge}>
-          <Images size={11} color="#fff" weight="bold" />
-          <Text style={styles.collectionBadgeText}>COLLECTION</Text>
-        </View>
-
-        {/* Premium indicator — top right (alongside stack) */}
-        {album.isPremium && (
-          <View style={styles.premiumBadge}>
-            <Star size={9} color={T.ACCENT} weight="fill" />
-            <Text style={styles.premiumBadgeText}>PREMIUM</Text>
-          </View>
-        )}
-
-        {/* Bottom info overlay */}
-        <View style={styles.coverFooter}>
-          {/* Item count pill */}
-          <View style={styles.countPill}>
-            <Text style={styles.countText}>{album.itemCount} items</Text>
-          </View>
-
-          {/* Price pill for premium */}
-          {album.isPremium && (
-            <View style={styles.pricePill}>
-              <Star size={10} color={T.ACCENT} weight="fill" />
-              <Text style={styles.priceText}>{album.priceCredits} credits</Text>
+            {/* COLLECTION badge — top left */}
+            <View style={styles.collectionBadge}>
+              <Images size={10} color="#fff" weight="bold" />
+              <Text style={styles.collectionBadgeText}>COLLECTION</Text>
             </View>
-          )}
-        </View>
-      </View>
 
-      {/* ── Card body ──────────────────────────────────────── */}
-      <View style={styles.body}>
-        {/* Album title */}
-        <Text style={styles.title} numberOfLines={1}>
-          {album.title}
-        </Text>
+            {/* Item count — top right */}
+            <View style={styles.itemCountBadge}>
+              <Text style={styles.itemCountText}>{album.itemCount} items</Text>
+            </View>
 
-        {/* Description */}
-        {album.description ? (
-          <Text style={styles.description} numberOfLines={2}>
-            {album.description}
-          </Text>
-        ) : null}
+            {/* Creator chip + premium pill — bottom overlay */}
+            <View style={styles.imageFooter} pointerEvents="box-none">
+              <TouchableOpacity
+                style={styles.creatorChip}
+                onPress={onCreatorPress ?? onPress}
+                activeOpacity={0.85}
+                hitSlop={6}
+              >
+                <MsAvatar
+                  size={28}
+                  initials={album.creatorInitials}
+                  imageUri={album.creatorAvatarUrl ?? undefined}
+                  showOnline={album.creatorIsOnline}
+                />
+                <View style={styles.creatorChipInner}>
+                  <Text style={styles.creatorName} numberOfLines={1}>
+                    {album.creatorName}
+                  </Text>
+                  {album.creatorIsVerified && (
+                    <CheckCircle size={13} color="rgba(255,255,255,0.85)" weight="fill" />
+                  )}
+                </View>
+              </TouchableOpacity>
 
-        {/* Footer — creator + CTA */}
-        <View style={styles.footer}>
-          {/* Creator identity */}
-          <TouchableOpacity
-            style={styles.creatorRow}
-            onPress={onCreatorPress ?? onPress}
-            activeOpacity={0.8}
-            hitSlop={6}
-          >
-            <MsAvatar
-              size={28}
-              initials={album.creatorInitials}
-              imageUri={album.creatorAvatarUrl ?? undefined}
-              showOnline={album.creatorIsOnline}
-            />
-            <View style={styles.creatorInfo}>
-              <Text style={styles.creatorName} numberOfLines={1}>
-                {album.creatorName}
-              </Text>
-              {album.creatorIsVerified && (
-                <CheckCircle size={12} color={T.TEXT_3} weight="fill" />
+              {album.isPremium && (
+                <View style={styles.premiumPill}>
+                  <Star size={8} color="#fff" weight="fill" />
+                  <Text style={styles.premiumText}>PREMIUM</Text>
+                </View>
               )}
             </View>
-          </TouchableOpacity>
+          </View>
 
-          {/* CTA button */}
-          {album.isPremium ? (
-            <TouchableOpacity
-              style={styles.unlockButton}
-              onPress={onUnlockPress ?? onPress}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={`Unlock album for ${album.priceCredits} credits`}
-            >
-              <Lock size={11} color="#fff" weight="bold" />
-              <Text style={styles.unlockText}>Unlock · {album.priceCredits}cr</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.viewButton}
-              onPress={onPress}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-            >
-              <Text style={styles.viewText}>View all</Text>
-            </TouchableOpacity>
-          )}
+          {/* ── Card body ───────────────────────────────────────────── */}
+          <View style={styles.body}>
+
+            {/* Handle + date row */}
+            <View style={styles.metaTopRow}>
+              <Text style={styles.handle} numberOfLines={1}>
+                {album.creatorHandle}
+              </Text>
+              <View style={styles.countRow}>
+                <Heart size={11} color={T.TEXT_3} />
+                <Text style={styles.countLabel}>{album.itemCount} items</Text>
+              </View>
+            </View>
+
+            {/* Album title */}
+            <Text style={styles.title} numberOfLines={2}>
+              {album.title}
+            </Text>
+
+            {/* Description */}
+            {album.description ? (
+              <Text style={styles.description} numberOfLines={2}>
+                {album.description}
+              </Text>
+            ) : null}
+
+            {/* Footer CTA */}
+            <View style={styles.footerRow}>
+              <View style={styles.footerLeft}>
+                <Images size={13} color={T.TEXT_3} />
+                <Text style={styles.footerMeta}>{album.itemCount} items in collection</Text>
+              </View>
+              {album.isPremium ? (
+                <TouchableOpacity
+                  style={styles.ctaUnlock}
+                  onPress={onUnlockPress ?? onPress}
+                  activeOpacity={0.85}
+                >
+                  <Lock size={11} color="#fff" weight="bold" />
+                  <Text style={styles.ctaUnlockText}>
+                    Unlock · {album.priceCredits}cr
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.ctaView}
+                  onPress={onPress}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.ctaViewText}>View all</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    width: CARD_WIDTH,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.xl,
-    overflow: 'hidden',
-    ...T.SHADOWS.medium,
+
+  // ── Stack wrapper ──────────────────────────────────────────────────────────
+  stackWrapper: {
+    // paddingTop absorbs the few px the back-card top corners extend upward
+    // paddingBottom gives room for the larger bottom corner peek
+    paddingTop: 14,
+    paddingBottom: 20,
+    marginHorizontal: 16,
+    // overflow: 'visible' is the RN default — rotated corners will show
   },
 
-  coverWrap: {
-    height: COVER_HEIGHT,
+  // Back cards: absolute-fill the stackWrapper so they match front-card size.
+  // Rotation makes their bottom corners extend below the front card.
+  backCard: {
+    position: 'absolute',
+    // Inset slightly to match front card margins (frontShadow has no extra margin)
+    top: 14,    // == paddingTop of stackWrapper
+    left: 0,
+    right: 0,
+    bottom: 20, // == paddingBottom of stackWrapper
+    borderRadius: T.RADIUS.xl,
+  },
+  backCard2: {
+    transform: [{ rotate: '-4.8deg' }],
+    opacity: 0.50,
+  },
+  backCard1: {
+    transform: [{ rotate: '3.2deg' }],
+    opacity: 0.68,
+  },
+
+  // ── Front card ─────────────────────────────────────────────────────────────
+  frontShadow: {
+    borderRadius: T.RADIUS.xl,
+    ...T.SHADOWS.hard,
+  },
+  frontCard: {
+    borderRadius: T.RADIUS.xl,
+    overflow: 'hidden',
+    backgroundColor: T.SURFACE,
+  },
+
+  // ── Cover image ────────────────────────────────────────────────────────────
+  imageWrap: {
+    height: IMAGE_HEIGHT,
     position: 'relative',
     justifyContent: 'flex-end',
   },
 
-  coverScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.30)',
+  bottomScrim: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 110,
+    backgroundColor: 'rgba(0,0,0,0.42)',
   },
 
-  // Stacked fanned thumbnails
-  stackWrap: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 80,
-    height: 62,
+  lockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    zIndex: 2,
+    backgroundColor: 'rgba(8,5,14,0.70)',
   },
-  stackThumb: {
-    position: 'absolute',
-    top: 0,
-    width: 56,
-    height: 62,
-    borderRadius: T.RADIUS.sm,
-    overflow: 'hidden',
-    backgroundColor: T.SURFACE_2,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.18)',
+  lockCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...T.SHADOWS.medium,
+  },
+  lockTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  lockPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lockPrice: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.bold,
+    fontSize: 17,
+  },
+  unlockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: T.TEXT,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: T.RADIUS.full,
+    marginTop: 4,
+    ...T.SHADOWS.soft,
+  },
+  unlockText: {
+    color: T.BG,
+    fontFamily: T.FONT.bold,
+    fontSize: 14,
   },
 
   collectionBadge: {
     position: 'absolute',
-    top: 16,
+    top: 14,
     left: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.62)',
+    backgroundColor: 'rgba(0,0,0,0.60)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: T.RADIUS.full,
@@ -280,26 +378,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
   },
 
-  premiumBadge: {
+  itemCountBadge: {
     position: 'absolute',
-    top: 54,
-    left: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(196,90,114,0.22)',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    top: 14,
+    right: 14,
+    backgroundColor: 'rgba(0,0,0,0.60)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: T.RADIUS.full,
   },
-  premiumBadgeText: {
-    color: T.ACCENT,
-    fontFamily: T.FONT.bold,
-    fontSize: 8,
-    letterSpacing: 0.8,
+  itemCountText: {
+    color: '#fff',
+    fontFamily: T.FONT.semibold,
+    fontSize: 10,
   },
 
-  coverFooter: {
+  imageFooter: {
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -309,43 +403,79 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 14,
     paddingVertical: 12,
-    paddingTop: 36,
+    zIndex: 3,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  creatorChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  countPill: {
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
     borderRadius: T.RADIUS.full,
+    paddingRight: 12,
+    paddingLeft: 4,
+    paddingVertical: 4,
   },
-  countText: {
-    color: '#fff',
-    fontFamily: T.FONT.semibold,
-    fontSize: 11,
-  },
-  pricePill: {
+  creatorChipInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(196,90,114,0.28)',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+  },
+  creatorName: {
+    color: '#fff',
+    fontFamily: T.FONT.semibold,
+    fontSize: 12,
+    maxWidth: 130,
+  },
+  premiumPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: T.ACCENT,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: T.RADIUS.full,
   },
-  priceText: {
-    color: T.ACCENT,
-    fontFamily: T.FONT.semibold,
-    fontSize: 11,
+  premiumText: {
+    color: '#fff',
+    fontFamily: T.FONT.bold,
+    fontSize: 8,
+    letterSpacing: 0.8,
   },
 
+  // ── Card body ──────────────────────────────────────────────────────────────
   body: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
     gap: 6,
+  },
+  metaTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  handle: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.medium,
+    fontSize: 12,
+    flex: 1,
+  },
+  countRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  countLabel: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.regular,
+    fontSize: 11,
   },
   title: {
     color: T.TEXT,
     fontFamily: T.FONT.bold,
     fontSize: 17,
+    lineHeight: 23,
     letterSpacing: -0.4,
   },
   description: {
@@ -354,55 +484,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-
-  footer: {
+  footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 6,
   },
-  creatorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-    minWidth: 0,
-  },
-  creatorInfo: {
+  footerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    flexShrink: 1,
+    flex: 1,
   },
-  creatorName: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.medium,
-    fontSize: 12,
-    flexShrink: 1,
+  footerMeta: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.regular,
+    fontSize: 11,
   },
 
-  unlockButton: {
+  ctaUnlock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     backgroundColor: T.ACCENT,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: T.RADIUS.full,
     ...T.SHADOWS.soft,
   },
-  unlockText: {
+  ctaUnlockText: {
     color: '#fff',
     fontFamily: T.FONT.semibold,
     fontSize: 12,
   },
-  viewButton: {
-    paddingHorizontal: 16,
+  ctaView: {
+    paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE_2,
   },
-  viewText: {
+  ctaViewText: {
     color: T.TEXT,
     fontFamily: T.FONT.semibold,
     fontSize: 12,
