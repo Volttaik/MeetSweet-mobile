@@ -262,8 +262,8 @@ interface PrivacyPrefs {
   onlineStatus: boolean;
   readReceipts: boolean;
   typingIndicator: boolean;
-  profileVisibility: 'everyone' | 'followers' | 'nobody';
-  messagePerm: 'everyone' | 'followers' | 'nobody';
+  profileVisibility: 'everyone' | 'subscribers' | 'nobody';
+  messagePerm: 'everyone' | 'subscribers' | 'nobody';
   mentionPerm: boolean;
   tagPerm: boolean;
 }
@@ -1057,11 +1057,11 @@ function ProfileVisibilityModal({
   visible: boolean;
   onClose: () => void;
   value: string;
-  onChange: (v: 'everyone' | 'followers' | 'nobody') => void;
+  onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
 }) {
-  const options: Array<{ value: 'everyone' | 'followers' | 'nobody'; label: string; sub: string }> = [
+  const options: Array<{ value: 'everyone' | 'subscribers' | 'nobody'; label: string; sub: string }> = [
     { value: 'everyone', label: 'Everyone', sub: 'Anyone can see your profile' },
-    { value: 'followers', label: 'Followers only', sub: 'Only your followers can see your full profile' },
+    { value: 'subscribers', label: 'Subscribers only', sub: 'Only your subscribers can see your full profile' },
     { value: 'nobody', label: 'Nobody', sub: 'Your profile is completely private' },
   ];
   return (
@@ -1101,11 +1101,11 @@ function PermissionModal({
   onClose: () => void;
   title: string;
   value: string;
-  onChange: (v: 'everyone' | 'followers' | 'nobody') => void;
+  onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
 }) {
-  const options: Array<{ value: 'everyone' | 'followers' | 'nobody'; label: string }> = [
+  const options: Array<{ value: 'everyone' | 'subscribers' | 'nobody'; label: string }> = [
     { value: 'everyone', label: 'Everyone' },
-    { value: 'followers', label: 'Followers only' },
+    { value: 'subscribers', label: 'Subscribers only' },
     { value: 'nobody', label: 'Nobody' },
   ];
   return (
@@ -1531,7 +1531,7 @@ export default function SettingsScreen() {
         <View style={rs.section}>
           <ToggleRow
             label="Private Account"
-            sub="Only approved followers see your posts"
+            sub="Only approved subscribers see your posts"
             value={privacy.privateAccount}
             onValueChange={(v) => {
               togglePrivacy('privateAccount')(v);
@@ -1561,13 +1561,13 @@ export default function SettingsScreen() {
           <Divider />
           <Row
             label="Profile Visibility"
-            sub={privacy.profileVisibility === 'everyone' ? 'Everyone' : privacy.profileVisibility === 'followers' ? 'Followers only' : 'Nobody'}
+            sub={privacy.profileVisibility === 'everyone' ? 'Everyone' : privacy.profileVisibility === 'subscribers' ? 'Subscribers only' : 'Nobody'}
             onPress={() => setModal('profileVisibility')}
           />
           <Divider />
           <Row
             label="Message Permissions"
-            sub={privacy.messagePerm === 'everyone' ? 'Everyone can message you' : privacy.messagePerm === 'followers' ? 'Followers only' : 'Nobody'}
+            sub={privacy.messagePerm === 'everyone' ? 'Everyone can message you' : privacy.messagePerm === 'subscribers' ? 'Subscribers only' : 'Nobody'}
             onPress={() => setModal('messagePerm')}
           />
           <Divider />

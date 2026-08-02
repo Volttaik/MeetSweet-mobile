@@ -156,7 +156,7 @@ export default function PrivacySettingsScreen() {
         <View style={styles.section}>
           <ToggleRow
             label="Private Account"
-            description="Only approved followers can see your posts"
+            description="Only approved subscribers can see your posts"
             value={prefs.privateAccount}
             onValueChange={toggle('privateAccount')}
           />

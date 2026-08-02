@@ -382,7 +382,7 @@ export default function CreatorProfileScreen() {
 
   // Real profile: GET /api/users/:username
   // Real posts:   GET /api/posts?creator_id=:id
-  const [realProfile, setRealProfile] = useState<{ name: string; username: string; bio?: string | null; avatarUrl?: string | null; bannerUrl?: string | null; followerCount?: number; isVerified?: boolean } | null>(null);
+  const [realProfile, setRealProfile] = useState<{ name: string; username: string; bio?: string | null; avatarUrl?: string | null; bannerUrl?: string | null; followerCount?: number; subscriberCount?: number; isVerified?: boolean } | null>(null);
   const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
 
@@ -410,6 +410,7 @@ export default function CreatorProfileScreen() {
           avatarUrl:    user.avatarUrl ?? null,
           bannerUrl:    user.bannerUrl ?? null,
           followerCount: user.followerCount ?? 0,
+          subscriberCount: user.subscriberCount ?? 0,
           isVerified:   user.isVerified ?? false,
         });
       })
@@ -440,9 +441,7 @@ export default function CreatorProfileScreen() {
     const resolvedHandle   = base?.handle || (profile?.username ? `@${profile.username}` : '');
     const resolvedInitials = initials(resolvedName);
     const resolvedBio      = profile?.bio ?? base?.bio ?? '';
-    const resolvedFollowers = profile
-      ? fmtCount(profile.followerCount ?? 0)
-      : (base?.followers ?? '');
+    const resolvedSubscriberCount = profile?.subscriberCount ?? base?.subscriberCount ?? 0;
     const resolvedIsVerified = profile?.isVerified ?? base?.isVerified ?? false;
 
     return {
@@ -452,8 +451,7 @@ export default function CreatorProfileScreen() {
       initials:        resolvedInitials,
       bio:             resolvedBio,
       category:        base?.category ?? '',
-      followers:       resolvedFollowers,
-      subscriberCount: base?.subscriberCount ?? 0,
+      subscriberCount: resolvedSubscriberCount,
       monthlyCredits:  base?.monthlyCredits ?? 0,
       isVerified:      resolvedIsVerified,
       isOnline:        base?.isOnline ?? false,
@@ -479,7 +477,8 @@ export default function CreatorProfileScreen() {
         getUser(username).then(({ user }) => setRealProfile({
           name: user.name, username: user.username, bio: user.bio,
           avatarUrl: user.avatarUrl, bannerUrl: user.bannerUrl,
-          followerCount: user.followerCount, isVerified: user.isVerified,
+          followerCount: user.followerCount, subscriberCount: user.subscriberCount,
+          isVerified: user.isVerified,
         })).catch(() => {}),
         getPostsByCreator(creatorUUID).then(({ posts }) => setCreatorPosts(posts)).catch(() => {}),
       ]);
@@ -572,17 +571,12 @@ export default function CreatorProfileScreen() {
           {/* Metrics */}
           <View style={styles.metrics}>
             <View>
-              <Text style={styles.metricValue}>{creator.followers || '—'}</Text>
-              <Text style={styles.metricLabel}>Followers</Text>
-            </View>
-            <View style={styles.metricDivider} />
-            <View>
-              <Text style={styles.metricValue}>{creator.subscriberCount > 0 ? fmtCount(creator.subscriberCount) : '—'}</Text>
+              <Text style={styles.metricValue}>{fmtCount(creator.subscriberCount ?? 0)}</Text>
               <Text style={styles.metricLabel}>Subscribers</Text>
             </View>
             <View style={styles.metricDivider} />
             <View>
-              <Text style={styles.metricValue}>{creatorPosts.length}</Text>
+              <Text style={styles.metricValue}>{fmtCount(creatorPosts.length)}</Text>
               <Text style={styles.metricLabel}>Drops</Text>
             </View>
           </View>
@@ -620,15 +614,17 @@ export default function CreatorProfileScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Subscribe button */}
-          <TouchableOpacity
-            style={styles.subscribeButton}
-            onPress={handleSubscribePress}
-            activeOpacity={0.85}
-          >
-            <Lock size={16} color={T.BG} />
-            <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
-          </TouchableOpacity>
+          {/* Subscribe button - shown when viewing another user's profile */}
+          {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
+            <TouchableOpacity
+              style={styles.subscribeButton}
+              onPress={handleSubscribePress}
+              activeOpacity={0.85}
+            >
+              <Lock size={16} color={T.BG} />
+              <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
+            </TouchableOpacity>
+          )}
 
           {/* Message button - shown when viewing another user's profile and not own profile */}
           {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
@@ -659,6 +655,17 @@ export default function CreatorProfileScreen() {
                   <Text style={styles.messageBtnLabel}>Message</Text>
                 </>
               )}
+            </TouchableOpacity>
+          )}
+
+          {/* Edit Profile button - shown when viewing own profile */}
+          {currentUser && currentUser.username === (realProfile?.username ?? id) && (
+            <TouchableOpacity
+              style={styles.subscribeButton}
+              onPress={() => router.push('/edit-profile')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.subscribeBtnLabel}>Edit Profile</Text>
             </TouchableOpacity>
           )}
         </View>
