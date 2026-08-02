@@ -147,32 +147,41 @@ export async function cancelSubscription(subscriptionId: string): Promise<void> 
   });
 }
 
-/** Get creator's messaging settings (who can message) */
+/** Get creator's messaging settings (who can message) - uses the new combined endpoint */
 export async function getCreatorMessagingSettings(
   creatorId: string,
 ): Promise<{ who_can_message: 'everyone' | 'subscribers' | 'none' }> {
   const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  // Try API first, fallback to default
+  if (!token) return { who_can_message: 'everyone' };
+  
   try {
-    return await apiFetch(`/creators/${creatorId}/messaging-settings`, {
-      headers: authHeader(token),
+    // Use the new combined check endpoint
+    const result = await apiFetch<{ 
+      who_can_message: 'everyone' | 'subscribers' | 'none';
+      subscribed: boolean;
+      can_message: boolean;
+    }>(`/subscriptions/check/${creatorId}`, {
+      headers: { ...authHeader(token) },
     });
+    return { who_can_message: result.who_can_message };
   } catch {
     return { who_can_message: 'everyone' };
   }
 }
 
-/** Check if user is subscribed to a specific creator */
+/** Check if user is subscribed to a specific creator - uses the new combined endpoint */
 export async function isSubscribedTo(creatorId: string): Promise<boolean> {
   const token = await getToken();
   if (!token) return false;
   try {
-    const raw = await apiFetch<{ subscribed?: boolean; is_subscribed?: boolean }>(
-      `/subscriptions/check/${creatorId}`,
-      { headers: authHeader(token) },
-    );
-    return raw.subscribed === true || raw.is_subscribed === true;
+    const result = await apiFetch<{ 
+      subscribed: boolean;
+      who_can_message: 'everyone' | 'subscribers' | 'none';
+      can_message: boolean;
+    }>(`/subscriptions/check/${creatorId}`, {
+      headers: authHeader(token),
+    });
+    return result.subscribed;
   } catch {
     return false;
   }

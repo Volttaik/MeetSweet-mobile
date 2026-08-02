@@ -37,6 +37,8 @@ import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import {
   getCreatorDashboard,
+  getCreatorSettings,
+  updateCreatorSettings,
   getCreatorSubscribers,
   type CreatorDashboard,
   type PeriodStat,
@@ -210,10 +212,10 @@ export default function CreatorDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  // ── Local settings state (UI only — wire to API when endpoints exist) ────────
+  // ── Local settings state ────────
   const [subsEnabled, setSubsEnabled] = useState(true);
   const [paidContentEnabled, setPaidContentEnabled] = useState(true);
-  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
+  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanComment, setWhoCanComment] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
   const [subsCanMsgFree, setSubsCanMsgFree] = useState(true);
@@ -264,12 +266,19 @@ export default function CreatorDashboardScreen() {
 
   const load = async () => {
     try {
-      const [dash, subs] = await Promise.all([
+      const [dash, subs, settings] = await Promise.all([
         getCreatorDashboard(),
         getCreatorSubscribers(1),
+        getCreatorSettings().catch(() => null),
       ]);
       setDashboard(dash);
       setSubscribers(subs.subscribers ?? []);
+      if (settings) {
+        setWhoCanMessage(settings.who_can_message ?? 'everyone');
+        setWhoCanComment(settings.allow_comments ? 'everyone' : 'none');
+        setSubsEnabled(true);
+        setPaidContentEnabled(true);
+      }
       setError('');
     } catch (e) {
       setError((e as Error).message ?? 'Failed to load dashboard');
@@ -474,9 +483,18 @@ export default function CreatorDashboardScreen() {
               value={whoCanMessage === 'everyone' ? 'Everyone' : whoCanMessage === 'subscribers' ? 'Subscribers' : 'No one'}
               onPress={() =>
                 Alert.alert('Who can message you?', undefined, [
-                  { text: 'Everyone', onPress: () => setWhoCanMessage('everyone') },
-                  { text: 'Subscribers only', onPress: () => setWhoCanMessage('subscribers') },
-                  { text: 'No one', onPress: () => setWhoCanMessage('none') },
+                  { text: 'Everyone', onPress: async () => {
+                    setWhoCanMessage('everyone');
+                    await updateCreatorSettings({ who_can_message: 'everyone' });
+                  }},
+                  { text: 'Subscribers only', onPress: async () => {
+                    setWhoCanMessage('subscribers');
+                    await updateCreatorSettings({ who_can_message: 'subscribers' });
+                  }},
+                  { text: 'No one', onPress: async () => {
+                    setWhoCanMessage('none');
+                    await updateCreatorSettings({ who_can_message: 'none' });
+                  }},
                   { text: 'Cancel', style: 'cancel' },
                 ])
               }

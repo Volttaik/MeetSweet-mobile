@@ -34,6 +34,7 @@ export interface CreatorSettings {
   subscription_price: number | null;
   allow_dms: boolean;
   allow_comments: boolean;
+  who_can_message: 'everyone' | 'subscribers' | 'none';
   welcome_message: string | null;
 }
 
