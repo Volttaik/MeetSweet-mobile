@@ -33,6 +33,8 @@ import {
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
+import { MsEmptyState } from '@/components/MsEmptyState';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
 import { useAlbum, unlockAlbum } from '@/services/albums';
 import type { AlbumItem } from '@/services/albums';
@@ -102,9 +104,15 @@ export default function AlbumScreen() {
   if (isLoading) {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={T.TEXT_2} />
-          <Text style={styles.loadingText}>Loading album…</Text>
+        <View style={styles.backRow}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <ArrowLeft size={20} color={T.TEXT} />
+          </Pressable>
+        </View>
+        <View style={styles.skeletonWrap}>
+          <MsPostSkeleton />
+          <MsPostSkeleton />
+          <MsPostSkeleton />
         </View>
       </MsAmbientBackground>
     );
@@ -120,11 +128,12 @@ export default function AlbumScreen() {
           </Pressable>
         </View>
         <View style={styles.loadingWrap}>
-          <Text style={styles.errorTitle}>Album not found</Text>
-          <Text style={styles.errorSub}>This album may have been removed.</Text>
-          <TouchableOpacity style={styles.backCta} onPress={() => router.back()}>
-            <Text style={styles.backCtaText}>Go back</Text>
-          </TouchableOpacity>
+          <MsEmptyState
+            title="Album not found"
+            message="This album may have been removed or is unavailable."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+          />
         </View>
       </MsAmbientBackground>
     );
@@ -373,34 +382,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
   },
-  loadingText: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.regular,
-    fontSize: 14,
-  },
-  errorTitle: {
-    color: T.TEXT,
-    fontFamily: T.FONT.semibold,
-    fontSize: 18,
-    textAlign: 'center',
-  },
-  errorSub: {
-    color: T.TEXT_2,
-    fontFamily: T.FONT.regular,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  backCta: {
-    marginTop: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.SURFACE,
-  },
-  backCtaText: {
-    color: T.TEXT,
-    fontFamily: T.FONT.semibold,
-    fontSize: 14,
+  skeletonWrap: {
+    paddingTop: 16,
   },
 
   // Hero

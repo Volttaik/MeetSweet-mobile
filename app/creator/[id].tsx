@@ -20,9 +20,7 @@ import {
   ArrowLeft,
   CaretRight,
   Check,
-  Clock,
   Lock,
-  Play,
   Sparkle,
   Star,
   Users,
@@ -40,8 +38,8 @@ import { getPostsByCreator, type Post } from '@/services/posts';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
-import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
-import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
+import { MsPostCard } from '@/components/MsPostCard';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -293,6 +291,7 @@ export default function CreatorProfileScreen() {
   // Real posts:   GET /api/posts?creator_id=:id
   const [realProfile, setRealProfile] = useState<{ name: string; username: string; bio?: string | null; avatarUrl?: string | null; bannerUrl?: string | null; followerCount?: number; isVerified?: boolean } | null>(null);
   const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
 
   // Catalog lookup: try by UUID (from explore), then by username/handle (from post navigation)
   const catalogCreator = useMemo(() => {
@@ -329,32 +328,12 @@ export default function CreatorProfileScreen() {
   const creatorUUID = catalogCreator?.id ?? id;
   useEffect(() => {
     if (!creatorUUID) return;
+    setPostsLoading(true);
     getPostsByCreator(creatorUUID)
       .then(({ posts }) => setCreatorPosts(posts))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setPostsLoading(false));
   }, [creatorUUID]);
-
-  /**
-   * Map backend posts → the preview shape expected by the Drops tab cards.
-   * Derived directly from real backend data — no placeholder content.
-   */
-  const creatorPreviews = useMemo(() => creatorPosts.map((post) => ({
-    id:           post.id,
-    creatorId:    creatorUUID ?? id ?? '',
-    title:        post.caption || '',
-    category:     '',
-    kind:         post.mediaType === 'video' ? 'video' : 'photo' as string,
-    contentType:  post.contentType,
-    duration:     '',
-    likes:        String(post.likeCount),
-    isPremium:    post.isPremium,
-    lockedLabel:  post.priceCredits ? `${post.priceCredits} credits` : 'Locked',
-    thumbnailUrl: post.thumbnailUrl ?? null,
-    mediaUrl:     post.mediaUrl ?? null,
-    createdAt:    post.createdAt,
-    commentCount: post.commentCount,
-    gradient:     'violet',
-  })), [creatorPosts, creatorUUID, id]);
 
   /**
    * Merge the explore-catalog shell with the real profile data.
@@ -510,7 +489,7 @@ export default function CreatorProfileScreen() {
             </View>
             <View style={styles.metricDivider} />
             <View>
-              <Text style={styles.metricValue}>{creatorPreviews.length}</Text>
+              <Text style={styles.metricValue}>{creatorPosts.length}</Text>
               <Text style={styles.metricLabel}>Drops</Text>
             </View>
           </View>
@@ -578,82 +557,26 @@ export default function CreatorProfileScreen() {
         {/* ── Tab content ── */}
         {activeTab === 'drops' && (
           <View style={styles.tabContent}>
-            {creatorPreviews.length > 0 ? (
+            {postsLoading ? (
               <View style={styles.dropsGrid}>
-                {creatorPreviews.map((preview) => {
-                  const creatorBase = {
-                    creatorId:         creator.id,
-                    creatorName:       creator.name,
-                    creatorHandle:     creator.handle,
-                    creatorInitials:   creator.initials,
-                    creatorIsVerified: creator.isVerified ?? false,
-                    creatorIsOnline:   creator.isOnline  ?? false,
-                    creatorAvatarUrl:  creator.avatarUrl ?? null,
-                  };
-                  const uploadDate = fmtTimeAgo(preview.createdAt ?? null);
-                  const comments   = String(preview.commentCount ?? 0);
-
-                  if (preview.kind === 'video' || preview.kind === 'audio') {
-                    const card: MsFeedVideoCardData = {
-                      id:           preview.id,
-                      title:        preview.title || 'Untitled',
-                      duration:     preview.duration,
-                      likes:        preview.likes,
-                      comments,
-                      uploadDate,
-                      gradient:     preview.gradient,
-                      isPremium:    preview.isPremium,
-                      kind:         preview.kind,
-                      lockedLabel:  preview.lockedLabel,
-                      thumbnailUrl: preview.thumbnailUrl ?? null,
-                      mediaUrl:     preview.isPremium ? null : (preview.mediaUrl ?? null),
-                      ...creatorBase,
-                    };
-                    const navToVideo = () => {
-                      if (preview.contentType === 'short') {
-                        router.push({ pathname: '/shorts', params: { startId: preview.id } });
-                      } else {
-                        router.push(`/videos/${preview.id}`);
-                      }
-                    };
-                    return (
-                      <MsFeedVideoCard
-                        key={preview.id}
-                        card={card}
-                        onPress={navToVideo}
-                        onCreatorPress={() => undefined}
-                        onUnlockPress={navToVideo}
-                      />
-                    );
-                  }
-
-                  const imgCard: ExploreImageCardData = {
-                    id:           preview.id,
-                    caption:      preview.title || '',
-                    likes:        preview.likes,
-                    comments,
-                    uploadDate,
-                    isPremium:    preview.isPremium,
-                    lockedLabel:  preview.lockedLabel,
-                    imageUrl:     preview.thumbnailUrl ?? preview.mediaUrl ?? null,
-                    gradient:     preview.gradient,
-                    ...creatorBase,
-                  };
-                  return (
-                    <ExploreImageCard
-                      key={preview.id}
-                      card={imgCard}
-                      onPress={() => router.push(`/content/${preview.id}`)}
-                      onCreatorPress={() => undefined}
-                      onUnlockPress={() => router.push(`/content/${preview.id}`)}
-                    />
-                  );
-                })}
+                <MsPostSkeleton />
+                <MsPostSkeleton />
+                <MsPostSkeleton />
+              </View>
+            ) : creatorPosts.length > 0 ? (
+              <View style={styles.dropsGrid}>
+                {creatorPosts.map((post) => (
+                  <MsPostCard
+                    key={post.id}
+                    post={post}
+                    onAuthorPress={() => undefined}
+                  />
+                ))}
               </View>
             ) : (
               <MsEmptyState
                 title="No drops yet"
-                message="This creator hasn't published any premium content yet."
+                message="This creator hasn't published any content yet."
               />
             )}
           </View>
