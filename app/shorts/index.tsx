@@ -18,7 +18,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
+import { ArrowBentUp, ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
 import { CommentsModal } from '@/components/MsCommentsSheet';
@@ -248,6 +248,8 @@ export default function ShortsScreen() {
             topInset={insets.top}
             bottomInset={insets.bottom}
             pageHeight={pageHeight}
+            isFirst={index === 0}
+            isLast={index === shorts.length - 1}
             onComment={() => setCommentsId(item.id)}
             onShare={() => setShareId(item.id)}
             onViewProgress={(seconds) => { if (seconds > 0) trackShortView(item.id, seconds).catch(() => {}); }}
@@ -296,6 +298,8 @@ function ShortPage({
   topInset,
   bottomInset,
   pageHeight,
+  isFirst,
+  isLast,
   onComment,
   onShare,
   onViewProgress,
@@ -305,6 +309,8 @@ function ShortPage({
   topInset: number;
   bottomInset: number;
   pageHeight: number;
+  isFirst: boolean;
+  isLast: boolean;
   onComment: () => void;
   onShare: () => void;
   onViewProgress: (seconds: number) => void;
@@ -409,6 +415,14 @@ function ShortPage({
         </View>
         {item.caption ? <Text style={styles.caption} numberOfLines={3}>{item.caption}</Text> : null}
         <Text style={styles.views}>{formatCount(item.viewCount)} views</Text>
+        
+        {/* Swipe up indicator - TikTok style */}
+        {!isLast && (
+          <View style={styles.swipeIndicator}>
+            <ArrowBentUp size={16} color="rgba(255,255,255,0.7)" weight="bold" />
+            <Text style={styles.swipeText}>Swipe up for more</Text>
+          </View>
+        )}
       </View>
 
       {/* Side actions */}
@@ -487,6 +501,17 @@ const styles = StyleSheet.create({
   subscribeText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 10 },
   caption: { color: '#fff', fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 21 },
   views: { color: 'rgba(255,255,255,0.68)', fontFamily: T.FONT.medium, fontSize: 11 },
+  swipeIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  swipeText: { color: 'rgba(255,255,255,0.7)', fontFamily: T.FONT.medium, fontSize: 10 },
   actions: { position: 'absolute', right: 14, bottom: 0, alignItems: 'center', gap: 18 },
   actionButton: { alignItems: 'center', gap: 4 },
   actionCircleWrap: { alignItems: 'center', justifyContent: 'center' },
