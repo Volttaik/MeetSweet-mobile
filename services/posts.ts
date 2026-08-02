@@ -30,6 +30,8 @@ export interface Post {
   bookmarkCount: number;
   isPremium: boolean;
   priceCredits: number | null;
+  /** Subscription tier required to view this post. */
+  tier: 'free' | 'normal' | 'premium' | 'vip';
   createdAt: string;
   author: PostAuthor;
   likedByMe: boolean;
@@ -87,6 +89,11 @@ function normalizePost(raw: any): Post {
     bookmarkCount: raw.save_count ?? 0,
     isPremium: raw.visibility === 'subscribers',
     priceCredits: raw.unlock_price ?? null,
+    tier: (raw.tier ?? (
+      raw.visibility === 'subscribers'
+        ? (raw.tier_level === 'vip' ? 'vip' : raw.tier_level === 'normal' ? 'normal' : 'premium')
+        : 'free'
+    )) as Post['tier'],
     createdAt: raw.created_at ?? raw.published_at ?? new Date().toISOString(),
     updatedAt: raw.updated_at,
     author: {
