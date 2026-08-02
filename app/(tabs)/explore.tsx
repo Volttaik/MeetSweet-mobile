@@ -47,6 +47,9 @@ import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { ExploreImageCard, type ExploreImageCardData } from '@/components/ExploreImageCard';
 import { MsFeedVideoCard, type MsFeedVideoCardData } from '@/components/MsFeedVideoCard';
 import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
+import { MsPostCard } from '@/components/MsPostCard';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
+import type { Post } from '@/services/posts';
 import { T } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -132,6 +135,45 @@ const toggleStyles = StyleSheet.create({
   },
 });
 
+// ─── Map explore ContentPreview + Creator → Post shape for MsPostCard ─────────
+
+function previewToPost(preview: import('@/lib/api-client-react').ContentPreview, creator: import('@/lib/api-client-react').Creator): Post {
+  const isVideo = preview.kind === 'video' || preview.kind === 'audio';
+  const contentType: Post['contentType'] =
+    preview.contentType === 'short' ? 'short' :
+    isVideo ? 'video' :
+    preview.kind === 'album' ? 'album' : 'post';
+  return {
+    id: preview.id,
+    caption: preview.title ?? '',
+    visibility: 'public',
+    contentType,
+    mediaUrl: preview.mediaUrl ?? null,
+    mediaType: isVideo ? 'video' : (preview.thumbnailUrl || preview.mediaUrl ? 'image' : null),
+    thumbnailUrl: preview.thumbnailUrl ?? null,
+    durationSecs: null,
+    fileSize: null,
+    width: null,
+    height: null,
+    likeCount: preview.likeCount ?? 0,
+    commentCount: preview.commentCount ?? 0,
+    bookmarkCount: 0,
+    isPremium: preview.isPremium ?? false,
+    priceCredits: null,
+    createdAt: preview.createdAt ?? new Date().toISOString(),
+    author: {
+      id: creator.id,
+      name: creator.name ?? '',
+      username: (creator.handle ?? '').replace('@', ''),
+      avatarUrl: creator.avatarUrl ?? null,
+      isVerified: creator.isVerified ?? false,
+      isCreator: true,
+    },
+    likedByMe: false,
+    bookmarkedByMe: false,
+  };
+}
+
 // ─── Shared header component ───────────────────────────────────────────────────
 
 interface HeaderProps {
@@ -142,6 +184,8 @@ interface HeaderProps {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
+  /** Whether to show MsCatalogSkeleton (false for explore mode — uses MsPostSkeleton instead) */
+  showCatalogSkeleton?: boolean;
 }
 
 function ExploreHeader({
@@ -152,6 +196,7 @@ function ExploreHeader({
   isLoading,
   isError,
   onRetry,
+  showCatalogSkeleton = true,
 }: HeaderProps) {
   return (
     <>
@@ -166,7 +211,7 @@ function ExploreHeader({
               ? 'Search albums, creators'
               : viewMode === 'creators'
               ? 'Search creators, categories'
-              : 'Search videos, creators'
+              : 'Search posts, creators'
           }
           style={styles.searchInput}
           compact
@@ -183,8 +228,8 @@ function ExploreHeader({
         <ModeToggle mode={viewMode} onChange={onModeChange} />
       </View>
 
-      {/* Loading skeleton */}
-      {isLoading && (
+      {/* Loading skeleton (catalog/albums/creators modes) */}
+      {isLoading && showCatalogSkeleton && (
         <View style={styles.loadingWrap}>
           <MsCatalogSkeleton />
         </View>
@@ -246,15 +291,14 @@ export default function ExploreScreen() {
     return allCreators.find((c) => c.id === id);
   }
 
-  // ── Feed items — image + video cards with album rows injected every 5 items ──
+  // ── Feed items — MsPostCard items (same as home feed) with album rows every 5 ─
   type FeedItem =
-    | { type: 'video';     data: MsFeedVideoCardData; id: string; contentType?: string | null }
-    | { type: 'image';     data: ExploreImageCardData; id: string; contentType?: string | null }
-    | { type: 'album-row'; albums: AlbumCardData[];    id: string };
+    | { type: 'post';      post: Post; id: string; contentType?: string | null }
+    | { type: 'album-row'; albums: AlbumCardData[]; id: string };
 
   const feedItems = useMemo<FeedItem[]>(() => {
     const needle = search.trim().toLowerCase();
-    const raw: (FeedItem & { type: 'video' | 'image' })[] = [];
+    const raw: (FeedItem & { type: 'post' })[] = [];
 
     for (const p of allPreviews) {
       const creator = findCreatorInFeed(p.creatorId);
@@ -263,53 +307,7 @@ export default function ExploreScreen() {
       const titleSearch = `${p.title} ${creator.name} ${p.kind}`.toLowerCase();
       if (needle && !titleSearch.includes(needle)) continue;
 
-      const uploadDate = fmtTimeAgo(p.createdAt);
-      const fmtComments = String(p.commentCount ?? 0);
-
-      if (p.kind === 'video' || p.kind === 'audio') {
-        const card: MsFeedVideoCardData = {
-          id: p.id,
-          title: p.title || 'Untitled',
-          duration: p.duration,
-          likes: p.likes,
-          comments: fmtComments,
-          uploadDate,
-          gradient: p.gradient,
-          isPremium: false,
-          kind: p.kind,
-          lockedLabel: undefined,
-          thumbnailUrl: p.thumbnailUrl,
-          mediaUrl: p.mediaUrl ?? null,
-          creatorId: creator.id,
-          creatorName: creator.name,
-          creatorHandle: creator.handle,
-          creatorInitials: creator.initials,
-          creatorIsVerified: creator.isVerified,
-          creatorIsOnline: creator.isOnline,
-          creatorAvatarUrl: creator.avatarUrl,
-        };
-        raw.push({ type: 'video', data: card, id: p.id, contentType: p.contentType });
-      } else {
-        const card: ExploreImageCardData = {
-          id: p.id,
-          caption: p.title || '',
-          likes: p.likes,
-          comments: fmtComments,
-          uploadDate,
-          isPremium: false,
-          lockedLabel: undefined,
-          imageUrl: p.thumbnailUrl ?? p.mediaUrl ?? null,
-          gradient: p.gradient,
-          creatorId: creator.id,
-          creatorName: creator.name,
-          creatorHandle: creator.handle,
-          creatorInitials: creator.initials,
-          creatorIsVerified: creator.isVerified,
-          creatorIsOnline: creator.isOnline,
-          creatorAvatarUrl: creator.avatarUrl,
-        };
-        raw.push({ type: 'image', data: card, id: p.id });
-      }
+      raw.push({ type: 'post', post: previewToPost(p, creator), id: p.id, contentType: p.contentType });
     }
 
     // Inject album rows every 5 content items for visual variety
@@ -497,9 +495,10 @@ export default function ExploreScreen() {
     isLoading,
     isError,
     onRetry: () => { catalogQuery.refetch(); feedQuery.refetch(); albumsQuery.refetch(); },
+    showCatalogSkeleton: viewMode !== 'explore',
   };
 
-  // ── EXPLORE MODE — primary discovery feed (mixed video + image cards) ─────────
+  // ── EXPLORE MODE — same MsPostCard feed as Home (single-column) ───────────────
   if (viewMode === 'explore') {
     const loadingMore = feedQuery.isFetchingNextPage;
 
@@ -509,45 +508,24 @@ export default function ExploreScreen() {
       }
     };
 
-    // ── Video preview viewability tracking ───────────────────────────────────
-  const [visibleVideoIds, setVisibleVideoIds] = useState<ReadonlySet<string>>(() => new Set());
-  const exploreViewabilityConfig = useRef({ itemVisiblePercentThreshold: 50, minimumViewTime: 150 }).current;
-  const onExploreViewableChanged = useRef(({ viewableItems }: { viewableItems: Array<{ key: string }> }) => {
-    setVisibleVideoIds(new Set(viewableItems.map((v) => v.key)));
-  }).current;
-
-  const renderFeedItem = ({ item }: { item: FeedItem }) => {
-      if (item.type === 'image') {
-        return (
-          <View style={styles.feedItemWrap}>
-            <ExploreImageCard
-              card={item.data}
-              onPress={() => router.push(`/post/${item.id}`)}
-              onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-              onUnlockPress={() => router.push(`/post/${item.id}`)}
-            />
-          </View>
-        );
-      }
-
-      if (item.type === 'video') {
+    const renderFeedItem = ({ item }: { item: FeedItem }) => {
+      if (item.type === 'post') {
         const navToContent = () => {
           if (item.contentType === 'short') {
             router.push({ pathname: '/shorts', params: { startId: item.id } });
-          } else {
+          } else if (item.post.mediaType === 'video') {
             router.push(`/videos/${item.id}`);
+          } else {
+            router.push(`/post/${item.id}`);
           }
         };
         return (
-          <View style={styles.videoItemWrap}>
-            <MsFeedVideoCard
-              card={item.data}
-              onPress={navToContent}
-              onCreatorPress={() => router.push(`/creator/${item.data.creatorId}`)}
-              onUnlockPress={navToContent}
-              videoPreviewActive={visibleVideoIds.has(item.id)}
-            />
-          </View>
+          <MsPostCard
+            post={item.post}
+            onPress={navToContent}
+            onMediaPress={navToContent}
+            onAuthorPress={() => router.push(`/creator/${item.post.author.id}`)}
+          />
         );
       }
 
@@ -589,12 +567,24 @@ export default function ExploreScreen() {
           data={feedItems}
           keyExtractor={(item) => item.id}
           renderItem={renderFeedItem}
-          ListHeaderComponent={<ExploreHeader {...headerProps} />}
+          ListHeaderComponent={
+            <>
+              <ExploreHeader {...headerProps} />
+              {/* Post skeletons while loading — matches Home feed exactly */}
+              {isLoading && feedItems.length === 0 && (
+                <View style={{ marginTop: 8 }}>
+                  <MsPostSkeleton />
+                  <MsPostSkeleton />
+                  <MsPostSkeleton />
+                </View>
+              )}
+            </>
+          }
           ListEmptyComponent={
             isLoading ? null : (
               <MsEmptyState
-                title="No posts found"
-                message="Try searching or check back later for new content."
+                title="No posts yet"
+                message="Check back later to discover new content from creators."
               />
             )
           }

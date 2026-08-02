@@ -1,13 +1,35 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
+  ArrowCircleUp,
+  Bell,
+  Broadcast,
+  Camera,
+  CaretDown,
+  CaretRight,
   ChartBar,
+  ChatText,
   CurrencyDollar,
+  CurrencyNgn,
+  Eye,
+  Gear,
+  GearSix,
+  Heart,
+  Lock,
+  MegaphoneSimple,
   TrendUp,
   Users,
-  ArrowCircleUp,
   type Icon,
 } from 'phosphor-react-native';
 import { Spinner } from 'heroui-native';
@@ -75,13 +97,101 @@ function ActivityRow({ stat }: { stat: PeriodStat }) {
         <View style={styles.activityDivider} />
         <View style={styles.activityStat}>
           <Text style={[styles.activityValue, { color: T.SUCCESS }]}>
-            ${stat.revenue.toFixed(2)}
+            ₦{(stat.revenue * 1600).toFixed(0)}
           </Text>
           <Text style={styles.activityStatLabel}>Revenue</Text>
         </View>
       </View>
     </View>
   );
+}
+
+// ─── Expandable settings section ─────────────────────────────────────────────
+
+function SettingsSection({
+  IconComp,
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  IconComp: Icon;
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <View style={styles.settingsCard}>
+      <TouchableOpacity
+        style={styles.settingsHeader}
+        onPress={() => setOpen((v) => !v)}
+        activeOpacity={0.75}
+      >
+        <View style={styles.settingsIconWrap}>
+          <IconComp size={18} color={T.TEXT_2} />
+        </View>
+        <Text style={styles.settingsTitle}>{title}</Text>
+        <CaretDown
+          size={16}
+          color={T.TEXT_3}
+          style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+        />
+      </TouchableOpacity>
+      {open && <View style={styles.settingsBody}>{children}</View>}
+    </View>
+  );
+}
+
+// ─── Settings row helpers ────────────────────────────────────────────────────
+
+function SettingsRow({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value?: string;
+  onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.settingsRow}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Text style={styles.settingsRowLabel}>{label}</Text>
+      <View style={styles.settingsRowRight}>
+        {value ? <Text style={styles.settingsRowValue}>{value}</Text> : null}
+        <CaretRight size={13} color={T.TEXT_3} />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function SettingsToggleRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <View style={styles.settingsRow}>
+      <Text style={styles.settingsRowLabel}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ false: T.SURFACE_2, true: T.ACCENT }}
+        thumbColor="#fff"
+      />
+    </View>
+  );
+}
+
+function SettingsDivider() {
+  return <View style={styles.settingsDivider} />;
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -97,6 +207,15 @@ export default function CreatorDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+
+  // ── Local settings state (UI only — wire to API when endpoints exist) ────────
+  const [subsEnabled, setSubsEnabled] = useState(true);
+  const [paidContentEnabled, setPaidContentEnabled] = useState(true);
+  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
+  const [whoCanComment, setWhoCanComment] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
+  const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
+  const [subsCanMsgFree, setSubsCanMsgFree] = useState(true);
+  const [nonSubsCanPayMsg, setNonSubsCanPayMsg] = useState(false);
 
   const load = async () => {
     try {
@@ -126,10 +245,10 @@ export default function CreatorDashboardScreen() {
   const recent_stats = dashboard?.period_stats?.slice(0, 6) ?? [];
 
   const STATS = [
-    { IconComp: CurrencyDollar, label: 'This Month', value: `$${monthRevenue.toFixed(2)}`, change: totalRevenue > 0 ? `$${totalRevenue.toFixed(2)} total` : '—', positive: totalRevenue > 0 },
-    { IconComp: Users,          label: 'Subscribers', value: subscribers_count.toString(), change: subscribers_count > 0 ? 'Active' : '—', positive: subscribers_count > 0 },
-    { IconComp: TrendUp,        label: 'Posts',       value: total_posts.toString(), change: total_posts > 0 ? 'Published' : '—', positive: total_posts > 0 },
-    { IconComp: ChartBar,       label: 'Engagement',  value: recent_stats[0] ? `${((recent_stats[0].likes / Math.max(recent_stats[0].views, 1)) * 100).toFixed(1)}%` : '0%', change: '—', positive: true },
+    { IconComp: CurrencyNgn, label: 'This Month', value: `₦${(monthRevenue * 1600).toFixed(0)}`, change: totalRevenue > 0 ? `₦${(totalRevenue * 1600).toFixed(0)} total` : '—', positive: totalRevenue > 0 },
+    { IconComp: Users,       label: 'Subscribers', value: subscribers_count.toString(), change: subscribers_count > 0 ? 'Active' : '—', positive: subscribers_count > 0 },
+    { IconComp: TrendUp,     label: 'Posts',       value: total_posts.toString(), change: total_posts > 0 ? 'Published' : '—', positive: total_posts > 0 },
+    { IconComp: ChartBar,    label: 'Engagement',  value: recent_stats[0] ? `${((recent_stats[0].likes / Math.max(recent_stats[0].views, 1)) * 100).toFixed(1)}%` : '0%', change: '—', positive: true },
   ];
 
   return (
@@ -170,7 +289,7 @@ export default function CreatorDashboardScreen() {
           {/* Creator Hub banner */}
           <View style={styles.banner}>
             <View style={styles.bannerLeft}>
-              <Text style={styles.bannerTitle}>Creator Hub ✦</Text>
+              <Text style={styles.bannerTitle}>Creator Hub</Text>
               <Text style={styles.bannerSubtitle}>
                 Track your earnings, subscribers, and content performance.
               </Text>
@@ -240,7 +359,9 @@ export default function CreatorDashboardScreen() {
               onPress={() => router.push('/create-post')}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionEmoji}>📸</Text>
+              <View style={styles.actionIconWrap}>
+                <Camera size={22} color={T.TEXT_2} />
+              </View>
               <Text style={styles.actionLabel}>New Post</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -248,7 +369,9 @@ export default function CreatorDashboardScreen() {
               onPress={() => router.push('/creator-payout')}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionEmoji}>💳</Text>
+              <View style={styles.actionIconWrap}>
+                <CurrencyNgn size={22} color={T.TEXT_2} />
+              </View>
               <Text style={styles.actionLabel}>Payout</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -256,10 +379,213 @@ export default function CreatorDashboardScreen() {
               onPress={() => router.push('/settings')}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionEmoji}>⚙️</Text>
+              <View style={styles.actionIconWrap}>
+                <GearSix size={22} color={T.TEXT_2} />
+              </View>
               <Text style={styles.actionLabel}>Settings</Text>
             </TouchableOpacity>
           </View>
+
+          {/* ── Settings Sections ─────────────────────────────────────────── */}
+          <Text style={styles.sectionTitle}>Creator Settings</Text>
+
+          {/* Subscription Settings */}
+          <SettingsSection IconComp={Users} title="Subscription Settings">
+            <SettingsToggleRow
+              label="Enable subscriptions"
+              value={subsEnabled}
+              onChange={setSubsEnabled}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Free tier"
+              value="Active"
+              onPress={() => Alert.alert('Free Tier', 'Configure free tier benefits.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Premium tier"
+              value="₦2,000/mo"
+              onPress={() => Alert.alert('Premium Tier', 'Set price and benefits for premium subscribers.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="VIP tier"
+              value="₦5,000/mo"
+              onPress={() => Alert.alert('VIP Tier', 'Set price and benefits for VIP subscribers.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Trial period"
+              value="7 days"
+              onPress={() => Alert.alert('Trial Period', 'Set a free trial period for new subscribers.')}
+            />
+          </SettingsSection>
+
+          {/* Messaging & Privacy */}
+          <SettingsSection IconComp={ChatText} title="Messaging & Privacy">
+            <SettingsRow
+              label="Who can message me"
+              value={whoCanMessage === 'everyone' ? 'Everyone' : whoCanMessage === 'subscribers' ? 'Subscribers' : 'No one'}
+              onPress={() =>
+                Alert.alert('Who can message you?', undefined, [
+                  { text: 'Everyone', onPress: () => setWhoCanMessage('everyone') },
+                  { text: 'Subscribers only', onPress: () => setWhoCanMessage('subscribers') },
+                  { text: 'No one', onPress: () => setWhoCanMessage('none') },
+                  { text: 'Cancel', style: 'cancel' },
+                ])
+              }
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Who can comment"
+              value={whoCanComment === 'everyone' ? 'Everyone' : whoCanComment === 'subscribers' ? 'Subscribers' : 'No one'}
+              onPress={() =>
+                Alert.alert('Who can comment?', undefined, [
+                  { text: 'Everyone', onPress: () => setWhoCanComment('everyone') },
+                  { text: 'Subscribers only', onPress: () => setWhoCanComment('subscribers') },
+                  { text: 'No one', onPress: () => setWhoCanComment('none') },
+                  { text: 'Cancel', style: 'cancel' },
+                ])
+              }
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Who can see my posts"
+              value={whoCanSee === 'everyone' ? 'Everyone' : whoCanSee === 'subscribers' ? 'Subscribers' : 'No one'}
+              onPress={() =>
+                Alert.alert('Who can see your posts?', undefined, [
+                  { text: 'Everyone', onPress: () => setWhoCanSee('everyone') },
+                  { text: 'Subscribers only', onPress: () => setWhoCanSee('subscribers') },
+                  { text: 'No one', onPress: () => setWhoCanSee('none') },
+                  { text: 'Cancel', style: 'cancel' },
+                ])
+              }
+            />
+          </SettingsSection>
+
+          {/* Paid Content */}
+          <SettingsSection IconComp={Lock} title="Paid Content Settings">
+            <SettingsToggleRow
+              label="Enable paid content"
+              value={paidContentEnabled}
+              onChange={setPaidContentEnabled}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Default content price"
+              value="₦500"
+              onPress={() => Alert.alert('Default Price', 'Set the default price for your paid content.')}
+            />
+            <SettingsDivider />
+            <SettingsToggleRow
+              label="Subscribers can message for free"
+              value={subsCanMsgFree}
+              onChange={setSubsCanMsgFree}
+            />
+            <SettingsDivider />
+            <SettingsToggleRow
+              label="Non-subscribers can pay to message"
+              value={nonSubsCanPayMsg}
+              onChange={setNonSubsCanPayMsg}
+            />
+          </SettingsSection>
+
+          {/* Social Causes */}
+          <SettingsSection IconComp={Heart} title="Social Causes">
+            <SettingsRow
+              label="Link a cause or charity"
+              onPress={() => Alert.alert('Social Causes', 'Link your profile to a charity or fundraiser to display it on your page.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Display cause on profile"
+              value="Off"
+              onPress={() => Alert.alert('Display Cause', 'Show your linked cause on your public profile.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Share cause updates"
+              onPress={() => Alert.alert('Cause Updates', 'Broadcast fundraising milestones to your subscribers.')}
+            />
+          </SettingsSection>
+
+          {/* Analytics */}
+          <SettingsSection IconComp={ChartBar} title="Analytics">
+            <View style={styles.analyticsRow}>
+              <View style={styles.analyticsItem}>
+                <Text style={styles.analyticsValue}>
+                  {recent_stats.reduce((s, p) => s + p.views, 0).toLocaleString()}
+                </Text>
+                <Text style={styles.analyticsLabel}>Total Views</Text>
+              </View>
+              <View style={styles.analyticsDivider} />
+              <View style={styles.analyticsItem}>
+                <Text style={styles.analyticsValue}>{subscribers_count}</Text>
+                <Text style={styles.analyticsLabel}>Subscribers</Text>
+              </View>
+              <View style={styles.analyticsDivider} />
+              <View style={styles.analyticsItem}>
+                <Text style={styles.analyticsValue}>
+                  ₦{(totalRevenue * 1600).toFixed(0)}
+                </Text>
+                <Text style={styles.analyticsLabel}>Revenue</Text>
+              </View>
+            </View>
+            <SettingsDivider />
+            <SettingsRow
+              label="Top performing content"
+              onPress={() => Alert.alert('Analytics', 'Detailed content analytics coming soon.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Engagement breakdown"
+              value={recent_stats[0] ? `${((recent_stats[0].likes / Math.max(recent_stats[0].views, 1)) * 100).toFixed(1)}%` : '—'}
+              onPress={() => Alert.alert('Engagement', 'View your engagement rate breakdown.')}
+            />
+          </SettingsSection>
+
+          {/* Withdrawal */}
+          <SettingsSection IconComp={CurrencyNgn} title="Withdrawal">
+            <SettingsRow
+              label="Current balance"
+              value={`₦${(totalRevenue * 1600).toFixed(0)}`}
+              onPress={() => router.push('/creator-payout')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Bank details"
+              onPress={() => router.push('/creator-payout')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Withdrawal history"
+              onPress={() => router.push('/creator-payout')}
+            />
+            <SettingsDivider />
+            <View style={styles.settingsRow}>
+              <Text style={styles.settingsRowLabel}>Minimum withdrawal</Text>
+              <Text style={styles.settingsRowValue}>₦1,000</Text>
+            </View>
+          </SettingsSection>
+
+          {/* Broadcast */}
+          <SettingsSection IconComp={MegaphoneSimple} title="Broadcast">
+            <SettingsRow
+              label="Send to all subscribers"
+              onPress={() => Alert.alert('Broadcast', 'Send a message to all your subscribers.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Send to premium subscribers"
+              onPress={() => Alert.alert('Broadcast', 'Send a message to premium subscribers only.')}
+            />
+            <SettingsDivider />
+            <SettingsRow
+              label="Schedule broadcast"
+              onPress={() => Alert.alert('Schedule', 'Schedule a broadcast for a specific time.')}
+            />
+          </SettingsSection>
 
         </ScrollView>
       )}
@@ -336,7 +662,6 @@ const styles = StyleSheet.create({
     width: '47%',
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
-    borderWidth: 1, borderColor: T.BORDER_2,
     padding: 16, gap: 4,
   },
   statIcon: {
@@ -352,7 +677,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 20, marginBottom: 8,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
-    borderWidth: 1, borderColor: T.BORDER_2,
     overflow: 'hidden',
   },
   activityRow: {
@@ -372,7 +696,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 20, marginBottom: 8,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
-    borderWidth: 1, borderColor: T.BORDER_2,
     overflow: 'hidden',
   },
   subRow: {
@@ -402,10 +725,86 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
-    borderWidth: 1, borderColor: T.BORDER_2,
     paddingVertical: 18,
     alignItems: 'center', gap: 8,
   },
-  actionEmoji: { fontSize: 24 },
+  actionIconWrap: {
+    width: 40, height: 40, borderRadius: T.RADIUS.sm,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center', justifyContent: 'center',
+  },
   actionLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.TEXT },
+
+  // ── Settings sections ────────────────────────────────────────────────────────
+  settingsCard: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    overflow: 'hidden',
+  },
+  settingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+  },
+  settingsIconWrap: {
+    width: 32, height: 32, borderRadius: T.RADIUS.sm,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  settingsTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+    letterSpacing: -0.1,
+  },
+  settingsBody: {
+    borderTopWidth: 1,
+    borderTopColor: T.BORDER,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    minHeight: 46,
+  },
+  settingsRowLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+  },
+  settingsRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  settingsRowValue: {
+    fontSize: 13,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_3,
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: T.BORDER,
+    marginHorizontal: 16,
+  },
+
+  // Analytics inside settings section
+  analyticsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+  },
+  analyticsItem: { flex: 1, alignItems: 'center', gap: 4 },
+  analyticsValue: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
+  analyticsLabel: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, letterSpacing: 0.2 },
+  analyticsDivider: { width: 1, height: 36, backgroundColor: T.BORDER_2 },
 });

@@ -21,7 +21,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { PaperPlaneTilt, Smiley, X } from 'phosphor-react-native';
+import { PaperPlaneRight, Smiley, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
 interface ReplyInfo {
@@ -143,7 +143,7 @@ export function MsComposer({
             pointerEvents={hasText ? 'none' : 'auto'}
           >
             <View style={[styles.actionBtn, styles.actionBtnIdle]}>
-              <PaperPlaneTilt size={20} color={T.TEXT_3} weight="fill" />
+              <PaperPlaneRight size={20} color={T.TEXT_3} weight="fill" />
             </View>
           </Animated.View>
 
@@ -161,7 +161,7 @@ export function MsComposer({
               activeOpacity={0.8}
               disabled={!canSend}
             >
-              <PaperPlaneTilt size={20} color="#fff" weight="fill" />
+              <PaperPlaneRight size={20} color="#fff" weight="fill" />
             </TouchableOpacity>
           </Animated.View>
         </View>

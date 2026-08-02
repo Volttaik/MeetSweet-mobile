@@ -503,74 +503,75 @@ export function CommentsModal({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
       <View style={modalStyles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
-          {/* Handle */}
-          <View style={modalStyles.handle} />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={modalStyles.kvWrap}
+        >
+          <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
+            {/* Handle */}
+            <View style={modalStyles.handle} />
 
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <Text style={modalStyles.title}>Comments</Text>
-            <Text style={modalStyles.count}>{comments.length}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12} style={modalStyles.closeBtn}>
-              <X size={18} color={T.TEXT_2} />
-            </TouchableOpacity>
-          </View>
-
-          {/* List */}
-          {isLoading ? (
-            <ActivityIndicator style={modalStyles.loader} color={T.TEXT_3} />
-          ) : error ? (
-            <View style={modalStyles.emptyWrap}>
-              <Text style={modalStyles.emptyText}>{error}</Text>
-              <TouchableOpacity onPress={refresh} style={modalStyles.retryBtn}>
-                <Text style={modalStyles.retryText}>Retry</Text>
+            {/* Header */}
+            <View style={modalStyles.header}>
+              <Text style={modalStyles.title}>Comments</Text>
+              <Text style={modalStyles.count}>{comments.length}</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={12} style={modalStyles.closeBtn}>
+                <X size={18} color={T.TEXT_2} />
               </TouchableOpacity>
             </View>
-          ) : (
-            <FlatList
-              data={comments}
-              keyExtractor={(c) => c.id}
-              renderItem={({ item, index }) => (
-                <CommentRow
-                  comment={item}
-                  postId={postId}
-                  currentUserId={currentUserId}
-                  showDivider={index < comments.length - 1}
-                  onLike={handleLike}
-                  onUnlike={handleUnlike}
-                  onDelete={handleDelete}
-                />
-              )}
-              contentContainerStyle={modalStyles.listContent}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={modalStyles.emptyWrap}>
-                  <Text style={modalStyles.emptyText}>No comments yet. Be the first!</Text>
-                </View>
-              }
-            />
-          )}
 
-          {/* Composer */}
-          <View style={modalStyles.composerWrap}>
-            <MsComposer
-              mode="comment"
-              value={text}
-              onChangeText={setText}
-              onSend={handleSend}
-              placeholder="Add a comment…"
-              disabled={sending}
-            />
+            {/* List */}
+            {isLoading ? (
+              <ActivityIndicator style={modalStyles.loader} color={T.TEXT_3} />
+            ) : error ? (
+              <View style={modalStyles.emptyWrap}>
+                <Text style={modalStyles.emptyText}>{error}</Text>
+                <TouchableOpacity onPress={refresh} style={modalStyles.retryBtn}>
+                  <Text style={modalStyles.retryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <FlatList
+                data={comments}
+                keyExtractor={(c) => c.id}
+                renderItem={({ item, index }) => (
+                  <CommentRow
+                    comment={item}
+                    postId={postId}
+                    currentUserId={currentUserId}
+                    showDivider={index < comments.length - 1}
+                    onLike={handleLike}
+                    onUnlike={handleUnlike}
+                    onDelete={handleDelete}
+                  />
+                )}
+                contentContainerStyle={modalStyles.listContent}
+                showsVerticalScrollIndicator={false}
+                style={modalStyles.list}
+                ListEmptyComponent={
+                  <View style={modalStyles.emptyWrap}>
+                    <Text style={modalStyles.emptyText}>No comments yet. Be the first!</Text>
+                  </View>
+                }
+              />
+            )}
+
+            {/* Composer — pinned at bottom, keyboard pushes sheet up */}
+            <View style={modalStyles.composerWrap}>
+              <MsComposer
+                mode="comment"
+                value={text}
+                onChangeText={setText}
+                onSend={handleSend}
+                placeholder="Add a comment…"
+                disabled={sending}
+              />
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
-      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -581,6 +582,10 @@ const modalStyles = StyleSheet.create({
     backgroundColor: 'rgba(8,5,8,0.72)',
     justifyContent: 'flex-end',
   },
+  kvWrap: {
+    // KeyboardAvoidingView sits at the bottom, sheet is inside it
+    width: '100%',
+  },
   sheet: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 26,
@@ -588,6 +593,9 @@ const modalStyles = StyleSheet.create({
     maxHeight: '88%',
     paddingTop: 12,
     ...T.SHADOWS.hard,
+  },
+  list: {
+    flex: 1,
   },
   handle: {
     width: 36,
