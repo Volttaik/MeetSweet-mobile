@@ -369,8 +369,16 @@ export default function CreatorProfileScreen() {
       return;
     }
     
-    // Open chat
-    router.push(`/chat/${id}`);
+    // Open chat — pass display info so the chat header shows the right name
+    router.push({
+      pathname: '/chat/[id]',
+      params: {
+        id,
+        name:      creator?.name ?? '',
+        username:  (creator?.handle ?? '').replace('@', ''),
+        avatarUrl: creator?.avatarUrl ?? '',
+      },
+    });
   };
 
   // ── Data sources ─────────────────────────────────────────────────────────────

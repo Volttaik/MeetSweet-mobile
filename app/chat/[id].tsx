@@ -125,7 +125,7 @@ function formatDateLabel(d: Date): string {
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
-  const { id: conversationId } = useLocalSearchParams<{ id: string }>();
+  const { id: conversationId, name: paramName, username: paramUsername, avatarUrl: paramAvatarUrl } = useLocalSearchParams<{ id: string; name?: string; username?: string; avatarUrl?: string }>();
   const { user } = useAuth();
 
   // ── Message state ────────────────────────────────────────────────────────────
@@ -147,7 +147,10 @@ export default function ChatScreen() {
 
   // ── Other user info ──────────────────────────────────────────────────────────
   const [otherUser, setOtherUser] = useState<ProfileSheetUser>({
-    id: '', name: '', username: '', avatarUrl: null,
+    id:        conversationId ?? '',
+    name:      paramName     ?? '',
+    username:  paramUsername  ?? '',
+    avatarUrl: paramAvatarUrl ?? null,
   });
   const [isFollowing, setIsFollowing] = useState(false);
 
