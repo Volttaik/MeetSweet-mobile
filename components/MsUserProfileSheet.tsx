@@ -111,12 +111,12 @@ export function MsUserProfileSheet({
         <View style={s.statsRow}>
           <View style={s.stat}>
             <Text style={s.statNum}>{fmtCount(user.followerCount)}</Text>
-            <Text style={s.statLabel}>Followers</Text>
+            <Text style={s.statLabel}>Subscribers</Text>
           </View>
           <View style={s.statDivider} />
           <View style={s.stat}>
             <Text style={s.statNum}>{fmtCount(user.followingCount)}</Text>
-            <Text style={s.statLabel}>Following</Text>
+            <Text style={s.statLabel}>Subscribed To</Text>
           </View>
         </View>
       )}
@@ -136,7 +136,7 @@ export function MsUserProfileSheet({
           >
             <UserPlus size={16} color={isFollowing ? T.TEXT_2 : '#fff'} />
             <Text style={[s.actionBtnText, isFollowing && s.actionBtnTextOutline]}>
-              {isFollowing ? 'Following' : 'Follow'}
+              {isFollowing ? 'Subscribed' : 'Subscribe'}
             </Text>
           </TouchableOpacity>
         )}

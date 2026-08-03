@@ -383,6 +383,7 @@ export default function CreatorProfileScreen() {
   // Real profile: GET /api/users/:username
   // Real posts:   GET /api/posts?creator_id=:id
   const [realProfile, setRealProfile] = useState<{ name: string; username: string; bio?: string | null; avatarUrl?: string | null; bannerUrl?: string | null; followerCount?: number; isVerified?: boolean } | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
 
@@ -401,6 +402,7 @@ export default function CreatorProfileScreen() {
 
   useEffect(() => {
     if (!username) return;
+    setProfileLoading(true);
     getUser(username)
       .then(({ user }) => {
         setRealProfile({
@@ -413,7 +415,8 @@ export default function CreatorProfileScreen() {
           isVerified:   user.isVerified ?? false,
         });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setProfileLoading(false));
   }, [username]);
 
   // Fetch real posts by this creator. Use the UUID from catalog if available;
@@ -489,13 +492,13 @@ export default function CreatorProfileScreen() {
   };
 
   // ── Loading state ─────────────────────────────────────────────────────────────
-  const isInitialLoading = catalogQuery.isLoading && !catalogCreator && !realProfile;
+  const isInitialLoading = (catalogQuery.isLoading || profileLoading) && !catalogCreator && !realProfile;
 
   if (isInitialLoading) {
     return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
   }
 
-  if ((catalogQuery.isError && !catalogCreator && !realProfile) || (!creator && !catalogQuery.isLoading)) {
+  if ((catalogQuery.isError && !profileLoading && !catalogCreator && !realProfile) || (!creator && !catalogQuery.isLoading && !profileLoading)) {
     return (
       <View style={styles.center}>
         <MsEmptyState
@@ -573,11 +576,6 @@ export default function CreatorProfileScreen() {
           <View style={styles.metrics}>
             <View>
               <Text style={styles.metricValue}>{creator.followers || '—'}</Text>
-              <Text style={styles.metricLabel}>Followers</Text>
-            </View>
-            <View style={styles.metricDivider} />
-            <View>
-              <Text style={styles.metricValue}>{creator.subscriberCount > 0 ? fmtCount(creator.subscriberCount) : '—'}</Text>
               <Text style={styles.metricLabel}>Subscribers</Text>
             </View>
             <View style={styles.metricDivider} />
@@ -615,7 +613,7 @@ export default function CreatorProfileScreen() {
               activeOpacity={0.85}
             >
               <Text style={[styles.followBtnLabel, isFollowing && styles.followBtnLabelActive]}>
-                {followLoading ? '…' : (isFollowing ? 'Following' : 'Follow')}
+                {followLoading ? '…' : (isFollowing ? 'Subscribed' : 'Subscribe Free')}
               </Text>
             </TouchableOpacity>
           )}

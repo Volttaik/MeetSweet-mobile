@@ -238,8 +238,8 @@ export function MsVideoPlayer({
 
   // Centre icon (shorts: per-playing state; standard: part of auto-hide overlay)
   const iconScale   = useSharedValue(1);
-  // Shorts-only icon opacity — starts VISIBLE (1) so the Play button is shown on load
-  const shortsIconOpacity = useSharedValue(1);
+  // Shorts-only icon opacity — starts HIDDEN (0); appears only on tap
+  const shortsIconOpacity = useSharedValue(0);
   const shortsIconStyle   = useAnimatedStyle(() => ({
     opacity: shortsIconOpacity.value,
     transform: [{ scale: iconScale.value }],
@@ -296,7 +296,7 @@ export function MsVideoPlayer({
     setVideoEnded(false);
     ctrlOpacity.value = 1;
     iconScale.value   = 1;
-    shortsIconOpacity.value = 1;
+    shortsIconOpacity.value = 0;
     // Reset crossfade values
     posterOpacity.value = 1;
     videoOpacity.value  = 0;
@@ -321,8 +321,8 @@ export function MsVideoPlayer({
     if (!isShorts) return;
     if (active && !premiumGateRef.current) {
       videoRef.current?.playAsync().catch(() => {});
-      shortsIconOpacity.value = withTiming(1, { duration: 180 });
-      scheduleHide(shortsIconOpacity, hideTimerRef);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      shortsIconOpacity.value = withTiming(0, { duration: 200 });
     } else {
       videoRef.current?.pauseAsync().catch(() => {});
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
