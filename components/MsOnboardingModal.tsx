@@ -128,6 +128,7 @@ export function MsOnboardingModal({
 
   const currentScreen = screens[currentIndex];
   const isLastScreen = currentIndex === screens.length - 1;
+  if (!currentScreen) return null;
   const IconComp = ICON_MAP[currentScreen.icon] ?? Star;
 
   const handleNext = async () => {
