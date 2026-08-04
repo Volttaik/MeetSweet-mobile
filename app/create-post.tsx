@@ -198,11 +198,11 @@ export default function CreatePostScreen() {
     if (step === 'uploading' || step === 'creating' || step === 'success') return;
     if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
     draftSaveTimer.current = setTimeout(() => {
-      const draft = { caption, tags, visibility, contentType, videoTitle };
+      const draft = { caption, tags, tier, contentType, videoTitle };
       AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
     }, 800);
     return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current); };
-  }, [caption, tags, visibility, contentType, videoTitle, step]);
+  }, [caption, tags, tier, contentType, videoTitle, step]);
 
   // ─── Media picker ─────────────────────────────────────────────────────────
 
