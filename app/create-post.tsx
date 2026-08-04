@@ -33,7 +33,6 @@ import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
-import type { PostMediaInput } from '@/services/posts';
 import { getCategories, type Category } from '@/services/categories';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
@@ -299,7 +298,7 @@ export default function CreatePostScreen() {
     setUploadProgress(0);
 
     try {
-      let mediaArr: PostMediaInput[] | undefined;
+      let mediaIds: string[] | undefined;
 
       if (mediaUri && mediaType) {
         const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
@@ -314,14 +313,29 @@ export default function CreatePostScreen() {
           thumbUrl = uploadedThumb.url;
         }
 
-        mediaArr = [{
-          url:           uploaded.url,
-          blob_path:     uploaded.objectKey,
-          type:          mediaType === 'video' ? 'video' : 'image',
-          mime_type:     uploaded.mimeType,
-          size_bytes:    uploaded.sizeBytes,
-          ...(thumbUrl ? { thumbnail_url: thumbUrl } : {}),
-        }];
+        // Use the stable media ID returned by POST /api/media (Step 3 of the upload flow)
+        mediaIds = [uploaded.id];
+        // Attach thumbnail to the media record if we have one (best-effort PATCH)
+        if (thumbUrl && uploaded.id) {
+          try {
+            const token = await import('@react-native-async-storage/async-storage').then(
+              (m) => m.default.getItem('@ms_access_token')
+            );
+            if (token) {
+              await fetch(`${(await import('@/services/api')).getApiBase()}/media/${uploaded.id}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                  'X-Client-App-Id': 'meetsweet-mobile',
+                },
+                body: JSON.stringify({ thumbnail_url: thumbUrl }),
+              });
+            }
+          } catch {
+            // Non-critical — thumbnail attachment failing doesn't block publish
+          }
+        }
       }
 
       setStep('creating');
@@ -341,7 +355,7 @@ export default function CreatePostScreen() {
       await createPost({
         caption:      finalCaption,
         visibility,
-        media:        mediaArr,
+        media_ids:    mediaIds,
         categories:   selectedCategories,
         tags,
         content_type: backendContentType[contentType],

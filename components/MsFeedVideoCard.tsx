@@ -1,11 +1,9 @@
 /**
  * MsFeedVideoCard — the single canonical video card for Explore and Creator pages.
  *
- * Visually identical to the home-feed video presentation:
- *   • MsPremiumContent handles the thumbnail → play → stream lifecycle
- *   • Preserves natural aspect ratio (falls back to 16:9)
- *   • Premium lock overlay built-in
- *   • Creator info row + engagement stats below the thumbnail
+ * Shows a thumbnail with a play-button overlay. Tapping navigates to the video
+ * watch page. There is no per-video purchase or lock overlay — content is either
+ * free (public) or subscription-gated at the creator level (subscribers).
  *
  * Replace ExploreVideoCard everywhere. Do not create new video card variants.
  */
@@ -24,10 +22,10 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { ChatCircle, Clock, Heart, SealCheck } from 'phosphor-react-native';
+import { ChatCircle, Clock, Heart, Play, SealCheck } from 'phosphor-react-native';
+import { Image } from 'expo-image';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
-import { MsPremiumContent } from '@/components/MsPremiumContent';
 
 // ─── Data interface (replaces ExploreVideoCardData) ──────────────────────────
 
@@ -66,6 +64,7 @@ interface MsFeedVideoCardProps {
   card: MsFeedVideoCardData;
   onPress: () => void;
   onCreatorPress?: () => void;
+  /** @deprecated No per-video locking — kept for call-site compatibility only */
   onUnlockPress?: () => void;
   onLongPress?: () => void;
   style?: ViewStyle;
@@ -150,26 +149,21 @@ export function MsFeedVideoCard({
       onLongPress={onLongPress}
       style={[styles.card, compact && styles.cardCompact, style]}
     >
-      {/* ── Media area — identical to MsPostCard video block ── */}
-      <View style={styles.mediaWrap}>
-        <MsPremiumContent
-          uri={card.isPremium ? null : (card.mediaUrl ?? null)}
-          posterUri={card.thumbnailUrl ?? null}
-          videoThumbnailUri={!card.thumbnailUrl && card.mediaUrl ? card.mediaUrl : null}
-          mediaType="video"
-          locked={card.isPremium}
-          unlocked={!card.isPremium}
-          price={
-            card.lockedLabel
-              ? parseInt(card.lockedLabel.match(/\d+/)?.[0] ?? '0', 10)
-              : 0
-          }
-          aspectRatio={aspectRatio}
-          onUnlock={onUnlockPress ?? onPress}
-          previewMode
-          active={videoPreviewActive}
+      {/* ── Media area — thumbnail with play-button overlay ── */}
+      <View style={[styles.mediaWrap, { aspectRatio }]}>
+        <Image
+          source={{ uri: card.thumbnailUrl ?? card.mediaUrl ?? undefined }}
           style={styles.media}
+          contentFit="cover"
+          transition={200}
         />
+
+        {/* Play button overlay */}
+        <View style={styles.playOverlay} pointerEvents="none">
+          <View style={styles.playButton}>
+            <Play size={compact ? 18 : 22} color="#fff" weight="fill" />
+          </View>
+        </View>
 
         {/* Duration badge — bottom-right overlay */}
         {card.duration ? (
@@ -179,10 +173,10 @@ export function MsFeedVideoCard({
           </View>
         ) : null}
 
-        {/* Premium badge — top-right */}
+        {/* Subscribers-only badge — top-right (informational only, no lock) */}
         {card.isPremium ? (
           <View style={[styles.premiumBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
-            <Text style={styles.premiumText}>PREMIUM</Text>
+            <Text style={styles.premiumText}>SUBSCRIBERS</Text>
           </View>
         ) : null}
       </View>
@@ -265,8 +259,24 @@ const styles = StyleSheet.create({
 
   media: {
     width: '100%',
+    height: '100%',
     backgroundColor: T.SURFACE_2,
     borderRadius: 0,
+  },
+
+  // Play button centered over thumbnail
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Duration badge overlaid bottom-right of the thumbnail
