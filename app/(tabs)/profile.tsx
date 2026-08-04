@@ -51,12 +51,14 @@ import {
   deletePost,
   type Post,
 } from '@/services/posts';
+import { usePurchasedAlbums, type AlbumCardData } from '@/services/albums';
+import { MsAlbumCard } from '@/components/MsAlbumCard';
 import { getCachedPosts, cachePosts, cacheUser, getCachedUser } from '@/lib/posts-db';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PROFILE_TABS = ['Posts', 'Albums', 'Videos', 'Shorts', 'Saved'] as const;
+const PROFILE_TABS = ['Posts', 'Albums', 'Videos', 'Shorts', 'Saved', 'Purchased'] as const;
 type ProfileTab = typeof PROFILE_TABS[number];
 
 const VISIBILITY_OPTIONS = [

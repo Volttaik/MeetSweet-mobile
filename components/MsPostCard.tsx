@@ -14,7 +14,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, LockOpen, Lock, Crown, Diamond, Play } from 'phosphor-react-native';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, LockOpen, Lock, Crown, Diamond, Play, Images } from 'phosphor-react-native';
+import { router } from 'expo-router';
 import { T, TIERS } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -462,11 +463,48 @@ export function MsPostCard({
         )
       )}
 
+      {/* Media — album
+          Shows cover image clearly (no blur) with a price/count badge.
+          Tapping always opens the album detail page.
+      */}
+      {post.contentType === 'album' && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => router.push(`/album/${post.id}`)}
+          onLongPress={openSheet}
+          delayLongPress={400}
+        >
+          <View style={[styles.albumCard, { borderRadius: T.RADIUS.xl, overflow: 'hidden' }]}>
+            {post.mediaUrl ? (
+              <MsMediaLoader
+                uri={post.mediaUrl}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+                accessibleLabel="Album cover"
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
+            )}
+            {/* Bottom gradient overlay with price/item info */}
+            <View style={styles.albumOverlay}>
+              <View style={styles.albumBadge}>
+                <Images size={12} color="#fff" weight="bold" />
+                <Text style={styles.albumBadgeText}>
+                  {post.priceCredits && post.priceCredits > 0
+                    ? `Buy · ₦${post.priceCredits.toLocaleString()}`
+                    : 'Album'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* Media — image
           feedMode: single tap = nothing, double-tap = open Full View.
           Other screens: single tap = open Full View, double-tap = like.
       */}
-      {post.mediaUrl && post.mediaType === 'image' && (
+      {post.mediaUrl && post.mediaType === 'image' && post.contentType !== 'album' && (
         <ScalePressable
           onPress={doubleTapToOpen ? undefined : (onMediaPress ?? onPress)}
           onLongPress={openSheet}
@@ -677,6 +715,37 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.52)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  albumCard: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: '#1A1A1F',
+  },
+  albumOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  albumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: T.RADIUS.full,
+  },
+  albumBadgeText: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: '#fff',
   },
 
   actions: {

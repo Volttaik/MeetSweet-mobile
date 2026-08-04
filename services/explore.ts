@@ -248,6 +248,14 @@ export async function fetchExplorePosts(cursor?: string | null): Promise<Explore
     return true;
   });
 
+  // Explore only shows free, public posts. Shorts go to the Shorts feed.
+  // Premium/subscriber-only content is gated to the home feed of subscribers.
+  const explorePosts = uniquePosts.filter((p) =>
+    p.content_type !== 'short' &&
+    p.visibility === 'public' &&
+    (p.unlock_price === null || p.unlock_price === 0),
+  );
+
   // Build creator map (unique per page)
   const creatorMap = new Map<string, Creator>();
   const creatorMaxPrice = new Map<string, number>();
@@ -268,7 +276,7 @@ export async function fetchExplorePosts(cursor?: string | null): Promise<Explore
   void creatorMaxPrice; // suppress unused-variable lint warning
 
   const creators = Array.from(creatorMap.values());
-  const previews = uniquePosts
+  const previews = explorePosts
     .filter((p) => creatorMap.has(p.creator_id))
     .map(previewFromPost);
 

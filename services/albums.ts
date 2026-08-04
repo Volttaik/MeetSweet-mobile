@@ -338,6 +338,20 @@ export async function unlockAlbum(id: string): Promise<{ unlocked: boolean }> {
   return { unlocked: raw?.unlocked ?? true };
 }
 
+/**
+ * Fetch albums the current user has purchased (unlocked).
+ * Passes purchased=true to the backend; also filters client-side on isUnlockedByMe
+ * as a safeguard until the backend supports the param.
+ */
+export async function getPurchasedAlbums(): Promise<AlbumCardData[]> {
+  const raw = await apiFetch<{ albums?: RawAlbum[] }>(
+    '/albums?purchased=true&limit=50',
+    { headers: await authHeaders() },
+  );
+  const all = Array.isArray(raw?.albums) ? raw.albums.map(normalizeAlbumCard) : [];
+  return all.filter((a) => a.isUnlockedByMe);
+}
+
 // ── React Query hooks ─────────────────────────────────────────────────────────
 
 export const ALBUMS_CATALOG_KEY = ['albums'] as const;
@@ -367,6 +381,16 @@ export function useLocalAlbumCatalog() {
   return useQuery({
     queryKey: [...ALBUMS_CATALOG_KEY, 'first-page'],
     queryFn: () => getAlbums({ limit: 20 }).then((p) => p.albums),
+    staleTime: 2 * 60 * 1000,
+    retry: 2,
+  });
+}
+
+/** Purchased albums — albums the current user has unlocked. */
+export function usePurchasedAlbums() {
+  return useQuery({
+    queryKey: [...ALBUMS_CATALOG_KEY, 'purchased'],
+    queryFn: getPurchasedAlbums,
     staleTime: 2 * 60 * 1000,
     retry: 2,
   });
