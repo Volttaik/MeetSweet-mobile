@@ -330,7 +330,7 @@ export default function VideoWatchScreen() {
         {/* ── Title & upload date ───────────────────────────────────────── */}
         <View style={styles.meta}>
           <Text style={styles.titleText} numberOfLines={4}>
-            {post.caption || 'Untitled'}
+            {post.title || post.caption || 'Untitled'}
           </Text>
           <Text style={styles.uploadDate}>{uploadDateStr}</Text>
         </View>

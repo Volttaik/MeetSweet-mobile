@@ -220,6 +220,42 @@ export async function fetchExplorePage(page = 1): Promise<ExploreFeedPage> {
     previews.push(preview);
   }
 
+  // ── Thumbnail back-fill ──────────────────────────────────────────────────────
+  // The /explore endpoint often omits thumbnail_url at the item level (it's set
+  // at the top level of /posts/:id but not always propagated to explore items).
+  // For any video/album preview still missing a thumbnail, batch-fetch the full
+  // post detail to get the canonical thumbnail_url.
+  const missingThumb = previews.filter(
+    (p) => !p.thumbnailUrl && (p.contentType === 'video' || p.contentType === 'album'),
+  );
+  if (missingThumb.length > 0) {
+    const results = await Promise.allSettled(
+      missingThumb.map((p) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        apiFetch<any>(`/posts/${p.id}`, { headers }).then((postRaw) => {
+          const resolved = postRaw?.post ?? postRaw;
+          const media = Array.isArray(resolved?.media) ? resolved.media : [];
+          const firstMedia = media[0] ?? null;
+          const thumb =
+            resolved?.thumbnail_url ??
+            resolved?.thumbnailUrl ??
+            firstMedia?.thumbnail_url ??
+            null;
+          return { id: p.id, thumbnailUrl: thumb as string | null };
+        }),
+      ),
+    );
+    const thumbMap = new Map<string, string | null>();
+    for (const r of results) {
+      if (r.status === 'fulfilled') thumbMap.set(r.value.id, r.value.thumbnailUrl);
+    }
+    for (const p of previews) {
+      if (!p.thumbnailUrl && thumbMap.has(p.id)) {
+        (p as { thumbnailUrl: string | null }).thumbnailUrl = thumbMap.get(p.id) ?? null;
+      }
+    }
+  }
+
   // Featured users from the /explore response
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const featuredUsers: Creator[] = (Array.isArray(raw?.users) ? raw.users : []).map((u: any) => normalizeUser(u));

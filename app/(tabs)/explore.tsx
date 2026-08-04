@@ -151,9 +151,15 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
   const tier: import('@/constants/tiers').ContentTier | undefined =
     rawTier === 'silver' || rawTier === 'gold' || rawTier === 'diamond' ? rawTier : undefined;
 
+  // For video/short posts, title and caption are separate fields.
+  // Setting caption = title would cause the title to render twice in MsPostCard
+  // (once as videoTitle block, once as caption). Use the raw description as caption
+  // and leave caption empty for video posts that have no description.
+  const exploreCaption = isVideo ? '' : (preview.title ?? '');
+
   return {
     id: preview.id,
-    caption: preview.title ?? '',
+    caption: exploreCaption,
     title: preview.title ?? undefined,
     visibility: 'public',
     tier,

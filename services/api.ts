@@ -31,6 +31,15 @@ export class ApiError extends Error {
   }
 }
 
+// ── Session-expired callback ──────────────────────────────────────────────────
+// AuthContext registers this so the API layer can trigger a logout without
+// creating a circular import (api.ts → AuthContext → api.ts).
+let _onSessionExpired: (() => void) | null = null;
+
+export function setSessionExpiredHandler(fn: () => void): void {
+  _onSessionExpired = fn;
+}
+
 // ── Token refresh state ───────────────────────────────────────────────────────
 
 let _isRefreshing = false;
@@ -131,8 +140,9 @@ export async function apiFetch<T = unknown>(
         },
       }, true);
     }
-    // Refresh failed — clear tokens and throw so callers redirect to login
+    // Refresh failed — clear tokens and notify AuthContext so it can redirect to login
     await AsyncStorage.multiRemove(['@ms_access_token', '@ms_refresh_token']);
+    _onSessionExpired?.();
     throw new ApiError(401, 'Session expired. Please log in again.', 'SESSION_EXPIRED');
   }
 

@@ -229,33 +229,21 @@ export async function getHomeFeed(): Promise<{ posts: Post[]; hasMore: boolean; 
     return { posts: [], hasMore: false, nextCursor: null };
   }
 
-  // 2. Fetch recent posts and long-form videos from each subscribed creator (max 10 creators).
+  // 2. Fetch all posts for each subscribed creator using the working /posts?creator_id=:id endpoint.
   //    Shorts are intentionally excluded — they live only in the Shorts tab, never the home feed.
+  //    NOTE: /creators/:id/posts does not exist on this backend; /posts?creator_id=:id is the correct endpoint.
   const allPosts: Post[] = [];
   await Promise.allSettled(
-    creatorIds.slice(0, 10).flatMap((creatorId) => [
-      // Posts (text + image, albums)
+    creatorIds.slice(0, 10).map((creatorId) =>
       apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
-        `/creators/${creatorId}/posts?limit=20`,
+        `/posts?creator_id=${encodeURIComponent(creatorId)}&limit=20`,
         { headers: authHeader(token) },
       ).then((raw) => {
         const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
-        // Filter out any shorts that might bleed through the posts endpoint
+        // Filter out shorts — they live exclusively in the Shorts tab
         allPosts.push(...posts.filter((p) => p.contentType !== 'short'));
       }).catch(() => {}),
-
-      // Long-form videos
-      apiFetch<{ videos?: unknown[]; items?: unknown[] }>(
-        `/creators/${creatorId}/videos?limit=20`,
-        { headers: authHeader(token) },
-      ).then((raw) => {
-        const items = Array.isArray(raw?.videos) ? raw.videos : Array.isArray(raw?.items) ? raw.items : [];
-        allPosts.push(...items.map(normalizePost).filter((p) => p.contentType !== 'short'));
-      }).catch(() => {}),
-
-      // NOTE: Shorts are NOT fetched here.
-      // Shorts (contentType:'short') appear exclusively in the Shorts tab (/shorts).
-    ]),
+    ),
   );
 
   // 3. Sort descending by publishedAt / createdAt, deduplicate
@@ -288,13 +276,38 @@ export async function getPostsByCreator(
   const qs = cursor
     ? `?creator_id=${encodeURIComponent(creatorId)}&cursor=${encodeURIComponent(cursor)}&limit=20`
     : `?creator_id=${encodeURIComponent(creatorId)}&limit=20`;
-  const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
-    `/posts${qs}`,
-    { headers },
-  );
-  const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
-  const nextCursor = raw?.next_cursor ?? (posts.length >= 20 ? posts[posts.length - 1]?.createdAt ?? null : null);
-  return { posts, hasMore: posts.length >= 20, nextCursor };
+
+  // Fetch regular posts/videos AND shorts in parallel — the backend excludes shorts
+  // from the default /posts?creator_id=:id response, so we fetch them separately.
+  const [mainRaw, shortsRaw] = await Promise.allSettled([
+    apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(`/posts${qs}`, { headers }),
+    apiFetch<{ posts: unknown[] }>(
+      `/posts?creator_id=${encodeURIComponent(creatorId)}&content_type=short&limit=50`,
+      { headers },
+    ),
+  ]);
+
+  const mainPosts =
+    mainRaw.status === 'fulfilled' && Array.isArray(mainRaw.value?.posts)
+      ? mainRaw.value.posts.map(normalizePost)
+      : [];
+  const shortsPosts =
+    shortsRaw.status === 'fulfilled' && Array.isArray(shortsRaw.value?.posts)
+      ? shortsRaw.value.posts.map(normalizePost)
+      : [];
+
+  // Merge and deduplicate by id
+  const seen = new Set<string>();
+  const all: Post[] = [];
+  for (const p of [...mainPosts, ...shortsPosts]) {
+    if (!seen.has(p.id)) { seen.add(p.id); all.push(p); }
+  }
+
+  const nextCursor =
+    (mainRaw.status === 'fulfilled' ? mainRaw.value?.next_cursor : null) ??
+    (mainPosts.length >= 20 ? mainPosts[mainPosts.length - 1]?.createdAt ?? null : null);
+
+  return { posts: all, hasMore: mainPosts.length >= 20, nextCursor };
 }
 
 export async function getPost(id: string): Promise<{ post: Post }> {
