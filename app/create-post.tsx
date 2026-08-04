@@ -286,7 +286,7 @@ export default function CreatePostScreen() {
       setError('Select media before publishing.');
       return;
     }
-    if ((contentType === 'video' || contentType === 'shorts') && !videoTitle.trim() && contentType === 'video') {
+    if (contentType === 'video' && !videoTitle.trim()) {
       setError('Add a title for your video.');
       return;
     }
@@ -297,41 +297,35 @@ export default function CreatePostScreen() {
 
     try {
       let mediaIds: string[] | undefined;
+      // Hoisted so it's available in the createPost payload below
+      let thumbUrl: string | undefined;
 
       if (mediaUri && mediaType) {
         const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
           setUploadProgress(thumbnailUri ? p * 0.9 : p);
         });
 
-        let thumbUrl: string | undefined;
         if (thumbnailUri) {
           const uploadedThumb = await uploadMedia(thumbnailUri, thumbnailMime, thumbnailName, (p) => {
             setUploadProgress(0.9 + p * 0.1);
           });
-          thumbUrl = uploadedThumb.url;
+          thumbUrl = uploadedThumb.url || undefined;
         }
 
         // Use the stable media ID returned by POST /api/media (Step 3 of the upload flow)
         mediaIds = [uploaded.id];
-        // Attach thumbnail to the media record if we have one (best-effort PATCH)
+
+        // Attach thumbnail to the media record (best-effort PATCH).
+        // We also send thumbnail_url directly in createPost below as a fallback.
         if (thumbUrl && uploaded.id) {
           try {
-            const token = await import('@react-native-async-storage/async-storage').then(
-              (m) => m.default.getItem('@ms_access_token')
-            );
-            if (token) {
-              await fetch(`${(await import('@/services/api')).getApiBase()}/media/${uploaded.id}`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                  'X-Client-App-Id': 'meetsweet-mobile',
-                },
-                body: JSON.stringify({ thumbnail_url: thumbUrl }),
-              });
-            }
+            const { authFetch } = await import('@/services/api');
+            await authFetch(`/media/${uploaded.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ thumbnail_url: thumbUrl }),
+            });
           } catch {
-            // Non-critical — thumbnail attachment failing doesn't block publish
+            // Non-critical — thumbnail will still be set via createPost's thumbnail_url field
           }
         }
       }
@@ -346,21 +340,25 @@ export default function CreatePostScreen() {
         shorts: 'short',
       };
 
-      const finalCaption = contentType === 'video' && videoTitle.trim()
-        ? (caption.trim() ? `${videoTitle.trim()}\n\n${caption.trim()}` : videoTitle.trim())
-        : caption.trim();
+      const finalCaption = caption.trim();
 
       // Shorts are always free/public; everything else maps from the tier picker.
       const resolvedVisibility =
         contentType === 'shorts' ? 'public' : TIERS[tier].visibility;
 
       await createPost({
-        caption:      finalCaption,
-        visibility:   resolvedVisibility,
-        media_ids:    mediaIds,
-        categories:   selectedCategories,
+        caption:       finalCaption,
+        visibility:    resolvedVisibility,
+        media_ids:     mediaIds,
+        categories:    selectedCategories,
         tags,
-        content_type: backendContentType[contentType],
+        content_type:  backendContentType[contentType],
+        // Send title as its own field for videos (not collapsed into caption)
+        title:         contentType === 'video' && videoTitle.trim() ? videoTitle.trim() : undefined,
+        // Send tier so backend can store it when multi-tier is supported
+        tier:          contentType === 'shorts' ? 'bronze' : tier,
+        // Send thumbnail URL directly — fallback if the separate PATCH fails
+        thumbnail_url: thumbUrl,
       });
 
       setStep('processing');

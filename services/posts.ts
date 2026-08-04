@@ -337,6 +337,16 @@ export interface CreatePostData {
   title?: string;
   /** Video description (for content_type: 'video') */
   description?: string;
+  /**
+   * Content tier — bronze (public), silver, gold, diamond.
+   * Backend stores this when the multi-tier subscription system is live.
+   */
+  tier?: import('@/constants/tiers').ContentTier;
+  /**
+   * Thumbnail URL for video posts. Sent alongside media_ids so the
+   * backend can associate the thumbnail even if the separate PATCH fails.
+   */
+  thumbnail_url?: string;
 }
 
 export async function createPost(data: CreatePostData): Promise<{ id: string }> {

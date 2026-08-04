@@ -15,6 +15,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play, Images } from 'phosphor-react-native';
+import { MsTierBadge } from '@/components/MsTierBadge';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -418,21 +419,11 @@ export function MsPostCard({
         </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {/* Tier badge — Bronze = small dot (no text); Silver/Gold/Diamond = pill */}
-          {tier === 'bronze' ? (
-            <View style={[styles.tierDot, { backgroundColor: TIERS.bronze.color }]} />
-          ) : tier != null ? (
-            <View style={[styles.subsBadge, { backgroundColor: TIERS[tier].bgColor }]}>
-              <View style={[styles.tierDotInline, { backgroundColor: TIERS[tier].color }]} />
-              <Text style={[styles.subsBadgeText, { color: TIERS[tier].color }]}>
-                {tier.toUpperCase()}
-              </Text>
-            </View>
+          {/* Tier badge — use MsTierBadge for all tier values; fallback for isPremium */}
+          {tier != null ? (
+            <MsTierBadge tier={tier} size="xs" />
           ) : post.isPremium ? (
-            /* Legacy fallback for cards without explicit tier */
-            <View style={styles.subsBadge}>
-              <Text style={styles.subsBadgeText}>SUBSCRIBERS</Text>
-            </View>
+            <MsTierBadge tier="silver" size="xs" />
           ) : null}
           <TouchableOpacity
             style={styles.moreBtn}
@@ -659,31 +650,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   authorRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  tierDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  tierDotInline: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  subsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: T.RADIUS.xs,
-    backgroundColor: 'rgba(196,90,114,0.15)',
-  },
-  subsBadgeText: {
-    fontSize: 8,
-    fontFamily: T.FONT.bold,
-    color: '#C45A72',
-    letterSpacing: 0.4,
-  },
   moreBtn: {
     width: 28,
     height: 28,
