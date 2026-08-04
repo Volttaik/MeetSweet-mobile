@@ -251,8 +251,8 @@ export default function CreatorDashboardScreen() {
       buttonLabel: 'Next',
     },
     {
-      title: 'Set Subscription Tiers',
-      subtitle: 'Set up Normal, Premium, and VIP tiers to start earning from subscribers.',
+      title: 'Set Up Subscriptions',
+      subtitle: 'Enable subscriptions and set your monthly price to start earning from subscribers.',
       icon: 'money',
       buttonLabel: 'Next',
     },
@@ -452,21 +452,9 @@ export default function CreatorDashboardScreen() {
             />
             <SettingsDivider />
             <SettingsRow
-              label="Free tier"
-              value="Active"
-              onPress={() => Alert.alert('Free Tier', 'Configure free tier benefits.')}
-            />
-            <SettingsDivider />
-            <SettingsRow
-              label="Premium tier"
-              value="₦2,000/mo"
-              onPress={() => Alert.alert('Premium Tier', 'Set price and benefits for premium subscribers.')}
-            />
-            <SettingsDivider />
-            <SettingsRow
-              label="VIP tier"
-              value="₦5,000/mo"
-              onPress={() => Alert.alert('VIP Tier', 'Set price and benefits for VIP subscribers.')}
+              label="Subscription price"
+              value="₦0/mo (free)"
+              onPress={() => Alert.alert('Subscription Price', 'Contact support to set your monthly subscription price.')}
             />
             <SettingsDivider />
             <SettingsRow

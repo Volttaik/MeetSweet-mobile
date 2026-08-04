@@ -1,14 +1,9 @@
 /**
- * Local explore catalog service.
+ * Explore service.
  *
- * The live backend does not have a GET /api/explore endpoint.
- * This module builds equivalent data by fetching public posts from /api/posts
- * and deriving creator and content-card data from them.
- *
- * Two hooks are exported:
- *   useLocalExploreCatalog  — single-page, for screens that need a lookup map
- *                             (e.g. content/[id].tsx)
- *   useExploreFeed          — infinite-query, for the paginated video feed
+ * Uses GET /api/explore — the backend's dedicated public discovery endpoint.
+ * Returns a ranked mix of public posts, videos, shorts, featured creators,
+ * and album cards. Only visibility:"public" content appears here.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
@@ -74,64 +69,6 @@ export function fmtTimeAgo(iso: string | undefined | null): string {
   return `${months}mo ago`;
 }
 
-// ── Remote catalog fixtures ───────────────────────────────────────────────────
-
-/** GET /collections — curated collection tiles shown in Explore. */
-async function fetchCollections(): Promise<TrendingCollection[]> {
-  try {
-    const raw = await apiFetch<{ collections?: unknown[] }>('/collections');
-    if (!Array.isArray(raw?.collections)) return [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return raw.collections.map((c: any) => ({
-      id: c.id ?? '',
-      title: c.title ?? '',
-      subtitle: c.subtitle ?? c.description ?? '',
-      itemCount: c.item_count ?? c.itemCount ?? 0,
-      gradient: c.gradient ?? 'violet',
-    }));
-  } catch {
-    return [];
-  }
-}
-
-/** GET /search/trending — trending search terms shown in Explore. */
-async function fetchTrendingSearches(): Promise<string[]> {
-  try {
-    const raw = await apiFetch<{ trending?: unknown[]; searches?: unknown[] }>('/search/trending');
-    const list = raw?.trending ?? raw?.searches ?? [];
-    if (!Array.isArray(list)) return [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return list.map((item: any) => (typeof item === 'string' ? item : item.query ?? item.term ?? '')).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-// ── Raw post shape from GET /api/posts ────────────────────────────────────────
-
-interface RawPost {
-  id: string;
-  creator_id: string;
-  creator_username: string;
-  creator_display_name: string;
-  creator_avatar: string | null;
-  creator_avatar_url?: string | null;
-  creator_is_verified: boolean;
-  caption: string | null;
-  content_type?: string | null;
-  unlock_price: number | null;
-  like_count: number;
-  comment_count?: number;
-  created_at?: string;
-  published_at?: string;
-  media: Array<{ url: string; type: string; thumbnail_url?: string | null; duration_secs?: number | null }>;
-  visibility: string;
-}
-
-// ── Builder helpers ───────────────────────────────────────────────────────────
-
-const KIND: Record<string, string> = { image: 'photo', video: 'video', audio: 'audio' };
-
 function fmtDuration(secs: number | null | undefined): string {
   if (!secs || secs <= 0) return '';
   const m = Math.floor(secs / 60);
@@ -139,75 +76,98 @@ function fmtDuration(secs: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function creatorFromPost(post: RawPost): Creator {
-  const avatarRaw = post.creator_avatar ?? post.creator_avatar_url ?? null;
-  const firstMedia = post.media?.[0];
-  // Use the first post's image/thumbnail as the creator's banner
-  const bannerRaw =
-    firstMedia?.thumbnail_url ??
-    (firstMedia?.type === 'image' ? firstMedia?.url : null) ??
-    null;
-  return {
-    id: post.creator_id,
-    name: post.creator_display_name ?? post.creator_username ?? 'Creator',
-    handle: `@${post.creator_username ?? 'creator'}`,
-    initials: initials(post.creator_display_name ?? post.creator_username ?? '??'),
-    // Fields below are not available from the posts feed.
-    // They will be populated with real values from GET /creators/:id
-    // when the creator profile page is opened.
-    bio: '',
-    category: '',
-    followers: '',
-    subscriberCount: 0,
-    monthlyCredits: 0,
-    isVerified: post.creator_is_verified ?? false,
-    isOnline: false,
-    gradient: gradientFor(post.creator_id),
-    avatarUrl: avatarRaw,
-    bannerUrl: bannerRaw,
-  };
+// ── Response shapes from GET /api/explore ─────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } | null {
+  try {
+    const media = Array.isArray(raw.media) ? raw.media : [];
+    const firstMedia = media[0] ?? null;
+
+    const rawCT = raw.content_type ?? raw.contentType ?? null;
+    const contentType: string | null =
+      rawCT === 'short' ? 'short'
+      : rawCT === 'video' ? 'video'
+      : rawCT === 'album' ? 'album'
+      : rawCT === 'post'  ? 'post'
+      : firstMedia?.type === 'video' ? 'video'
+      : 'post';
+
+    const isVideo = contentType === 'video' || contentType === 'short';
+    const thumbnailUrl =
+      raw.thumbnail_url ?? raw.thumbnailUrl ??
+      firstMedia?.thumbnail_url ??
+      (firstMedia?.type === 'image' ? firstMedia?.url : null) ??
+      null;
+    const mediaUrl = raw.video_url ?? raw.videoUrl ?? firstMedia?.url ?? null;
+    const durationSecs = raw.duration_secs ?? raw.durationSecs ?? firstMedia?.duration_secs ?? null;
+
+    const creatorId = raw.creator_id ?? raw.creator?.id ?? '';
+    const creatorName = raw.creator_display_name ?? raw.creator?.name ?? raw.creator?.full_name ?? raw.creator_username ?? 'Creator';
+    const creatorUsername = raw.creator_username ?? raw.creator?.username ?? '';
+    const creatorAvatar = raw.creator_avatar ?? raw.creator?.avatar_url ?? raw.creator?.avatarUrl ?? null;
+    const creatorVerified = raw.creator_is_verified ?? raw.creator?.is_verified ?? raw.creator?.isVerified ?? false;
+
+    const creator: Creator = {
+      id: creatorId,
+      name: creatorName,
+      handle: `@${creatorUsername}`,
+      initials: initials(creatorName),
+      bio: '',
+      category: '',
+      followers: '',
+      subscriberCount: 0,
+      monthlyCredits: 0,
+      isVerified: creatorVerified,
+      isOnline: false,
+      gradient: gradientFor(creatorId),
+      avatarUrl: creatorAvatar,
+      bannerUrl: null,
+    };
+
+    const preview: ContentPreview = {
+      id: raw.id,
+      creatorId,
+      title: (raw.title ?? raw.caption ?? '').substring(0, 80),
+      category: 'Lifestyle',
+      kind: isVideo ? 'video' : 'photo',
+      duration: fmtDuration(durationSecs),
+      likes: fmtLikes(raw.like_count ?? raw.likeCount ?? 0),
+      likeCount: raw.like_count ?? raw.likeCount ?? 0,
+      commentCount: raw.comment_count ?? raw.commentCount ?? 0,
+      isPremium: false, // Explore only shows public content — never locked
+      gradient: gradientFor(raw.id),
+      lockedLabel: 'Free',
+      thumbnailUrl,
+      mediaUrl,
+      createdAt: raw.created_at ?? raw.createdAt ?? raw.published_at,
+      contentType,
+    };
+
+    return { preview, creator };
+  } catch {
+    return null;
+  }
 }
 
-function previewFromPost(post: RawPost): ContentPreview {
-  const firstMedia = post.media?.[0];
-  const kind = firstMedia ? (KIND[firstMedia.type] ?? 'photo') : 'photo';
-  const isPremium = (post.unlock_price ?? 0) > 0;
-  const durationSecs = firstMedia?.duration_secs ?? null;
-  // Thumbnail: prefer explicit thumbnail_url; for images the full url doubles as thumbnail
-  const thumbnailUrl =
-    firstMedia?.thumbnail_url ??
-    (firstMedia?.type === 'image' ? firstMedia?.url : null) ??
-    null;
-  // mediaUrl: the full-resolution source — used for video playback and image lightbox
-  const mediaUrl = firstMedia?.url ?? null;
-
-  // Determine content_type for correct routing client-side
-  const rawCT = post.content_type ?? null;
-  const contentType: string | null =
-    rawCT === 'short' ? 'short'
-    : rawCT === 'video' ? 'video'
-    : rawCT === 'album' ? 'album'
-    : rawCT === 'post'  ? 'post'
-    : firstMedia?.type === 'video' ? 'video'
-    : null;
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeUser(raw: any): Creator {
+  const name = raw.full_name ?? raw.name ?? raw.username ?? 'Creator';
   return {
-    id: post.id,
-    creatorId: post.creator_id,
-    title: (post.caption ?? 'Exclusive drop').substring(0, 80),
-    category: 'Lifestyle',
-    kind,
-    duration: fmtDuration(durationSecs),
-    likes: fmtLikes(post.like_count ?? 0),
-    likeCount: post.like_count ?? 0,
-    commentCount: post.comment_count ?? 0,
-    isPremium,
-    gradient: gradientFor(post.id),
-    lockedLabel: isPremium ? `₦${post.unlock_price?.toLocaleString()}` : 'Free',
-    thumbnailUrl,
-    mediaUrl,
-    createdAt: post.created_at ?? post.published_at,
-    contentType,
+    id: raw.id,
+    name,
+    handle: `@${raw.username ?? ''}`,
+    initials: initials(name),
+    bio: raw.bio ?? '',
+    category: '',
+    followers: fmtFollowers(raw.follower_count ?? 0),
+    subscriberCount: 0,
+    monthlyCredits: 0,
+    isVerified: raw.is_verified ?? raw.isVerified ?? false,
+    isOnline: false,
+    gradient: gradientFor(raw.id),
+    avatarUrl: raw.avatar_url ?? raw.avatarUrl ?? null,
+    bannerUrl: null,
   };
 }
 
@@ -215,85 +175,66 @@ async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem('@ms_access_token');
 }
 
-// ── Paginated post fetcher ────────────────────────────────────────────────────
+// ── Paginated explore feed ────────────────────────────────────────────────────
 
 export interface ExploreFeedPage {
   creators: Creator[];
   previews: ContentPreview[];
-  nextCursor: string | null;
+  featuredUsers: Creator[];
+  nextPage: number | null;
   hasMore: boolean;
 }
 
-export async function fetchExplorePosts(cursor?: string | null): Promise<ExploreFeedPage> {
+export async function fetchExplorePage(page = 1): Promise<ExploreFeedPage> {
   const token = await getToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const qs = cursor
-    ? `?cursor=${encodeURIComponent(cursor)}&limit=20`
-    : '?limit=50'; // bigger first load
-
-  const raw = await apiFetch<{ posts: RawPost[]; next_cursor?: string | null }>(
-    `/posts${qs}`,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = await apiFetch<any>(
+    `/explore?page=${page}&limit=20`,
     { headers },
   );
 
-  const posts: RawPost[] = Array.isArray(raw?.posts) ? raw.posts : [];
+  // items is the engagement-ranked mix of posts/videos/shorts
+  const items: unknown[] = Array.isArray(raw?.items) ? raw.items : [];
 
-  // Deduplicate posts by id (guard against server sending duplicates)
-  const seen = new Set<string>();
-  const uniquePosts = posts.filter((p) => {
-    if (seen.has(p.id)) return false;
-    seen.add(p.id);
-    return true;
-  });
-
-  // Explore only shows free, public posts. Shorts go to the Shorts feed.
-  // Premium/subscriber-only content is gated to the home feed of subscribers.
-  const explorePosts = uniquePosts.filter((p) =>
-    p.content_type !== 'short' &&
-    p.visibility === 'public' &&
-    (p.unlock_price === null || p.unlock_price === 0),
-  );
-
-  // Build creator map (unique per page)
   const creatorMap = new Map<string, Creator>();
-  const creatorMaxPrice = new Map<string, number>();
+  const previews: ContentPreview[] = [];
 
-  for (const post of uniquePosts) {
-    if (!creatorMap.has(post.creator_id)) {
-      creatorMap.set(post.creator_id, creatorFromPost(post));
-    }
-    if (post.unlock_price && post.unlock_price > (creatorMaxPrice.get(post.creator_id) ?? 0)) {
-      creatorMaxPrice.set(post.creator_id, post.unlock_price);
-    }
+  for (const item of items) {
+    const result = normalizeItem(item);
+    if (!result) continue;
+    const { preview, creator } = result;
+    if (!creatorMap.has(creator.id)) creatorMap.set(creator.id, creator);
+    previews.push(preview);
   }
 
-  // monthlyCredits is intentionally left as 0 here.
-  // The real subscription price will be fetched per-creator from GET /creators/:id
-  // (see services/creators.ts — useCreatorProfile) when the profile screen is opened.
-  // Do not derive this field from post unlock_prices; that is not the subscription price.
-  void creatorMaxPrice; // suppress unused-variable lint warning
+  // Featured users from the /explore response
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const featuredUsers: Creator[] = (Array.isArray(raw?.users) ? raw.users : []).map((u: any) => normalizeUser(u));
 
-  const creators = Array.from(creatorMap.values());
-  const previews = explorePosts
-    .filter((p) => creatorMap.has(p.creator_id))
-    .map(previewFromPost);
+  // Also add featured users to the creator map
+  for (const u of featuredUsers) {
+    if (!creatorMap.has(u.id)) creatorMap.set(u.id, u);
+  }
 
-  const nextCursor = raw?.next_cursor ?? null;
-  const hasMore = Boolean(nextCursor) || posts.length >= 20;
+  const hasMore = raw?.has_more ?? raw?.hasMore ?? false;
+  const nextPage = (raw?.next_page ?? raw?.nextPage) ?? (hasMore ? page + 1 : null);
 
-  return { creators, previews, nextCursor, hasMore };
+  return {
+    creators:     Array.from(creatorMap.values()),
+    previews,
+    featuredUsers,
+    nextPage:     hasMore ? (nextPage ?? page + 1) : null,
+    hasMore,
+  };
 }
 
 // ── Full catalog builder (for single-load screens like content/[id].tsx) ──────
 
 export async function buildExploreCatalog(): Promise<ExploreCatalog> {
-  const [page, collections, trendingSearches] = await Promise.all([
-    fetchExplorePosts(null),
-    fetchCollections(),
-    fetchTrendingSearches(),
-  ]);
+  const page = await fetchExplorePage(1);
 
   const ids = page.creators.map((c) => c.id);
   const featuredCreatorIds    = ids.slice(0, Math.min(3, ids.length));
@@ -302,12 +243,12 @@ export async function buildExploreCatalog(): Promise<ExploreCatalog> {
   return {
     creditBalance: 0,
     categories: [],
-    trendingSearches,
+    trendingSearches: [],
     featuredCreatorIds,
     recommendedCreatorIds,
     creators: page.creators,
     previews: page.previews,
-    collections,
+    collections: [] as TrendingCollection[],
   };
 }
 
@@ -326,15 +267,20 @@ export function useLocalExploreCatalog() {
   });
 }
 
-/** Infinite-scroll feed — used by the Explore tab video feed and creator grid. */
+/** Infinite-scroll feed — used by the Explore tab. */
 export function useExploreFeed() {
   return useInfiniteQuery({
     queryKey: EXPLORE_FEED_KEY,
-    queryFn: ({ pageParam }) => fetchExplorePosts(pageParam as string | null),
-    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => fetchExplorePage(pageParam as number),
+    initialPageParam: 1 as number,
     getNextPageParam: (lastPage) =>
-      lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
+      lastPage.hasMore && lastPage.nextPage ? lastPage.nextPage : undefined,
     staleTime: 2 * 60 * 1000,
     retry: 2,
   });
+}
+
+/** @deprecated Kept for backwards-compat — alias for fetchExplorePage */
+export async function fetchExplorePosts(_cursor?: string | null): Promise<ExploreFeedPage> {
+  return fetchExplorePage(1);
 }

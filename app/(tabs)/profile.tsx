@@ -621,7 +621,6 @@ export default function ProfileScreen() {
   const GridTile = useCallback(({ item }: { item: Post }) => {
     const isOwn = Boolean(user && user.id === item.author.id);
     const isVideo = item.mediaType === 'video';
-    const isLocked = Boolean(item.isLocked);
 
     const handlePress = () => {
       if (item.mediaUrl) {
@@ -674,8 +673,8 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* Premium lock badge */}
-        {isLocked && (
+        {/* Subscribers-only badge */}
+        {item.isPremium && (
           <View style={styles.lockBadge}>
             <LockSimple size={10} color="#fff" weight="bold" />
           </View>
@@ -890,7 +889,7 @@ export default function ProfileScreen() {
                   <Text style={styles.videoDuration}>{formatDuration(p.durationSecs)}</Text>
                 </View>
               )}
-              {Boolean(p.isLocked) && (
+              {p.isPremium && (
                 <View style={styles.lockBadge}>
                   <LockSimple size={10} color="#fff" weight="bold" />
                 </View>

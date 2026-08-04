@@ -23,7 +23,7 @@ import { MsSearchModal } from '@/components/MsSearchModal';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
-import { getFeed, likePost, unlikePost, bookmarkPost, unbookmarkPost, type Post } from '@/services/posts';
+import { getHomeFeed, likePost, unlikePost, bookmarkPost, unbookmarkPost, type Post } from '@/services/posts';
 import {
   getCachedPosts,
   cachePosts,
@@ -147,7 +147,7 @@ export default function HomeScreen() {
 
       // 2. Refresh from API in background
       try {
-        const data = await getFeed(undefined);
+        const data = await getHomeFeed();
         if (!cancelled) {
           reportNetworkSuccess();
           setPosts(data.posts);
@@ -170,7 +170,7 @@ export default function HomeScreen() {
 
   const loadFeed = useCallback(async (reset = false) => {
     try {
-      const data = await getFeed(reset ? undefined : (cursor ?? undefined));
+      const data = await getHomeFeed();
       reportNetworkSuccess();
       if (reset) {
         setPosts(data.posts);

@@ -9,20 +9,20 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+/**
+ * MeetSweet has a single subscription tier per creator.
+ * When you subscribe you get access to ALL of that creator's content
+ * (public + subscribers visibility). There is no Bronze/Silver/Gold
+ * or Normal/Premium/VIP multi-tier system.
+ *
+ * The SubscriptionTier type is kept for backwards-compatibility with
+ * any code that still references it, but only 'active' matters.
+ */
 export type SubscriptionTier = 'free' | 'normal' | 'premium' | 'vip';
-
-/** Naira price for each paid tier */
-export const TIER_PRICES: Record<SubscriptionTier, number> = {
-  free:    0,
-  normal:  200,
-  premium: 500,
-  vip:     1000,
-};
 
 export interface Subscription {
   id: string;
   creator_id: string;
-  tier: SubscriptionTier;
   status: 'active' | 'expired' | 'cancelled';
   amount: number;
   started_at: string;
@@ -34,7 +34,6 @@ function normalizeSubscription(raw: any): Subscription {
   return {
     id:         raw.id,
     creator_id: raw.creator_id ?? raw.creatorId ?? '',
-    tier:       (raw.tier ?? 'normal') as SubscriptionTier,
     status:     raw.status ?? 'active',
     amount:     raw.amount ?? 0,
     started_at: raw.started_at ?? raw.startedAt ?? '',
@@ -42,10 +41,11 @@ function normalizeSubscription(raw: any): Subscription {
   };
 }
 
+/** GET /api/subscriptions?type=subscribed — creators I am subscribed to */
 export async function getSubscriptions(): Promise<{ subscriptions: Subscription[] }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ subscriptions: unknown[] }>('/subscriptions', {
+  const raw = await apiFetch<{ subscriptions: unknown[] }>('/subscriptions?type=subscribed', {
     headers: authHeader(token),
   }).catch(() => ({ subscriptions: [] }));
   return {
@@ -55,88 +55,49 @@ export async function getSubscriptions(): Promise<{ subscriptions: Subscription[
   };
 }
 
-/** Subscribe to a creator at a specific tier. Wallet is debited server-side. */
-export async function subscribeTier(
+/**
+ * Subscribe to a creator.
+ * POST /api/subscriptions  { creator_id }
+ * There is only one subscription tier — you either subscribe or you don't.
+ */
+export async function subscribe(
   creator_id: string,
-  tier: SubscriptionTier,
 ): Promise<{ subscription_id: string; subscription: Subscription }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const raw = await apiFetch<{ subscription_id?: string; subscription?: unknown; id?: string }>('/subscriptions', {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ creator_id, tier }),
+    body: JSON.stringify({ creator_id }),
   });
   const sub = raw.subscription
     ? normalizeSubscription(raw.subscription)
     : {
         id:         raw.subscription_id ?? raw.id ?? `sub_${Date.now()}`,
         creator_id,
-        tier,
         status:     'active' as const,
-        amount:     TIER_PRICES[tier],
+        amount:     0,
         started_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
   return { subscription_id: sub.id, subscription: sub };
 }
 
-/** Legacy subscribe (kept for compatibility) */
-export async function subscribe(creator_id: string): Promise<{ subscription_id: string }> {
-  return subscribeTier(creator_id, 'normal');
+/** @deprecated Use subscribe() instead. Kept for backwards-compat. */
+export async function subscribeTier(
+  creator_id: string,
+  _tier?: SubscriptionTier,
+): Promise<{ subscription_id: string; subscription: Subscription }> {
+  return subscribe(creator_id);
 }
 
-/** Upgrade a subscription to a higher tier. Wallet charged the difference. */
-export async function upgradeSubscription(
-  subscriptionId: string,
-  newTier: SubscriptionTier,
-): Promise<{ subscription: Subscription }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ subscription?: unknown }>(`/subscriptions/${subscriptionId}/upgrade`, {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ tier: newTier }),
-  }).catch(() => ({ subscription: null }));
-  const sub = raw.subscription
-    ? normalizeSubscription(raw.subscription)
-    : {
-        id:         subscriptionId,
-        creator_id: '',
-        tier:       newTier,
-        status:     'active' as const,
-        amount:     TIER_PRICES[newTier],
-        started_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-  return { subscription: sub };
-}
-
-/** Downgrade a subscription to a lower tier. Takes effect at end of billing period. */
-export async function downgradeSubscription(
-  subscriptionId: string,
-  newTier: SubscriptionTier,
-): Promise<{ subscription: Subscription }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ subscription?: unknown }>(`/subscriptions/${subscriptionId}/downgrade`, {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ tier: newTier }),
-  }).catch(() => ({ subscription: null }));
-  const sub = raw.subscription
-    ? normalizeSubscription(raw.subscription)
-    : {
-        id:         subscriptionId,
-        creator_id: '',
-        tier:       newTier,
-        status:     'active' as const,
-        amount:     TIER_PRICES[newTier],
-        started_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-  return { subscription: sub };
-}
+/** @deprecated Use subscribe() instead. Kept for backwards-compat. */
+export const TIER_PRICES: Record<SubscriptionTier, number> = {
+  free:    0,
+  normal:  0,
+  premium: 0,
+  vip:     0,
+};
 
 export async function cancelSubscription(subscriptionId: string): Promise<void> {
   const token = await getToken();
@@ -147,16 +108,40 @@ export async function cancelSubscription(subscriptionId: string): Promise<void> 
   });
 }
 
-/** Get creator's messaging settings (who can message) - uses the new combined endpoint */
+/** Check if user is subscribed to a specific creator */
+export async function isSubscribedTo(creatorId: string): Promise<boolean> {
+  const token = await getToken();
+  if (!token) return false;
+  try {
+    // Try the combined check endpoint first
+    const result = await apiFetch<{
+      subscribed: boolean;
+    }>(`/subscriptions/check/${creatorId}`, {
+      headers: authHeader(token),
+    });
+    return result.subscribed;
+  } catch {
+    // Fall back to listing subscriptions and checking
+    try {
+      const { subscriptions } = await getSubscriptions();
+      return subscriptions.some(
+        (s) => s.creator_id === creatorId && s.status === 'active',
+      );
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** Get creator's messaging settings */
 export async function getCreatorMessagingSettings(
   creatorId: string,
 ): Promise<{ who_can_message: 'everyone' | 'subscribers' | 'none' }> {
   const token = await getToken();
   if (!token) return { who_can_message: 'everyone' };
-  
+
   try {
-    // Use the new combined check endpoint
-    const result = await apiFetch<{ 
+    const result = await apiFetch<{
       who_can_message: 'everyone' | 'subscribers' | 'none';
       subscribed: boolean;
       can_message: boolean;
@@ -166,23 +151,5 @@ export async function getCreatorMessagingSettings(
     return { who_can_message: result.who_can_message };
   } catch {
     return { who_can_message: 'everyone' };
-  }
-}
-
-/** Check if user is subscribed to a specific creator - uses the new combined endpoint */
-export async function isSubscribedTo(creatorId: string): Promise<boolean> {
-  const token = await getToken();
-  if (!token) return false;
-  try {
-    const result = await apiFetch<{ 
-      subscribed: boolean;
-      who_can_message: 'everyone' | 'subscribers' | 'none';
-      can_message: boolean;
-    }>(`/subscriptions/check/${creatorId}`, {
-      headers: authHeader(token),
-    });
-    return result.subscribed;
-  } catch {
-    return false;
   }
 }

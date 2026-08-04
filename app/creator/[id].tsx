@@ -29,7 +29,7 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { TIER_PRICES, type SubscriptionTier, subscribeTier, getCreatorMessagingSettings, isSubscribedTo } from '@/services/subscriptions';
+import { subscribe, getCreatorMessagingSettings, isSubscribedTo } from '@/services/subscriptions';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -144,13 +144,7 @@ const revStyles = StyleSheet.create({
   body: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 20 },
 });
 
-// ─── Subscribe sheet ──────────────────────────────────────────────────────────
-
-const SUBSCRIBE_TIERS: { tier: SubscriptionTier; label: string; price: number; color: string; desc: string }[] = [
-  { tier: 'normal',  label: 'Normal',  price: TIER_PRICES.normal,  color: '#4B9EFF', desc: 'Full premium feed' },
-  { tier: 'premium', label: 'Premium', price: TIER_PRICES.premium, color: '#FFB800', desc: 'Exclusive drops' },
-  { tier: 'vip',     label: 'VIP',     price: TIER_PRICES.vip,     color: '#C45A72', desc: 'All access + DMs' },
-];
+// ─── Subscribe sheet (single tier) ────────────────────────────────────────────
 
 function SubscribeSheet({
   visible,
@@ -163,14 +157,14 @@ function SubscribeSheet({
   visible: boolean;
   creator: Creator;
   walletBalance: number;
-  onConfirm: (tier: SubscriptionTier) => void;
+  onConfirm: () => void;
   onWallet: () => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>('normal');
-  const price = TIER_PRICES[selectedTier];
-  const canAfford = walletBalance >= price;
+  // A subscription costs credits; balance check uses the creator's rate (₦0 until fetched from API)
+  const MONTHLY_PRICE = 0; // fetched per creator; ₦0 = free subscription for now
+  const canAfford = walletBalance >= MONTHLY_PRICE || MONTHLY_PRICE === 0;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -178,25 +172,18 @@ function SubscribeSheet({
         <View style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={shStyles.handle} />
           <Text style={shStyles.title}>Subscribe to {creator.name}</Text>
-          <Text style={shStyles.subtitle}>Choose a tier to unlock their content</Text>
+          <Text style={shStyles.subtitle}>
+            Unlock their full feed — exclusive posts, private drops, and subscriber-only content.
+          </Text>
 
-          {/* Tier cards */}
-          <View style={shStyles.tierRow}>
-            {SUBSCRIBE_TIERS.map(({ tier, label, price: p, color, desc }) => {
-              const active = selectedTier === tier;
-              return (
-                <TouchableOpacity
-                  key={tier}
-                  style={[shStyles.tierCard, active && { borderColor: color }]}
-                  onPress={() => setSelectedTier(tier)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[shStyles.tierLabel, active && { color }]}>{label}</Text>
-                  <Text style={[shStyles.tierPrice, active && { color }]}>₦{p}</Text>
-                  <Text style={shStyles.tierDesc}>{desc}</Text>
-                </TouchableOpacity>
-              );
-            })}
+          {/* What you get */}
+          <View style={shStyles.perksCard}>
+            {['All subscriber content', 'Priority access to drops', 'Ability to message creator'].map((perk) => (
+              <View key={perk} style={shStyles.perkRow}>
+                <Check size={14} color={T.ACCENT} weight="bold" />
+                <Text style={shStyles.perkText}>{perk}</Text>
+              </View>
+            ))}
           </View>
 
           {/* Wallet balance */}
@@ -210,10 +197,10 @@ function SubscribeSheet({
           <TouchableOpacity
             style={[shStyles.primaryBtn, !canAfford && shStyles.primaryBtnOutline]}
             activeOpacity={0.85}
-            onPress={canAfford ? () => onConfirm(selectedTier) : onWallet}
+            onPress={canAfford ? onConfirm : onWallet}
           >
             <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
-              {canAfford ? `Subscribe · ₦${price.toLocaleString()}` : 'Top up wallet'}
+              {canAfford ? 'Subscribe' : 'Top up wallet'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
@@ -238,16 +225,14 @@ const shStyles = StyleSheet.create({
   },
   title: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center', letterSpacing: -0.4 },
   subtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', marginTop: -4 },
-  tierRow: { flexDirection: 'row', gap: 8 },
-  tierCard: {
-    flex: 1, borderRadius: T.RADIUS.md,
+  perksCard: {
     backgroundColor: T.SURFACE_2,
-    borderWidth: 2, borderColor: 'transparent',
-    padding: 10, alignItems: 'center', gap: 2,
+    borderRadius: T.RADIUS.md,
+    padding: 14,
+    gap: 10,
   },
-  tierLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
-  tierPrice: { fontSize: 16, fontFamily: T.FONT.bold, color: T.TEXT },
-  tierDesc: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, textAlign: 'center', marginTop: 2 },
+  perkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  perkText: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT },
   walletRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 4, paddingVertical: 6,
@@ -336,8 +321,8 @@ export default function CreatorProfileScreen() {
       buttonLabel: 'Next',
     },
     {
-      title: 'Choose Your Tier',
-      subtitle: 'Select Normal, Premium, or VIP access. Each tier unlocks different content and perks.',
+      title: 'All Access',
+      subtitle: 'One subscription unlocks all of a creator\'s subscriber-only content and direct messages.',
       icon: 'money',
       buttonLabel: 'Subscribe Now',
     },
@@ -669,7 +654,26 @@ export default function CreatorProfileScreen() {
           )}
         </View>
 
-        {/* ── Tabs ── */}
+        {/* ── Subscription wall — non-subscribers see a CTA instead of tabs ── */}
+        {!isSubscribed && currentUser && currentUser.username !== (realProfile?.username ?? id) && (
+          <View style={styles.subWall}>
+            <Lock size={28} color={T.ACCENT} />
+            <Text style={styles.subWallTitle}>Subscribe to see all drops</Text>
+            <Text style={styles.subWallBody}>
+              Subscribe to unlock {creator.name}'s full feed including subscriber-only posts.
+            </Text>
+            <TouchableOpacity
+              style={styles.subWallBtn}
+              onPress={handleSubscribePress}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.subWallBtnLabel}>Subscribe</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Tabs (only shown when subscribed or own profile) ── */}
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && (
         <View style={styles.tabs}>
           {TABS.map((tab) => (
             <TouchableOpacity
@@ -684,9 +688,10 @@ export default function CreatorProfileScreen() {
             </TouchableOpacity>
           ))}
         </View>
+        )}
 
-        {/* ── Tab content ── */}
-        {activeTab === 'drops' && (
+        {/* ── Tab content (only when subscribed or own profile) ── */}
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'drops' && (
           <View style={styles.tabContent}>
             {postsLoading ? (
               <View style={styles.dropsGrid}>
@@ -713,7 +718,7 @@ export default function CreatorProfileScreen() {
           </View>
         )}
 
-        {activeTab === 'reviews' && (
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'reviews' && (
           <View style={styles.tabContent}>
             {reviewsQuery.isLoading ? (
               <View style={styles.reviewLoading}>
@@ -744,7 +749,7 @@ export default function CreatorProfileScreen() {
           </View>
         )}
 
-        {activeTab === 'about' && (
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'about' && (
           <View style={styles.tabContent}>
             <View style={styles.aboutCard}>
               <Users size={18} color={T.TEXT_2} />
@@ -769,7 +774,7 @@ export default function CreatorProfileScreen() {
               ) : null}
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Subscription</Text>
-                <Text style={styles.infoValue}>From ₦{TIER_PRICES.normal}/mo</Text>
+                <Text style={styles.infoValue}>Monthly subscription</Text>
               </View>
               <View style={styles.infoDivider} />
               <View style={styles.infoRow}>
@@ -796,11 +801,12 @@ export default function CreatorProfileScreen() {
         visible={sheetOpen}
         creator={creator}
         walletBalance={walletBalance}
-        onConfirm={async (selectedTier) => {
+        onConfirm={async () => {
           setSheetOpen(false);
           try {
-            await subscribeTier(creator.id, selectedTier);
-            Alert.alert('Subscribed!', `You are now subscribed to ${creator.name} on the ${selectedTier} tier.`);
+            await subscribe(creator.id);
+            setIsSubscribed(true);
+            Alert.alert('Subscribed!', `You now have full access to ${creator.name}'s content.`);
           } catch (err) {
             Alert.alert('Subscription failed', (err as Error).message ?? 'Please try again.');
           }
@@ -1040,4 +1046,43 @@ const styles = StyleSheet.create({
 
   // Drops tab — vertical list of full-width content cards
   dropsGrid: { gap: 16 },
+
+  // Subscription wall
+  subWall: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 36,
+    marginTop: 16,
+    gap: 10,
+  },
+  subWallTitle: {
+    fontSize: 18,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    textAlign: 'center',
+    letterSpacing: -0.3,
+    marginTop: 6,
+  },
+  subWallBody: {
+    fontSize: 13,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  subWallBtn: {
+    width: '100%',
+    height: 52,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  subWallBtnLabel: {
+    fontSize: 15,
+    fontFamily: T.FONT.semibold,
+    color: T.BG,
+  },
 });

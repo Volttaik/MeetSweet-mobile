@@ -28,16 +28,19 @@ export interface Post {
   likeCount: number;
   commentCount: number;
   bookmarkCount: number;
+  /**
+   * True when visibility === 'subscribers'. Used to show a subtle
+   * "Subscribers only" indicator — NOT a paywall or per-post purchase gate.
+   */
   isPremium: boolean;
-  priceCredits: number | null;
-  /** Subscription tier required to view this post. */
-  tier: 'free' | 'normal' | 'premium' | 'vip';
   createdAt: string;
+  publishedAt?: string;
   author: PostAuthor;
   likedByMe: boolean;
   bookmarkedByMe: boolean;
-  isLocked?: boolean;
   updatedAt?: string;
+  /** Title field — used by videos */
+  title?: string;
 }
 
 export interface Comment {
@@ -88,14 +91,10 @@ function normalizePost(raw: any): Post {
     commentCount: raw.comment_count ?? 0,
     bookmarkCount: raw.save_count ?? 0,
     isPremium: raw.visibility === 'subscribers',
-    priceCredits: raw.unlock_price ?? null,
-    tier: (raw.tier ?? (
-      raw.visibility === 'subscribers'
-        ? (raw.tier_level === 'vip' ? 'vip' : raw.tier_level === 'normal' ? 'normal' : 'premium')
-        : 'free'
-    )) as Post['tier'],
     createdAt: raw.created_at ?? raw.published_at ?? new Date().toISOString(),
+    publishedAt: raw.published_at ?? raw.created_at,
     updatedAt: raw.updated_at,
+    title: raw.title ?? null,
     author: {
       id: raw.creator_id ?? '',
       name: raw.creator_display_name ?? raw.creator_username ?? 'Unknown',
@@ -106,7 +105,6 @@ function normalizePost(raw: any): Post {
     },
     likedByMe: raw.liked_by_me ?? false,
     bookmarkedByMe: raw.bookmarked_by_me ?? false,
-    isLocked: raw.unlock_price != null && raw.unlock_price > 0,
   };
 }
 
@@ -153,6 +151,74 @@ export async function getFeed(cursor?: string): Promise<{ posts: Post[]; hasMore
   const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
   const nextCursor = raw?.next_cursor ?? (posts.length === 20 ? posts[posts.length - 1]?.createdAt ?? null : null);
   return { posts, hasMore: posts.length === 20, nextCursor };
+}
+
+/**
+ * Home feed — assembled from subscribed creators' content.
+ *
+ * Per the spec, the backend has no single home-feed endpoint.
+ * We assemble it by:
+ *  1. Fetching the user's subscriptions
+ *  2. For each subscribed creator, fetching their posts from GET /api/creators/:id/posts
+ *  3. Merging and sorting by published_at descending
+ *
+ * Returns empty array when the user has no subscriptions.
+ */
+export async function getHomeFeed(): Promise<{ posts: Post[]; hasMore: boolean; nextCursor: string | null }> {
+  const token = await getToken();
+  if (!token) return { posts: [], hasMore: false, nextCursor: null };
+
+  // 1. Fetch subscriptions
+  let creatorIds: string[] = [];
+  try {
+    const subRaw = await apiFetch<{ subscriptions: Array<{ creator_id?: string; creatorId?: string }> }>(
+      '/subscriptions?type=subscribed',
+      { headers: authHeader(token) },
+    );
+    creatorIds = (subRaw?.subscriptions ?? [])
+      .map((s) => s.creator_id ?? s.creatorId ?? '')
+      .filter(Boolean);
+  } catch {
+    // Network failure — return empty so the empty state shows
+    return { posts: [], hasMore: false, nextCursor: null };
+  }
+
+  if (creatorIds.length === 0) {
+    return { posts: [], hasMore: false, nextCursor: null };
+  }
+
+  // 2. Fetch recent posts from each subscribed creator (max 10 creators, 20 posts each)
+  const allPosts: Post[] = [];
+  await Promise.allSettled(
+    creatorIds.slice(0, 10).map(async (creatorId) => {
+      try {
+        const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
+          `/creators/${creatorId}/posts?limit=20`,
+          { headers: authHeader(token) },
+        );
+        const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
+        allPosts.push(...posts);
+      } catch {
+        // Skip this creator on error
+      }
+    }),
+  );
+
+  // 3. Sort descending by publishedAt / createdAt, deduplicate
+  allPosts.sort((a, b) => {
+    const ta = new Date(a.publishedAt ?? a.createdAt).getTime();
+    const tb = new Date(b.publishedAt ?? b.createdAt).getTime();
+    return tb - ta;
+  });
+
+  const seen = new Set<string>();
+  const unique = allPosts.filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+
+  return { posts: unique.slice(0, 60), hasMore: false, nextCursor: null };
 }
 
 /**
@@ -221,14 +287,17 @@ export interface CreatePostData {
   visibility?: 'public' | 'subscribers' | 'draft';
   /** Inline media objects — preferred over media_ids for new posts. */
   media?: PostMediaInput[];
-  unlock_price?: number;
+  /** Media IDs from POST /api/media — preferred over inline media. */
+  media_ids?: string[];
   preview_duration?: number;
   categories?: string[];
   tags?: string[];
   /** Backend content_type — drives which feed/tab the post appears in. */
   content_type?: 'post' | 'video' | 'short' | 'album';
-  /** Minimum subscription tier required to view this post. */
-  tier?: 'free' | 'normal' | 'premium' | 'vip';
+  /** Video title (for content_type: 'video') */
+  title?: string;
+  /** Video description (for content_type: 'video') */
+  description?: string;
 }
 
 export async function createPost(data: CreatePostData): Promise<{ id: string }> {
@@ -246,11 +315,10 @@ export async function editPost(
   id: string,
   data: {
     caption?: string;
-    visibility?: string;
+    visibility?: 'public' | 'subscribers' | 'draft';
+    is_pinned?: boolean;
     preview_duration?: number | null;
     expires_at?: string | null;
-    /** Credit price to unlock premium content; 0 removes the paywall. */
-    unlock_price?: number;
   },
 ): Promise<void> {
   const token = await getToken();

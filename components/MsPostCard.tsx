@@ -14,12 +14,11 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, LockOpen, Lock, Crown, Diamond, Play, Images } from 'phosphor-react-native';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play, Images } from 'phosphor-react-native';
 import { router } from 'expo-router';
-import { T, TIERS } from '@/constants/theme';
+import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
-import { MsPremiumContent } from '@/components/MsPremiumContent';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import type { Post } from '@/services/posts';
 import {
@@ -410,18 +409,12 @@ export function MsPostCard({
         </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {/* Tier badge — always shown (Free=bronze, Normal=blue, Premium=gold, VIP=purple) */}
-          {(() => {
-            const tier = post.tier ?? 'free';
-            const def = TIERS[tier];
-            const Icon = tier === 'free' ? LockOpen : tier === 'normal' ? Lock : tier === 'vip' ? Diamond : Crown;
-            return (
-              <View style={[styles.tierBadge, { backgroundColor: def.bg }]}>
-                <Icon size={10} color={def.color} weight="fill" />
-                <Text style={[styles.tierText, { color: def.color }]}>{def.label.toUpperCase()}</Text>
-              </View>
-            );
-          })()}
+          {/* Subscriber-only badge — shown when content requires a subscription */}
+          {post.isPremium && (
+            <View style={styles.subsBadge}>
+              <Text style={styles.subsBadgeText}>SUBSCRIBERS</Text>
+            </View>
+          )}
           <TouchableOpacity
             style={styles.moreBtn}
             activeOpacity={0.7}
@@ -510,17 +503,18 @@ export function MsPostCard({
           onLongPress={openSheet}
           onDoubleTap={doubleTapToOpen ? (onMediaPress ?? onPress) : handleLike}
         >
-          <MsPremiumContent
-            uri={post.mediaUrl}
-            mediaType="image"
-            locked={Boolean(post.isLocked)}
-            unlocked={!post.isLocked}
-            price={post.priceCredits ?? 0}
-            aspectRatio={post.width && post.height ? post.width / post.height : 1}
-            borderRadius={T.RADIUS.xl}
-            onUnlock={onMediaPress ?? onPress}
-            style={styles.media}
-          />
+          <View style={[
+            styles.media,
+            { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
+            post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
+          ]}>
+            <MsMediaLoader
+              uri={post.mediaUrl}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+              accessibleLabel="Post image"
+            />
+          </View>
         </ScalePressable>
       )}
 
@@ -537,42 +531,28 @@ export function MsPostCard({
           onLongPress={openSheet}
           delayLongPress={400}
         >
-          {post.isLocked ? (
-            <MsPremiumContent
-              uri={post.mediaUrl}
-              posterUri={post.thumbnailUrl}
-              mediaType="video"
-              locked
-              price={post.priceCredits ?? 0}
-              aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
-              borderRadius={T.RADIUS.xl}
-              onUnlock={onMediaPress ?? onPress}
-              style={styles.videoPlaceholder}
-            />
-          ) : (
-            <View style={[
-              styles.videoPlaceholder,
-              { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
-              post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
-            ]}>
-              {post.thumbnailUrl ? (
-                <MsMediaLoader
-                  uri={post.thumbnailUrl}
-                  style={StyleSheet.absoluteFill}
-                  resizeMode="cover"
-                  accessibleLabel="Video thumbnail"
-                />
-              ) : (
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
-              )}
-              {/* Play button overlay — decorative, tap is handled by the TouchableOpacity */}
-              <View style={styles.videoPlayOverlay} pointerEvents="none">
-                <View style={styles.videoPlayBtn}>
-                  <Play size={20} color="#fff" weight="fill" />
-                </View>
+          <View style={[
+            styles.videoPlaceholder,
+            { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
+            post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
+          ]}>
+            {post.thumbnailUrl ? (
+              <MsMediaLoader
+                uri={post.thumbnailUrl}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+                accessibleLabel="Video thumbnail"
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
+            )}
+            {/* Play button overlay — decorative, tap is handled by the TouchableOpacity */}
+            <View style={styles.videoPlayOverlay} pointerEvents="none">
+              <View style={styles.videoPlayBtn}>
+                <Play size={20} color="#fff" weight="fill" />
               </View>
             </View>
-          )}
+          </View>
         </TouchableOpacity>
       )}
 
@@ -660,18 +640,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   authorRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  tierBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
+  subsBadge: {
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: T.RADIUS.xs,
+    backgroundColor: 'rgba(196,90,114,0.15)',
   },
-  tierText: {
+  subsBadgeText: {
     fontSize: 8,
     fontFamily: T.FONT.bold,
-    letterSpacing: 0.5,
+    color: '#C45A72',
+    letterSpacing: 0.4,
   },
   moreBtn: {
     width: 28,

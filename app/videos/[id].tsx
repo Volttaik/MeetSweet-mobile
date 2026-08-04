@@ -226,9 +226,7 @@ export default function VideoWatchScreen() {
           likeCount:     0,
           commentCount:  p.commentCount ?? 0,
           bookmarkCount: 0,
-          isPremium:     p.isPremium ?? false,
-          priceCredits:  null,
-          tier:          'free',
+          isPremium:     false,
           createdAt:     p.createdAt ?? '',
           author: {
             id:         creator.id,

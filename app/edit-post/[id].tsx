@@ -1,8 +1,7 @@
 /**
  * Edit Post Screen — /edit-post/[id]
  *
- * Editable fields: caption, visibility, audience tier.
- * Tier controls who can see the post and maps to the backend unlock_price.
+ * Editable fields: caption, visibility.
  * On save: updates backend, calls markEdited() to propagate to all feeds.
  */
 import React, { useEffect, useState } from 'react';
@@ -30,7 +29,6 @@ import {
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { getPost, editPost, type Post } from '@/services/posts';
-import { TIER_PRICES } from '@/services/subscriptions';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { toast } from '@/components/MsToast';
 
@@ -47,23 +45,6 @@ const VISIBILITY_OPTIONS: Array<{
   { value: 'draft',       label: 'Draft',        description: 'Only visible to you',            Icon: Lock },
 ];
 
-// ─── Audience tier options (mirrors create-post) ──────────────────────────────
-
-type TierValue = 'free' | 'normal' | 'premium' | 'vip';
-
-const TIER_OPTIONS: Array<{ value: TierValue; label: string; color: string; desc: string }> = [
-  { value: 'free',    label: 'Free',    color: T.TEXT_2,  desc: 'All followers' },
-  { value: 'normal',  label: 'Normal',  color: '#4B9EFF', desc: '₦200/mo' },
-  { value: 'premium', label: 'Premium', color: '#FFB800', desc: '₦500/mo' },
-  { value: 'vip',     label: 'VIP',     color: '#C45A72', desc: '₦1,000/mo' },
-];
-
-// Map tier → backend unlock_price
-function tierToPrice(tier: TierValue): number {
-  if (tier === 'free') return 0;
-  return TIER_PRICES[tier] ?? 0;
-}
-
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function EditPostScreen() {
@@ -78,7 +59,6 @@ export default function EditPostScreen() {
   // Editable fields
   const [caption,    setCaption]    = useState('');
   const [visibility, setVisibility] = useState<'public' | 'subscribers' | 'draft'>('public');
-  const [tier,       setTier]       = useState<TierValue>('free');
 
   // ── Load post ───────────────────────────────────────────────────────────────
 
@@ -90,7 +70,6 @@ export default function EditPostScreen() {
         setPost(p);
         setCaption(p.caption ?? '');
         setVisibility(p.visibility);
-        setTier((p.tier as TierValue) ?? 'free');
       })
       .catch(() => toast.error('Could not load post'))
       .finally(() => setLoading(false));

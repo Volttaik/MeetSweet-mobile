@@ -32,7 +32,7 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
 import { CommentsModal } from '@/components/MsCommentsSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
-import { MsPaymentSheet } from '@/components/MsPaymentSheet';
+// MsPaymentSheet removed — no per-post payment gate exists in this app
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { T } from '@/constants/theme';
 
@@ -47,7 +47,6 @@ export default function ContentDetailScreen() {
   const [likeCount, setLikeCount] = useState(0);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
-  const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -227,15 +226,6 @@ export default function ContentDetailScreen() {
         contentId={post.id}
         title={post.caption || 'Post'}
         onClose={() => setShareVisible(false)}
-      />
-      <MsPaymentSheet
-        visible={premiumSheetVisible}
-        amount={post.priceCredits ?? 0}
-        onClose={() => setPremiumSheetVisible(false)}
-        onConfirm={() => {
-          setPremiumSheetVisible(false);
-          router.push(`/creator/${post.author.id}`);
-        }}
       />
     </MsAmbientBackground>
   );
