@@ -229,36 +229,32 @@ export async function getHomeFeed(): Promise<{ posts: Post[]; hasMore: boolean; 
     return { posts: [], hasMore: false, nextCursor: null };
   }
 
-  // 2. Fetch recent posts, videos, and shorts from each subscribed creator (max 10 creators)
+  // 2. Fetch recent posts and long-form videos from each subscribed creator (max 10 creators).
+  //    Shorts are intentionally excluded — they live only in the Shorts tab, never the home feed.
   const allPosts: Post[] = [];
   await Promise.allSettled(
     creatorIds.slice(0, 10).flatMap((creatorId) => [
-      // Posts
+      // Posts (text + image, albums)
       apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
         `/creators/${creatorId}/posts?limit=20`,
         { headers: authHeader(token) },
       ).then((raw) => {
         const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
-        allPosts.push(...posts);
+        // Filter out any shorts that might bleed through the posts endpoint
+        allPosts.push(...posts.filter((p) => p.contentType !== 'short'));
       }).catch(() => {}),
 
-      // Videos
+      // Long-form videos
       apiFetch<{ videos?: unknown[]; items?: unknown[] }>(
         `/creators/${creatorId}/videos?limit=20`,
         { headers: authHeader(token) },
       ).then((raw) => {
         const items = Array.isArray(raw?.videos) ? raw.videos : Array.isArray(raw?.items) ? raw.items : [];
-        allPosts.push(...items.map(normalizePost));
+        allPosts.push(...items.map(normalizePost).filter((p) => p.contentType !== 'short'));
       }).catch(() => {}),
 
-      // Shorts
-      apiFetch<{ shorts?: unknown[]; items?: unknown[] }>(
-        `/creators/${creatorId}/shorts?limit=20`,
-        { headers: authHeader(token) },
-      ).then((raw) => {
-        const items = Array.isArray(raw?.shorts) ? raw.shorts : Array.isArray(raw?.items) ? raw.items : [];
-        allPosts.push(...items.map(normalizePost));
-      }).catch(() => {}),
+      // NOTE: Shorts are NOT fetched here.
+      // Shorts (contentType:'short') appear exclusively in the Shorts tab (/shorts).
     ]),
   );
 

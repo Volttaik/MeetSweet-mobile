@@ -214,6 +214,8 @@ export async function fetchExplorePage(page = 1): Promise<ExploreFeedPage> {
     const result = normalizeItem(item);
     if (!result) continue;
     const { preview, creator } = result;
+    // Shorts are exclusive to the Shorts tab — never appear in Explore feed
+    if (preview.contentType === 'short') continue;
     if (!creatorMap.has(creator.id)) creatorMap.set(creator.id, creator);
     previews.push(preview);
   }

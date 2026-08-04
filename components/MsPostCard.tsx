@@ -486,7 +486,7 @@ export function MsPostCard({
       )}
 
       {/* Media — album
-          Shows cover image clearly (no blur) with a price/count badge.
+          Stack-of-cards effect: two offset cards behind the main cover.
           Tapping always opens the album detail page.
       */}
       {post.contentType === 'album' && (
@@ -496,26 +496,33 @@ export function MsPostCard({
           onLongPress={openSheet}
           delayLongPress={400}
         >
-          <View style={[styles.albumCard, { borderRadius: T.RADIUS.xl, overflow: 'hidden' }]}>
-            {post.mediaUrl ? (
-              <MsMediaLoader
-                uri={post.mediaUrl}
-                style={StyleSheet.absoluteFill}
-                resizeMode="cover"
-                accessibleLabel="Album cover"
-              />
-            ) : (
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
-            )}
-            {/* Bottom gradient overlay with price/item info */}
-            <View style={styles.albumOverlay}>
-              <View style={styles.albumBadge}>
-                <Images size={12} color="#fff" weight="bold" />
-                <Text style={styles.albumBadgeText}>
-                  {post.priceCredits && post.priceCredits > 0
-                    ? `Buy · ₦${post.priceCredits.toLocaleString()}`
-                    : 'Album'}
-                </Text>
+          <View style={styles.albumStack}>
+            {/* Card 3 — furthest back */}
+            <View style={[styles.albumCard, styles.albumCardBack2, { borderRadius: T.RADIUS.xl }]} />
+            {/* Card 2 — middle */}
+            <View style={[styles.albumCard, styles.albumCardBack1, { borderRadius: T.RADIUS.xl }]} />
+            {/* Card 1 — front (actual cover) */}
+            <View style={[styles.albumCard, { borderRadius: T.RADIUS.xl, overflow: 'hidden', zIndex: 3 }]}>
+              {post.mediaUrl ? (
+                <MsMediaLoader
+                  uri={post.mediaUrl}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                  accessibleLabel="Album cover"
+                />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
+              )}
+              {/* Bottom gradient overlay with price/item info */}
+              <View style={styles.albumOverlay}>
+                <View style={styles.albumBadge}>
+                  <Images size={12} color="#fff" weight="bold" />
+                  <Text style={styles.albumBadgeText}>
+                    {(post as any).priceCredits && (post as any).priceCredits > 0
+                      ? `Buy · ₦${(post as any).priceCredits.toLocaleString()}`
+                      : 'Album'}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
@@ -550,10 +557,11 @@ export function MsPostCard({
       {/* Media — video
           Feed: shows static thumbnail + play button overlay immediately.
           Tapping opens the dedicated Video Post page.
-          Locked posts still use MsPremiumContent for the paywall overlay.
           Long-press opens the action sheet for save/share/report.
+          Note: we render the card even when mediaUrl is null (Explore preview objects
+          may only carry thumbnailUrl), because the card taps navigate to /videos/:id.
       */}
-      {post.mediaUrl && post.mediaType === 'video' && (
+      {post.mediaType === 'video' && (post.mediaUrl != null || post.thumbnailUrl != null) && (
         <TouchableOpacity
           activeOpacity={1}
           onPress={onMediaPress ?? onPress}
@@ -721,10 +729,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  albumStack: {
+    // Extra bottom padding so the offset back-cards are visible
+    paddingBottom: 10,
+    paddingHorizontal: 6,
+  },
   albumCard: {
     width: '100%',
     aspectRatio: 4 / 3,
     backgroundColor: '#1A1A1F',
+  },
+  albumCardBack1: {
+    position: 'absolute',
+    bottom: 4,
+    left: 12,
+    right: 12,
+    top: 4,
+    backgroundColor: '#2A2A30',
+    zIndex: 2,
+  },
+  albumCardBack2: {
+    position: 'absolute',
+    bottom: 0,
+    left: 20,
+    right: 20,
+    top: 8,
+    backgroundColor: '#1E1E24',
+    zIndex: 1,
   },
   albumOverlay: {
     position: 'absolute',

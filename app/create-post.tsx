@@ -235,6 +235,7 @@ export default function CreatePostScreen() {
     setMediaType(type);
     setMediaMime(mime);
     setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
+
     setStep('preview');
   }, [contentType]);
 
@@ -386,35 +387,84 @@ export default function CreatePostScreen() {
   // ─── Publishing overlay ───────────────────────────────────────────────────
 
   if (step === 'uploading' || step === 'creating' || step === 'processing' || step === 'success') {
+    const pct = Math.round(uploadProgress * 100);
+    const stepLabel =
+      step === 'uploading'   ? 'Uploading media…'
+      : step === 'creating'  ? `Creating your ${contentLabel.toLowerCase()}…`
+      : step === 'processing' ? 'Finalising…'
+      : 'Done!';
+
+    // Step indicator dots
+    const STEPS: Array<{ key: typeof step; label: string }> = [
+      { key: 'uploading',   label: 'Upload' },
+      { key: 'creating',    label: 'Create' },
+      { key: 'processing',  label: 'Process' },
+      { key: 'success',     label: 'Done' },
+    ];
+    const currentStepIdx = STEPS.findIndex((s) => s.key === step);
+
     return (
       <View style={[styles.overlay, { paddingTop: insets.top }]}>
+        {/* Accent glow behind the card */}
+        <View style={styles.overlayGlow} />
+
         <View style={styles.overlayCard}>
           {step === 'success' ? (
             <>
               <View style={styles.successIcon}>
-                <Check size={32} color={T.BG} weight="bold" />
+                <Check size={36} color={T.BG} weight="bold" />
               </View>
               <Text style={styles.overlayTitle}>Published!</Text>
-              <Text style={styles.overlaySubtitle}>Your {contentLabel.toLowerCase()} is now live.</Text>
+              <Text style={styles.overlaySubtitle}>
+                Your {contentLabel.toLowerCase()} is live.
+              </Text>
             </>
           ) : (
             <>
-              <ActivityIndicator size="large" color={T.ACCENT} />
-              <Text style={styles.overlayTitle}>
-                {step === 'uploading' ? 'Uploading Media'
-                  : step === 'creating' ? `Creating ${contentLabel}`
-                  : 'Processing…'}
-              </Text>
-              {step === 'uploading' && uploadProgress > 0 ? (
-                <>
+              {/* Content type icon */}
+              <View style={[styles.uploadIcon, { backgroundColor: CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor + '22' ?? T.SURFACE_2 }]}>
+                {CONTENT_TYPES.find((c) => c.type === contentType)?.icon}
+              </View>
+
+              <Text style={styles.overlayTitle}>{stepLabel}</Text>
+
+              {/* Progress bar */}
+              {step === 'uploading' ? (
+                <View style={styles.progressWrap}>
                   <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${Math.round(uploadProgress * 100)}%` as any }]} />
+                    <View style={[styles.progressFill, { width: `${Math.max(4, pct)}%` as any }]} />
                   </View>
-                  <Text style={styles.overlaySubtitle}>{Math.round(uploadProgress * 100)}%</Text>
-                </>
+                  <View style={styles.progressLabelRow}>
+                    <Text style={styles.progressPct}>{pct}%</Text>
+                    <Text style={styles.progressSubtitle}>
+                      {thumbnailUri && uploadProgress < 0.9 ? 'Uploading video…' : thumbnailUri ? 'Uploading thumbnail…' : 'Uploading…'}
+                    </Text>
+                  </View>
+                </View>
               ) : (
-                <Text style={styles.overlaySubtitle}>Please wait…</Text>
+                <View style={styles.progressWrap}>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, styles.progressIndeterminate]} />
+                  </View>
+                  <Text style={styles.overlaySubtitle}>Please wait…</Text>
+                </View>
               )}
+
+              {/* Step dots */}
+              <View style={styles.stepDots}>
+                {STEPS.map((s, i) => (
+                  <View key={s.key} style={styles.stepDotWrap}>
+                    <View style={[
+                      styles.stepDot,
+                      i < currentStepIdx && styles.stepDotDone,
+                      i === currentStepIdx && styles.stepDotActive,
+                    ]} />
+                    <Text style={[styles.stepDotLabel, i === currentStepIdx && styles.stepDotLabelActive]}>
+                      {s.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </>
           )}
         </View>
@@ -498,22 +548,26 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Thumbnail picker — video only */}
-          {(contentType === 'video' || contentType === 'shorts') && (
+          {/* Thumbnail picker — long-form video only (Shorts don't use thumbnails) */}
+          {contentType === 'video' && (
             <View style={[styles.section, { paddingTop: 8 }]}>
               <Text style={styles.sectionTitle}>Thumbnail</Text>
               <TouchableOpacity style={styles.thumbnailPicker} onPress={pickThumbnail} activeOpacity={0.8}>
                 {thumbnailUri ? (
-                  <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} resizeMode="cover" />
+                  <>
+                    <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} resizeMode="cover" />
+                    <View style={styles.thumbnailChangeBadge}>
+                      <Text style={styles.thumbnailChangeBadgeLabel}>Change</Text>
+                    </View>
+                  </>
                 ) : (
                   <View style={styles.thumbnailPlaceholder}>
                     <ImageIcon size={24} color={T.TEXT_3} />
-                    <Text style={styles.thumbnailPlaceholderLabel}>
-                      {contentType === 'video' ? 'Add thumbnail (16:9)' : 'Add thumbnail'}
-                    </Text>
+                    <Text style={styles.thumbnailPlaceholderLabel}>Add thumbnail (16:9)</Text>
                   </View>
                 )}
               </TouchableOpacity>
+              <Text style={styles.charHint}>Auto-extracted from video. Tap to change.</Text>
             </View>
           )}
 
@@ -883,17 +937,92 @@ const styles = StyleSheet.create({
   },
   overlayTitle: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center' },
   overlaySubtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center' },
+  overlayGlow: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: T.ACCENT + '1A',
+    top: '25%',
+    alignSelf: 'center',
+  },
+  uploadIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  progressWrap: { width: '100%', gap: 8 },
   progressBar: {
     width: '100%',
-    height: 4,
+    height: 6,
     backgroundColor: T.SURFACE_2,
-    borderRadius: 2,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: T.ACCENT,
-    borderRadius: 2,
+    borderRadius: 3,
+  },
+  progressIndeterminate: {
+    width: '60%',
+    backgroundColor: T.ACCENT,
+  },
+  progressLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  progressPct: {
+    fontSize: 22,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    letterSpacing: -0.5,
+  },
+  progressSubtitle: {
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+  },
+  stepDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginTop: 4,
+  },
+  stepDotWrap: { alignItems: 'center', gap: 5 },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: T.SURFACE_2,
+  },
+  stepDotDone: { backgroundColor: T.ACCENT + '88' },
+  stepDotActive: { backgroundColor: T.ACCENT, width: 20 },
+  stepDotLabel: {
+    fontSize: 9,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_3,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  stepDotLabelActive: { color: T.ACCENT },
+  thumbnailChangeBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: T.RADIUS.full,
+  },
+  thumbnailChangeBadgeLabel: {
+    fontSize: 11,
+    fontFamily: T.FONT.semibold,
+    color: '#fff',
   },
 
   header: {

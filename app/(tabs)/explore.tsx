@@ -137,10 +137,13 @@ const toggleStyles = StyleSheet.create({
 
 function previewToPost(preview: import('@/lib/api-client-react').ContentPreview, creator: import('@/lib/api-client-react').Creator): Post {
   const isVideo = preview.kind === 'video' || preview.kind === 'audio';
+  // IMPORTANT: use preview.contentType (the canonical backend value) for type dispatch,
+  // NOT preview.kind — normalizeItem sets kind to 'video'|'photo' only, never 'album',
+  // so checking preview.kind === 'album' always falls through to 'post'.
   const contentType: Post['contentType'] =
     preview.contentType === 'short' ? 'short' :
-    isVideo ? 'video' :
-    preview.kind === 'album' ? 'album' : 'post';
+    preview.contentType === 'album' ? 'album' :
+    isVideo ? 'video' : 'post';
 
   // Resolve tier from backend data — never default to bronze just because visibility is public.
   // Bronze tier on Explore shows an unwanted dot on every free post; only show silver/gold/diamond.
@@ -151,9 +154,13 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
   return {
     id: preview.id,
     caption: preview.title ?? '',
+    title: preview.title ?? undefined,
     visibility: 'public',
     tier,
     contentType,
+    // For video posts: always set mediaType='video' so MsPostCard renders the video card.
+    // mediaUrl may be null for Explore previews — the card still renders using thumbnailUrl
+    // and taps navigate to /videos/:id.  Never fall through to 'image' for a video post.
     mediaUrl: preview.mediaUrl ?? null,
     mediaType: isVideo ? 'video' : (preview.thumbnailUrl || preview.mediaUrl ? 'image' : null),
     thumbnailUrl: preview.thumbnailUrl ?? null,

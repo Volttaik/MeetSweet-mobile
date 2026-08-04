@@ -322,7 +322,13 @@ export default function HomeScreen() {
               videoPreviewActive={visiblePostIds.has(item.id)}
               onPress={() => {
                 if (item.contentType === 'short') {
+                  // Shorts only live in the Shorts player — shouldn't reach here after
+                  // home feed filtering, but guard just in case
                   router.push({ pathname: '/shorts', params: { startId: item.id } });
+                } else if (item.contentType === 'video') {
+                  router.push(`/videos/${item.id}`);
+                } else if (item.contentType === 'album') {
+                  router.push(`/album/${item.id}`);
                 } else {
                   router.push(`/post/${item.id}`);
                 }
