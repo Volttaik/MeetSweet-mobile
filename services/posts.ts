@@ -16,6 +16,11 @@ export interface Post {
   id: string;
   caption: string;
   visibility: 'public' | 'subscribers' | 'draft';
+  /**
+   * Content tier — derived from visibility when the backend doesn't store it
+   * explicitly.  bronze = public, silver/gold/diamond = subscriber tiers.
+   */
+  tier?: import('@/constants/tiers').ContentTier;
   /** Backend content_type field — 'post' | 'video' | 'short' | 'album' | null */
   contentType: 'post' | 'video' | 'short' | 'album' | null;
   mediaUrl: string | null;
@@ -107,6 +112,8 @@ function normalizePost(raw: any): Post {
     commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
     isPremium: raw.visibility === 'subscribers',
+    // Derive tier: backend returns 'tier' if available; otherwise infer from visibility
+    tier: raw.tier ?? (raw.visibility === 'public' ? 'bronze' : undefined),
     createdAt:   raw.created_at   ?? raw.createdAt   ?? raw.published_at ?? new Date().toISOString(),
     publishedAt: raw.published_at ?? raw.publishedAt ?? raw.created_at,
     updatedAt:   raw.updated_at   ?? raw.updatedAt,

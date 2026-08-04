@@ -29,7 +29,8 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
+import { subscribe, getCreatorMessagingSettings, SUBSCRIPTION_TIER_PRICES, type ContentSubscriptionTier } from '@/services/subscriptions';
+import { TIERS as CONTENT_TIERS } from '@/constants/tiers';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -153,7 +154,33 @@ const revStyles = StyleSheet.create({
   body: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 20 },
 });
 
-// ─── Subscribe sheet (single tier) ────────────────────────────────────────────
+// ─── Subscribe sheet (tier selection) ─────────────────────────────────────────
+
+const SUBSCRIBE_TIERS: Array<{
+  key: ContentSubscriptionTier;
+  emoji: string;
+  price: number;
+  perks: string[];
+}> = [
+  {
+    key:   'silver',
+    emoji: '🥈',
+    price: SUBSCRIPTION_TIER_PRICES.silver,
+    perks: ['All Silver-tier posts & videos', 'Direct messaging'],
+  },
+  {
+    key:   'gold',
+    emoji: '🥇',
+    price: SUBSCRIPTION_TIER_PRICES.gold,
+    perks: ['Everything in Silver', 'Gold-tier exclusive content'],
+  },
+  {
+    key:   'diamond',
+    emoji: '💎',
+    price: SUBSCRIPTION_TIER_PRICES.diamond,
+    perks: ['Everything in Gold', 'Diamond-exclusive drops', 'Priority access'],
+  },
+];
 
 function SubscribeSheet({
   visible,
@@ -171,9 +198,11 @@ function SubscribeSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  // A subscription costs credits; balance check uses the creator's rate (₦0 until fetched from API)
-  const MONTHLY_PRICE = 0; // fetched per creator; ₦0 = free subscription for now
-  const canAfford = walletBalance >= MONTHLY_PRICE || MONTHLY_PRICE === 0;
+  const [selectedTier, setSelectedTier] = useState<ContentSubscriptionTier>('silver');
+
+  const tierCfg = CONTENT_TIERS[selectedTier];
+  const price   = SUBSCRIPTION_TIER_PRICES[selectedTier];
+  const canAfford = walletBalance >= price || price === 0;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -181,19 +210,41 @@ function SubscribeSheet({
         <View style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={shStyles.handle} />
           <Text style={shStyles.title}>Subscribe to {creator.name}</Text>
-          <Text style={shStyles.subtitle}>
-            Unlock their full feed — exclusive posts, private drops, and subscriber-only content.
-          </Text>
+          <Text style={shStyles.subtitle}>Choose a tier — higher tiers unlock more content.</Text>
 
-          {/* What you get */}
-          <View style={shStyles.perksCard}>
-            {['All subscriber content', 'Priority access to drops', 'Ability to message creator'].map((perk) => (
-              <View key={perk} style={shStyles.perkRow}>
-                <Check size={14} color={T.ACCENT} weight="bold" />
-                <Text style={shStyles.perkText}>{perk}</Text>
-              </View>
-            ))}
-          </View>
+          {/* Tier cards */}
+          {SUBSCRIBE_TIERS.map((t) => {
+            const cfg = CONTENT_TIERS[t.key];
+            const active = selectedTier === t.key;
+            return (
+              <TouchableOpacity
+                key={t.key}
+                style={[shStyles.tierCard, active && { borderColor: cfg.color, borderWidth: 2 }]}
+                onPress={() => setSelectedTier(t.key)}
+                activeOpacity={0.8}
+              >
+                <View style={shStyles.tierCardHeader}>
+                  <View style={[shStyles.tierDot, { backgroundColor: cfg.color }]} />
+                  <Text style={[shStyles.tierName, active && { color: cfg.color }]}>
+                    {t.emoji} {cfg.label}
+                  </Text>
+                  <Text style={[shStyles.tierPrice, active && { color: cfg.color }]}>
+                    ₦{t.price.toLocaleString()}/mo
+                  </Text>
+                </View>
+                {active && (
+                  <View style={shStyles.perksWrap}>
+                    {t.perks.map((perk) => (
+                      <View key={perk} style={shStyles.perkRow}>
+                        <Check size={11} color={cfg.color} weight="bold" />
+                        <Text style={shStyles.perkText}>{perk}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
 
           {/* Wallet balance */}
           <View style={shStyles.walletRow}>
@@ -209,7 +260,9 @@ function SubscribeSheet({
             onPress={canAfford ? onConfirm : onWallet}
           >
             <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
-              {canAfford ? 'Subscribe' : 'Top up wallet'}
+              {canAfford
+                ? `Subscribe — ${CONTENT_TIERS[selectedTier].label}`
+                : 'Top up wallet'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
@@ -226,7 +279,7 @@ const shStyles = StyleSheet.create({
   sheet: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingTop: 12, gap: 12,
+    paddingHorizontal: 20, paddingTop: 12, gap: 10,
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
@@ -234,14 +287,23 @@ const shStyles = StyleSheet.create({
   },
   title: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center', letterSpacing: -0.4 },
   subtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', marginTop: -4 },
-  perksCard: {
+
+  tierCard: {
     backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.md,
-    padding: 14,
-    gap: 10,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    gap: 8,
   },
-  perkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  perkText: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT },
+  tierCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tierDot: { width: 8, height: 8, borderRadius: 4 },
+  tierName: { flex: 1, fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  tierPrice: { fontSize: 13, fontFamily: T.FONT.bold, color: T.TEXT_2 },
+  perksWrap: { gap: 5, paddingLeft: 16 },
+  perkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  perkText: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, flex: 1 },
+
   walletRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 4, paddingVertical: 6,
@@ -649,7 +711,7 @@ export default function CreatorProfileScreen() {
               activeOpacity={0.85}
             >
               <Text style={[styles.followBtnLabel, isFollowing && styles.followBtnLabelActive]}>
-                {followLoading ? '…' : (isFollowing ? 'Subscribed' : 'Subscribe Free')}
+                {followLoading ? '…' : (isFollowing ? 'Following' : 'Follow')}
               </Text>
             </TouchableOpacity>
           )}

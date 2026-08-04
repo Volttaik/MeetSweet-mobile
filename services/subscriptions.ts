@@ -10,15 +10,45 @@ function authHeader(token: string): Record<string, string> {
 }
 
 /**
- * MeetSweet has a single subscription tier per creator.
- * When you subscribe you get access to ALL of that creator's content
- * (public + subscribers visibility). There is no Bronze/Silver/Gold
- * or Normal/Premium/VIP multi-tier system.
+ * MeetSweet subscription tier model.
  *
- * The SubscriptionTier type is kept for backwards-compatibility with
- * any code that still references it, but only 'active' matters.
+ * Creators offer up to three paid tiers:
+ *   Silver  — entry-level: unlocks all silver & below content
+ *   Gold    — mid-level:   unlocks all gold & below content
+ *   Diamond — top-level:   unlocks ALL subscriber content
+ *
+ * Bronze content is always free / public — no subscription needed.
+ *
+ * The backend currently collapses all three to a single subscription per
+ * creator (one row in the subscriptions table).  The tier is tracked on
+ * the frontend and will be sent to the API once the backend supports it.
+ *
+ * @deprecated SubscriptionTier (free/normal/premium/vip) is the legacy
+ * type kept for backwards-compat only.  Use ContentSubscriptionTier.
  */
 export type SubscriptionTier = 'free' | 'normal' | 'premium' | 'vip';
+
+/** The three purchasable subscription tiers (excludes bronze / free). */
+export type ContentSubscriptionTier = 'silver' | 'gold' | 'diamond';
+
+/**
+ * Default monthly prices (₦) for each subscription tier.
+ * Creators can override these in their dashboard settings.
+ */
+export const SUBSCRIPTION_TIER_PRICES: Record<ContentSubscriptionTier, number> = {
+  silver:  500,
+  gold:    1500,
+  diamond: 3000,
+};
+
+/**
+ * What content a subscriber can see at each tier (cumulative / inclusive).
+ */
+export const SUBSCRIPTION_TIER_ACCESS: Record<ContentSubscriptionTier, ContentSubscriptionTier[]> = {
+  silver:  ['silver'],
+  gold:    ['silver', 'gold'],
+  diamond: ['silver', 'gold', 'diamond'],
+};
 
 export interface Subscription {
   id: string;

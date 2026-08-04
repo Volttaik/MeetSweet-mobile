@@ -522,7 +522,7 @@ export default function ExploreScreen() {
             onPress={navToContent}
             onMediaPress={navToContent}
             onAuthorPress={() => router.push(`/creator/${item.post.author.id}`)}
-            tier="bronze"
+            tier={item.post.tier ?? (item.post.visibility === 'public' ? 'bronze' : undefined)}
           />
         );
       }

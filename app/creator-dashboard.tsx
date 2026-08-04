@@ -444,23 +444,47 @@ export default function CreatorDashboardScreen() {
           <Text style={styles.sectionTitle}>Creator Settings</Text>
 
           {/* Subscription Settings */}
-          <SettingsSection IconComp={Users} title="Subscription Settings">
+          <SettingsSection IconComp={Users} title="Subscription Tiers">
             <SettingsToggleRow
               label="Enable subscriptions"
               value={subsEnabled}
               onChange={setSubsEnabled}
             />
             <SettingsDivider />
+            {/* Silver tier — entry level */}
             <SettingsRow
-              label="Subscription price"
-              value="₦0/mo (free)"
-              onPress={() => Alert.alert('Subscription Price', 'Contact support to set your monthly subscription price.')}
+              label="🥈 Silver tier price"
+              value="₦500/mo"
+              onPress={() => Alert.alert(
+                'Silver Tier',
+                'Silver subscribers unlock all Silver-tier posts and videos.\n\nDefault: ₦500/mo — contact support to customise.',
+              )}
+            />
+            <SettingsDivider />
+            {/* Gold tier — mid level */}
+            <SettingsRow
+              label="🥇 Gold tier price"
+              value="₦1,500/mo"
+              onPress={() => Alert.alert(
+                'Gold Tier',
+                'Gold subscribers unlock all Gold-tier posts and videos (includes Silver).\n\nDefault: ₦1,500/mo — contact support to customise.',
+              )}
+            />
+            <SettingsDivider />
+            {/* Diamond tier — top level */}
+            <SettingsRow
+              label="💎 Diamond tier price"
+              value="₦3,000/mo"
+              onPress={() => Alert.alert(
+                'Diamond Tier',
+                'Diamond subscribers unlock ALL your subscriber content — Silver, Gold, and Diamond.\n\nDefault: ₦3,000/mo — contact support to customise.',
+              )}
             />
             <SettingsDivider />
             <SettingsRow
               label="Trial period"
               value="7 days"
-              onPress={() => Alert.alert('Trial Period', 'Set a free trial period for new subscribers.')}
+              onPress={() => Alert.alert('Trial Period', 'New subscribers get a free 7-day trial on any tier.')}
             />
           </SettingsSection>
 

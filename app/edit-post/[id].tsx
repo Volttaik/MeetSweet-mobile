@@ -31,6 +31,21 @@ import { T } from '@/constants/theme';
 import { getPost, editPost, type Post } from '@/services/posts';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { toast } from '@/components/MsToast';
+import { TIERS, TIER_ORDER, type ContentTier } from '@/constants/tiers';
+
+// ─── Tier helpers ─────────────────────────────────────────────────────────────
+
+/** Map a ContentTier to a numeric unlock_price (₦ credits). 0 = no paywall. */
+function tierToPrice(t: ContentTier): number {
+  switch (t) {
+    case 'diamond': return 1000;
+    case 'gold':    return 500;
+    case 'silver':  return 200;
+    default:        return 0;
+  }
+}
+
+const TIER_OPTIONS = TIER_ORDER.map((t) => ({ value: t, ...TIERS[t] }));
 
 // ─── Visibility options ───────────────────────────────────────────────────────
 
@@ -59,6 +74,7 @@ export default function EditPostScreen() {
   // Editable fields
   const [caption,    setCaption]    = useState('');
   const [visibility, setVisibility] = useState<'public' | 'subscribers' | 'draft'>('public');
+  const [tier,       setTier]       = useState<ContentTier>('bronze');
 
   // ── Load post ───────────────────────────────────────────────────────────────
 
@@ -70,6 +86,13 @@ export default function EditPostScreen() {
         setPost(p);
         setCaption(p.caption ?? '');
         setVisibility(p.visibility);
+        // Initialise tier from the post's stored tier, or fall back from visibility
+        const storedTier = p.tier;
+        if (storedTier) {
+          setTier(storedTier);
+        } else {
+          setTier(p.visibility === 'public' ? 'bronze' : 'silver');
+        }
       })
       .catch(() => toast.error('Could not load post'))
       .finally(() => setLoading(false));
@@ -219,15 +242,17 @@ export default function EditPostScreen() {
                     <Text style={[styles.tierLabel, active && { color: opt.color }]}>
                       {opt.label}
                     </Text>
-                    <Text style={styles.tierDesc}>{opt.desc}</Text>
+                    <Text style={styles.tierDesc}>{opt.description}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
             <Text style={styles.tierHint}>
-              {tier === 'free'
-                ? 'Visible to all your followers for free.'
-                : `Visible only to ${tier}-tier subscribers and above.`}
+              {tier === 'bronze'
+                ? 'Free · Visible to everyone on Explore.'
+                : tier === 'diamond'
+                ? 'Diamond subscribers only.'
+                : `Visible to ${TIERS[tier].label} subscribers and above.`}
             </Text>
           </View>
 

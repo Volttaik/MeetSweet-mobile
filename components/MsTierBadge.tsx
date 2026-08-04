@@ -1,55 +1,67 @@
 /**
- * MsTierBadge — compact coloured badge that shows a post's subscription tier.
+ * MsTierBadge — compact coloured badge that shows a post's content tier.
  *
- * Tier → colour map:
- *   free    → Bronze  (#B87333)
- *   normal  → Blue    (#4A9EF5)
- *   premium → Gold    (#EAB308)
- *   vip     → Purple  (#A855F7)
+ * Uses the canonical ContentTier type (bronze/silver/gold/diamond) from
+ * constants/tiers.ts. The legacy PostTier (free/normal/premium/vip) is gone.
+ *
+ * Bronze  → small coloured dot only (public / free content)
+ * Silver  → pill badge with medal icon
+ * Gold    → pill badge with crown icon
+ * Diamond → pill badge with diamond icon
  */
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Crown, Diamond, Lock, Star } from 'phosphor-react-native';
+import { Medal, Crown, Diamond } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
-
-export type PostTier = 'free' | 'normal' | 'premium' | 'vip';
+import { TIERS, type ContentTier } from '@/constants/tiers';
 
 interface TierConfig {
-  color: string;
-  bg: string;
-  label: string;
-  Icon: React.ComponentType<{ size: number; color: string; weight: 'regular' | 'fill' }>;
+  Icon?: React.ComponentType<{ size: number; color: string; weight: 'regular' | 'fill' }>;
   weight: 'regular' | 'fill';
 }
 
-const TIER_CONFIG: Record<PostTier, TierConfig> = {
-  free:    { color: '#B87333', bg: 'rgba(184,115,51,0.16)', label: 'Free',    Icon: Lock,   weight: 'regular' },
-  normal:  { color: '#4A9EF5', bg: 'rgba(74,158,245,0.15)', label: 'Normal',  Icon: Star,   weight: 'fill'    },
-  premium: { color: '#EAB308', bg: 'rgba(234,179,8,0.15)',  label: 'Gold',    Icon: Crown,  weight: 'fill'    },
-  vip:     { color: '#A855F7', bg: 'rgba(168,85,247,0.15)', label: 'VIP',     Icon: Diamond, weight: 'fill'   },
+const TIER_ICONS: Partial<Record<ContentTier, TierConfig>> = {
+  silver:  { Icon: Medal,   weight: 'fill' },
+  gold:    { Icon: Crown,   weight: 'fill' },
+  diamond: { Icon: Diamond, weight: 'fill' },
 };
 
 interface MsTierBadgeProps {
-  tier: PostTier;
+  tier: ContentTier;
   /** 'sm' = standard size, 'xs' = very compact (for post card header) */
   size?: 'sm' | 'xs';
 }
 
 export function MsTierBadge({ tier, size = 'sm' }: MsTierBadgeProps) {
-  const cfg = TIER_CONFIG[tier];
+  const cfg = TIERS[tier];
+  const iconCfg = TIER_ICONS[tier];
   const iconSize = size === 'xs' ? 8 : 10;
 
+  if (tier === 'bronze') {
+    // Bronze = small dot only (public content — no text label needed)
+    return (
+      <View style={[styles.dot, { backgroundColor: cfg.color }]} />
+    );
+  }
+
   return (
-    <View style={[styles.badge, { backgroundColor: cfg.bg }, size === 'xs' && styles.badgeXs]}>
-      <cfg.Icon size={iconSize} color={cfg.color} weight={cfg.weight} />
+    <View style={[styles.badge, { backgroundColor: cfg.bgColor }, size === 'xs' && styles.badgeXs]}>
+      {iconCfg?.Icon && (
+        <iconCfg.Icon size={iconSize} color={cfg.color} weight={iconCfg.weight} />
+      )}
       <Text style={[styles.label, { color: cfg.color }, size === 'xs' && styles.labelXs]}>
-        {cfg.label}
+        {cfg.label.toUpperCase()}
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',

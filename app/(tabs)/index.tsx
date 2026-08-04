@@ -317,6 +317,7 @@ export default function HomeScreen() {
           renderItem={({ item }) => (
             <MsPostCard
               post={item}
+              tier={item.tier ?? (item.visibility === 'public' ? 'bronze' : undefined)}
               doubleTapToOpen
               videoPreviewActive={visiblePostIds.has(item.id)}
               onPress={() => {
