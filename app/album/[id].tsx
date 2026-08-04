@@ -36,7 +36,7 @@ import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
-import { useAlbum, unlockAlbum } from '@/services/albums';
+import { useAlbum, purchaseAlbum } from '@/services/albums';
 import type { AlbumItem } from '@/services/albums';
 import { MsShareSheet } from '@/components/MsShareSheet';
 
@@ -76,21 +76,21 @@ export default function AlbumScreen() {
   const handleUnlock = () => {
     if (!album) return;
     Alert.alert(
-      'Unlock Album',
-      `Unlock "${album.title}" for ₦${album.priceCredits?.toLocaleString()}?`,
+      'Purchase Album',
+      `Purchase "${album.title}" for ₦${album.priceCredits?.toLocaleString()}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: `Unlock · ₦${album.priceCredits?.toLocaleString()}`,
+          text: `Purchase · ₦${album.priceCredits?.toLocaleString()}`,
           style: 'default',
           onPress: async () => {
             setUnlocking(true);
             try {
-              await unlockAlbum(album.id);
+              await purchaseAlbum(album.id);
               setUnlockedOverride(true);
-              Alert.alert('Unlocked!', `You now have full access to "${album.title}".`);
+              Alert.alert('Purchased!', `You now have full access to "${album.title}".`);
             } catch (err) {
-              Alert.alert('Could not unlock', (err as Error).message ?? 'Please try again.');
+              Alert.alert('Could not purchase', (err as Error).message ?? 'Please try again.');
             } finally {
               setUnlocking(false);
             }
@@ -305,7 +305,7 @@ export default function AlbumScreen() {
             <View style={styles.unlockCopy}>
               <Text style={styles.unlockTitle}>Premium Collection</Text>
               <Text style={styles.unlockSub}>
-                Unlock all {album.itemCount} items for ₦{album.priceCredits?.toLocaleString()}.
+                Purchase all {album.itemCount} items for ₦{album.priceCredits?.toLocaleString()}.
               </Text>
             </View>
             <TouchableOpacity
@@ -316,7 +316,7 @@ export default function AlbumScreen() {
             >
               {unlocking
                 ? <ActivityIndicator size="small" color={T.BG} />
-                : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Unlock</Text></>}
+                : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Purchase</Text></>}
             </TouchableOpacity>
           </View>
         )}

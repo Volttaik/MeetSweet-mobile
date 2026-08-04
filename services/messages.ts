@@ -273,11 +273,15 @@ export async function recallMessage(messageId: string): Promise<void> {
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {
-  // No dedicated read-receipt endpoint exists on the current backend.
-  // The conversation's last_read_at is updated via the conversations/[id]/archive
-  // path; a proper read-marking endpoint is tracked for a future backend release.
-  // This function is intentionally a no-op so callers can stay wired without crashing.
-  void conversationId;
+  const token = await getToken();
+  if (!token) return; // silently skip if not authenticated
+  // Spec: POST /api/messages/conversations/:conversationId/read
+  await apiFetch(`/messages/conversations/${conversationId}/read`, {
+    method: 'POST',
+    headers: authHeader(token),
+  }).catch(() => {
+    // Silently fail — read receipts are best-effort
+  });
 }
 
 export async function archiveConversation(

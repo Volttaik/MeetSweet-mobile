@@ -81,7 +81,8 @@ export async function getCreatorDashboard(): Promise<CreatorDashboard> {
       total_posts: number;
       total_revenue: number;
     }>('/creator/statistics', { headers: authHeader(token) }).catch(() => null),
-    apiFetch<{ balance: number }>('/wallet', { headers: authHeader(token) }).catch(() => null),
+    // Spec: GET /api/payments/balance → { balance, currency }
+    apiFetch<{ balance: number }>('/payments/balance', { headers: authHeader(token) }).catch(() => null),
   ]);
   return {
     wallet_balance: wallet?.balance ?? 0,

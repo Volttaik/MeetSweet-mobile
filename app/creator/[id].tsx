@@ -29,14 +29,23 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { subscribe, getCreatorMessagingSettings, isSubscribedTo } from '@/services/subscriptions';
+import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
-import { useCreatorReviews, type CreatorReview } from '@/services/creators';
-import { getUser } from '@/services/users';
+import {
+  useCreatorReviews,
+  getCreatorById,
+  getCreatorContentPosts,
+  getCreatorContentVideos,
+  getCreatorContentShorts,
+  getCreatorContentAlbums,
+  type CreatorReview,
+  type CreatorProfileFull,
+} from '@/services/creators';
 import { useAuth } from '@/contexts/AuthContext';
-import { getPostsByCreator, type Post } from '@/services/posts';
+import type { Post } from '@/services/posts';
+import type { AlbumCardData } from '@/services/albums';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -256,7 +265,7 @@ const shStyles = StyleSheet.create({
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-type TabKey = 'drops' | 'reviews' | 'about';
+type TabKey = 'posts' | 'videos' | 'shorts' | 'albums' | 'reviews' | 'about';
 
 export default function CreatorProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -264,7 +273,7 @@ export default function CreatorProfileScreen() {
   const { user: currentUser } = useAuth();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>('drops');
+  const [activeTab, setActiveTab] = useState<TabKey>('posts');
   const [refreshing, setRefreshing] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
@@ -277,6 +286,17 @@ export default function CreatorProfileScreen() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [loadingMessaging, setLoadingMessaging] = useState(false);
 
+  // Full creator profile from /api/creators/:id
+  const [creatorFullProfile, setCreatorFullProfile] = useState<CreatorProfileFull | null>(null);
+
+  // Content per tab
+  const [creatorVideos, setCreatorVideos] = useState<Post[]>([]);
+  const [creatorShorts, setCreatorShorts] = useState<Post[]>([]);
+  const [creatorAlbums, setCreatorAlbums] = useState<AlbumCardData[]>([]);
+  const [videosLoading, setVideosLoading] = useState(false);
+  const [shortsLoading, setShortsLoading] = useState(false);
+  const [albumsLoading, setAlbumsLoading] = useState(false);
+
   // Check for subscription onboarding on mount
   useEffect(() => {
     shouldShowOnboarding('subscription_onboarded').then((shouldShow) => {
@@ -284,25 +304,12 @@ export default function CreatorProfileScreen() {
     });
   }, []);
 
-  // Fetch messaging settings and subscription status on mount
+  // Fetch messaging settings on mount (subscription status comes from creator profile)
   useEffect(() => {
     if (!id || !currentUser) return;
-    
-    const fetchMessagingData = async () => {
-      try {
-        const [settings, subscribed] = await Promise.all([
-          getCreatorMessagingSettings(id),
-          isSubscribedTo(id),
-        ]);
-        setWhoCanMessage(settings.who_can_message);
-        setIsSubscribed(subscribed);
-      } catch {
-        // Default to everyone if API fails
-        setWhoCanMessage('everyone');
-      }
-    };
-    
-    fetchMessagingData();
+    getCreatorMessagingSettings(id)
+      .then((s) => setWhoCanMessage(s.who_can_message))
+      .catch(() => setWhoCanMessage('everyone'));
   }, [id, currentUser]);
 
   const handleSubscriptionOnboardingComplete = async () => {
@@ -367,20 +374,21 @@ export default function CreatorProfileScreen() {
   };
 
   // ── Data sources ─────────────────────────────────────────────────────────────
-  // 1. Explore catalog: gives us the basic creator shell (name, handle, avatar)
-  //    derived from the posts feed.  Used as a fast-path while the profile loads.
-  const catalogQuery  = useLocalExploreCatalog();
-  // Reviews: backend has no /creators/:id/reviews — always empty
-  const reviewsQuery  = useCreatorReviews(id);
+  // Explore catalog: fast-path shell while the real profile loads
+  const catalogQuery = useLocalExploreCatalog();
+  const reviewsQuery = useCreatorReviews(id);
 
-  // Real profile: GET /api/users/:username
-  // Real posts:   GET /api/posts?creator_id=:id
-  const [realProfile, setRealProfile] = useState<{ name: string; username: string; bio?: string | null; avatarUrl?: string | null; bannerUrl?: string | null; followerCount?: number; isVerified?: boolean } | null>(null);
+  // Profile + posts data
+  const [realProfile, setRealProfile] = useState<{
+    name: string; username: string; bio?: string | null;
+    avatarUrl?: string | null; bannerUrl?: string | null;
+    followerCount?: number; isVerified?: boolean;
+  } | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
 
-  // Catalog lookup: try by UUID (from explore), then by username/handle (from post navigation)
+  // Catalog lookup for fast-path
   const catalogCreator = useMemo(() => {
     if (!catalogQuery.data) return null;
     return (
@@ -390,35 +398,35 @@ export default function CreatorProfileScreen() {
     );
   }, [id, catalogQuery.data]);
 
-  // Username for API: from catalog handle (strip @), or treat id as username
-  const username = catalogCreator?.handle?.replace('@', '') ?? id;
-
+  // Fetch creator profile via GET /api/creators/:id
+  // This returns subscribed_to_creator so no separate subscription check needed
+  const creatorUUID = catalogCreator?.id ?? id;
   useEffect(() => {
-    if (!username) return;
+    if (!id) return;
     setProfileLoading(true);
-    getUser(username)
-      .then(({ user }) => {
+    getCreatorById(id)
+      .then((profile) => {
+        setCreatorFullProfile(profile);
+        setIsSubscribed(profile.subscribedToCreator);
         setRealProfile({
-          name:         user.name ?? '',
-          username:     user.username ?? '',
-          bio:          user.bio ?? null,
-          avatarUrl:    user.avatarUrl ?? null,
-          bannerUrl:    user.bannerUrl ?? null,
-          followerCount: user.followerCount ?? 0,
-          isVerified:   user.isVerified ?? false,
+          name:          profile.name,
+          username:      profile.username,
+          bio:           profile.bio,
+          avatarUrl:     profile.avatarUrl,
+          bannerUrl:     profile.bannerUrl,
+          followerCount: profile.followerCount,
+          isVerified:    profile.isVerified,
         });
       })
       .catch(() => {})
       .finally(() => setProfileLoading(false));
-  }, [username]);
+  }, [id]);
 
-  // Fetch real posts by this creator. Use the UUID from catalog if available;
-  // fall back to the id param (may already be a UUID for logged-in creators).
-  const creatorUUID = catalogCreator?.id ?? id;
+  // Fetch posts for this creator
   useEffect(() => {
     if (!creatorUUID) return;
     setPostsLoading(true);
-    getPostsByCreator(creatorUUID)
+    getCreatorContentPosts(creatorUUID)
       .then(({ posts }) => setCreatorPosts(posts))
       .catch(() => {})
       .finally(() => setPostsLoading(false));
@@ -466,18 +474,50 @@ export default function CreatorProfileScreen() {
   const totalReviews = reviewsQuery.data?.total ?? 0;
   const avgRating    = reviewsQuery.data?.average_rating ?? null;
 
+  // ── Lazy-load tab content ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!creatorUUID) return;
+    if (activeTab === 'videos' && creatorVideos.length === 0 && !videosLoading) {
+      setVideosLoading(true);
+      getCreatorContentVideos(creatorUUID)
+        .then(setCreatorVideos)
+        .catch(() => {})
+        .finally(() => setVideosLoading(false));
+    }
+    if (activeTab === 'shorts' && creatorShorts.length === 0 && !shortsLoading) {
+      setShortsLoading(true);
+      getCreatorContentShorts(creatorUUID)
+        .then(setCreatorShorts)
+        .catch(() => {})
+        .finally(() => setShortsLoading(false));
+    }
+    if (activeTab === 'albums' && creatorAlbums.length === 0 && !albumsLoading) {
+      setAlbumsLoading(true);
+      getCreatorContentAlbums(creatorUUID)
+        .then(setCreatorAlbums)
+        .catch(() => {})
+        .finally(() => setAlbumsLoading(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, creatorUUID]);
+
   // ── Refresh ───────────────────────────────────────────────────────────────────
   const refresh = async () => {
     setRefreshing(true);
     try {
       await Promise.all([
         catalogQuery.refetch(),
-        getUser(username).then(({ user }) => setRealProfile({
-          name: user.name, username: user.username, bio: user.bio,
-          avatarUrl: user.avatarUrl, bannerUrl: user.bannerUrl,
-          followerCount: user.followerCount, isVerified: user.isVerified,
-        })).catch(() => {}),
-        getPostsByCreator(creatorUUID).then(({ posts }) => setCreatorPosts(posts)).catch(() => {}),
+        getCreatorById(id ?? '').then((profile) => {
+          setCreatorFullProfile(profile);
+          setIsSubscribed(profile.subscribedToCreator);
+          setRealProfile({
+            name: profile.name, username: profile.username, bio: profile.bio,
+            avatarUrl: profile.avatarUrl, bannerUrl: profile.bannerUrl,
+            followerCount: profile.followerCount, isVerified: profile.isVerified,
+          });
+        }).catch(() => {}),
+        getCreatorContentPosts(creatorUUID)
+          .then(({ posts }) => setCreatorPosts(posts)).catch(() => {}),
       ]);
     } finally {
       setRefreshing(false);
@@ -509,7 +549,10 @@ export default function CreatorProfileScreen() {
   }
 
   const TABS: { key: TabKey; label: string }[] = [
-    { key: 'drops',   label: `Drops (${creatorPosts.length})` },
+    { key: 'posts',   label: `Posts (${creatorPosts.length})` },
+    { key: 'videos',  label: `Videos (${creatorVideos.length})` },
+    { key: 'shorts',  label: `Shorts (${creatorShorts.length})` },
+    { key: 'albums',  label: `Albums (${creatorAlbums.length})` },
     { key: 'reviews', label: `Reviews (${reviewsQuery.isLoading ? '…' : totalReviews})` },
     { key: 'about',   label: 'About' },
   ];
@@ -658,9 +701,9 @@ export default function CreatorProfileScreen() {
         {!isSubscribed && currentUser && currentUser.username !== (realProfile?.username ?? id) && (
           <View style={styles.subWall}>
             <Lock size={28} color={T.ACCENT} />
-            <Text style={styles.subWallTitle}>Subscribe to see all drops</Text>
+            <Text style={styles.subWallTitle}>Subscribe to see {creator.name}'s content</Text>
             <Text style={styles.subWallBody}>
-              Subscribe to unlock {creator.name}'s full feed including subscriber-only posts.
+              Subscribe to unlock their full feed — posts, videos, shorts, and subscriber-only content.
             </Text>
             <TouchableOpacity
               style={styles.subWallBtn}
@@ -674,30 +717,33 @@ export default function CreatorProfileScreen() {
 
         {/* ── Tabs (only shown when subscribed or own profile) ── */}
         {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && (
-        <View style={styles.tabs}>
-          {TABS.map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-              onPress={() => setActiveTab(tab.key)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.tabLabel, activeTab === tab.key && styles.tabLabelActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsScroll}
+            style={styles.tabs}
+          >
+            {TABS.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+                onPress={() => setActiveTab(tab.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.tabLabel, activeTab === tab.key && styles.tabLabelActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         )}
 
-        {/* ── Tab content (only when subscribed or own profile) ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'drops' && (
+        {/* ── Posts tab ── */}
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'posts' && (
           <View style={styles.tabContent}>
             {postsLoading ? (
               <View style={styles.dropsGrid}>
-                <MsPostSkeleton />
-                <MsPostSkeleton />
-                <MsPostSkeleton />
+                <MsPostSkeleton /><MsPostSkeleton /><MsPostSkeleton />
               </View>
             ) : creatorPosts.length > 0 ? (
               <View style={styles.dropsGrid}>
@@ -706,27 +752,100 @@ export default function CreatorProfileScreen() {
                     key={post.id}
                     post={post}
                     onAuthorPress={() => undefined}
+                    onPress={() => {
+                      if (post.contentType === 'short') {
+                        router.push({ pathname: '/shorts', params: { startId: post.id } });
+                      } else if (post.contentType === 'video') {
+                        router.push(`/videos/${post.id}`);
+                      } else {
+                        router.push(`/post/${post.id}`);
+                      }
+                    }}
                   />
                 ))}
               </View>
             ) : (
-              <MsEmptyState
-                title="No drops yet"
-                message="This creator hasn't published any content yet."
-              />
+              <MsEmptyState title="No posts yet" message="This creator hasn't published any posts yet." />
             )}
           </View>
         )}
 
+        {/* ── Videos tab ── */}
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'videos' && (
+          <View style={styles.tabContent}>
+            {videosLoading ? (
+              <View style={styles.dropsGrid}><MsPostSkeleton /><MsPostSkeleton /></View>
+            ) : creatorVideos.length > 0 ? (
+              <View style={styles.dropsGrid}>
+                {creatorVideos.map((v) => (
+                  <MsPostCard
+                    key={v.id}
+                    post={v}
+                    onAuthorPress={() => undefined}
+                    onPress={() => router.push(`/videos/${v.id}`)}
+                  />
+                ))}
+              </View>
+            ) : (
+              <MsEmptyState title="No videos yet" message="This creator hasn't published any videos yet." />
+            )}
+          </View>
+        )}
+
+        {/* ── Shorts tab ── */}
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'shorts' && (
+          <View style={styles.tabContent}>
+            {shortsLoading ? (
+              <View style={styles.dropsGrid}><MsPostSkeleton /><MsPostSkeleton /></View>
+            ) : creatorShorts.length > 0 ? (
+              <View style={styles.dropsGrid}>
+                {creatorShorts.map((s) => (
+                  <MsPostCard
+                    key={s.id}
+                    post={s}
+                    onAuthorPress={() => undefined}
+                    onPress={() => router.push({ pathname: '/shorts', params: { startId: s.id } })}
+                  />
+                ))}
+              </View>
+            ) : (
+              <MsEmptyState title="No shorts yet" message="This creator hasn't published any shorts yet." />
+            )}
+          </View>
+        )}
+
+        {/* ── Albums tab ── */}
+        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'albums' && (
+          <View style={styles.tabContent}>
+            {albumsLoading ? (
+              <View style={styles.dropsGrid}><MsPostSkeleton /><MsPostSkeleton /></View>
+            ) : creatorAlbums.length > 0 ? (
+              <View style={styles.dropsGrid}>
+                {creatorAlbums.map((album) => (
+                  <TouchableOpacity
+                    key={album.id}
+                    style={styles.albumRow}
+                    onPress={() => router.push(`/album/${album.id}`)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.albumRowTitle}>{album.title}</Text>
+                    <Text style={styles.albumRowMeta}>{album.itemCount} items · ₦{album.priceCredits?.toLocaleString()}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <MsEmptyState title="No albums yet" message="This creator hasn't published any albums yet." />
+            )}
+          </View>
+        )}
+
+        {/* ── Reviews tab ── */}
         {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'reviews' && (
           <View style={styles.tabContent}>
             {reviewsQuery.isLoading ? (
-              <View style={styles.reviewLoading}>
-                <Spinner color="default" size="sm" />
-              </View>
+              <View style={styles.reviewLoading}><Spinner color="default" size="sm" /></View>
             ) : reviews.length > 0 ? (
               <>
-                {/* Rating summary card */}
                 {avgRating != null && (
                   <View style={styles.ratingCard}>
                     <Text style={styles.ratingBig}>{avgRating.toFixed(1)}</Text>
@@ -736,19 +855,15 @@ export default function CreatorProfileScreen() {
                     </Text>
                   </View>
                 )}
-                {reviews.map((r) => (
-                  <ReviewCard key={r.id} review={r} />
-                ))}
+                {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
               </>
             ) : (
-              <MsEmptyState
-                title="No reviews yet"
-                message="Subscribers haven't left reviews for this creator yet."
-              />
+              <MsEmptyState title="No reviews yet" message="Subscribers haven't left reviews yet." />
             )}
           </View>
         )}
 
+        {/* ── About tab ── */}
         {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'about' && (
           <View style={styles.tabContent}>
             <View style={styles.aboutCard}>
@@ -756,7 +871,7 @@ export default function CreatorProfileScreen() {
               <View style={styles.aboutCopy}>
                 <Text style={styles.aboutTitle}>A closer connection</Text>
                 <Text style={styles.aboutText}>
-                  Subscribe for the full feed, private drops, and monthly creator notes.
+                  Subscribe for the full feed, exclusive drops, and direct messaging.
                 </Text>
               </View>
               <CaretRight size={17} color={T.TEXT_3} />
@@ -772,19 +887,15 @@ export default function CreatorProfileScreen() {
                   <View style={styles.infoDivider} />
                 </>
               ) : null}
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Subscription</Text>
-                <Text style={styles.infoValue}>Monthly subscription</Text>
-              </View>
-              <View style={styles.infoDivider} />
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Availability</Text>
-                <View style={styles.onlineRow}>
-                  <View style={[styles.onlineDot, { backgroundColor: creator.isOnline ? T.SUCCESS : T.TEXT_3 }]} />
-                  <Text style={styles.infoValue}>{creator.isOnline ? 'Online now' : 'Offline'}</Text>
-                </View>
-              </View>
-              <View style={styles.infoDivider} />
+              {creatorFullProfile?.subscriptionPrice != null && (
+                <>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Subscription price</Text>
+                    <Text style={styles.infoValue}>₦{creatorFullProfile.subscriptionPrice.toLocaleString()}/mo</Text>
+                  </View>
+                  <View style={styles.infoDivider} />
+                </>
+              )}
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Verified</Text>
                 <Text style={styles.infoValue}>{creator.isVerified ? '✓ Verified creator' : 'Not verified'}</Text>
@@ -989,14 +1100,17 @@ const styles = StyleSheet.create({
   messageBtnLabelLocked: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT },
   messageBtnLabelDisabled: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT_3 },
 
-  // Tabs
+  // Tabs — horizontal scroll to fit Posts/Videos/Shorts/Albums/Reviews/About
   tabs: {
-    flexDirection: 'row',
     borderBottomWidth: 1, borderBottomColor: T.BORDER,
     marginTop: 28,
   },
+  tabsScroll: {
+    flexDirection: 'row',
+    paddingHorizontal: 4,
+  },
   tab: {
-    flex: 1, paddingVertical: 14, alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 14, alignItems: 'center',
     borderBottomWidth: 2, borderBottomColor: 'transparent',
   },
   tabActive: { borderBottomColor: T.ACCENT },
@@ -1005,8 +1119,19 @@ const styles = StyleSheet.create({
 
   tabContent: { padding: 20 },
 
-  // Drops
+  // Drops (kept for grid compat)
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+
+  // Albums tab
+  albumRow: {
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.md,
+    padding: 14,
+    gap: 4,
+    marginBottom: 10,
+  },
+  albumRowTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  albumRowMeta: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
 
   // Reviews
   reviewLoading: { alignItems: 'center', paddingVertical: 40 },

@@ -188,7 +188,7 @@ function normalizeItem(raw: RawAlbumItem): AlbumItem {
   };
 }
 
-function normalizeAlbumCard(raw: RawAlbum): AlbumCardData {
+export function normalizeAlbumCard(raw: RawAlbum): AlbumCardData {
   const creator = raw.creator ?? {} as RawAlbumCreator;
   const creatorId = creator.id ?? raw.creator_id ?? '';
   const creatorName =
@@ -306,7 +306,7 @@ export async function updateAlbum(
   const token = await AsyncStorage.getItem('@ms_access_token');
   if (!token) throw new Error('Not authenticated');
   const raw = await apiFetch<{ album?: RawAlbum } | RawAlbum>(`/albums/${encodeURIComponent(id)}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
@@ -325,17 +325,24 @@ export async function deleteAlbum(id: string): Promise<void> {
 }
 
 /**
- * Unlock a premium album using credits.
- * Backend deducts credits and marks the album as unlocked for the current user.
+ * Purchase a premium album using credits.
+ * Backend deducts credits and marks the album as purchased for the current user.
+ * Spec: POST /api/albums/:id/purchase
  */
-export async function unlockAlbum(id: string): Promise<{ unlocked: boolean }> {
+export async function purchaseAlbum(id: string): Promise<{ purchased: boolean }> {
   const token = await AsyncStorage.getItem('@ms_access_token');
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ unlocked?: boolean }>(`/albums/${encodeURIComponent(id)}/unlock`, {
+  const raw = await apiFetch<{ purchased?: boolean }>(`/albums/${encodeURIComponent(id)}/purchase`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   });
-  return { unlocked: raw?.unlocked ?? true };
+  return { purchased: raw?.purchased ?? true };
+}
+
+/** @deprecated Use purchaseAlbum instead. Kept for backward compat. */
+export async function unlockAlbum(id: string): Promise<{ unlocked: boolean }> {
+  const result = await purchaseAlbum(id);
+  return { unlocked: result.purchased };
 }
 
 /**

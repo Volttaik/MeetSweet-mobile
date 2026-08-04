@@ -67,7 +67,7 @@ function normalizePost(raw: any): Post {
   const media = Array.isArray(raw.media) ? raw.media : [];
   const firstMedia = media[0] ?? null;
   // Map backend content_type to our enum; fall back based on media type
-  const rawContentType = raw.content_type ?? null;
+  const rawContentType = raw.content_type ?? raw.contentType ?? null;
   const contentType: Post['contentType'] =
     rawContentType === 'short' ? 'short'
     : rawContentType === 'video' ? 'video'
@@ -75,36 +75,52 @@ function normalizePost(raw: any): Post {
     : rawContentType === 'post'  ? 'post'
     : firstMedia?.type === 'video' ? 'video'   // infer from media when absent
     : null;
+
+  // VideoObject/ShortObject have a nested `creator` field;
+  // PostObject uses flat creator_* fields.
+  const creatorObj = raw.creator as any ?? null;
+  const creatorId =       creatorObj?.id       ?? raw.creator_id ?? '';
+  const creatorName =     creatorObj?.name      ?? raw.creator_display_name ?? raw.creator_username ?? 'Unknown';
+  const creatorUsername = creatorObj?.username  ?? raw.creator_username ?? '';
+  const creatorAvatar =   creatorObj?.avatarUrl ?? creatorObj?.avatar_url ?? raw.creator_avatar ?? null;
+  const creatorVerified = creatorObj?.isVerified ?? creatorObj?.is_verified ?? raw.creator_is_verified ?? false;
+
+  // Media URL: VideoObject exposes video_url/videoUrl at top level in addition to media[]
+  const mediaUrl =      firstMedia?.url          ?? raw.video_url   ?? raw.videoUrl   ?? null;
+  const mediaType =     firstMedia?.type         ?? (mediaUrl ? 'video' : null);
+  const thumbnailUrl =  firstMedia?.thumbnail_url ?? raw.thumbnail_url ?? raw.thumbnailUrl ?? null;
+  const durationSecs =  firstMedia?.duration_secs ?? raw.duration_secs ?? raw.durationSecs ?? null;
+
   return {
     id: raw.id,
     caption: raw.caption ?? '',
     visibility: raw.visibility ?? 'public',
     contentType,
-    mediaUrl: firstMedia?.url ?? null,
-    mediaType: firstMedia?.type ?? null,
-    thumbnailUrl: firstMedia?.thumbnail_url ?? null,
-    durationSecs: firstMedia?.duration_secs ?? null,
+    mediaUrl,
+    mediaType,
+    thumbnailUrl,
+    durationSecs,
     fileSize: firstMedia?.file_size ?? null,
-    width: firstMedia?.width ?? null,
-    height: firstMedia?.height ?? null,
-    likeCount: raw.like_count ?? 0,
-    commentCount: raw.comment_count ?? 0,
-    bookmarkCount: raw.save_count ?? 0,
+    width:    firstMedia?.width     ?? null,
+    height:   firstMedia?.height    ?? null,
+    likeCount:     raw.like_count    ?? raw.likeCount    ?? 0,
+    commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
+    bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
     isPremium: raw.visibility === 'subscribers',
-    createdAt: raw.created_at ?? raw.published_at ?? new Date().toISOString(),
-    publishedAt: raw.published_at ?? raw.created_at,
-    updatedAt: raw.updated_at,
+    createdAt:   raw.created_at   ?? raw.createdAt   ?? raw.published_at ?? new Date().toISOString(),
+    publishedAt: raw.published_at ?? raw.publishedAt ?? raw.created_at,
+    updatedAt:   raw.updated_at   ?? raw.updatedAt,
     title: raw.title ?? null,
     author: {
-      id: raw.creator_id ?? '',
-      name: raw.creator_display_name ?? raw.creator_username ?? 'Unknown',
-      username: raw.creator_username ?? '',
-      avatarUrl: raw.creator_avatar ?? null,
-      isVerified: raw.creator_is_verified ?? false,
-      isCreator: true,
+      id:         creatorId,
+      name:       creatorName,
+      username:   creatorUsername,
+      avatarUrl:  creatorAvatar,
+      isVerified: creatorVerified,
+      isCreator:  true,
     },
-    likedByMe: raw.liked_by_me ?? false,
-    bookmarkedByMe: raw.bookmarked_by_me ?? false,
+    likedByMe:     raw.liked_by_me    ?? raw.likedByMe    ?? false,
+    bookmarkedByMe: raw.bookmarked_by_me ?? raw.bookmarkedByMe ?? false,
   };
 }
 
@@ -187,21 +203,37 @@ export async function getHomeFeed(): Promise<{ posts: Post[]; hasMore: boolean; 
     return { posts: [], hasMore: false, nextCursor: null };
   }
 
-  // 2. Fetch recent posts from each subscribed creator (max 10 creators, 20 posts each)
+  // 2. Fetch recent posts, videos, and shorts from each subscribed creator (max 10 creators)
   const allPosts: Post[] = [];
   await Promise.allSettled(
-    creatorIds.slice(0, 10).map(async (creatorId) => {
-      try {
-        const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
-          `/creators/${creatorId}/posts?limit=20`,
-          { headers: authHeader(token) },
-        );
+    creatorIds.slice(0, 10).flatMap((creatorId) => [
+      // Posts
+      apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
+        `/creators/${creatorId}/posts?limit=20`,
+        { headers: authHeader(token) },
+      ).then((raw) => {
         const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePost) : [];
         allPosts.push(...posts);
-      } catch {
-        // Skip this creator on error
-      }
-    }),
+      }).catch(() => {}),
+
+      // Videos
+      apiFetch<{ videos?: unknown[]; items?: unknown[] }>(
+        `/creators/${creatorId}/videos?limit=20`,
+        { headers: authHeader(token) },
+      ).then((raw) => {
+        const items = Array.isArray(raw?.videos) ? raw.videos : Array.isArray(raw?.items) ? raw.items : [];
+        allPosts.push(...items.map(normalizePost));
+      }).catch(() => {}),
+
+      // Shorts
+      apiFetch<{ shorts?: unknown[]; items?: unknown[] }>(
+        `/creators/${creatorId}/shorts?limit=20`,
+        { headers: authHeader(token) },
+      ).then((raw) => {
+        const items = Array.isArray(raw?.shorts) ? raw.shorts : Array.isArray(raw?.items) ? raw.items : [];
+        allPosts.push(...items.map(normalizePost));
+      }).catch(() => {}),
+    ]),
   );
 
   // 3. Sort descending by publishedAt / createdAt, deduplicate

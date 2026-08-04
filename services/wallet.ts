@@ -73,29 +73,20 @@ function normalizeWithdrawal(raw: any): WithdrawalRecord {
 export async function getWallet(): Promise<{ balance: number; transactions: Transaction[] }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const [walletRaw, txRaw] = await Promise.all([
-    apiFetch<{ balance: number }>('/wallet', { headers: authHeader(token) }).catch(() => ({ balance: 0 })),
-    apiFetch<{ transactions: unknown[] }>('/transactions?limit=20', { headers: authHeader(token) }).catch(() => ({ transactions: [] })),
-  ]);
+  // Spec: GET /api/payments/balance → { balance, currency }
+  const walletRaw = await apiFetch<{ balance: number; currency?: string }>(
+    '/payments/balance',
+    { headers: authHeader(token) },
+  ).catch((): { balance: number } => ({ balance: 0 }));
   return {
     balance: walletRaw?.balance ?? 0,
-    transactions: Array.isArray(txRaw?.transactions)
-      ? txRaw.transactions.map(normalizeTransaction)
-      : [],
+    transactions: [],
   };
 }
 
-export async function getTransactions(limit = 20): Promise<{ transactions: Transaction[] }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ transactions: unknown[] }>(`/transactions?limit=${limit}`, {
-    headers: authHeader(token),
-  });
-  return {
-    transactions: Array.isArray(raw?.transactions)
-      ? raw.transactions.map(normalizeTransaction)
-      : [],
-  };
+export async function getTransactions(_limit = 20): Promise<{ transactions: Transaction[] }> {
+  // No transaction-history endpoint in spec. Return empty gracefully.
+  return { transactions: [] };
 }
 
 // ─── Wallet deposit via Paystack (Naira) ─────────────────────────────────────
@@ -145,10 +136,12 @@ export interface DepositVerifyResult {
   message?: string;
 }
 
-export async function verifyWalletDeposit(transactionId: string): Promise<DepositVerifyResult> {
+export async function verifyWalletDeposit(reference: string): Promise<DepositVerifyResult> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+  // Spec: POST /api/payments/verify-paystack  Body: { reference: string }
   const raw = await apiFetch<{
+    verified?: boolean;
     success?: boolean;
     credits?: number;
     amount?: number;
@@ -159,10 +152,10 @@ export async function verifyWalletDeposit(transactionId: string): Promise<Deposi
   }>('/payments/verify-paystack', {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ transactionId }),
+    body: JSON.stringify({ reference }),
   });
   return {
-    success:     raw.success    ?? false,
+    success:     raw.verified ?? raw.success ?? false,
     amountAdded: raw.amount_added ?? raw.amount ?? raw.credits ?? 0,
     newBalance:  raw.newBalance ?? raw.new_balance ?? 0,
     message:     raw.message,
@@ -216,13 +209,14 @@ export async function getCreatorBalance(): Promise<{
 export async function saveBankDetails(details: BankDetails): Promise<{ success: boolean }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+  // Spec: POST /api/payments/save-bank-details  Body: { bank_code, account_number, account_name }
   const raw = await apiFetch<{ success: boolean }>('/payments/save-bank-details', {
     method: 'POST',
     headers: authHeader(token),
     body: JSON.stringify({
-      bankName:      details.bankName,
-      accountNumber: details.accountNumber,
-      accountName:   details.accountName,
+      bank_code:      details.bankName,   // map displayName → bank_code
+      account_number: details.accountNumber,
+      account_name:   details.accountName,
     }),
   });
   return { success: raw?.success ?? true };
