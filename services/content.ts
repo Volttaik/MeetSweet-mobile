@@ -163,8 +163,9 @@ export async function getVideoFeed(cursor?: string | null): Promise<ContentPage<
     { headers: await authHeaders() },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
+  // Exclude shorts (content_type === 'short') from the long-form video feed.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const videoPosts = posts.filter((p: any) => isVideoPost(p));
+  const videoPosts = posts.filter((p: any) => isVideoPost(p) && p.content_type !== 'short');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nextCursor = raw?.next_cursor ?? raw?.nextCursor ?? (posts.length >= 20 ? (posts[posts.length - 1] as any)?.created_at ?? null : null);
   return {
@@ -235,12 +236,14 @@ export async function getShortsFeed(cursor?: string | null): Promise<ContentPage
     { headers: await authHeaders() },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
+  // Only include posts where the backend explicitly tagged content_type === 'short'.
+  // isVideoPost() alone would pull in long-form video posts as well.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const videoPosts = posts.filter((p: any) => isVideoPost(p));
+  const shortPosts = posts.filter((p: any) => p.content_type === 'short' && isVideoPost(p));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nextCursor = raw?.next_cursor ?? (posts.length >= 20 ? (posts[posts.length - 1] as any)?.created_at ?? null : null);
   return {
-    items: videoPosts.map(shortFrom),
+    items: shortPosts.map(shortFrom),
     nextCursor,
     hasMore: Boolean(nextCursor) || posts.length >= 20,
   };

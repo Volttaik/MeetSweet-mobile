@@ -14,11 +14,12 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, LockOpen, Lock, Crown, Diamond } from 'phosphor-react-native';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, LockOpen, Lock, Crown, Diamond, Play } from 'phosphor-react-native';
 import { T, TIERS } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsPremiumContent } from '@/components/MsPremiumContent';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
 import type { Post } from '@/services/posts';
 import {
   likePost,
@@ -486,9 +487,9 @@ export function MsPostCard({
       )}
 
       {/* Media — video
-          Feed preview mode: auto-playing muted 3-second loop.
-          No play button is shown in feeds. Tapping anywhere on the card opens
-          the dedicated Video Post page — the feed is never the primary player.
+          Feed: shows static thumbnail + play button overlay immediately.
+          Tapping opens the dedicated Video Post page.
+          Locked posts still use MsPremiumContent for the paywall overlay.
           Long-press opens the action sheet for save/share/report.
       */}
       {post.mediaUrl && post.mediaType === 'video' && (
@@ -498,21 +499,42 @@ export function MsPostCard({
           onLongPress={openSheet}
           delayLongPress={400}
         >
-          <MsPremiumContent
-            uri={post.mediaUrl}
-            posterUri={post.thumbnailUrl}
-            mediaType="video"
-            locked={Boolean(post.isLocked)}
-            unlocked={!post.isLocked}
-            price={post.priceCredits ?? 0}
-            aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
-            borderRadius={T.RADIUS.xl}
-            onUnlock={onMediaPress ?? onPress}
-            onPlayPress={onMediaPress ?? onPress}
-            previewMode
-            active={videoPreviewActive}
-            style={styles.videoPlaceholder}
-          />
+          {post.isLocked ? (
+            <MsPremiumContent
+              uri={post.mediaUrl}
+              posterUri={post.thumbnailUrl}
+              mediaType="video"
+              locked
+              price={post.priceCredits ?? 0}
+              aspectRatio={post.width && post.height ? post.width / post.height : 16 / 9}
+              borderRadius={T.RADIUS.xl}
+              onUnlock={onMediaPress ?? onPress}
+              style={styles.videoPlaceholder}
+            />
+          ) : (
+            <View style={[
+              styles.videoPlaceholder,
+              { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
+              post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
+            ]}>
+              {post.thumbnailUrl ? (
+                <MsMediaLoader
+                  uri={post.thumbnailUrl}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                  accessibleLabel="Video thumbnail"
+                />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
+              )}
+              {/* Play button overlay — decorative, tap is handled by the TouchableOpacity */}
+              <View style={styles.videoPlayOverlay} pointerEvents="none">
+                <View style={styles.videoPlayBtn}>
+                  <Play size={20} color="#fff" weight="fill" />
+                </View>
+              </View>
+            </View>
+          )}
         </TouchableOpacity>
       )}
 
@@ -640,6 +662,19 @@ const styles = StyleSheet.create({
     width: '100%',
     aspectRatio: 16 / 9,
     backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.52)',
     alignItems: 'center',
     justifyContent: 'center',
   },

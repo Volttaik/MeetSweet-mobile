@@ -29,6 +29,7 @@ import {
   TextT,
   Images,
 } from 'phosphor-react-native';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
@@ -471,9 +472,13 @@ export default function CreatePostScreen() {
               {mediaType === 'image' ? (
                 <Image source={{ uri: mediaUri }} style={styles.previewImg} resizeMode="cover" />
               ) : (
-                <View style={styles.videoThumb}>
-                  <FilmStrip size={40} color={T.TEXT_2} />
-                  <Text style={styles.videoLabel}>{contentType === 'shorts' ? 'Short video selected' : 'Video selected'}</Text>
+                <View style={{ aspectRatio: contentType === 'shorts' ? 9 / 16 : 16 / 9, overflow: 'hidden' }}>
+                  <MsVideoPlayer
+                    videoId={mediaUri}
+                    uri={mediaUri}
+                    mode="standard"
+                    fillContainer
+                  />
                 </View>
               )}
               <TouchableOpacity style={styles.removeMedia} onPress={removeMedia}>
@@ -659,11 +664,13 @@ export default function CreatePostScreen() {
                   {mediaType === 'image' ? (
                     <Image source={{ uri: mediaUri }} style={{ height: 160, borderRadius: 12 }} resizeMode="cover" />
                   ) : (
-                    <View style={[styles.videoThumb, { height: 120 }]}>
-                      <FilmStrip size={32} color={T.TEXT_2} />
-                      <Text style={styles.videoLabel}>
-                        {contentType === 'shorts' ? 'Short video' : 'Video'} selected
-                      </Text>
+                    <View style={{ aspectRatio: contentType === 'shorts' ? 9 / 16 : 16 / 9, overflow: 'hidden', borderRadius: 12 }}>
+                      <MsVideoPlayer
+                        videoId={mediaUri}
+                        uri={mediaUri}
+                        mode="standard"
+                        fillContainer
+                      />
                     </View>
                   )}
                   <TouchableOpacity style={styles.removeMedia} onPress={removeMedia}>
