@@ -21,6 +21,7 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import type { Post } from '@/services/posts';
+import { TIERS, type ContentTier } from '@/constants/tiers';
 import {
   likePost,
   unlikePost,
@@ -208,6 +209,13 @@ interface MsPostCardProps {
    * Defaults to true (plays immediately when mounted).
    */
   videoPreviewActive?: boolean;
+  /**
+   * Content tier badge shown next to the author name.
+   * Bronze = small coloured dot (no text — public/Explore content).
+   * Silver / Gold / Diamond = coloured pill badge.
+   * Omit to fall back to the legacy isPremium "SUBSCRIBERS" badge.
+   */
+  tier?: ContentTier;
 }
 
 export function MsPostCard({
@@ -221,6 +229,7 @@ export function MsPostCard({
   onAnalyticsPress,
   doubleTapToOpen = false,
   videoPreviewActive = true,
+  tier,
 }: MsPostCardProps) {
   const [liked, setLiked] = useState(post.likedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
@@ -409,12 +418,22 @@ export function MsPostCard({
         </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {/* Subscriber-only badge — shown when content requires a subscription */}
-          {post.isPremium && (
+          {/* Tier badge — Bronze = small dot (no text); Silver/Gold/Diamond = pill */}
+          {tier === 'bronze' ? (
+            <View style={[styles.tierDot, { backgroundColor: TIERS.bronze.color }]} />
+          ) : tier != null ? (
+            <View style={[styles.subsBadge, { backgroundColor: TIERS[tier].bgColor }]}>
+              <View style={[styles.tierDotInline, { backgroundColor: TIERS[tier].color }]} />
+              <Text style={[styles.subsBadgeText, { color: TIERS[tier].color }]}>
+                {tier.toUpperCase()}
+              </Text>
+            </View>
+          ) : post.isPremium ? (
+            /* Legacy fallback for cards without explicit tier */
             <View style={styles.subsBadge}>
               <Text style={styles.subsBadgeText}>SUBSCRIBERS</Text>
             </View>
-          )}
+          ) : null}
           <TouchableOpacity
             style={styles.moreBtn}
             activeOpacity={0.7}
@@ -640,7 +659,20 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   authorRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  tierDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  tierDotInline: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   subsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: T.RADIUS.xs,

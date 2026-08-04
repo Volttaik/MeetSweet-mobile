@@ -84,6 +84,15 @@ export default function AuthScreen() {
       router.replace('/(tabs)');
     } catch (err) {
       if (err instanceof ApiError) {
+        // Backend returns 403 + code EMAIL_NOT_VERIFIED when account exists but
+        // the email has never been confirmed — take the user straight to verify.
+        if (err.code === 'EMAIL_NOT_VERIFIED' || err.status === 403) {
+          router.push({
+            pathname: '/verify-email',
+            params: { email: email.trim().toLowerCase() },
+          });
+          return;
+        }
         setServerError(err.message);
       } else {
         setServerError('Login failed. Please try again.');

@@ -42,13 +42,11 @@ import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboard
 type Step = 'type-select' | 'onboard' | 'media-picker' | 'preview' | 'uploading' | 'creating' | 'processing' | 'success';
 type ContentType = 'post' | 'album' | 'video' | 'shorts';
 
-const VISIBILITY_OPTIONS = [
-  { value: 'public' as const,      label: 'Public',      description: 'Visible to everyone' },
-  { value: 'subscribers' as const, label: 'Subscribers', description: 'Subscribers only' },
-  { value: 'draft' as const,       label: 'Draft',       description: 'Only you' },
-];
+import { TIERS, TIER_ORDER, type ContentTier } from '@/constants/tiers';
 
-// Visibility options — the only access control mechanism. No per-post tiers.
+// Tier options shown in the create-post picker (Bronze → Diamond).
+// Shorts are always Bronze (free) — the picker is hidden for that content type.
+const TIER_OPTIONS = TIER_ORDER.map((t) => ({ value: t, ...TIERS[t] }));
 
 // Content type definitions for the type picker carousel
 const CONTENT_TYPES: {
@@ -99,7 +97,7 @@ export default function CreatePostScreen() {
 
   // Onboarding fields
   const [caption,              setCaption]              = useState('');
-  const [visibility,           setVisibility]           = useState<'public' | 'subscribers' | 'draft'>('public');
+  const [tier,                 setTier]                 = useState<ContentTier>('bronze');
   const [categories,           setCategories]           = useState<Category[]>([]);
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
   const [tags,                 setTags]                 = useState<string[]>([]);
@@ -352,9 +350,13 @@ export default function CreatePostScreen() {
         ? (caption.trim() ? `${videoTitle.trim()}\n\n${caption.trim()}` : videoTitle.trim())
         : caption.trim();
 
+      // Shorts are always free/public; everything else maps from the tier picker.
+      const resolvedVisibility =
+        contentType === 'shorts' ? 'public' : TIERS[tier].visibility;
+
       await createPost({
         caption:      finalCaption,
-        visibility,
+        visibility:   resolvedVisibility,
         media_ids:    mediaIds,
         categories:   selectedCategories,
         tags,
@@ -538,12 +540,15 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Visibility */}
+          {/* Tier preview */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Visibility</Text>
-            <Text style={styles.previewCaption}>
-              {VISIBILITY_OPTIONS.find((o) => o.value === visibility)?.label ?? 'Public'}
-            </Text>
+            <Text style={styles.sectionTitle}>Access Tier</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={[styles.tierDot, { backgroundColor: contentType === 'shorts' ? TIERS.bronze.color : TIERS[tier].color }]} />
+              <Text style={styles.previewCaption}>
+                {contentType === 'shorts' ? 'Bronze (Shorts are always free)' : TIERS[tier].label}
+              </Text>
+            </View>
           </View>
 
           {/* Error */}
@@ -719,27 +724,37 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Visibility */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Visibility</Text>
-            <View style={styles.visibilityRow}>
-              {VISIBILITY_OPTIONS.map((opt) => {
-                const active = opt.value === visibility;
-                return (
-                  <TouchableOpacity
-                    key={opt.value}
-                    style={[styles.visOpt, active && styles.visOptActive]}
-                    onPress={() => setVisibility(opt.value)}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={[styles.visLabel, active && styles.visLabelActive]}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+          {/* Tier picker — hidden for Shorts (always free) */}
+          {contentType !== 'shorts' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Access Tier</Text>
+              <View style={styles.visibilityRow}>
+                {TIER_OPTIONS.map((opt) => {
+                  const active = opt.value === tier;
+                  return (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        styles.visOpt,
+                        active && { ...styles.visOptActive, borderColor: opt.color },
+                      ]}
+                      onPress={() => setTier(opt.value)}
+                      activeOpacity={0.75}
+                    >
+                      {/* Tier colour dot */}
+                      <View style={[styles.tierDot, { backgroundColor: opt.color }]} />
+                      <Text style={[styles.visLabel, active && styles.visLabelActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.tierHint}>
+                {TIERS[tier].description}
+              </Text>
             </View>
-          </View>
-
-          {/* Tip: visibility drives access. Public = Explore + subscribers feed. Subscribers = subscriber feed only. */}
+          )}
 
           {/* Categories */}
           {categories.length > 0 && (
@@ -1095,7 +1110,18 @@ const styles = StyleSheet.create({
     color: T.TEXT_3,
   },
 
-  visibilityRow: { flexDirection: 'row', gap: 8 },
+  tierDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  tierHint: {
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+    marginTop: 6,
+  },
+  visibilityRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   visOpt: {
     flex: 1,
     paddingVertical: 10,

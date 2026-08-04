@@ -664,6 +664,15 @@ export default function RegisterScreen() {
       router.push({ pathname: '/verify-email', params: { email: step1.email.trim() } });
     } catch (err) {
       if (err instanceof ApiError) {
+        // 409 means the email already exists. The account may be unverified —
+        // send the user to the verification screen so they can confirm it.
+        if (err.status === 409 && err.message.toLowerCase().includes('email')) {
+          router.push({
+            pathname: '/verify-email',
+            params: { email: step1.email.trim() },
+          });
+          return;
+        }
         setRegisterError(err.message);
       } else {
         setRegisterError('Registration failed. Please try again.');
