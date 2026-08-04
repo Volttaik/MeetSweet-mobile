@@ -419,12 +419,16 @@ export function MsPostCard({
         </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {/* Tier badge — use MsTierBadge for all tier values; fallback for isPremium */}
-          {tier != null ? (
-            <MsTierBadge tier={tier} size="xs" />
-          ) : post.isPremium ? (
-            <MsTierBadge tier="silver" size="xs" />
-          ) : null}
+          {/* Tier badge — prefer explicit prop, then post.tier (skip bronze — that's the
+              default for every public post and adds noise without meaning). */}
+          {(() => {
+            const effectiveTier = tier ?? post.tier;
+            if (effectiveTier === 'silver' || effectiveTier === 'gold' || effectiveTier === 'diamond') {
+              return <MsTierBadge tier={effectiveTier} size="xs" />;
+            }
+            if (post.isPremium) return <MsTierBadge tier="silver" size="xs" />;
+            return null;
+          })()}
           <TouchableOpacity
             style={styles.moreBtn}
             activeOpacity={0.7}
@@ -436,9 +440,24 @@ export function MsPostCard({
         </View>
       </View>
 
+      {/* Video title — shown for video/short posts that carry a title from the backend */}
+      {!!(post.title && (post.contentType === 'video' || post.contentType === 'short')) && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onPress}
+          onLongPress={openSheet}
+          delayLongPress={400}
+        >
+          <Text style={styles.videoTitle} numberOfLines={2}>
+            {post.title}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Caption
           feedMode (doubleTapToOpen): double-tap navigates, single tap = nothing.
           Other screens: single tap navigates (original behaviour).
+          For video/short posts the description is shown below the title.
       */}
       {!!post.caption && (
         doubleTapToOpen ? (
@@ -661,6 +680,14 @@ const styles = StyleSheet.create({
 
   captionPressable: {
     // Allows the ScalePressable wrapper for caption double-tap to fill width
+  },
+  videoTitle: {
+    fontSize: 14,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+    lineHeight: 20,
+    paddingHorizontal: 14,
+    paddingBottom: 4,
   },
   caption: {
     fontSize: 13,

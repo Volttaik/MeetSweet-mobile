@@ -101,13 +101,19 @@ function numberFrom(value: unknown): number {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function videoFrom(raw: any): LongFormVideo {
   const media = Array.isArray(raw.media) ? raw.media[0] : null;
+  // Title: backend may return a separate `title` field distinct from `caption`
+  const title = raw.title ?? raw.caption ?? '';
+  // Video URL: top-level video_url/videoUrl takes precedence; media[0].url as fallback
+  const videoUrl = raw.video_url ?? raw.videoUrl ?? media?.url ?? null;
+  // Thumbnail: check media object first, then top-level fields the backend may return
+  const thumbnailUrl = media?.thumbnail_url ?? raw.thumbnail_url ?? raw.thumbnailUrl ?? null;
   return {
     id: raw.id,
-    title: raw.caption ?? '',
-    description: raw.caption ?? '',
-    videoUrl: media?.url ?? null,
-    thumbnailUrl: media?.thumbnail_url ?? null,
-    durationSecs: numberFrom(media?.duration_secs),
+    title,
+    description: raw.caption ?? raw.description ?? '',
+    videoUrl,
+    thumbnailUrl,
+    durationSecs: numberFrom(media?.duration_secs ?? raw.duration_secs),
     viewCount: numberFrom(raw.view_count),
     likeCount: numberFrom(raw.like_count),
     commentCount: numberFrom(raw.comment_count),
@@ -126,12 +132,14 @@ function videoFrom(raw: any): LongFormVideo {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function shortFrom(raw: any): Short {
   const media = Array.isArray(raw.media) ? raw.media[0] : null;
+  const videoUrl = raw.video_url ?? raw.videoUrl ?? media?.url ?? null;
+  const thumbnailUrl = media?.thumbnail_url ?? raw.thumbnail_url ?? raw.thumbnailUrl ?? null;
   return {
     id: raw.id,
     caption: raw.caption ?? '',
-    videoUrl: media?.url ?? null,
-    thumbnailUrl: media?.thumbnail_url ?? null,
-    durationSecs: numberFrom(media?.duration_secs),
+    videoUrl,
+    thumbnailUrl,
+    durationSecs: numberFrom(media?.duration_secs ?? raw.duration_secs),
     viewCount: numberFrom(raw.view_count),
     likeCount: numberFrom(raw.like_count),
     commentCount: numberFrom(raw.comment_count),

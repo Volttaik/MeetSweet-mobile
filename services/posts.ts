@@ -73,12 +73,16 @@ function normalizePost(raw: any): Post {
   const firstMedia = media[0] ?? null;
   // Map backend content_type to our enum; fall back based on media type
   const rawContentType = raw.content_type ?? raw.contentType ?? null;
+  // Video-media inference MUST come before the 'post' fallback: the backend may tag
+  // video-attachment posts as content_type:'post'. Honouring 'post' first would put
+  // them in the Posts feed tab instead of Videos, and make the card try to load a
+  // video URL as an image (spinner forever, no play button).
   const contentType: Post['contentType'] =
     rawContentType === 'short' ? 'short'
     : rawContentType === 'video' ? 'video'
     : rawContentType === 'album' ? 'album'
+    : firstMedia?.type === 'video' ? 'video'   // video media wins over 'post' label
     : rawContentType === 'post'  ? 'post'
-    : firstMedia?.type === 'video' ? 'video'   // infer from media when absent
     : null;
 
   // VideoObject/ShortObject have a nested `creator` field;

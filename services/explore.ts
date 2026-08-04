@@ -87,12 +87,16 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
     const rawCT = raw.content_type ?? raw.contentType ?? null;
     // Detect video from multiple signals: explicit content_type, media array, or top-level video_url
     const hasVideoMedia = firstMedia?.type === 'video' || Boolean(raw.video_url ?? raw.videoUrl);
+    // hasVideoMedia check MUST come before the 'post' fallback: the backend may return
+    // content_type:'post' for posts that have a video attachment.  If we honour 'post'
+    // first the card lands in the image-section, tries to load the video URL as an image,
+    // and spins forever with no play button.
     const contentType: string | null =
       rawCT === 'short' ? 'short'
       : rawCT === 'video' ? 'video'
       : rawCT === 'album' ? 'album'
+      : hasVideoMedia ? 'video'   // video media wins — even over an explicit 'post' label
       : rawCT === 'post'  ? 'post'
-      : hasVideoMedia ? 'video'   // infer video from media type when content_type absent
       : 'post';
 
     const isVideo = contentType === 'video' || contentType === 'short';

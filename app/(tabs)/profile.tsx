@@ -686,10 +686,13 @@ export default function ProfileScreen() {
   // ── Tab content ─────────────────────────────────────────────────────────────
 
   const tabContent = () => {
-    // Posts tab — full MsPostCard rendering
+    // Posts tab — full MsPostCard rendering (text/image posts and albums only)
     if (activeTab === 'Posts') {
       const feedPosts = posts.filter((p) =>
-        !p.contentType || p.contentType === 'post' || p.contentType === 'album'
+        p.contentType === 'post' || p.contentType === 'album' ||
+        // Only include posts with no contentType when they also have no video media —
+        // videos/shorts without a content_type must NOT appear here.
+        (!p.contentType && p.mediaType !== 'video')
       );
       if (loadingPosts) {
         return (
@@ -715,30 +718,29 @@ export default function ProfileScreen() {
           data={feedPosts}
           keyExtractor={(p) => p.id}
           scrollEnabled={false}
-          renderItem={({ item }) => (
+          renderItem={({ item }) => {
+            const navToPost = () => {
+              if (item.contentType === 'short') {
+                router.push({ pathname: '/shorts', params: { startId: item.id } });
+              } else if (item.contentType === 'video' || item.mediaType === 'video') {
+                router.push(`/videos/${item.id}`);
+              } else {
+                router.push(`/post/${item.id}`);
+              }
+            };
+            return (
             <MsPostCard
               post={item}
               currentUserId={user?.id}
-              onPress={() => router.push(`/post/${item.id}`)}
-              onMediaPress={
-                item.mediaUrl
-                  ? () =>
-                      router.push({
-                        pathname: '/post-media',
-                        params: {
-                          uri: item.mediaUrl!,
-                          type: item.mediaType ?? 'image',
-                          postId: item.id,
-                          ...(item.width && item.height ? { aspectRatio: String(item.width / item.height) } : {}),
-                        },
-                      })
-                  : undefined
-              }
+              onPress={navToPost}
+              onMediaPress={item.mediaUrl ? navToPost : undefined}
               onAuthorPress={() => {}}
               onDeleted={handlePostDeleted}
               onEditPress={(post) => { router.push(`/edit-post/${post.id}`); }}
               onAnalyticsPress={(post) => { setActionPost(post); setAnalyticsSheet(true); }}
             />
+            );
+          }}
           )}
           ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: T.BORDER }} />}
         />
@@ -774,9 +776,12 @@ export default function ProfileScreen() {
       );
     }
 
-    // Videos tab — grid of video thumbnails (video content type only)
+    // Videos tab — grid of video thumbnails (long-form video only, never shorts)
     if (activeTab === 'Videos') {
-      const videoPosts = posts.filter((p) => p.contentType === 'video' || (p.mediaType === 'video' && p.contentType !== 'short'));
+      // Strict: only show posts explicitly tagged 'video'. Falling back on mediaType caused
+      // shorts (contentType:'short') without a content_type to slip into this tab and open
+      // the wrong player when tapped.
+      const videoPosts = posts.filter((p) => p.contentType === 'video');
       if (loadingPosts) {
         return (
           <View style={styles.grid}>
@@ -809,9 +814,11 @@ export default function ProfileScreen() {
               onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
               delayLongPress={400}
             >
-              {p.mediaUrl ? (
+              {/* Always use thumbnailUrl only — never fall back to mediaUrl here.
+                  Feeding a video URL to an image loader causes a spinner that never resolves. */}
+              {p.thumbnailUrl ? (
                 <MsMediaLoader
-                  uri={p.thumbnailUrl ?? p.mediaUrl}
+                  uri={p.thumbnailUrl}
                   style={{ width: '100%', height: videoColSize * 9 / 16 }}
                   resizeMode="cover"
                   accessibleLabel="Video thumbnail"
@@ -822,8 +829,9 @@ export default function ProfileScreen() {
                 </View>
               )}
               <View style={{ padding: 8 }}>
+                {/* Show video title when available; fall back to caption, then placeholder */}
                 <Text style={{ fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT, lineHeight: 16 }} numberOfLines={2}>
-                  {p.caption || 'Video'}
+                  {p.title || p.caption || 'Video'}
                 </Text>
                 {p.durationSecs != null && (
                   <Text style={{ fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2 }}>
@@ -871,9 +879,10 @@ export default function ProfileScreen() {
               onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
               delayLongPress={400}
             >
-              {p.mediaUrl ? (
+              {/* thumbnailUrl only — feeding a video URL to an image loader spins forever */}
+              {p.thumbnailUrl ? (
                 <MsMediaLoader
-                  uri={p.thumbnailUrl ?? p.mediaUrl}
+                  uri={p.thumbnailUrl}
                   style={{ width: '100%', height: '100%' }}
                   resizeMode="cover"
                   accessibleLabel="Short thumbnail"
@@ -918,26 +927,26 @@ export default function ProfileScreen() {
         data={savedPosts}
         keyExtractor={(p) => p.id}
         scrollEnabled={false}
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const navToSaved = () => {
+            if (item.contentType === 'short') {
+              router.push({ pathname: '/shorts', params: { startId: item.id } });
+            } else if (item.contentType === 'video' || item.mediaType === 'video') {
+              router.push(`/videos/${item.id}`);
+            } else {
+              router.push(`/post/${item.id}`);
+            }
+          };
+          return (
           <MsPostCard
             post={item}
             currentUserId={user?.id}
-            onPress={() => router.push(`/post/${item.id}`)}
-            onMediaPress={
-              item.mediaUrl
-                ? () =>
-                    router.push({
-                      pathname: '/post-media',
-                      params: {
-                        uri: item.mediaUrl!,
-                        type: item.mediaType ?? 'image',
-                        postId: item.id,
-                      },
-                    })
-                : undefined
-            }
+            onPress={navToSaved}
+            onMediaPress={item.mediaUrl ? navToSaved : undefined}
             onDeleted={handlePostDeleted}
           />
+          );
+        }}
         )}
         ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: T.BORDER }} />}
       />
