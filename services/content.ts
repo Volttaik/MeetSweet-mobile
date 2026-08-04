@@ -230,9 +230,13 @@ export async function getVideoRecommendations(videoId?: string): Promise<LongFor
  * Backend: GET /api/posts — same endpoint as videos (no server-side distinction).
  */
 export async function getShortsFeed(cursor?: string | null): Promise<ContentPage<Short>> {
-  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
+  // Send content_type=short to the backend so it can filter server-side; the client
+  // filter below still guards against any non-short items slipping through.
+  const base = cursor
+    ? `?content_type=short&cursor=${encodeURIComponent(cursor)}&limit=20`
+    : '?content_type=short&limit=20';
   const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
-    `/posts${qs}`,
+    `/posts${base}`,
     { headers: await authHeaders() },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];

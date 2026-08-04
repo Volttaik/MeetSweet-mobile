@@ -30,6 +30,7 @@ import {
   Images,
 } from 'phosphor-react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import { MsTierBadge } from '@/components/MsTierBadge';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
@@ -182,11 +183,11 @@ export default function CreatePostScreen() {
       if (!raw) return;
       try {
         const draft = JSON.parse(raw);
-        if (draft.caption)    setCaption(draft.caption);
-        if (draft.tags)       setTags(draft.tags);
-        if (draft.visibility) setVisibility(draft.visibility);
+        if (draft.caption)                     setCaption(draft.caption);
+        if (draft.tags)                        setTags(draft.tags);
+        if (draft.tier)                        setTier(draft.tier);
         if (draft.contentType && !params.type) setContentType(draft.contentType);
-        if (draft.videoTitle) setVideoTitle(draft.videoTitle);
+        if (draft.videoTitle)                  setVideoTitle(draft.videoTitle);
       } catch {/* ignore corrupt draft */}
     }).catch(() => {});
   }, []);
@@ -541,11 +542,11 @@ export default function CreatePostScreen() {
           {/* Tier preview */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Access Tier</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={[styles.tierDot, { backgroundColor: contentType === 'shorts' ? TIERS.bronze.color : TIERS[tier].color }]} />
-              <Text style={styles.previewCaption}>
-                {contentType === 'shorts' ? 'Bronze (Shorts are always free)' : TIERS[tier].label}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MsTierBadge tier={contentType === 'shorts' ? 'bronze' : tier} size="sm" />
+              {contentType === 'shorts' && (
+                <Text style={styles.previewCaption}>Shorts are always free</Text>
+              )}
             </View>
           </View>
 
@@ -739,11 +740,7 @@ export default function CreatePostScreen() {
                       onPress={() => setTier(opt.value)}
                       activeOpacity={0.75}
                     >
-                      {/* Tier colour dot */}
-                      <View style={[styles.tierDot, { backgroundColor: opt.color }]} />
-                      <Text style={[styles.visLabel, active && styles.visLabelActive]}>
-                        {opt.label}
-                      </Text>
+                      <MsTierBadge tier={opt.value} size="sm" />
                     </TouchableOpacity>
                   );
                 })}

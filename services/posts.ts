@@ -191,6 +191,17 @@ export async function getHomeFeed(): Promise<{ posts: Post[]; hasMore: boolean; 
   const token = await getToken();
   if (!token) return { posts: [], hasMore: false, nextCursor: null };
 
+  // 0. Resolve the current user's own ID so we can include their own posts
+  let selfId: string | null = null;
+  try {
+    const meRaw = await apiFetch<Record<string, unknown>>('/users/me', { headers: authHeader(token) });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meData = (meRaw as any)?.user ?? meRaw;
+    selfId = String(meData?.id ?? '').trim() || null;
+  } catch {
+    // Non-fatal — just skip own posts if we can't determine self
+  }
+
   // 1. Fetch subscriptions
   let creatorIds: string[] = [];
   try {
@@ -202,8 +213,12 @@ export async function getHomeFeed(): Promise<{ posts: Post[]; hasMore: boolean; 
       .map((s) => s.creator_id ?? s.creatorId ?? '')
       .filter(Boolean);
   } catch {
-    // Network failure — return empty so the empty state shows
-    return { posts: [], hasMore: false, nextCursor: null };
+    // Network failure — still show own posts if possible
+  }
+
+  // Always include the user's own creator ID so their own posts appear in Home
+  if (selfId && !creatorIds.includes(selfId)) {
+    creatorIds = [selfId, ...creatorIds];
   }
 
   if (creatorIds.length === 0) {

@@ -55,6 +55,8 @@ export interface ContentPreview {
   commentCount?: number;
   /** Backend content_type field — drives routing: 'short' → Shorts, 'video' → Long-form player */
   contentType?: string | null;
+  /** Content tier — bronze/silver/gold/diamond; populated from raw.tier when available */
+  tier?: string | null;
 }
 
 export interface TrendingCollection {

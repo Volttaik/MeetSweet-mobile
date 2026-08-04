@@ -141,10 +141,18 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
     preview.contentType === 'short' ? 'short' :
     isVideo ? 'video' :
     preview.kind === 'album' ? 'album' : 'post';
+
+  // Resolve tier from backend data — never default to bronze just because visibility is public.
+  // Bronze tier on Explore shows an unwanted dot on every free post; only show silver/gold/diamond.
+  const rawTier = preview.tier as import('@/constants/tiers').ContentTier | null | undefined;
+  const tier: import('@/constants/tiers').ContentTier | undefined =
+    rawTier === 'silver' || rawTier === 'gold' || rawTier === 'diamond' ? rawTier : undefined;
+
   return {
     id: preview.id,
     caption: preview.title ?? '',
     visibility: 'public',
+    tier,
     contentType,
     mediaUrl: preview.mediaUrl ?? null,
     mediaType: isVideo ? 'video' : (preview.thumbnailUrl || preview.mediaUrl ? 'image' : null),
@@ -156,7 +164,7 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
     likeCount: preview.likeCount ?? 0,
     commentCount: preview.commentCount ?? 0,
     bookmarkCount: 0,
-    isPremium: false,
+    isPremium: preview.isPremium ?? false,
     createdAt: preview.createdAt ?? new Date().toISOString(),
     author: {
       id: creator.id,
@@ -522,7 +530,7 @@ export default function ExploreScreen() {
             onPress={navToContent}
             onMediaPress={navToContent}
             onAuthorPress={() => router.push(`/creator/${item.post.author.id}`)}
-            tier={item.post.tier ?? (item.post.visibility === 'public' ? 'bronze' : undefined)}
+            tier={item.post.tier}
           />
         );
       }
@@ -776,39 +784,24 @@ export default function ExploreScreen() {
                     if (!haystack.includes(needle)) return null;
                   }
 
-                  const post: Post = {
-                    id:            preview.id,
-                    caption:       preview.title || '',
-                    visibility:    'public',
-                    contentType:   (preview.contentType as Post['contentType']) ?? 'post',
-                    mediaUrl:      preview.mediaUrl ?? null,
-                    mediaType:     (preview.kind === 'video' ? 'video' : 'image') as Post['mediaType'],
-                    thumbnailUrl:  preview.thumbnailUrl ?? null,
-                    durationSecs:  null,
-                    fileSize:      null,
-                    width:         null,
-                    height:        null,
-                    likeCount:     0,
-                    commentCount:  preview.commentCount ?? 0,
-                    bookmarkCount: 0,
-                    isPremium:     false,
-                    createdAt:     preview.createdAt ?? '',
-                    author: {
-                      id:         creator.id,
-                      name:       creator.name,
-                      username:   creator.handle.replace('@', ''),
-                      avatarUrl:  creator.avatarUrl ?? null,
-                      isVerified: creator.isVerified ?? false,
-                      isCreator:  true,
-                    },
-                    likedByMe:     false,
-                    bookmarkedByMe: false,
+                  const post: Post = previewToPost(preview, creator);
+
+                  const navToCreatorContent = () => {
+                    if (preview.contentType === 'short') {
+                      router.push({ pathname: '/shorts', params: { startId: preview.id } });
+                    } else if (preview.kind === 'video') {
+                      router.push(`/videos/${preview.id}`);
+                    } else {
+                      router.push(`/post/${preview.id}`);
+                    }
                   };
 
                   return (
                     <MsPostCard
                       key={preview.id}
                       post={post}
+                      onPress={navToCreatorContent}
+                      onMediaPress={navToCreatorContent}
                       onAuthorPress={() => openCreator(creator)}
                     />
                   );

@@ -85,12 +85,14 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
     const firstMedia = media[0] ?? null;
 
     const rawCT = raw.content_type ?? raw.contentType ?? null;
+    // Detect video from multiple signals: explicit content_type, media array, or top-level video_url
+    const hasVideoMedia = firstMedia?.type === 'video' || Boolean(raw.video_url ?? raw.videoUrl);
     const contentType: string | null =
       rawCT === 'short' ? 'short'
       : rawCT === 'video' ? 'video'
       : rawCT === 'album' ? 'album'
       : rawCT === 'post'  ? 'post'
-      : firstMedia?.type === 'video' ? 'video'
+      : hasVideoMedia ? 'video'   // infer video from media type when content_type absent
       : 'post';
 
     const isVideo = contentType === 'video' || contentType === 'short';
@@ -142,6 +144,8 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
       mediaUrl,
       createdAt: raw.created_at ?? raw.createdAt ?? raw.published_at,
       contentType,
+      // Tier from backend — bronze means free/public (no badge shown on Explore)
+      tier: raw.tier ?? null,
     };
 
     return { preview, creator };
