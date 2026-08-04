@@ -26,8 +26,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
   FadeOut,
-  SlideInRight,
-  SlideOutLeft,
 } from 'react-native-reanimated';
 import {
   ArrowRight,
@@ -165,8 +163,8 @@ export function MsOnboardingModal({
 
         <Animated.View
           key={currentIndex}
-          entering={SlideInRight.duration(300)}
-          exiting={SlideOutLeft.duration(200)}
+          entering={FadeIn.duration(280)}
+          exiting={FadeOut.duration(180)}
           style={styles.card}
         >
           {/* Progress dots */}

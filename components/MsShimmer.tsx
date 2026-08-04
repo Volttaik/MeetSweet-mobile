@@ -226,6 +226,180 @@ export function MsShimmerSearchList({ count = 6 }: { count?: number }) {
   );
 }
 
+// ─── Creator profile skeleton ─────────────────────────────────────────────────
+
+export function MsShimmerCreatorProfile() {
+  return (
+    <View style={{ backgroundColor: 'transparent' }}>
+      {/* Banner */}
+      <MsShimmer width="100%" height={160} borderRadius={0} />
+      {/* Avatar + follow row */}
+      <View style={{ paddingHorizontal: 20, marginTop: -36, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <MsShimmer width={72} height={72} borderRadius={36} />
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+          <MsShimmer width={72} height={32} borderRadius={16} />
+          <MsShimmer width={90} height={32} borderRadius={16} />
+        </View>
+      </View>
+      {/* Name + handle */}
+      <View style={{ paddingHorizontal: 20, paddingTop: 14, gap: 8 }}>
+        <MsShimmer width="44%" height={16} />
+        <MsShimmer width="28%" height={11} />
+        <MsShimmer width="80%" height={10} />
+        <MsShimmer width="60%" height={10} />
+      </View>
+      {/* Metrics row */}
+      <View style={{ paddingHorizontal: 20, paddingTop: 18, flexDirection: 'row', gap: 28 }}>
+        <View style={{ gap: 6 }}>
+          <MsShimmer width={44} height={16} />
+          <MsShimmer width={64} height={10} />
+        </View>
+        <View style={{ gap: 6 }}>
+          <MsShimmer width={36} height={16} />
+          <MsShimmer width={48} height={10} />
+        </View>
+      </View>
+      {/* Tab bar */}
+      <View style={{ flexDirection: 'row', gap: 0, marginTop: 24, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+        {[72, 56, 60, 52].map((w, i) => (
+          <View key={i} style={{ paddingHorizontal: 12, paddingBottom: 14 }}>
+            <MsShimmer width={w} height={11} borderRadius={6} />
+          </View>
+        ))}
+      </View>
+      {/* Content grid */}
+      <View style={{ paddingHorizontal: 10, paddingTop: 12, gap: 10 }}>
+        {[0, 1].map((row) => (
+          <View key={row} style={{ flexDirection: 'row', gap: 10 }}>
+            {[0, 1].map((col) => {
+              const w = (SCREEN_WIDTH - 30) / 2;
+              return (
+                <View key={col} style={{ gap: 6 }}>
+                  <MsShimmer width={w} height={w} borderRadius={10} />
+                  <MsShimmer width={w * 0.7} height={10} />
+                  <MsShimmer width={w * 0.45} height={9} />
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ─── Profile page skeleton (personal profile) ─────────────────────────────────
+
+export function MsShimmerProfileHeader() {
+  return (
+    <View style={{ backgroundColor: 'transparent' }}>
+      {/* Banner */}
+      <MsShimmer width="100%" height={130} borderRadius={0} />
+      {/* Avatar row */}
+      <View style={{ paddingHorizontal: 16, marginTop: -40, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <MsShimmer width={80} height={80} borderRadius={40} />
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+          <MsShimmer width={36} height={36} borderRadius={18} />
+          <MsShimmer width={36} height={36} borderRadius={18} />
+        </View>
+      </View>
+      {/* Name + stats */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
+        <MsShimmer width="50%" height={17} />
+        <MsShimmer width="30%" height={11} />
+        <MsShimmer width="75%" height={10} />
+        <View style={{ flexDirection: 'row', gap: 24, marginTop: 4 }}>
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={{ gap: 5 }}>
+              <MsShimmer width={32} height={14} />
+              <MsShimmer width={52} height={9} />
+            </View>
+          ))}
+        </View>
+      </View>
+      {/* Tab bar */}
+      <View style={{ flexDirection: 'row', marginTop: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <View key={i} style={{ flex: 1, alignItems: 'center', paddingBottom: 14 }}>
+            <MsShimmer width={20} height={20} borderRadius={10} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ─── Video watch page skeleton ─────────────────────────────────────────────────
+
+export function MsShimmerVideoWatch() {
+  return (
+    <View style={{ backgroundColor: 'transparent' }}>
+      {/* Player area (16:9) */}
+      <MsShimmer width="100%" height={Math.round(SCREEN_WIDTH * 9 / 16)} borderRadius={0} />
+      {/* Video metadata */}
+      <View style={{ padding: 16, gap: 10 }}>
+        <MsShimmer width="88%" height={16} />
+        <MsShimmer width="64%" height={13} />
+        {/* Stats row */}
+        <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+          <MsShimmer width={56} height={10} />
+          <MsShimmer width={44} height={10} />
+          <MsShimmer width={60} height={10} />
+        </View>
+      </View>
+      {/* Creator row */}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <MsShimmer width={42} height={42} borderRadius={21} />
+        <View style={{ flex: 1, gap: 7 }}>
+          <MsShimmer width="38%" height={12} />
+          <MsShimmer width="24%" height={10} />
+        </View>
+        <MsShimmer width={86} height={32} borderRadius={16} />
+      </View>
+      {/* Action bar */}
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 20, gap: 8 }}>
+        {[64, 64, 64, 64].map((w, i) => (
+          <MsShimmer key={i} width={w} height={36} borderRadius={18} />
+        ))}
+      </View>
+      {/* Divider */}
+      <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: 12 }} />
+      {/* Related videos */}
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 12, paddingBottom: 14 }}>
+          <MsShimmer width={120} height={68} borderRadius={8} />
+          <View style={{ flex: 1, gap: 7, paddingTop: 2 }}>
+            <MsShimmer width="85%" height={12} />
+            <MsShimmer width="60%" height={12} />
+            <MsShimmer width="40%" height={10} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── DM conversation list skeleton ────────────────────────────────────────────
+
+export function MsShimmerDmList({ count = 5 }: { count?: number }) {
+  return (
+    <View style={{ paddingTop: 4 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 11 }}>
+          <MsShimmer width={48} height={48} borderRadius={24} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <MsShimmer width="38%" height={12} />
+              <MsShimmer width={32} height={10} />
+            </View>
+            <MsShimmer width="65%" height={10} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const shimStyles = StyleSheet.create({

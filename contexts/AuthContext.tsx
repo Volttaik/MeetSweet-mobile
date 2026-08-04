@@ -101,6 +101,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: false,
   });
 
+  // Register session-expired handler so API layer can clear auth state
+  // This must happen before the auth load so any early 401 is handled.
+  useEffect(() => {
+    setSessionExpiredHandler(async () => {
+      await Promise.all([
+        AsyncStorage.removeItem(KEYS.ACCESS_TOKEN),
+        AsyncStorage.removeItem(KEYS.REFRESH_TOKEN),
+        AsyncStorage.removeItem(KEYS.USER),
+      ]).catch(() => {});
+      setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
+    });
+    return () => {
+      // Clear on unmount
+      setSessionExpiredHandler(() => {});
+    };
+  }, []);
+
   // Load persisted auth on mount
   useEffect(() => {
     (async () => {
@@ -176,6 +193,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = useCallback(async (data: LoginData) => {
+    // Clear any stale session first so refresh interceptors don't trigger
+    // before we receive new tokens.
+    await Promise.all([
+      AsyncStorage.removeItem(KEYS.ACCESS_TOKEN),
+      AsyncStorage.removeItem(KEYS.REFRESH_TOKEN),
+    ]).catch(() => {});
+
     // POST /api/auth/login → { access_token, refresh_token, user }
     const result = await apiFetch<{
       access_token: string;

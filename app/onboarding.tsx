@@ -1,17 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
-  FlatList,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  ViewToken,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Animated2, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
@@ -19,14 +18,14 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { BlurView } from 'expo-blur';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
 // ─── Illustrations ─────────────────────────────────────────────────────────
 
-const ILLUS_SIZE = 240;
+const ILLUS_SIZE = 220;
 
 function IllustrationDiscover() {
   return (
@@ -115,18 +114,21 @@ const PAGES = [
     title: 'Discover Your\nFavorite Creators',
     description: 'Explore premium creators and vibrant communities built around the content you love most.',
     Illustration: IllustrationDiscover,
+    accent: 'rgba(120,120,180,0.18)',
   },
   {
     key: 'chat',
     title: 'Connect Privately\nWith Creators',
     description: 'Send direct messages and receive exclusive content directly from the creators you follow.',
     Illustration: IllustrationChat,
+    accent: 'rgba(80,160,120,0.15)',
   },
   {
     key: 'subscribe',
     title: 'Subscribe &\nUnlock More',
     description: 'Subscribe to unlock premium content and directly support the creators who inspire you.',
     Illustration: IllustrationSubscribe,
+    accent: 'rgba(180,140,80,0.15)',
   },
 ];
 
@@ -148,7 +150,7 @@ function FloatingIllustration({ children }: { children: React.ReactNode }) {
     transform: [{ translateY: translateY.value }],
   }));
 
-  return <Animated.View style={style}>{children}</Animated.View>;
+  return <Animated2.View style={style}>{children}</Animated2.View>;
 }
 
 function Dots({ count, active }: { count: number; active: number }) {
@@ -167,32 +169,53 @@ const dotStyles = StyleSheet.create({
   dotActive: { width: 26, backgroundColor: 'rgba(255,255,255,0.85)' },
 });
 
-const H_PAD = 32;
-const PAGE_W = SCREEN_W - H_PAD * 2;
-
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
-  const flatListRef = useRef<FlatList>(null);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const [displayIndex, setDisplayIndex] = useState(0);
+
+  const navigate = (toIndex: number) => {
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      setDisplayIndex(toIndex);
+      setActiveIndex(toIndex);
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 280,
+        useNativeDriver: true,
+      }).start();
+    });
+  };
 
   const goToNext = () => {
     if (activeIndex < PAGES.length - 1) {
-      flatListRef.current?.scrollToIndex({ index: activeIndex + 1, animated: true });
+      navigate(activeIndex + 1);
     } else {
-      // Use replace so the user cannot swipe back to onboarding
-      router.replace('/auth');
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }).start(() => {
+        router.replace('/auth');
+      });
     }
   };
 
-  const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      if (viewableItems.length > 0 && viewableItems[0].index != null) {
-        setActiveIndex(viewableItems[0].index);
-      }
-    },
-    [],
-  );
-  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
+  const skip = () => {
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      router.replace('/auth');
+    });
+  };
+
+  const page = PAGES[displayIndex];
   const isLast = activeIndex === PAGES.length - 1;
 
   return (
@@ -201,8 +224,8 @@ export default function OnboardingScreen() {
         style={[
           styles.container,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 20),
-            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 40 : 32),
+            paddingTop: insets.top + 20,
+            paddingBottom: insets.bottom + 32,
           },
         ]}
       >
@@ -210,48 +233,41 @@ export default function OnboardingScreen() {
         <View style={styles.header}>
           <Dots count={PAGES.length} active={activeIndex} />
           <TouchableOpacity
-            onPress={() => router.replace('/auth')}
+            onPress={skip}
             hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
           >
             <Text style={styles.skipText}>Skip</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Pages */}
-        <FlatList
-          ref={flatListRef}
-          data={PAGES}
-          keyExtractor={(item) => item.key}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          style={styles.flatList}
-          renderItem={({ item }) => (
-            <View style={[styles.page, { width: PAGE_W }]}>
-              <FloatingIllustration>
-                <View style={styles.illustrationWrap}>
-                  <item.Illustration />
-                </View>
-              </FloatingIllustration>
-              <View style={styles.textBlock}>
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.description}>{item.description}</Text>
-              </View>
+        {/* Page content — fade transition */}
+        <Animated.View style={[styles.pageContent, { opacity: fadeAnim }]}>
+          {/* Glass illustration card */}
+          <View style={[styles.illustrationCard, { backgroundColor: page.accent }]}>
+            <BlurView intensity={18} tint="dark" style={StyleSheet.absoluteFill}>
+              <View style={styles.illustrationCardInner} />
+            </BlurView>
+            <FloatingIllustration>
+              <page.Illustration />
+            </FloatingIllustration>
+          </View>
+
+          {/* Glass text card */}
+          <View style={styles.textCard}>
+            <BlurView intensity={14} tint="dark" style={StyleSheet.absoluteFill}>
+              <View style={styles.textCardInner} />
+            </BlurView>
+            <View style={styles.textBlock}>
+              <Text style={styles.title}>{page.title}</Text>
+              <Text style={styles.description}>{page.description}</Text>
             </View>
-          )}
-          getItemLayout={(_, index) => ({
-            length: PAGE_W,
-            offset: PAGE_W * index,
-            index,
-          })}
-        />
+          </View>
+        </Animated.View>
 
         {/* CTA button */}
         <TouchableOpacity style={styles.nextBtn} onPress={goToNext} activeOpacity={0.85}>
           <Text style={styles.nextBtnLabel}>
-            {isLast ? 'Get Started' : 'Next'}
+            {isLast ? 'Get Started' : 'Continue'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -262,8 +278,8 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: H_PAD,
-    gap: 28,
+    paddingHorizontal: 28,
+    gap: 24,
   },
   header: {
     flexDirection: 'row',
@@ -275,54 +291,80 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_500Medium',
     color: 'rgba(255,255,255,0.38)',
   },
-  flatList: {
+  pageContent: {
     flex: 1,
-    marginHorizontal: -H_PAD,
-    paddingHorizontal: H_PAD,
-  },
-  page: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 40,
-    paddingHorizontal: 4,
-  },
-  illustrationWrap: {
-    width: ILLUS_SIZE,
-    height: ILLUS_SIZE,
+    gap: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  textBlock: { gap: 14, alignItems: 'center' },
+  illustrationCard: {
+    width: SCREEN_W - 56,
+    aspectRatio: 1,
+    borderRadius: 32,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  illustrationCardInner: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  textCard: {
+    width: SCREEN_W - 56,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  textCardInner: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  textBlock: {
+    padding: 24,
+    gap: 12,
+    alignItems: 'center',
+  },
   title: {
-    fontSize: 34,
+    fontSize: 28,
     fontFamily: 'Poppins_700Bold',
     color: '#FFFFFF',
     textAlign: 'center',
-    lineHeight: 44,
-    letterSpacing: -0.6,
+    lineHeight: 38,
+    letterSpacing: -0.5,
   },
   description: {
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.42)',
+    color: 'rgba(255,255,255,0.48)',
     textAlign: 'center',
-    lineHeight: 25,
-    paddingHorizontal: 4,
+    lineHeight: 23,
   },
   nextBtn: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 50,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(255,255,255,0.16)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
   },
   nextBtnLabel: {
     fontFamily: 'Poppins_600SemiBold',

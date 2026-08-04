@@ -484,6 +484,17 @@ export default function CreatorProfileScreen() {
       .finally(() => setProfileLoading(false));
   }, [id]);
 
+  // Redirect to own profile tab when viewing self — must be after realProfile is declared
+  useEffect(() => {
+    if (!currentUser || !id) return;
+    const isOwnProfile =
+      currentUser.username === id ||
+      (realProfile != null && currentUser.username === realProfile.username);
+    if (isOwnProfile) {
+      router.replace('/(tabs)/profile');
+    }
+  }, [currentUser, id, realProfile]);
+
   // Fetch posts for this creator
   useEffect(() => {
     if (!creatorUUID) return;

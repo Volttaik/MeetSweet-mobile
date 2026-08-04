@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ActivityIndicator,
   Alert,
   Image,
@@ -191,6 +192,41 @@ export default function CreatePostScreen() {
       } catch {/* ignore corrupt draft */}
     }).catch(() => {});
   }, []);
+
+  // ── Upload progress animation ─────────────────────────────────────────────
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  // Track real upload progress during the upload step
+  useEffect(() => {
+    if (step === 'uploading') {
+      progressAnim.setValue(uploadProgress);
+    }
+  }, [uploadProgress, step]);
+
+  // Animate to step-specific target values after upload completes
+  useEffect(() => {
+    if (step === 'creating') {
+      Animated.timing(progressAnim, {
+        toValue: 0.93,
+        duration: 900,
+        useNativeDriver: false,
+      }).start();
+    } else if (step === 'processing') {
+      Animated.timing(progressAnim, {
+        toValue: 0.99,
+        duration: 600,
+        useNativeDriver: false,
+      }).start();
+    } else if (step === 'success') {
+      Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+    } else if (step === 'uploading') {
+      progressAnim.setValue(0);
+    }
+  }, [step]);
 
   // ── Auto-save draft on field changes ──────────────────────────────────────
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -393,30 +429,35 @@ export default function CreatePostScreen() {
 
   if (step === 'uploading' || step === 'creating' || step === 'processing' || step === 'success') {
     const pct = Math.round(uploadProgress * 100);
-    const stepLabel =
-      step === 'uploading'   ? 'Uploading media…'
-      : step === 'creating'  ? `Creating your ${contentLabel.toLowerCase()}…`
-      : step === 'processing' ? 'Finalising…'
-      : 'Done!';
 
-    // Step indicator dots
-    const STEPS: Array<{ key: typeof step; label: string }> = [
-      { key: 'uploading',   label: 'Upload' },
-      { key: 'creating',    label: 'Create' },
-      { key: 'processing',  label: 'Process' },
-      { key: 'success',     label: 'Done' },
+    // Animated bar width
+    const animatedBarWidth = progressAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0%', '100%'],
+    });
+
+    // Compute step index before JSX so TypeScript doesn't narrow `step`
+    type UploadStepKey = 'uploading' | 'creating' | 'processing';
+    const UPLOAD_STEP_KEYS: UploadStepKey[] = ['uploading', 'creating', 'processing'];
+    const currentStepIdx = UPLOAD_STEP_KEYS.indexOf(step as UploadStepKey);
+
+    // Step definitions with display metadata
+    const UPLOAD_STEPS: Array<{ key: UploadStepKey; label: string }> = [
+      { key: 'uploading',  label: 'Upload Media' },
+      { key: 'creating',   label: 'Create Post'  },
+      { key: 'processing', label: 'Finalise'     },
     ];
-    const currentStepIdx = STEPS.findIndex((s) => s.key === step);
+    const accentColor = CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor ?? T.ACCENT;
 
     return (
       <View style={[styles.overlay, { paddingTop: insets.top }]}>
-        {/* Accent glow behind the card */}
-        <View style={styles.overlayGlow} />
+        {/* Background glow */}
+        <View style={[styles.overlayGlow, { backgroundColor: accentColor + '18' }]} />
 
         <View style={styles.overlayCard}>
           {step === 'success' ? (
             <>
-              <View style={styles.successIcon}>
+              <View style={[styles.successIcon, { backgroundColor: accentColor }]}>
                 <Check size={36} color={T.BG} weight="bold" />
               </View>
               <Text style={styles.overlayTitle}>Published!</Text>
@@ -426,49 +467,81 @@ export default function CreatePostScreen() {
             </>
           ) : (
             <>
-              {/* Content type icon */}
-              <View style={[styles.uploadIcon, { backgroundColor: (CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor ?? '#888888') + '22' }]}>
+              {/* Content type icon with accent tint */}
+              <View style={[styles.uploadIcon, { backgroundColor: accentColor + '22' }]}>
                 {CONTENT_TYPES.find((c) => c.type === contentType)?.icon}
               </View>
 
-              <Text style={styles.overlayTitle}>{stepLabel}</Text>
-
-              {/* Progress bar */}
-              {step === 'uploading' ? (
-                <View style={styles.progressWrap}>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${Math.max(4, pct)}%` as any }]} />
-                  </View>
-                  <View style={styles.progressLabelRow}>
-                    <Text style={styles.progressPct}>{pct}%</Text>
-                    <Text style={styles.progressSubtitle}>
-                      {thumbnailUri && uploadProgress < 0.9 ? 'Uploading video…' : thumbnailUri ? 'Uploading thumbnail…' : 'Uploading…'}
-                    </Text>
-                  </View>
+              {/* Animated progress bar */}
+              <View style={styles.progressWrap}>
+                <View style={styles.progressLabelRow}>
+                  <Text style={styles.progressPct}>
+                    {step === 'uploading'   ? `${pct}%`
+                     : step === 'creating'  ? '94%'
+                     : step === 'processing'? '99%'
+                     : '100%'}
+                  </Text>
+                  <Text style={styles.progressSubtitle}>
+                    {step === 'uploading'
+                      ? (thumbnailUri && uploadProgress >= 0.88 ? 'Uploading thumbnail…' : 'Uploading media…')
+                      : step === 'creating'  ? `Creating ${contentLabel.toLowerCase()}…`
+                      : 'Finalising…'}
+                  </Text>
                 </View>
-              ) : (
-                <View style={styles.progressWrap}>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, styles.progressIndeterminate]} />
-                  </View>
-                  <Text style={styles.overlaySubtitle}>Please wait…</Text>
+                <View style={styles.progressBar}>
+                  <Animated.View
+                    style={[
+                      styles.progressFill,
+                      { width: animatedBarWidth, backgroundColor: accentColor },
+                    ]}
+                  />
                 </View>
-              )}
+              </View>
 
-              {/* Step dots */}
-              <View style={styles.stepDots}>
-                {STEPS.map((s, i) => (
-                  <View key={s.key} style={styles.stepDotWrap}>
-                    <View style={[
-                      styles.stepDot,
-                      i < currentStepIdx && styles.stepDotDone,
-                      i === currentStepIdx && styles.stepDotActive,
-                    ]} />
-                    <Text style={[styles.stepDotLabel, i === currentStepIdx && styles.stepDotLabelActive]}>
-                      {s.label}
-                    </Text>
-                  </View>
-                ))}
+              {/* Step tracker — vertical list with spinner / check / dim */}
+              <View style={styles.stepList}>
+                {UPLOAD_STEPS.map((s, i) => {
+                  // Inside the non-success branch, step is never 'success'
+                const isDone   = currentStepIdx === -1 || i < currentStepIdx;
+                  const isActive = i === currentStepIdx;
+                  const isPending = !isDone && !isActive;
+                  return (
+                    <View key={s.key} style={styles.stepRow}>
+                      {/* Icon column */}
+                      <View style={[
+                        styles.stepIconWrap,
+                        isDone   && { backgroundColor: accentColor + '22' },
+                        isActive && { backgroundColor: accentColor + '22' },
+                        isPending && { backgroundColor: T.SURFACE_2 },
+                      ]}>
+                        {isDone ? (
+                          <Check size={12} color={accentColor} weight="bold" />
+                        ) : isActive ? (
+                          <ActivityIndicator size="small" color={accentColor} style={{ transform: [{ scale: 0.65 }] }} />
+                        ) : (
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: T.BORDER }} />
+                        )}
+                      </View>
+                      {/* Label column */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={[
+                          styles.stepLabel,
+                          isDone   && { color: T.TEXT_2 },
+                          isActive && { color: T.TEXT },
+                          isPending && { color: T.TEXT_3 },
+                        ]}>
+                          {s.label}
+                        </Text>
+                      </View>
+                      {/* Status */}
+                      {(isDone || isActive) && (
+                        <Text style={[styles.stepStatus, { color: isDone ? accentColor : T.TEXT_3 }]}>
+                          {isDone ? 'Done' : 'In progress'}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             </>
           )}
@@ -978,43 +1051,49 @@ const styles = StyleSheet.create({
   },
   progressLabelRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
+    marginBottom: 8,
   },
   progressPct: {
-    fontSize: 22,
+    fontSize: 28,
     fontFamily: T.FONT.bold,
     color: T.TEXT,
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   progressSubtitle: {
     fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
   },
-  stepDots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
+  stepList: {
+    width: '100%',
+    gap: 0,
     marginTop: 4,
   },
-  stepDotWrap: { alignItems: 'center', gap: 5 },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: T.SURFACE_2,
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 9,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
   },
-  stepDotDone: { backgroundColor: T.ACCENT + '88' },
-  stepDotActive: { backgroundColor: T.ACCENT, width: 20 },
-  stepDotLabel: {
-    fontSize: 9,
+  stepIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepLabel: {
+    fontSize: 13,
     fontFamily: T.FONT.medium,
-    color: T.TEXT_3,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  stepDotLabelActive: { color: T.ACCENT },
+  stepStatus: {
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+  },
   thumbnailChangeBadge: {
     position: 'absolute',
     bottom: 8,

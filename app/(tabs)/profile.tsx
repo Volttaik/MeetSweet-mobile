@@ -25,9 +25,11 @@ import {
   Gear,
   Heart,
   LockSimple,
+  Play,
   ShareNetwork,
   X,
 } from 'phosphor-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { T } from '@/constants/theme';
@@ -800,43 +802,67 @@ export default function ProfileScreen() {
           />
         );
       }
-      // 2-column grid for videos
+      // 2-column grid for videos — YouTube-style cards with thumbnail overlay
       const videoColSize = Math.floor((width - 2) / 2);
+      const thumbH = Math.round(videoColSize * 9 / 16);
       return (
         <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
           {videoPosts.map((p) => (
             <TouchableOpacity
               key={p.id}
-              style={{ width: videoColSize, backgroundColor: T.SURFACE }}
-              activeOpacity={0.8}
+              style={{ width: videoColSize, backgroundColor: T.BG }}
+              activeOpacity={0.82}
               onPress={() => router.push(`/videos/${p.id}`)}
               onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
               delayLongPress={400}
             >
-              {/* Always use thumbnailUrl only — never fall back to mediaUrl here.
-                  Feeding a video URL to an image loader causes a spinner that never resolves. */}
-              {p.thumbnailUrl ? (
-                <MsMediaLoader
-                  uri={p.thumbnailUrl}
-                  style={{ width: '100%', height: videoColSize * 9 / 16 }}
-                  resizeMode="cover"
-                  accessibleLabel="Video thumbnail"
+              {/* Thumbnail area with overlaid controls */}
+              <View style={{ width: videoColSize, height: thumbH, position: 'relative', overflow: 'hidden' }}>
+                {p.thumbnailUrl ? (
+                  <MsMediaLoader
+                    uri={p.thumbnailUrl}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                    accessibleLabel="Video thumbnail"
+                  />
+                ) : (
+                  <View style={{ flex: 1, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
+                    <FilmStrip size={26} color={T.TEXT_3} />
+                  </View>
+                )}
+                {/* Gradient overlay at bottom */}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.72)']}
+                  style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: thumbH * 0.55 }}
                 />
-              ) : (
-                <View style={{ width: '100%', height: videoColSize * 9 / 16, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
-                  <FilmStrip size={28} color={T.TEXT_3} />
+                {/* Duration badge */}
+                {p.durationSecs != null && (
+                  <View style={{
+                    position: 'absolute', bottom: 6, right: 7,
+                    backgroundColor: 'rgba(0,0,0,0.72)',
+                    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+                  }}>
+                    <Text style={{ fontSize: 9.5, fontFamily: T.FONT.semibold, color: '#fff' }}>
+                      {formatDuration(p.durationSecs)}
+                    </Text>
+                  </View>
+                )}
+                {/* Play icon */}
+                <View style={{
+                  position: 'absolute', top: '50%', left: '50%',
+                  transform: [{ translateX: -14 }, { translateY: -14 }],
+                  width: 28, height: 28, borderRadius: 14,
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Play size={12} color="#fff" weight="fill" />
                 </View>
-              )}
-              <View style={{ padding: 8 }}>
-                {/* Show video title when available; fall back to caption, then placeholder */}
-                <Text style={{ fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT, lineHeight: 16 }} numberOfLines={2}>
+              </View>
+              {/* Title below thumbnail */}
+              <View style={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: 8 }}>
+                <Text style={{ fontSize: 11.5, fontFamily: T.FONT.medium, color: T.TEXT, lineHeight: 16 }} numberOfLines={2}>
                   {p.title || p.caption || 'Video'}
                 </Text>
-                {p.durationSecs != null && (
-                  <Text style={{ fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2 }}>
-                    {formatDuration(p.durationSecs)}
-                  </Text>
-                )}
               </View>
             </TouchableOpacity>
           ))}
