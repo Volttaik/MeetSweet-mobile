@@ -4,6 +4,7 @@
 - [Micro-interactions system](micro-interactions-system.md) — MsConfirmDialog + MsToast added; all screens wired with action sheets, confirmations, and toast feedback.
 - [Tier badge system](tier-badge-system.md) — MsTierBadge is the single source; MsPostCard inline duplicate removed; bronze=dot, silver/gold/diamond=frosted pill with icon.
 - [Auth flow contract](auth-flow-contract.md) — login sends {email,password}; register sends {full_name,username,email,password}→{user_id}+verify email; refresh sends {refresh_token}; tokens are snake_case access_token/refresh_token.
+- [Register/auth input styling](register-auth-inputs.md) — heroui Input causes pink border artifacts; always use RN TextInput directly; zero borderWidth on inputWrapper; error state = bg tint only, no border.
 - [Service normalizers](service-normalizers.md) — all services have normalizer fns (normalizeUser/Post/Comment/…) mapping snake_case→camelCase; User type has website,location,isVerifiedCreator,role (NOT credits/subscriberCount).
 - [Create-post media flow](create-post-media.md) — upload media first→get id from result→pass media_ids:[id] to createPost; mediaUrl/mediaType/isPremium are not backend fields.
 - [Missing services added](missing-services.md) — creator.ts, subscriptions.ts, settings.ts, search.ts, categories.ts all created; use /creator/* endpoints.

@@ -92,11 +92,10 @@ async function _refreshOnce(): Promise<string | null> {
  * Used by _doRefresh to avoid infinite loops.
  */
 async function _rawFetch(url: string, options: RequestInit & { headers?: Record<string, string> }): Promise<Response> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-Client-App-Id': CLIENT_APP_ID,
-    ...options.headers,
-  };
+  const headers: Record<string, string> = Object.assign(
+    { 'Content-Type': 'application/json', 'X-Client-App-Id': CLIENT_APP_ID },
+    options.headers ?? {},
+  );
 
   if (options.body instanceof FormData) {
     delete headers['Content-Type'];

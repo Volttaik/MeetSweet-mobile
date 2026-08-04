@@ -7,15 +7,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import {
   Checkbox,
-  FieldError,
-  Input,
-  Label,
-  TextField,
 } from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,11 +58,7 @@ export default function AuthScreen() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [focused, setFocused] = useState<Record<string, boolean>>({});
   const [serverError, setServerError] = useState('');
-
-  const setFoc = (k: string, v: boolean) =>
-    setFocused((f) => ({ ...f, [k]: v }));
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -143,19 +136,13 @@ export default function AuthScreen() {
           {/* Form */}
           <View style={styles.form}>
             {/* Email */}
-            <TextField isInvalid={!!errors.email}>
-              <Label style={styles.fieldLabel}>Email Address</Label>
+            <View>
+              <Text style={styles.fieldLabel}>Email Address</Text>
               <InputRow
-                icon={
-                  <At
-                    size={20}
-                    color={focused.email ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)'}
-                  />
-                }
+                icon={<At size={20} color="rgba(255,255,255,0.35)" />}
                 isError={!!errors.email}
-                isFocused={focused.email}
               >
-                <Input
+                <TextInput
                   placeholder="you@email.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -165,31 +152,23 @@ export default function AuthScreen() {
                     setErrors((e) => ({ ...e, email: '' }));
                     setServerError('');
                   }}
-                  onFocus={() => setFoc('email', true)}
-                  onBlur={() => setFoc('email', false)}
                   style={styles.input}
                   placeholderTextColor="rgba(255,255,255,0.2)"
                 />
               </InputRow>
               {!!errors.email && (
-                <FieldError style={styles.fieldError}>{errors.email}</FieldError>
+                <Text style={styles.fieldError}>{errors.email}</Text>
               )}
-            </TextField>
+            </View>
 
             {/* Password */}
-            <TextField isInvalid={!!errors.password}>
-              <Label style={styles.fieldLabel}>Password</Label>
+            <View>
+              <Text style={styles.fieldLabel}>Password</Text>
               <InputRow
-                icon={
-                  <Lock
-                    size={20}
-                    color={focused.password ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)'}
-                  />
-                }
+                icon={<Lock size={20} color="rgba(255,255,255,0.35)" />}
                 isError={!!errors.password}
-                isFocused={focused.password}
               >
-                <Input
+                <TextInput
                   placeholder="••••••••"
                   secureTextEntry={!showPw}
                   value={password}
@@ -198,8 +177,6 @@ export default function AuthScreen() {
                     setErrors((e) => ({ ...e, password: '' }));
                     setServerError('');
                   }}
-                  onFocus={() => setFoc('password', true)}
-                  onBlur={() => setFoc('password', false)}
                   style={[styles.input, { flex: 1 }]}
                   placeholderTextColor="rgba(255,255,255,0.2)"
                 />
@@ -216,9 +193,9 @@ export default function AuthScreen() {
                 </TouchableOpacity>
               </InputRow>
               {!!errors.password && (
-                <FieldError style={styles.fieldError}>{errors.password}</FieldError>
+                <Text style={styles.fieldError}>{errors.password}</Text>
               )}
-            </TextField>
+            </View>
 
             {/* Remember me + Forgot */}
             <View style={styles.loginMeta}>
@@ -319,7 +296,6 @@ const styles = StyleSheet.create({
     backgroundColor: INPUT_BG,
     borderRadius: T.RADIUS.pill,
     paddingHorizontal: 18,
-    borderWidth: 0,
     height: 54,
     gap: 12,
   },

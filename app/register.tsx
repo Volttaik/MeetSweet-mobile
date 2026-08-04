@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -6,17 +6,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import {
-  Button,
-  FieldError,
-  Input,
-  Label,
-  Spinner,
-  TextField,
-} from 'heroui-native';
+import { Spinner } from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,9 +40,6 @@ import * as ImagePicker from 'expo-image-picker';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const INPUT_BG = 'rgba(255,255,255,0.07)';
-const INPUT_BORDER = 'transparent';
-const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.22)';
-const INPUT_BORDER_ERROR = '#EF4444';
 
 type StepNum = 1 | 2 | 3;
 
@@ -76,7 +67,6 @@ function passwordStrength(pw: string): { level: Strength; score: number; label: 
 }
 
 function calculateAge(dob: string): number {
-  // expects MM/DD/YYYY
   const parts = dob.split('/');
   if (parts.length !== 3) return 0;
   const [m, d, y] = parts.map(Number);
@@ -90,7 +80,6 @@ function calculateAge(dob: string): number {
 }
 
 function formatDOB(raw: string): string {
-  // auto-insert slashes: MMDDYYYY → MM/DD/YYYY
   const digits = raw.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 2) return digits;
   if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
@@ -105,30 +94,34 @@ function formatPhone(raw: string): string {
   return `${digits[0]} (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
 }
 
-// ─── Input row ────────────────────────────────────────────────────────────────
+// ─── InputRow ─────────────────────────────────────────────────────────────────
 
 function InputRow({
   icon,
   children,
   isError,
-  isFocused,
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
   isError?: boolean;
-  isFocused?: boolean;
 }) {
-  const borderColor = isError
-    ? INPUT_BORDER_ERROR
-    : isFocused
-    ? INPUT_BORDER_FOCUSED
-    : INPUT_BORDER;
   return (
-    <View style={[styles.inputWrapper, { borderColor }]}>
+    <View style={[styles.inputWrapper, isError && styles.inputWrapperError]}>
       {icon}
       {children}
     </View>
   );
+}
+
+// ─── FieldLabel ───────────────────────────────────────────────────────────────
+
+function FieldLabel({ children }: { children: string }) {
+  return <Text style={styles.fieldLabel}>{children}</Text>;
+}
+
+function FieldErr({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <Text style={styles.fieldError}>{msg}</Text>;
 }
 
 // ─── Step bar ─────────────────────────────────────────────────────────────────
@@ -168,18 +161,25 @@ interface Step1Data {
   dob: string;
 }
 
-function Step1({
+const Step1 = React.memo(function Step1({
   data,
   onChange,
   onNext,
+  serverEmailError,
 }: {
   data: Step1Data;
   onChange: (d: Partial<Step1Data>) => void;
   onNext: () => void;
+  serverEmailError?: string;
 }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [focused, setFocused] = useState<Record<string, boolean>>({});
-  const setFoc = (k: string, v: boolean) => setFocused((f) => ({ ...f, [k]: v }));
+
+  // Show server-side email error inline
+  useEffect(() => {
+    if (serverEmailError) {
+      setErrors((e) => ({ ...e, email: serverEmailError }));
+    }
+  }, [serverEmailError]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -198,148 +198,104 @@ function Step1({
     return Object.keys(e).length === 0;
   };
 
-  const handleNext = () => {
-    if (validate()) onNext();
-  };
-
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>About You</Text>
-        <Text style={styles.stepSubtitle}>
-          Tell us a little about yourself to get started.
-        </Text>
+        <Text style={styles.stepSubtitle}>Tell us a little about yourself to get started.</Text>
       </View>
 
       <View style={styles.form}>
         {/* Full Name */}
-        <TextField isInvalid={!!errors.name}>
-          <Label style={styles.fieldLabel}>Full Name</Label>
-          <InputRow
-            icon={<User size={20} color={focused.name ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.name}
-            isFocused={focused.name}
-          >
-            <Input
+        <View>
+          <FieldLabel>Full Name</FieldLabel>
+          <InputRow icon={<User size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.name}>
+            <TextInput
               placeholder="Jane Smith"
               value={data.name}
               onChangeText={(v) => { onChange({ name: v }); setErrors((e) => ({ ...e, name: '' })); }}
-              onFocus={() => setFoc('name', true)}
-              onBlur={() => setFoc('name', false)}
               style={styles.input}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.name && <FieldError style={styles.fieldError}>{errors.name}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.name} />
+        </View>
 
         {/* Username */}
-        <TextField isInvalid={!!errors.username}>
-          <Label style={styles.fieldLabel}>Username</Label>
-          <InputRow
-            icon={<At size={20} color={focused.username ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.username}
-            isFocused={focused.username}
-          >
-            <Input
+        <View>
+          <FieldLabel>Username</FieldLabel>
+          <InputRow icon={<At size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.username}>
+            <TextInput
               placeholder="yourhandle"
               autoCapitalize="none"
               autoCorrect={false}
               value={data.username}
               onChangeText={(v) => { onChange({ username: v.replace(/\s/g, '') }); setErrors((e) => ({ ...e, username: '' })); }}
-              onFocus={() => setFoc('username', true)}
-              onBlur={() => setFoc('username', false)}
               style={styles.input}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.username && <FieldError style={styles.fieldError}>{errors.username}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.username} />
+        </View>
 
         {/* Email */}
-        <TextField isInvalid={!!errors.email}>
-          <Label style={styles.fieldLabel}>Email</Label>
-          <InputRow
-            icon={<Envelope size={20} color={focused.email ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.email}
-            isFocused={focused.email}
-          >
-            <Input
+        <View>
+          <FieldLabel>Email</FieldLabel>
+          <InputRow icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.email}>
+            <TextInput
               placeholder="your@email.com"
               keyboardType="email-address"
               autoCapitalize="none"
               value={data.email}
               onChangeText={(v) => { onChange({ email: v }); setErrors((e) => ({ ...e, email: '' })); }}
-              onFocus={() => setFoc('email', true)}
-              onBlur={() => setFoc('email', false)}
               style={styles.input}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.email && <FieldError style={styles.fieldError}>{errors.email}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.email} />
+        </View>
 
         {/* Phone */}
-        <TextField isInvalid={!!errors.phone}>
-          <Label style={styles.fieldLabel}>Phone Number</Label>
-          <InputRow
-            icon={<Phone size={20} color={focused.phone ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.phone}
-            isFocused={focused.phone}
-          >
-            <Input
+        <View>
+          <FieldLabel>Phone Number</FieldLabel>
+          <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.phone}>
+            <TextInput
               placeholder="1 (555) 000-0000"
               keyboardType="phone-pad"
               value={data.phone}
-              onChangeText={(v) => {
-                onChange({ phone: formatPhone(v) });
-                setErrors((e) => ({ ...e, phone: '' }));
-              }}
-              onFocus={() => setFoc('phone', true)}
-              onBlur={() => setFoc('phone', false)}
+              onChangeText={(v) => { onChange({ phone: formatPhone(v) }); setErrors((e) => ({ ...e, phone: '' })); }}
               style={styles.input}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
           </InputRow>
-          {!!errors.phone && <FieldError style={styles.fieldError}>{errors.phone}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.phone} />
+        </View>
 
         {/* Date of Birth */}
-        <TextField isInvalid={!!errors.dob}>
-          <Label style={styles.fieldLabel}>Date of Birth</Label>
-          <View style={styles.fieldHint}>
-            <Text style={styles.fieldHintText}>You must be 18+ to join</Text>
-          </View>
-          <InputRow
-            icon={<Calendar size={20} color={focused.dob ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.dob}
-            isFocused={focused.dob}
-          >
-            <Input
+        <View>
+          <FieldLabel>Date of Birth</FieldLabel>
+          <Text style={styles.fieldHintText}>You must be 18+ to join</Text>
+          <InputRow icon={<Calendar size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.dob}>
+            <TextInput
               placeholder="MM/DD/YYYY"
               keyboardType="numeric"
               value={data.dob}
-              onChangeText={(v) => {
-                onChange({ dob: formatDOB(v) });
-                setErrors((e) => ({ ...e, dob: '' }));
-              }}
-              onFocus={() => setFoc('dob', true)}
-              onBlur={() => setFoc('dob', false)}
+              onChangeText={(v) => { onChange({ dob: formatDOB(v) }); setErrors((e) => ({ ...e, dob: '' })); }}
               style={styles.input}
               placeholderTextColor="rgba(255,255,255,0.18)"
               maxLength={10}
             />
           </InputRow>
-          {!!errors.dob && <FieldError style={styles.fieldError}>{errors.dob}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.dob} />
+        </View>
       </View>
 
-      <Button variant="primary" size="lg" onPress={handleNext} style={styles.primaryBtn}>
-        <Button.Label style={styles.btnLabel}>Continue</Button.Label>
-      </Button>
+      <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }} activeOpacity={0.85}>
+        <Text style={styles.btnLabel}>Continue</Text>
+      </TouchableOpacity>
     </View>
   );
-}
+});
 
 // ─── Step 2: Password ─────────────────────────────────────────────────────────
 
@@ -348,11 +304,10 @@ interface Step2Data {
   confirm: string;
 }
 
-function Step2({
+const Step2 = React.memo(function Step2({
   data,
   onChange,
   onNext,
-  onBack,
 }: {
   data: Step2Data;
   onChange: (d: Partial<Step2Data>) => void;
@@ -360,10 +315,8 @@ function Step2({
   onBack: () => void;
 }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [focused, setFocused] = useState<Record<string, boolean>>({});
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const setFoc = (k: string, v: boolean) => setFocused((f) => ({ ...f, [k]: v }));
 
   const strength = data.password ? passwordStrength(data.password) : null;
 
@@ -380,27 +333,19 @@ function Step2({
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>Secure Password</Text>
-        <Text style={styles.stepSubtitle}>
-          Create a strong password to protect your account.
-        </Text>
+        <Text style={styles.stepSubtitle}>Create a strong password to protect your account.</Text>
       </View>
 
       <View style={styles.form}>
         {/* Password */}
-        <TextField isInvalid={!!errors.password}>
-          <Label style={styles.fieldLabel}>Password</Label>
-          <InputRow
-            icon={<Lock size={18} color={focused.password ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.password}
-            isFocused={focused.password}
-          >
-            <Input
+        <View>
+          <FieldLabel>Password</FieldLabel>
+          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.password}>
+            <TextInput
               placeholder="••••••••"
               secureTextEntry={!showPw}
               value={data.password}
               onChangeText={(v) => { onChange({ password: v }); setErrors((e) => ({ ...e, password: '' })); }}
-              onFocus={() => setFoc('password', true)}
-              onBlur={() => setFoc('password', false)}
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
@@ -424,24 +369,18 @@ function Step2({
               </Text>
             </View>
           )}
-          {!!errors.password && <FieldError style={styles.fieldError}>{errors.password}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.password} />
+        </View>
 
         {/* Confirm Password */}
-        <TextField isInvalid={!!errors.confirm}>
-          <Label style={styles.fieldLabel}>Confirm Password</Label>
-          <InputRow
-            icon={<Lock size={18} color={focused.confirm ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'} />}
-            isError={!!errors.confirm}
-            isFocused={focused.confirm}
-          >
-            <Input
+        <View>
+          <FieldLabel>Confirm Password</FieldLabel>
+          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.confirm}>
+            <TextInput
               placeholder="••••••••"
               secureTextEntry={!showConfirm}
               value={data.confirm}
               onChangeText={(v) => { onChange({ confirm: v }); setErrors((e) => ({ ...e, confirm: '' })); }}
-              onFocus={() => setFoc('confirm', true)}
-              onBlur={() => setFoc('confirm', false)}
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
@@ -449,34 +388,22 @@ function Step2({
               {showConfirm ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
             </TouchableOpacity>
           </InputRow>
-          {!!errors.confirm && <FieldError style={styles.fieldError}>{errors.confirm}</FieldError>}
-        </TextField>
+          <FieldErr msg={errors.confirm} />
+        </View>
 
-        {/* Password hints */}
         <View style={styles.passwordHints}>
-          {[
-            'At least 8 characters',
-            'One uppercase letter',
-            'One number',
-            'One special character',
-          ].map((hint) => (
+          {['At least 8 characters', 'One uppercase letter', 'One number', 'One special character'].map((hint) => (
             <Text key={hint} style={styles.passwordHint}>• {hint}</Text>
           ))}
         </View>
       </View>
 
-      <Button
-        variant="primary"
-        size="lg"
-        onPress={() => { if (validate()) onNext(); }}
-        style={styles.primaryBtn}
-      >
-        <Button.Label style={styles.btnLabel}>Continue</Button.Label>
-      </Button>
-
+      <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }} activeOpacity={0.85}>
+        <Text style={styles.btnLabel}>Continue</Text>
+      </TouchableOpacity>
     </View>
   );
-}
+});
 
 // ─── Step 3: Profile ──────────────────────────────────────────────────────────
 
@@ -485,12 +412,11 @@ interface Step3Data {
   avatarUri: string | null;
 }
 
-function Step3({
+const Step3 = React.memo(function Step3({
   data,
   step1Name,
   onChange,
   onNext,
-  onBack,
   isLoading,
   serverError,
 }: {
@@ -503,7 +429,6 @@ function Step3({
   serverError?: string;
 }) {
   const loading = isLoading ?? false;
-  const [focused, setFocused] = useState(false);
 
   const initials = step1Name
     .trim()
@@ -526,17 +451,11 @@ function Step3({
     }
   };
 
-  const handleComplete = () => {
-    onNext();
-  };
-
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>Your Profile</Text>
-        <Text style={styles.stepSubtitle}>
-          Add a photo and a short bio so others can get to know you.
-        </Text>
+        <Text style={styles.stepSubtitle}>Add a photo and a short bio so others can get to know you.</Text>
       </View>
 
       {/* Avatar picker */}
@@ -560,21 +479,14 @@ function Step3({
       <View style={styles.form}>
         <View>
           <Text style={styles.fieldLabel}>Bio</Text>
-          <Text style={styles.fieldHintInline}>Tell the community who you are  (optional)</Text>
-          <View
-            style={[
-              styles.bioWrapper,
-              { borderColor: focused ? INPUT_BORDER_FOCUSED : INPUT_BORDER },
-            ]}
-          >
-            <Input
+          <Text style={styles.fieldHintText}>Tell the community who you are  (optional)</Text>
+          <View style={styles.bioWrapper}>
+            <TextInput
               placeholder="A little about yourself…"
               multiline
               numberOfLines={4}
               value={data.bio}
               onChangeText={(v) => onChange({ bio: v })}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
               style={styles.bioInput}
               placeholderTextColor="rgba(255,255,255,0.18)"
               maxLength={160}
@@ -585,26 +497,26 @@ function Step3({
       </View>
 
       {!!serverError && (
-        <Text style={styles.serverError}>{serverError}</Text>
+        <View style={styles.serverErrorBox}>
+          <Text style={styles.serverError}>{serverError}</Text>
+        </View>
       )}
 
-      <Button
-        variant="primary"
-        size="lg"
-        onPress={handleComplete}
-        isDisabled={loading}
+      <TouchableOpacity
         style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
+        onPress={onNext}
+        disabled={loading}
+        activeOpacity={0.85}
       >
         {loading ? (
           <Spinner size="sm" color="#FFFFFF" />
         ) : (
-          <Button.Label style={styles.btnLabel}>Complete</Button.Label>
+          <Text style={styles.btnLabel}>Complete</Text>
         )}
-      </Button>
-
+      </TouchableOpacity>
     </View>
   );
-}
+});
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -614,42 +526,51 @@ export default function RegisterScreen() {
   const [step, setStep] = useState<StepNum>(1);
   const [submitting, setSubmitting] = useState(false);
   const [registerError, setRegisterError] = useState('');
+  // Surface email-in-use errors back to Step 1 for inline display
+  const [emailError, setEmailError] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
-  const slideX = useSharedValue(0);
   const opacity = useSharedValue(1);
 
   const [step1, setStep1] = useState<Step1Data>({ name: '', username: '', email: '', phone: '', dob: '' });
   const [step2, setStep2] = useState<Step2Data>({ password: '', confirm: '' });
   const [step3, setStep3] = useState<Step3Data>({ bio: '', avatarUri: null });
 
-  // Named function — required for runOnJS in Reanimated v3 new arch (anonymous fns crash)
   const scrollToTop = useCallback(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }, []);
 
-  const transitionTo = (nextStep: StepNum) => {
-    const dir = nextStep > step ? 1 : -1;
-    opacity.value = withTiming(0, { duration: 160, easing: Easing.in(Easing.cubic) });
-    slideX.value = withTiming(-dir * 32, { duration: 160 }, () => {
+  // Fade-only transition — clean, no layout jank
+  const transitionTo = useCallback((nextStep: StepNum) => {
+    opacity.value = withTiming(0, { duration: 140, easing: Easing.in(Easing.quad) }, () => {
       runOnJS(setStep)(nextStep);
       runOnJS(scrollToTop)();
-      slideX.value = dir * 32;
-      opacity.value = withTiming(1, { duration: 240, easing: Easing.out(Easing.cubic) });
-      slideX.value = withTiming(0, { duration: 240, easing: Easing.out(Easing.cubic) });
     });
-  };
+  }, [opacity, scrollToTop]);
+
+  // After step changes, fade back in
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) });
+  }, [step]);
 
   const contentStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ translateX: slideX.value }],
   }));
 
-  const handleStep1Next = () => transitionTo(2);
-  const handleStep2Next = () => transitionTo(3);
-  const handleStep2Back = () => transitionTo(1);
-  const handleStep3Back = () => transitionTo(2);
-  const handleStep3Complete = async () => {
+  // Memoized step callbacks — prevents Step components from re-rendering during animation
+  const handleStep1Change = useCallback((d: Partial<Step1Data>) => {
+    setStep1((s) => ({ ...s, ...d }));
+    if (d.email !== undefined) setEmailError('');
+  }, []);
+  const handleStep2Change = useCallback((d: Partial<Step2Data>) => setStep2((s) => ({ ...s, ...d })), []);
+  const handleStep3Change = useCallback((d: Partial<Step3Data>) => setStep3((s) => ({ ...s, ...d })), []);
+
+  const handleStep1Next = useCallback(() => transitionTo(2), [transitionTo]);
+  const handleStep2Next = useCallback(() => transitionTo(3), [transitionTo]);
+  const handleStep2Back = useCallback(() => transitionTo(1), [transitionTo]);
+  const handleStep3Back = useCallback(() => transitionTo(2), [transitionTo]);
+
+  const handleStep3Complete = useCallback(async () => {
     setSubmitting(true);
     setRegisterError('');
     try {
@@ -661,26 +582,36 @@ export default function RegisterScreen() {
         confirm_password: step2.confirm,
         phone: step1.phone.replace(/\D/g, '').slice(0, 15) || undefined,
       });
-      router.push({ pathname: '/verify-email', params: { email: step1.email.trim() } });
+      router.replace({ pathname: '/verify-email', params: { email: step1.email.trim() } });
     } catch (err) {
       if (err instanceof ApiError) {
-        // 409 means the email already exists. The account may be unverified —
-        // send the user to the verification screen so they can confirm it.
-        if (err.status === 409 && err.message.toLowerCase().includes('email')) {
-          router.push({
-            pathname: '/verify-email',
-            params: { email: step1.email.trim() },
-          });
+        const msg = err.message ?? '';
+        const lower = msg.toLowerCase();
+        // 1. Unverified account — most specific; send to verify screen
+        if (err.status === 409 && (lower.includes('unverified') || lower.includes('not verified') || lower.includes('verify'))) {
+          router.replace({ pathname: '/verify-email', params: { email: step1.email.trim() } });
           return;
         }
-        setRegisterError(err.message);
+        // 2. Username taken
+        if (err.status === 409 && (lower.includes('username') || lower.includes('handle'))) {
+          setRegisterError('That username is already taken. Please choose another.');
+          transitionTo(1);
+          return;
+        }
+        // 3. Email already registered (catches remaining 409s + any explicit email conflict)
+        if (err.status === 409 || (lower.includes('email') && lower.includes('already'))) {
+          setEmailError('This email is already registered. Try logging in instead.');
+          transitionTo(1);
+          return;
+        }
+        setRegisterError(msg || 'Registration failed. Please try again.');
       } else {
         setRegisterError('Registration failed. Please try again.');
       }
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [step1, step2, register, transitionTo]);
 
   return (
     <MsScreenBackground>
@@ -698,7 +629,7 @@ export default function RegisterScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Back to auth */}
+        {/* Back */}
         <TouchableOpacity
           onPress={() => (step === 1 ? router.back() : transitionTo((step - 1) as StepNum))}
           style={styles.backBtn}
@@ -721,14 +652,15 @@ export default function RegisterScreen() {
           {step === 1 && (
             <Step1
               data={step1}
-              onChange={(d) => setStep1((s) => ({ ...s, ...d }))}
+              onChange={handleStep1Change}
               onNext={handleStep1Next}
+              serverEmailError={emailError || undefined}
             />
           )}
           {step === 2 && (
             <Step2
               data={step2}
-              onChange={(d) => setStep2((s) => ({ ...s, ...d }))}
+              onChange={handleStep2Change}
               onNext={handleStep2Next}
               onBack={handleStep2Back}
             />
@@ -737,7 +669,7 @@ export default function RegisterScreen() {
             <Step3
               data={step3}
               step1Name={step1.name}
-              onChange={(d) => setStep3((s) => ({ ...s, ...d }))}
+              onChange={handleStep3Change}
               onNext={handleStep3Complete}
               onBack={handleStep3Back}
               isLoading={submitting}
@@ -814,17 +746,11 @@ const styles = StyleSheet.create({
 
   fieldLabel: {
     fontFamily: 'Poppins_500Medium',
-    fontSize: 15,
+    fontSize: 14,
     color: 'rgba(255,255,255,0.55)',
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  fieldHint: { marginTop: -4, marginBottom: 6 },
   fieldHintText: {
-    fontSize: 12,
-    fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.3)',
-  },
-  fieldHintInline: {
     fontSize: 12,
     fontFamily: 'Poppins_400Regular',
     color: 'rgba(255,255,255,0.3)',
@@ -837,10 +763,11 @@ const styles = StyleSheet.create({
     backgroundColor: INPUT_BG,
     borderRadius: 50,
     paddingHorizontal: 18,
-    borderWidth: 1,
-    borderColor: INPUT_BORDER,
     height: 54,
     gap: 12,
+  },
+  inputWrapperError: {
+    backgroundColor: 'rgba(239,68,68,0.09)',
   },
   input: {
     flex: 1,
@@ -849,12 +776,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_400Regular',
     height: '100%',
     backgroundColor: 'transparent',
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   fieldError: {
     fontFamily: 'Poppins_400Regular',
-    fontSize: 13,
+    fontSize: 12,
     color: '#EF4444',
-    marginTop: 5,
+    marginTop: 6,
+    paddingHorizontal: 4,
   },
 
   // Password strength
@@ -904,7 +835,7 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     backgroundColor: '#1A1A1A',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(255,255,255,0.12)',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
@@ -939,8 +870,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: INPUT_BORDER,
     minHeight: 120,
   },
   bioInput: {
@@ -949,6 +878,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_400Regular',
     textAlignVertical: 'top',
     minHeight: 92,
+    backgroundColor: 'transparent',
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   charCount: {
     fontSize: 12,
@@ -963,6 +896,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 50,
     height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
     shadowColor: '#000',
@@ -974,26 +909,21 @@ const styles = StyleSheet.create({
   primaryBtnLoading: {
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
+  serverErrorBox: {
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    borderRadius: 12,
+    padding: 14,
+  },
   serverError: {
     fontSize: 13,
     fontFamily: 'Poppins_400Regular',
     color: '#EF4444',
     textAlign: 'center',
-    paddingHorizontal: 8,
   },
   btnLabel: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
     color: '#FFFFFF',
-  },
-  backLink: {
-    alignSelf: 'center',
-    width: 38,
-    height: 38,
-    borderRadius: 11,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 
   // Sign in link

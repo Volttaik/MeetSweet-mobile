@@ -47,6 +47,7 @@ export default function ContentDetailScreen() {
   const [likeCount, setLikeCount] = useState(0);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
+  const [, setPremiumSheetVisible] = useState(false);
 
   useEffect(() => {
     if (!id) return;

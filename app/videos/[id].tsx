@@ -39,7 +39,6 @@ import {
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
 import { CommentsModal } from '@/components/MsCommentsSheet';
-import { MsPaymentSheet } from '@/components/MsPaymentSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
@@ -483,15 +482,21 @@ export default function VideoWatchScreen() {
         onClose={() => setShareVisible(false)}
       />
 
-      <MsPaymentSheet
-        visible={premiumSheetVisible}
-        amount={post.priceCredits ?? 0}
-        onClose={() => setPremiumSheetVisible(false)}
-        onConfirm={() => {
-          setPremiumSheetVisible(false);
-          router.push(`/creator/${post.author.id}`);
-        }}
-      />
+      {/* Premium gate: subscription-based — route to creator page to subscribe */}
+      {premiumSheetVisible && (
+        <Pressable
+          style={styles.premiumGate}
+          onPress={() => { setPremiumSheetVisible(false); router.push(`/creator/${post.author.id}`); }}
+        >
+          <View style={styles.premiumCard}>
+            <Text style={styles.premiumTitle}>Subscribers Only</Text>
+            <Text style={styles.premiumSub}>Subscribe to this creator to watch this video.</Text>
+            <View style={styles.premiumBtn}>
+              <Text style={styles.premiumBtnLabel}>View Creator</Text>
+            </View>
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }

@@ -946,7 +946,6 @@ export default function ProfileScreen() {
           />
           );
         }}
-        )}
         ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: T.BORDER }} />}
       />
     );

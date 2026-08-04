@@ -321,11 +321,16 @@ export default function CreatePostScreen() {
         // We also send thumbnail_url directly in createPost below as a fallback.
         if (thumbUrl && uploaded.id) {
           try {
-            const { authFetch } = await import('@/services/api');
-            await authFetch(`/media/${uploaded.id}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ thumbnail_url: thumbUrl }),
-            });
+            const { apiFetch } = await import('@/services/api');
+            const _AsyncStorage = await import('@react-native-async-storage/async-storage');
+            const _tok = await _AsyncStorage.default.getItem('@ms_access_token');
+            if (_tok) {
+              await apiFetch(`/media/${uploaded.id}`, {
+                method: 'PATCH',
+                headers: { Authorization: `Bearer ${_tok}` },
+                body: JSON.stringify({ thumbnail_url: thumbUrl }),
+              });
+            }
           } catch {
             // Non-critical — thumbnail will still be set via createPost's thumbnail_url field
           }
@@ -422,7 +427,7 @@ export default function CreatePostScreen() {
           ) : (
             <>
               {/* Content type icon */}
-              <View style={[styles.uploadIcon, { backgroundColor: CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor + '22' ?? T.SURFACE_2 }]}>
+              <View style={[styles.uploadIcon, { backgroundColor: (CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor ?? '#888888') + '22' }]}>
                 {CONTENT_TYPES.find((c) => c.type === contentType)?.icon}
               </View>
 

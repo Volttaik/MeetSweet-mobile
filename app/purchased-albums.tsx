@@ -28,7 +28,7 @@ export default function PurchasedAlbumsScreen() {
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
-      <MsAmbientBackground />
+      <MsAmbientBackground>{null}</MsAmbientBackground>
 
       {/* Header */}
       <View style={styles.header}>

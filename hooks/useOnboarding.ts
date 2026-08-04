@@ -42,10 +42,11 @@ export function useOnboarding(
     setShowOnboarding(false);
   }, [key]);
 
-  const handleSkip = useCallback(() => {
-    // Skip just hides the modal, doesn't mark as complete
+  const handleSkip = useCallback(async () => {
+    // Mark as complete so it never shows again — same as completing it
+    await completeOnboarding(key);
     setShowOnboarding(false);
-  }, []);
+  }, [key]);
 
   const refreshStatus = useCallback(async () => {
     await checkOnboarding();
