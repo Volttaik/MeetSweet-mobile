@@ -8,7 +8,6 @@ import {
   Text,
   View,
   ViewStyle,
-  Image,
 } from 'react-native';
 import type { ImageResizeMode } from 'react-native';
 import { ArrowClockwise, WarningCircle } from 'phosphor-react-native';
@@ -108,17 +107,6 @@ export function MsMediaLoader({
 
   return (
     <View style={[styles.root, style]} accessible accessibilityLabel={accessibleLabel}>
-      {/* Blurred placeholder — shown only while the image is loading for the first time */}
-      {uri && !loaded && state === 'loading' && (
-        <Image
-          key={`blur:${uri}:${attempt}`}
-          source={{ uri }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={resizeMode}
-          blurRadius={12}
-        />
-      )}
-
       {/* Full-res image — starts at opacity 0 for new URIs, 1 for cached ones */}
       {uri && (
         <Animated.Image

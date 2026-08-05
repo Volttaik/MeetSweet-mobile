@@ -303,9 +303,9 @@ export default function CreatePostScreen() {
     setMediaMime(mime);
     setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
 
-    // Auto-generate thumbnail from the first frame of long-form videos.
-    // The user can still tap "Change" to pick a custom one.
-    if (type === 'video' && contentType === 'video') {
+    // Auto-generate thumbnail from the first frame for both long-form videos and Shorts.
+    // The user can still tap the thumbnail to pick a custom one.
+    if (type === 'video' && (contentType === 'video' || contentType === 'shorts')) {
       try {
         const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 150 });
         setThumbnailUri(thumb.uri);
@@ -664,8 +664,8 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Thumbnail picker — long-form video only (Shorts don't use thumbnails) */}
-          {contentType === 'video' && (
+          {/* Thumbnail picker — auto-generated from first frame; tap to change */}
+          {(contentType === 'video' || contentType === 'shorts') && (
             <View style={[styles.section, { paddingTop: 8 }]}>
               <Text style={styles.sectionTitle}>Thumbnail</Text>
               <TouchableOpacity style={styles.thumbnailPicker} onPress={pickThumbnail} activeOpacity={0.8}>
@@ -683,7 +683,7 @@ export default function CreatePostScreen() {
                   </View>
                 )}
               </TouchableOpacity>
-              <Text style={styles.charHint}>Auto-extracted from video. Tap to change.</Text>
+              <Text style={styles.charHint}>Thumbnail auto-extracted from video · tap to change</Text>
             </View>
           )}
 

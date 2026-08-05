@@ -27,7 +27,7 @@ import {
   Users,
   X,
 } from 'phosphor-react-native';
-import { blockUser, reportUser, followUser, unfollowUser } from '@/services/users';
+import { blockUser, reportUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings, SUBSCRIPTION_TIER_PRICES, type ContentSubscriptionTier } from '@/services/subscriptions';
 import { TIERS as CONTENT_TIERS } from '@/constants/tiers';
@@ -337,9 +337,6 @@ export default function CreatorProfileScreen() {
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('posts');
   const [refreshing, setRefreshing] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-
   // Subscription onboarding state
   const [showSubscriptionOnboarding, setShowSubscriptionOnboarding] = useState(false);
 
@@ -693,39 +690,6 @@ export default function CreatorProfileScreen() {
               <Text style={styles.metricLabel}>Drops</Text>
             </View>
           </View>
-
-          {/* Follow button (shown when viewing another user's profile) */}
-          {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
-            <TouchableOpacity
-              style={[styles.followButton, isFollowing && styles.followButtonActive]}
-              onPress={async () => {
-                if (followLoading) return;
-                setFollowLoading(true);
-                const target = realProfile?.username ?? id;
-                try {
-                  if (isFollowing) {
-                    await unfollowUser(target);
-                    setIsFollowing(false);
-                    setRealProfile((p) => p ? { ...p, followerCount: Math.max(0, (p.followerCount ?? 1) - 1) } : p);
-                  } else {
-                    await followUser(target);
-                    setIsFollowing(true);
-                    setRealProfile((p) => p ? { ...p, followerCount: (p.followerCount ?? 0) + 1 } : p);
-                  }
-                } catch {
-                  /* revert silently */
-                  setIsFollowing((f) => !f);
-                } finally {
-                  setFollowLoading(false);
-                }
-              }}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.followBtnLabel, isFollowing && styles.followBtnLabelActive]}>
-                {followLoading ? '…' : (isFollowing ? 'Following' : 'Follow')}
-              </Text>
-            </TouchableOpacity>
-          )}
 
           {/* Subscribe button */}
           <TouchableOpacity
@@ -1141,15 +1105,6 @@ const styles = StyleSheet.create({
     textAlign: 'center', marginTop: 3, letterSpacing: 0.3,
   },
   metricDivider: { width: 1, height: 24, backgroundColor: T.BORDER_2 },
-
-  followButton: {
-    width: '100%', marginTop: 14, height: 44,
-    borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-  },
-  followButtonActive: { backgroundColor: T.ACCENT_LIGHT },
-  followBtnLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
-  followBtnLabelActive: { color: T.ACCENT },
 
   subscribeButton: {
     width: '100%', marginTop: 10, height: 52,

@@ -147,7 +147,7 @@ function RepliesThread({
       updatedAt: new Date().toISOString(),
       author: {
         id: user?.id ?? '',
-        name: user?.name ?? 'You',
+        name: user?.name || user?.username || 'Anonymous',
         username: user?.username ?? '',
         avatarUrl: user?.avatarUrl ?? null,
       },
@@ -415,7 +415,7 @@ export function CommentsModal({
       updatedAt: new Date().toISOString(),
       author: {
         id: user?.id ?? '',
-        name: user?.name ?? 'You',
+        name: user?.name || user?.username || 'Anonymous',
         username: user?.username ?? '',
         avatarUrl: user?.avatarUrl ?? null,
       },
