@@ -16,6 +16,15 @@ import { T } from '@/constants/theme';
 
 export type MediaLoadState = 'loading' | 'success' | 'error';
 
+/**
+ * Module-level set of URIs that have been fully loaded at least once this
+ * session.  Checked on every mount so already-cached images skip the
+ * fade-in animation entirely and appear instantly — eliminating the
+ * white-flash seen when the native image cache still holds the image but
+ * the component restarts from opacity = 0.
+ */
+const _loadedUris = new Set<string>();
+
 interface MsMediaLoaderProps {
   uri?: string | null;
   style?: StyleProp<ViewStyle>;
@@ -30,8 +39,9 @@ interface MsMediaLoaderProps {
 
 /**
  * Shared image lifecycle for feed, profile, premium and message media.
- * Progressive loading: starts as a blurred low-res placeholder, then springs
- * to full opacity when the real image finishes loading.
+ *
+ * First load  → blurred placeholder → spring fade-in to full res.
+ * Repeat load → starts at full opacity immediately (no flash, no skeleton).
  */
 export function MsMediaLoader({
   uri,
@@ -44,22 +54,44 @@ export function MsMediaLoader({
   fallback,
   onLoadError,
 }: MsMediaLoaderProps) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  // Track loaded state to swap from blurred placeholder to sharp image
-  const [loaded, setLoaded] = useState(false);
-  const [state, setState] = useState<MediaLoadState>(uri ? 'loading' : 'error');
+  // Determine at render time whether this URI was already loaded before.
+  // We use this for the initial Animated.Value so the component starts at
+  // the correct opacity on the very first render.
+  const alreadyCached = !!(uri && _loadedUris.has(uri));
+
+  const opacity = useRef(new Animated.Value(alreadyCached ? 1 : 0)).current;
+  const [loaded, setLoaded] = useState(alreadyCached);
+  const [state, setState] = useState<MediaLoadState>(
+    alreadyCached ? 'success' : uri ? 'loading' : 'error',
+  );
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (!uri) {
+      opacity.setValue(0);
+      setLoaded(false);
+      setState('error');
+      return;
+    }
+    // URI is known-good (loaded earlier in this session) and this is the first
+    // attempt — skip the loading dance entirely.
+    if (_loadedUris.has(uri) && attempt === 0) {
+      opacity.setValue(1);
+      setLoaded(true);
+      setState('success');
+      return;
+    }
+    // Fresh URI or manual retry — start from invisible and load normally.
     opacity.setValue(0);
     setLoaded(false);
-    setState(uri ? 'loading' : 'error');
+    setState('loading');
   }, [uri, attempt, opacity]);
 
   const handleLoad = useCallback(() => {
     setState('success');
     setLoaded(true);
-    // Spring-based fade-in — more natural than linear timing
+    // Remember this URI so future mounts are instant.
+    if (uri) _loadedUris.add(uri);
     Animated.spring(opacity, {
       toValue: 1,
       useNativeDriver: true,
@@ -67,16 +99,16 @@ export function MsMediaLoader({
       stiffness: 180,
       mass: 1,
     }).start();
-  }, [opacity]);
+  }, [opacity, uri]);
 
   const retry = useCallback(() => {
-    setAttempt((value) => value + 1);
+    setAttempt((v) => v + 1);
     onRetry?.();
   }, [onRetry]);
 
   return (
     <View style={[styles.root, style]} accessible accessibilityLabel={accessibleLabel}>
-      {/* Blurred placeholder — visible while image streams in */}
+      {/* Blurred placeholder — shown only while the image is loading for the first time */}
       {uri && !loaded && state === 'loading' && (
         <Image
           key={`blur:${uri}:${attempt}`}
@@ -87,7 +119,7 @@ export function MsMediaLoader({
         />
       )}
 
-      {/* Full-res image with spring fade-in */}
+      {/* Full-res image — starts at opacity 0 for new URIs, 1 for cached ones */}
       {uri && (
         <Animated.Image
           key={`sharp:${uri}:${attempt}`}
@@ -104,7 +136,11 @@ export function MsMediaLoader({
       )}
 
       {state === 'loading' && !loaded && (
-        <View style={styles.placeholder} accessibilityLabel="Loading media" accessibilityRole="progressbar">
+        <View
+          style={styles.placeholder}
+          accessibilityLabel="Loading media"
+          accessibilityRole="progressbar"
+        >
           <ActivityIndicator size="small" color={T.TEXT_2} />
         </View>
       )}
@@ -132,32 +168,35 @@ export function MsMediaLoader({
 /** Shared overlay state for video buffering/loading and playback errors. */
 export function MsMediaState({
   state,
+  errorMessage = 'Could not play this video',
   onRetry,
-  label = 'Loading video',
 }: {
   state: MediaLoadState;
+  errorMessage?: string;
   onRetry?: () => void;
-  label?: string;
 }) {
-  if (state === 'success') return null;
-  return (
-    <View style={styles.stateOverlay} pointerEvents={state === 'error' ? 'auto' : 'none'}>
-      {state === 'loading' ? (
-        <ActivityIndicator size="large" color={T.TEXT} accessibilityLabel={label} />
-      ) : (
-        <>
-          <WarningCircle size={28} color={T.TEXT} weight="regular" />
-          <Text style={styles.errorText}>Video unavailable</Text>
-          {onRetry && (
-            <Pressable onPress={onRetry} style={styles.retryButton} accessibilityRole="button">
-              <ArrowClockwise size={14} color={T.TEXT} weight="bold" />
-              <Text style={styles.retryText}>Retry</Text>
-            </Pressable>
-          )}
-        </>
-      )}
-    </View>
-  );
+  if (state === 'loading') {
+    return (
+      <View style={styles.stateOverlay} pointerEvents="none">
+        <ActivityIndicator size="large" color="rgba(255,255,255,0.7)" />
+      </View>
+    );
+  }
+  if (state === 'error') {
+    return (
+      <View style={styles.stateOverlay}>
+        <WarningCircle size={32} color="rgba(255,255,255,0.6)" />
+        <Text style={[styles.errorText, { color: 'rgba(255,255,255,0.7)' }]}>{errorMessage}</Text>
+        {onRetry && (
+          <Pressable onPress={onRetry} style={styles.retryButton}>
+            <ArrowClockwise size={14} color="#fff" weight="bold" />
+            <Text style={[styles.retryText, { color: '#fff' }]}>Retry</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+  return null;
 }
 
 const styles = StyleSheet.create({

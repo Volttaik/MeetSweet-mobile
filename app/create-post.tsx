@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -301,6 +302,19 @@ export default function CreatePostScreen() {
     setMediaType(type);
     setMediaMime(mime);
     setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
+
+    // Auto-generate thumbnail from the first frame of long-form videos.
+    // The user can still tap "Change" to pick a custom one.
+    if (type === 'video' && contentType === 'video') {
+      try {
+        const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 150 });
+        setThumbnailUri(thumb.uri);
+        setThumbnailMime('image/jpeg');
+        setThumbnailName(`thumb-${Date.now()}.jpg`);
+      } catch {
+        // Silent fallback — thumbnail picker still visible so user can add manually
+      }
+    }
 
     setStep('preview');
   }, [contentType]);

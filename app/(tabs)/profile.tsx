@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -715,12 +714,11 @@ export default function ProfileScreen() {
           />
         );
       }
+      // Flat .map() instead of FlatList — avoids VirtualizedList-in-ScrollView warning
+      // (this list has scrollEnabled=false anyway, so no virtualization benefit)
       return (
-        <FlatList
-          data={feedPosts}
-          keyExtractor={(p) => p.id}
-          scrollEnabled={false}
-          renderItem={({ item }) => {
+        <View>
+          {feedPosts.map((item, index) => {
             const navToPost = () => {
               if (item.contentType === 'short') {
                 router.push({ pathname: '/shorts', params: { startId: item.id } });
@@ -731,20 +729,24 @@ export default function ProfileScreen() {
               }
             };
             return (
-            <MsPostCard
-              post={item}
-              currentUserId={user?.id}
-              onPress={navToPost}
-              onMediaPress={item.mediaUrl ? navToPost : undefined}
-              onAuthorPress={() => {}}
-              onDeleted={handlePostDeleted}
-              onEditPress={(post) => { router.push(`/edit-post/${post.id}`); }}
-              onAnalyticsPress={(post) => { setActionPost(post); setAnalyticsSheet(true); }}
-            />
+              <React.Fragment key={item.id}>
+                <MsPostCard
+                  post={item}
+                  currentUserId={user?.id}
+                  onPress={navToPost}
+                  onMediaPress={item.mediaUrl ? navToPost : undefined}
+                  onAuthorPress={() => {}}
+                  onDeleted={handlePostDeleted}
+                  onEditPress={(post) => { router.push(`/edit-post/${post.id}`); }}
+                  onAnalyticsPress={(post) => { setActionPost(post); setAnalyticsSheet(true); }}
+                />
+                {index < feedPosts.length - 1 && (
+                  <View style={{ height: 1, backgroundColor: T.BORDER }} />
+                )}
+              </React.Fragment>
             );
-          }}
-          ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: T.BORDER }} />}
-        />
+          })}
+        </View>
       );
     }
 
@@ -947,12 +949,10 @@ export default function ProfileScreen() {
     if (savedPosts.length === 0) {
       return <MsEmptyState title="No saved posts" message="Posts you bookmark will appear here." />;
     }
+    // Flat .map() instead of FlatList — avoids VirtualizedList-in-ScrollView warning
     return (
-      <FlatList
-        data={savedPosts}
-        keyExtractor={(p) => p.id}
-        scrollEnabled={false}
-        renderItem={({ item }) => {
+      <View>
+        {savedPosts.map((item, index) => {
           const navToSaved = () => {
             if (item.contentType === 'short') {
               router.push({ pathname: '/shorts', params: { startId: item.id } });
@@ -963,17 +963,21 @@ export default function ProfileScreen() {
             }
           };
           return (
-          <MsPostCard
-            post={item}
-            currentUserId={user?.id}
-            onPress={navToSaved}
-            onMediaPress={item.mediaUrl ? navToSaved : undefined}
-            onDeleted={handlePostDeleted}
-          />
+            <React.Fragment key={item.id}>
+              <MsPostCard
+                post={item}
+                currentUserId={user?.id}
+                onPress={navToSaved}
+                onMediaPress={item.mediaUrl ? navToSaved : undefined}
+                onDeleted={handlePostDeleted}
+              />
+              {index < savedPosts.length - 1 && (
+                <View style={{ height: 1, backgroundColor: T.BORDER }} />
+              )}
+            </React.Fragment>
           );
-        }}
-        ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: T.BORDER }} />}
-      />
+        })}
+      </View>
     );
   };
 
