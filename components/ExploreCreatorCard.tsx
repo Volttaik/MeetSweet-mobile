@@ -133,7 +133,7 @@ export function ExploreCreatorCard({
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
               <Users size={11} color={T.TEXT_3} />
-              <Text style={styles.statText}>{creator.followers}</Text>
+              <Text style={styles.statText}>{creator.followers} subscribers</Text>
             </View>
             {videoCount > 0 && (
               <View style={styles.statItem}>

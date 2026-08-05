@@ -481,16 +481,21 @@ export default function CreatorProfileScreen() {
       .finally(() => setProfileLoading(false));
   }, [id]);
 
-  // Redirect to own profile tab when viewing self — must be after realProfile is declared
+  // Redirect to own profile immediately if slug matches username — no API wait needed
   useEffect(() => {
     if (!currentUser || !id) return;
-    const isOwnProfile =
-      currentUser.username === id ||
-      (realProfile != null && currentUser.username === realProfile.username);
-    if (isOwnProfile) {
+    if (currentUser.username === id) {
       router.replace('/(tabs)/profile');
     }
-  }, [currentUser, id, realProfile]);
+  }, [currentUser, id]);
+
+  // Secondary redirect once real profile loads — handles UUID-based navigation
+  useEffect(() => {
+    if (!currentUser || !realProfile) return;
+    if (currentUser.username === realProfile.username) {
+      router.replace('/(tabs)/profile');
+    }
+  }, [currentUser, realProfile]);
 
   // Fetch posts for this creator
   useEffect(() => {

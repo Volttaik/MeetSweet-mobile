@@ -139,7 +139,7 @@ export function MsFeaturedCreatorCard({
       <View style={featuredStyles.footer}>
         <View style={featuredStyles.metric}>
           <Users size={13} color={T.TEXT_2} />
-          <Text style={featuredStyles.metricText}>{creator.followers}</Text>
+          <Text style={featuredStyles.metricText}>{creator.followers} subscribers</Text>
         </View>
         {creator.monthlyCredits > 0 && (
           <Text style={featuredStyles.price}>₦{creator.monthlyCredits.toLocaleString()} / mo</Text>
@@ -198,7 +198,7 @@ export function MsRecommendedCreatorRow({
 
       <View style={recommendedStyles.meta}>
         <Text style={recommendedStyles.category}>{(creator.category ?? '').toUpperCase()}</Text>
-        <Text style={recommendedStyles.followers}>{creator.followers} followers</Text>
+        <Text style={recommendedStyles.followers}>{creator.followers} subscribers</Text>
       </View>
 
       <View style={recommendedStyles.subscribeButton}>
