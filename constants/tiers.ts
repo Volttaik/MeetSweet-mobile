@@ -1,45 +1,41 @@
 /**
  * MeetSweet content tier system.
  *
- * Bronze  — free / public. Visible to everyone on Explore.
- * Silver  — requires a Silver (or higher) subscription.
- * Gold    — requires a Gold (or higher) subscription.
- * Diamond — requires a Diamond subscription.
+ * free           — free / public. Visible to everyone on Explore.
+ * subscriber     — requires a Subscriber subscription.
+ * subscriber_plus — requires a Subscriber Plus subscription.
  *
- * Backend mapping: Bronze → visibility "public", Silver/Gold/Diamond → visibility "subscribers".
- * Shorts are always free and never carry a tier.
+ * Backend mapping: free → visibility "public",
+ *                  subscriber → visibility "subscribers",
+ *                  subscriber_plus → visibility "subscribers_plus" (backend pending)
+ *
+ * Legacy values bronze/silver/gold/diamond are still handled for backward
+ * compat with the old backend and are mapped at normalisation time.
  */
 
-export type ContentTier = 'bronze' | 'silver' | 'gold' | 'diamond';
+export type ContentTier = 'free' | 'subscriber' | 'subscriber_plus';
 
 export const TIERS = {
-  bronze: {
-    label:       'Bronze',
-    color:       '#CD7F32',
-    bgColor:     'rgba(205,127,50,0.18)',
+  free: {
+    label:       'Free',
+    color:       '#888888',
+    bgColor:     'rgba(136,136,136,0.15)',
     description: 'Free · Visible on Explore',
     /** Backend visibility value */
     visibility:  'public' as const,
   },
-  silver: {
-    label:       'Silver',
-    color:       '#C0C0C0',
-    bgColor:     'rgba(192,192,192,0.18)',
-    description: 'Silver subscribers & above',
+  subscriber: {
+    label:       'Subscriber',
+    color:       '#C45A72',
+    bgColor:     'rgba(196,90,114,0.15)',
+    description: 'For your subscribers only',
     visibility:  'subscribers' as const,
   },
-  gold: {
-    label:       'Gold',
-    color:       '#FFD700',
-    bgColor:     'rgba(255,215,0,0.18)',
-    description: 'Gold subscribers & above',
-    visibility:  'subscribers' as const,
-  },
-  diamond: {
-    label:       'Diamond',
-    color:       '#7FFFD4',
-    bgColor:     'rgba(127,255,212,0.18)',
-    description: 'Diamond subscribers only',
+  subscriber_plus: {
+    label:       'Subscriber+',
+    color:       '#E8A020',
+    bgColor:     'rgba(232,160,32,0.15)',
+    description: 'For Subscriber Plus members only',
     visibility:  'subscribers' as const,
   },
 } as const satisfies Record<ContentTier, {
@@ -50,4 +46,16 @@ export const TIERS = {
   visibility: 'public' | 'subscribers';
 }>;
 
-export const TIER_ORDER: ContentTier[] = ['bronze', 'silver', 'gold', 'diamond'];
+export const TIER_ORDER: ContentTier[] = ['free', 'subscriber', 'subscriber_plus'];
+
+/**
+ * Map old backend tier strings (bronze/silver/gold/diamond) to the new 3-tier system.
+ * Called in post normalisers so the UI always gets a valid ContentTier.
+ */
+export function normalizeTier(raw: string | null | undefined): ContentTier | undefined {
+  if (!raw) return undefined;
+  if (raw === 'bronze' || raw === 'free') return 'free';
+  if (raw === 'silver' || raw === 'gold' || raw === 'subscriber') return 'subscriber';
+  if (raw === 'diamond' || raw === 'subscriber_plus') return 'subscriber_plus';
+  return undefined;
+}

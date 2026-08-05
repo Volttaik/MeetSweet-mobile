@@ -254,7 +254,7 @@ export default function CreatorDashboardScreen() {
     },
     {
       title: 'Set Up Subscriptions',
-      subtitle: 'Enable subscriptions and set your monthly price to start earning from members.',
+      subtitle: 'Enable subscriptions and set your monthly price to start earning from subscribers.',
       icon: 'money',
       buttonLabel: 'Next',
       imageSource: require('../assets/onboarding/creator-subscribe.jpg'),
@@ -272,7 +272,7 @@ export default function CreatorDashboardScreen() {
     try {
       const [dash, subs, settings] = await Promise.all([
         getCreatorDashboard(),
-        getCreatorSubscribers(1),
+        getCreatorSubscribers(1).catch(() => ({ subscribers: [] as typeof subscribers })),
         getCreatorSettings().catch(() => null),
       ]);
       setDashboard(dash);
@@ -304,7 +304,7 @@ export default function CreatorDashboardScreen() {
 
   const STATS = [
     { IconComp: CurrencyNgn, label: 'This Month', value: `₦${(monthRevenue * 1600).toFixed(0)}`, change: totalRevenue > 0 ? `₦${(totalRevenue * 1600).toFixed(0)} total` : '—', positive: totalRevenue > 0 },
-    { IconComp: Users,       label: 'Members', value: subscribers_count.toString(), change: subscribers_count > 0 ? 'Active' : '—', positive: subscribers_count > 0 },
+    { IconComp: Users,       label: 'Subscribers', value: subscribers_count.toString(), change: subscribers_count > 0 ? 'Active' : '—', positive: subscribers_count > 0 },
     { IconComp: TrendUp,     label: 'Posts',       value: total_posts.toString(), change: total_posts > 0 ? 'Published' : '—', positive: total_posts > 0 },
     { IconComp: ChartBar,    label: 'Engagement',  value: recent_stats[0] ? `${((recent_stats[0].likes / Math.max(recent_stats[0].views, 1)) * 100).toFixed(1)}%` : '0%', change: '—', positive: true },
   ];
@@ -349,7 +349,7 @@ export default function CreatorDashboardScreen() {
             <View style={styles.bannerLeft}>
               <Text style={styles.bannerTitle}>Creator Hub</Text>
               <Text style={styles.bannerSubtitle}>
-                Track your earnings, members, and content performance.
+                Track your earnings, subscribers, and content performance.
               </Text>
             </View>
             <TouchableOpacity
@@ -375,8 +375,8 @@ export default function CreatorDashboardScreen() {
             <>
               <Text style={styles.sectionTitle}>Content Performance</Text>
               <View style={styles.activityCard}>
-                {recent_stats.map((s, i) => (
-                  <ActivityRow key={i} stat={s} />
+                {recent_stats.map((s) => (
+                  <ActivityRow key={s.period} stat={s} />
                 ))}
               </View>
             </>
@@ -385,7 +385,7 @@ export default function CreatorDashboardScreen() {
           {/* Recent subscribers */}
           {subscribers.length > 0 && (
             <>
-              <Text style={styles.sectionTitle}>Recent Members</Text>
+              <Text style={styles.sectionTitle}>Recent Subscribers</Text>
               <View style={styles.subsCard}>
                 {subscribers.slice(0, 5).map((sub) => (
                   <View key={sub.id} style={styles.subRow}>
@@ -403,7 +403,7 @@ export default function CreatorDashboardScreen() {
                   </View>
                 ))}
                 {subscribers.length > 5 && (
-                  <Text style={styles.moreSubsText}>+{subscribers.length - 5} more members</Text>
+                  <Text style={styles.moreSubsText}>+{subscribers.length - 5} more subscribers</Text>
                 )}
               </View>
             </>
@@ -448,47 +448,37 @@ export default function CreatorDashboardScreen() {
           <Text style={styles.sectionTitle}>Creator Settings</Text>
 
           {/* Subscription Settings */}
-          <SettingsSection IconComp={Users} title="Subscription Tiers">
+          <SettingsSection IconComp={Users} title="Subscription Plans">
             <SettingsToggleRow
               label="Enable subscriptions"
               value={subsEnabled}
               onChange={setSubsEnabled}
             />
             <SettingsDivider />
-            {/* Silver tier — entry level */}
+            {/* Subscriber plan */}
             <SettingsRow
-              label="🥈 Silver tier price"
-              value="₦500/mo"
+              label="👥 Subscriber price"
+              value="Set in dashboard"
               onPress={() => Alert.alert(
-                'Silver Tier',
-                'Silver members unlock all Silver-tier posts and videos.\n\nDefault: ₦500/mo — contact support to customise.',
+                'Subscriber Plan',
+                'Subscribers unlock all subscriber-only posts and videos, plus direct messaging.\n\nContact support to set your monthly price.',
               )}
             />
             <SettingsDivider />
-            {/* Gold tier — mid level */}
+            {/* Subscriber+ plan */}
             <SettingsRow
-              label="🥇 Gold tier price"
-              value="₦1,500/mo"
+              label="⭐ Subscriber+ price"
+              value="Set in dashboard"
               onPress={() => Alert.alert(
-                'Gold Tier',
-                'Gold members unlock all Gold-tier posts and videos (includes Silver).\n\nDefault: ₦1,500/mo — contact support to customise.',
-              )}
-            />
-            <SettingsDivider />
-            {/* Diamond tier — top level */}
-            <SettingsRow
-              label="💎 Diamond tier price"
-              value="₦3,000/mo"
-              onPress={() => Alert.alert(
-                'Diamond Tier',
-                'Diamond members unlock ALL your member content — Silver, Gold, and Diamond.\n\nDefault: ₦3,000/mo — contact support to customise.',
+                'Subscriber+ Plan',
+                'Subscriber+ members unlock everything in Subscriber plus exclusive Subscriber+ content and priority access.\n\nContact support to set your monthly price.',
               )}
             />
             <SettingsDivider />
             <SettingsRow
               label="Trial period"
               value="7 days"
-              onPress={() => Alert.alert('Trial Period', 'New members get a free 7-day trial on any tier.')}
+              onPress={() => Alert.alert('Trial Period', 'New subscribers get a free 7-day trial on any plan.')}
             />
           </SettingsSection>
 
@@ -496,14 +486,14 @@ export default function CreatorDashboardScreen() {
           <SettingsSection IconComp={ChatText} title="Messaging & Privacy">
             <SettingsRow
               label="Who can message me"
-              value={whoCanMessage === 'everyone' ? 'Everyone' : whoCanMessage === 'subscribers' ? 'Members only' : 'No one'}
+              value={whoCanMessage === 'everyone' ? 'Everyone' : whoCanMessage === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
                 Alert.alert('Who can message you?', undefined, [
                   { text: 'Everyone', onPress: async () => {
                     setWhoCanMessage('everyone');
                     await updateCreatorSettings({ who_can_message: 'everyone' });
                   }},
-                  { text: 'Members only', onPress: async () => {
+                  { text: 'Subscribers only', onPress: async () => {
                     setWhoCanMessage('subscribers');
                     await updateCreatorSettings({ who_can_message: 'subscribers' });
                   }},
@@ -518,11 +508,11 @@ export default function CreatorDashboardScreen() {
             <SettingsDivider />
             <SettingsRow
               label="Who can comment"
-              value={whoCanComment === 'everyone' ? 'Everyone' : whoCanComment === 'subscribers' ? 'Members only' : 'No one'}
+              value={whoCanComment === 'everyone' ? 'Everyone' : whoCanComment === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
                 Alert.alert('Who can comment?', undefined, [
                   { text: 'Everyone', onPress: () => setWhoCanComment('everyone') },
-                  { text: 'Members only', onPress: () => setWhoCanComment('subscribers') },
+                  { text: 'Subscribers only', onPress: () => setWhoCanComment('subscribers') },
                   { text: 'No one', onPress: () => setWhoCanComment('none') },
                   { text: 'Cancel', style: 'cancel' },
                 ])
@@ -531,11 +521,11 @@ export default function CreatorDashboardScreen() {
             <SettingsDivider />
             <SettingsRow
               label="Who can see my posts"
-              value={whoCanSee === 'everyone' ? 'Everyone' : whoCanSee === 'subscribers' ? 'Members only' : 'No one'}
+              value={whoCanSee === 'everyone' ? 'Everyone' : whoCanSee === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
                 Alert.alert('Who can see your posts?', undefined, [
                   { text: 'Everyone', onPress: () => setWhoCanSee('everyone') },
-                  { text: 'Members only', onPress: () => setWhoCanSee('subscribers') },
+                  { text: 'Subscribers only', onPress: () => setWhoCanSee('subscribers') },
                   { text: 'No one', onPress: () => setWhoCanSee('none') },
                   { text: 'Cancel', style: 'cancel' },
                 ])
@@ -558,13 +548,13 @@ export default function CreatorDashboardScreen() {
             />
             <SettingsDivider />
             <SettingsToggleRow
-              label="Members can message for free"
+              label="Subscribers can message for free"
               value={subsCanMsgFree}
               onChange={setSubsCanMsgFree}
             />
             <SettingsDivider />
             <SettingsToggleRow
-              label="Non-members can pay to message"
+              label="Non-subscribers can pay to message"
               value={nonSubsCanPayMsg}
               onChange={setNonSubsCanPayMsg}
             />
@@ -585,7 +575,7 @@ export default function CreatorDashboardScreen() {
             <SettingsDivider />
             <SettingsRow
               label="Share cause updates"
-              onPress={() => Alert.alert('Cause Updates', 'Broadcast fundraising milestones to your members.')}
+              onPress={() => Alert.alert('Cause Updates', 'Broadcast fundraising milestones to your subscribers.')}
             />
           </SettingsSection>
 
@@ -601,7 +591,7 @@ export default function CreatorDashboardScreen() {
               <View style={styles.analyticsDivider} />
               <View style={styles.analyticsItem}>
                 <Text style={styles.analyticsValue}>{subscribers_count}</Text>
-                <Text style={styles.analyticsLabel}>Members</Text>
+                <Text style={styles.analyticsLabel}>Subscribers</Text>
               </View>
               <View style={styles.analyticsDivider} />
               <View style={styles.analyticsItem}>
@@ -651,13 +641,13 @@ export default function CreatorDashboardScreen() {
           {/* Broadcast */}
           <SettingsSection IconComp={MegaphoneSimple} title="Broadcast">
             <SettingsRow
-              label="Send to all members"
-              onPress={() => Alert.alert('Broadcast', 'Send a message to all your members.')}
+              label="Send to all subscribers"
+              onPress={() => Alert.alert('Broadcast', 'Send a message to all your subscribers.')}
             />
             <SettingsDivider />
             <SettingsRow
-              label="Send to premium members"
-              onPress={() => Alert.alert('Broadcast', 'Send a message to premium members only.')}
+              label="Send to Subscriber+ only"
+              onPress={() => Alert.alert('Broadcast', 'Send a message to Subscriber+ members only.')}
             />
             <SettingsDivider />
             <SettingsRow

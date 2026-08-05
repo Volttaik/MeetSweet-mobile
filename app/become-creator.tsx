@@ -22,9 +22,9 @@ import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 
 const FEATURES: { Icon: React.ComponentType<{ size: number; color: string }>; title: string; desc: string }[] = [
-  { Icon: Diamond,         title: 'Exclusive Content',  desc: 'Share premium content with paying members only' },
+  { Icon: Diamond,         title: 'Exclusive Content',  desc: 'Share premium content with paying subscribers only' },
   { Icon: DeviceMobile,    title: 'Subscriptions',       desc: 'Earn monthly recurring revenue from your fans' },
-  { Icon: Lock,            title: 'Private Posts',       desc: 'Posts only your members can access and view' },
+  { Icon: Lock,            title: 'Private Posts',       desc: 'Posts only your subscribers can access and view' },
   { Icon: ChatCircle,      title: 'Private Messaging',   desc: 'Chat directly and privately with your community' },
   { Icon: ChartBar,        title: 'Creator Analytics',   desc: 'Deep audience insights and growth tracking tools' },
   { Icon: CurrencyDollar,  title: 'Monthly Earnings',    desc: 'Transparent dashboard with automated monthly payouts' },

@@ -371,7 +371,7 @@ export default function HomeScreen() {
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.4}
-          ListHeaderComponent={<MsSectionHeader title="Your Feed" />}
+          ListHeaderComponent={<MsSectionHeader title="Home Feed" />}
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.footer}>

@@ -423,10 +423,19 @@ export function MsPostCard({
               default for every public post and adds noise without meaning). */}
           {(() => {
             const effectiveTier = tier ?? post.tier;
-            if (effectiveTier === 'silver' || effectiveTier === 'gold' || effectiveTier === 'diamond') {
+            // New tier system
+            if (effectiveTier === 'subscriber' || effectiveTier === 'subscriber_plus') {
               return <MsTierBadge tier={effectiveTier} size="xs" />;
             }
-            if (post.isPremium) return <MsTierBadge tier="silver" size="xs" />;
+            // Backward compat: old backend values
+            if (effectiveTier === 'silver' || effectiveTier === 'gold') {
+              return <MsTierBadge tier="subscriber" size="xs" />;
+            }
+            if ((effectiveTier as string) === 'diamond') {
+              return <MsTierBadge tier="subscriber_plus" size="xs" />;
+            }
+            // Fallback: post is paywalled without explicit tier
+            if (post.isPremium) return <MsTierBadge tier="subscriber" size="xs" />;
             return null;
           })()}
           <TouchableOpacity

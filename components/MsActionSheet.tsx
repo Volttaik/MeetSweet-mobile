@@ -113,7 +113,7 @@ export function MsActionSheet({
           <View style={styles.actionsWrap}>
             {actions.map((action, idx) => (
               <TouchableOpacity
-                key={idx}
+                key={action.label ?? idx}
                 style={[styles.action, idx > 0 && styles.actionSpaced]}
                 activeOpacity={0.55}
                 onPress={() => {

@@ -176,7 +176,7 @@ export function MsFeedVideoCard({
         {/* Subscribers-only badge — top-right (informational only, no lock) */}
         {card.isPremium ? (
           <View style={[styles.premiumBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
-            <Text style={styles.premiumText}>MEMBERS</Text>
+            <Text style={styles.premiumText}>SUBSCRIBERS</Text>
           </View>
         ) : null}
       </View>

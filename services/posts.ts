@@ -115,9 +115,16 @@ function normalizePost(raw: any): Post {
     likeCount:     raw.like_count    ?? raw.likeCount    ?? 0,
     commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
-    isPremium: raw.visibility === 'subscribers',
-    // Derive tier: backend returns 'tier' if available; otherwise infer from visibility
-    tier: raw.tier ?? (raw.visibility === 'public' ? 'bronze' : undefined),
+    isPremium: raw.visibility === 'subscribers' || raw.visibility === 'subscribers_plus',
+    // Derive tier: normalize old backend values (bronze/silver/gold/diamond) → new 3-tier system
+    tier: (() => {
+      const t = raw.tier;
+      if (!t) return raw.visibility === 'public' ? 'free' : 'subscriber';
+      if (t === 'bronze' || t === 'free') return 'free';
+      if (t === 'diamond' || t === 'subscriber_plus') return 'subscriber_plus';
+      // silver, gold, subscriber → subscriber
+      return 'subscriber';
+    })(),
     createdAt:   raw.created_at   ?? raw.createdAt   ?? raw.published_at ?? new Date().toISOString(),
     publishedAt: raw.published_at ?? raw.publishedAt ?? raw.created_at,
     updatedAt:   raw.updated_at   ?? raw.updatedAt,

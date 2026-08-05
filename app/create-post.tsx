@@ -47,8 +47,8 @@ type ContentType = 'post' | 'album' | 'video' | 'shorts';
 
 import { TIERS, TIER_ORDER, type ContentTier } from '@/constants/tiers';
 
-// Tier options shown in the create-post picker (Bronze → Diamond).
-// Shorts are always Bronze (free) — the picker is hidden for that content type.
+// Tier options shown in the create-post picker (Free → Subscriber → Subscriber+).
+// Shorts are always Free — the picker is hidden for that content type.
 const TIER_OPTIONS = TIER_ORDER.map((t) => ({ value: t, ...TIERS[t] }));
 
 // Content type definitions for the type picker carousel
@@ -100,7 +100,7 @@ export default function CreatePostScreen() {
 
   // Onboarding fields
   const [caption,              setCaption]              = useState('');
-  const [tier,                 setTier]                 = useState<ContentTier>('bronze');
+  const [tier,                 setTier]                 = useState<ContentTier>('free');
   const [categories,           setCategories]           = useState<Category[]>([]);
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
   const [tags,                 setTags]                 = useState<string[]>([]);
@@ -162,7 +162,7 @@ export default function CreatePostScreen() {
     },
     {
       title: 'Set Visibility',
-      subtitle: 'Choose Public (everyone), Members only, or Draft (private) for each post.',
+      subtitle: 'Choose Free (everyone), Subscriber only, or Subscriber+ for each post.',
       icon: 'shield',
       buttonLabel: 'Start Creating',
       imageSource: require('../assets/onboarding/post-visibility.jpg'),
@@ -186,7 +186,13 @@ export default function CreatePostScreen() {
         const draft = JSON.parse(raw);
         if (draft.caption)                     setCaption(draft.caption);
         if (draft.tags)                        setTags(draft.tags);
-        if (draft.tier)                        setTier(draft.tier);
+        if (draft.tier) {
+          // Normalize legacy 'bronze' draft values to new tier system
+          const rawTier = draft.tier as string;
+          if (rawTier === 'bronze' || rawTier === 'free') setTier('free');
+          else if (rawTier === 'diamond' || rawTier === 'subscriber_plus') setTier('subscriber_plus');
+          else setTier('subscriber');
+        }
         if (draft.contentType && !params.type) setContentType(draft.contentType);
         if (draft.videoTitle)                  setVideoTitle(draft.videoTitle);
       } catch {/* ignore corrupt draft */}
@@ -431,7 +437,7 @@ export default function CreatePostScreen() {
 
       // Shorts are always free/public; everything else maps from the tier picker.
       const resolvedVisibility =
-        contentType === 'shorts' ? 'public' : TIERS[tier].visibility;
+        contentType === 'shorts' ? 'public' : (tier === 'subscriber_plus' ? 'subscribers' : TIERS[tier].visibility);
 
       await createPost({
         caption:       finalCaption,
@@ -443,7 +449,7 @@ export default function CreatePostScreen() {
         // Send title as its own field for videos (not collapsed into caption)
         title:         contentType === 'video' && videoTitle.trim() ? videoTitle.trim() : undefined,
         // Send tier so backend can store it when multi-tier is supported
-        tier:          contentType === 'shorts' ? 'bronze' : tier,
+        tier:          contentType === 'shorts' ? 'free' : tier,
         // Send thumbnail URL directly — fallback if the separate PATCH fails
         thumbnail_url: thumbUrl,
       });
@@ -719,9 +725,9 @@ export default function CreatePostScreen() {
 
           {/* Tier preview */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Access Tier</Text>
+            <Text style={styles.sectionTitle}>Visibility</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <MsTierBadge tier={contentType === 'shorts' ? 'bronze' : tier} size="sm" />
+              <MsTierBadge tier={contentType === 'shorts' ? 'free' : tier} size="sm" />
               {contentType === 'shorts' && (
                 <Text style={styles.previewCaption}>Shorts are always free</Text>
               )}
@@ -901,10 +907,10 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Tier picker — hidden for Shorts (always free) */}
+          {/* Visibility picker — hidden for Shorts (always free) */}
           {contentType !== 'shorts' && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Access Tier</Text>
+              <Text style={styles.sectionTitle}>Visibility</Text>
               <View style={styles.visibilityRow}>
                 {TIER_OPTIONS.map((opt) => {
                   const active = opt.value === tier;

@@ -29,8 +29,7 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { subscribe, getCreatorMessagingSettings, SUBSCRIPTION_TIER_PRICES, type ContentSubscriptionTier } from '@/services/subscriptions';
-import { TIERS as CONTENT_TIERS } from '@/constants/tiers';
+import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -154,37 +153,37 @@ const revStyles = StyleSheet.create({
   body: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 20 },
 });
 
-// ─── Subscribe sheet (tier selection) ─────────────────────────────────────────
+// ─── Subscribe sheet (2-plan selection) ───────────────────────────────────────
 
-const SUBSCRIBE_TIERS: Array<{
-  key: ContentSubscriptionTier;
-  emoji: string;
-  price: number;
+type SubscribePlan = 'subscriber' | 'subscriber_plus';
+
+const PLANS: Array<{
+  key: SubscribePlan;
+  label: string;
+  color: string;
+  priceKey: 'subscriptionPrice' | 'subscriptionPlusPrice';
   perks: string[];
 }> = [
   {
-    key:   'silver',
-    emoji: '🥈',
-    price: SUBSCRIPTION_TIER_PRICES.silver,
-    perks: ['All Silver-tier posts & videos', 'Direct messaging'],
+    key:      'subscriber',
+    label:    'Subscriber',
+    color:    '#C45A72',
+    priceKey: 'subscriptionPrice',
+    perks:    ['All subscriber posts & videos', 'Direct messaging'],
   },
   {
-    key:   'gold',
-    emoji: '🥇',
-    price: SUBSCRIPTION_TIER_PRICES.gold,
-    perks: ['Everything in Silver', 'Gold-tier exclusive content'],
-  },
-  {
-    key:   'diamond',
-    emoji: '💎',
-    price: SUBSCRIPTION_TIER_PRICES.diamond,
-    perks: ['Everything in Gold', 'Diamond-exclusive drops', 'Priority access'],
+    key:      'subscriber_plus',
+    label:    'Subscriber+',
+    color:    '#E8A020',
+    priceKey: 'subscriptionPlusPrice',
+    perks:    ['Everything in Subscriber', 'Exclusive Subscriber+ content', 'Priority access'],
   },
 ];
 
 function SubscribeSheet({
   visible,
   creator,
+  creatorProfile,
   walletBalance,
   onConfirm,
   onWallet,
@@ -192,16 +191,19 @@ function SubscribeSheet({
 }: {
   visible: boolean;
   creator: Creator;
+  creatorProfile: CreatorProfileFull | null;
   walletBalance: number;
-  onConfirm: () => void;
+  onConfirm: (plan: SubscribePlan) => void;
   onWallet: () => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [selectedTier, setSelectedTier] = useState<ContentSubscriptionTier>('silver');
+  const [selectedPlan, setSelectedPlan] = useState<SubscribePlan>('subscriber');
 
-  const tierCfg = CONTENT_TIERS[selectedTier];
-  const price   = SUBSCRIPTION_TIER_PRICES[selectedTier];
+  const planCfg  = PLANS.find((p) => p.key === selectedPlan)!;
+  const price    = selectedPlan === 'subscriber'
+    ? (creatorProfile?.subscriptionPrice ?? 0)
+    : ((creatorProfile as any)?.subscriptionPlusPrice ?? 0);
   const canAfford = walletBalance >= price || price === 0;
 
   return (
@@ -210,33 +212,35 @@ function SubscribeSheet({
         <View style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={shStyles.handle} />
           <Text style={shStyles.title}>Subscribe to {creator.name}</Text>
-          <Text style={shStyles.subtitle}>Choose a tier — higher tiers unlock more content.</Text>
+          <Text style={shStyles.subtitle}>Choose a plan to unlock their content.</Text>
 
-          {/* Tier cards */}
-          {SUBSCRIBE_TIERS.map((t) => {
-            const cfg = CONTENT_TIERS[t.key];
-            const active = selectedTier === t.key;
+          {/* Plan cards */}
+          {PLANS.map((plan) => {
+            const active = selectedPlan === plan.key;
+            const planPrice = plan.key === 'subscriber'
+              ? (creatorProfile?.subscriptionPrice ?? 0)
+              : ((creatorProfile as any)?.subscriptionPlusPrice ?? 0);
             return (
               <TouchableOpacity
-                key={t.key}
-                style={[shStyles.tierCard, active && { borderColor: cfg.color, borderWidth: 2 }]}
-                onPress={() => setSelectedTier(t.key)}
+                key={plan.key}
+                style={[shStyles.tierCard, active && { borderColor: plan.color, borderWidth: 2 }]}
+                onPress={() => setSelectedPlan(plan.key)}
                 activeOpacity={0.8}
               >
                 <View style={shStyles.tierCardHeader}>
-                  <View style={[shStyles.tierDot, { backgroundColor: cfg.color }]} />
-                  <Text style={[shStyles.tierName, active && { color: cfg.color }]}>
-                    {t.emoji} {cfg.label}
+                  <View style={[shStyles.tierDot, { backgroundColor: plan.color }]} />
+                  <Text style={[shStyles.tierName, active && { color: plan.color }]}>
+                    {plan.label}
                   </Text>
-                  <Text style={[shStyles.tierPrice, active && { color: cfg.color }]}>
-                    ₦{t.price.toLocaleString()}/mo
+                  <Text style={[shStyles.tierPrice, active && { color: plan.color }]}>
+                    {planPrice > 0 ? `₦${planPrice.toLocaleString()}/mo` : 'Free'}
                   </Text>
                 </View>
                 {active && (
                   <View style={shStyles.perksWrap}>
-                    {t.perks.map((perk) => (
+                    {plan.perks.map((perk) => (
                       <View key={perk} style={shStyles.perkRow}>
-                        <Check size={11} color={cfg.color} weight="bold" />
+                        <Check size={11} color={plan.color} weight="bold" />
                         <Text style={shStyles.perkText}>{perk}</Text>
                       </View>
                     ))}
@@ -257,12 +261,10 @@ function SubscribeSheet({
           <TouchableOpacity
             style={[shStyles.primaryBtn, !canAfford && shStyles.primaryBtnOutline]}
             activeOpacity={0.85}
-            onPress={canAfford ? onConfirm : onWallet}
+            onPress={canAfford ? () => onConfirm(selectedPlan) : onWallet}
           >
             <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
-              {canAfford
-                ? `Subscribe — ${CONTENT_TIERS[selectedTier].label}`
-                : 'Top up wallet'}
+              {canAfford ? `Subscribe — ${planCfg.label}` : 'Top up wallet'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
@@ -687,7 +689,7 @@ export default function CreatorProfileScreen() {
           <View style={styles.metrics}>
             <View>
               <Text style={styles.metricValue}>{creator.followers || '—'}</Text>
-              <Text style={styles.metricLabel}>Members</Text>
+              <Text style={styles.metricLabel}>Subscribers</Text>
             </View>
             <View style={styles.metricDivider} />
             <View>
@@ -900,7 +902,7 @@ export default function CreatorProfileScreen() {
                 {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
               </>
             ) : (
-              <MsEmptyState title="No reviews yet" message="Members haven't left reviews yet." />
+              <MsEmptyState title="No reviews yet" message="Subscribers haven't left reviews yet." />
             )}
           </View>
         )}
@@ -953,8 +955,9 @@ export default function CreatorProfileScreen() {
       <SubscribeSheet
         visible={sheetOpen}
         creator={creator}
+        creatorProfile={creatorFullProfile}
         walletBalance={walletBalance}
-        onConfirm={async () => {
+        onConfirm={async (_plan) => {
           setSheetOpen(false);
           try {
             await subscribe(creator.id);
