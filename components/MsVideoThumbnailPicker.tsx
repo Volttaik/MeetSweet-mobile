@@ -37,8 +37,7 @@ export function MsVideoThumbnailPicker({
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [16, 9],
+        allowsEditing: false,  // no forced crop — use full native image
         quality: 0.85,
       });
       if (result.canceled || !result.assets[0]) return;

@@ -164,18 +164,21 @@ export default function ShortsScreen() {
       subtitle: 'Watch and create short-form videos from your favorite creators.',
       icon: 'video',
       buttonLabel: 'Next',
+      imageSource: require('../../assets/onboarding/shorts-welcome.jpg'),
     },
     {
       title: 'Swipe to Navigate',
-      subtitle: 'Swipe up for the next short. Swipe down for the previous one.',
+      subtitle: 'Swipe up for the next short. Swipe down to go back.',
       icon: 'globe',
       buttonLabel: 'Next',
+      imageSource: require('../../assets/onboarding/shorts-swipe.jpg'),
     },
     {
       title: 'Double Tap to Like',
       subtitle: 'Double tap anywhere on the video to like it. Tap the heart icon anytime.',
       icon: 'star',
       buttonLabel: 'Start Watching',
+      imageSource: require('../../assets/onboarding/shorts-like.jpg'),
     },
   ];
 

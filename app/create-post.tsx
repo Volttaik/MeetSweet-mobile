@@ -114,9 +114,10 @@ export default function CreatePostScreen() {
   const [mediaName,  setMediaName]  = useState('media.jpg');
 
   // Thumbnail state (video only)
-  const [thumbnailUri,  setThumbnailUri]  = useState<string | null>(null);
-  const [thumbnailMime, setThumbnailMime] = useState('image/jpeg');
-  const [thumbnailName, setThumbnailName] = useState('thumbnail.jpg');
+  const [thumbnailUri,      setThumbnailUri]      = useState<string | null>(null);
+  const [thumbnailMime,     setThumbnailMime]     = useState('image/jpeg');
+  const [thumbnailName,     setThumbnailName]     = useState('thumbnail.jpg');
+  const [retrievingThumb,   setRetrievingThumb]   = useState(false);
 
   // Flow state
   const initialStep: Step = params.type ? 'onboard' : 'type-select';
@@ -150,24 +151,21 @@ export default function CreatePostScreen() {
       subtitle: 'Share Posts, Albums, Videos, and Shorts with your audience on MeetSweet.',
       icon: 'video',
       buttonLabel: 'Next',
+      imageSource: require('../assets/onboarding/post-create.jpg'),
     },
     {
       title: 'Choose Content Type',
       subtitle: 'Select from Posts, Albums, Videos, or Shorts. Each type has different features.',
       icon: 'text',
       buttonLabel: 'Next',
-    },
-    {
-      title: 'Add Media & Caption',
-      subtitle: 'Upload photos or videos, add a caption, and choose who can see your content.',
-      icon: 'image',
-      buttonLabel: 'Next',
+      imageSource: require('../assets/onboarding/post-types.jpg'),
     },
     {
       title: 'Set Visibility',
       subtitle: 'Choose Public (everyone), Members only, or Draft (private) for each post.',
       icon: 'shield',
       buttonLabel: 'Start Creating',
+      imageSource: require('../assets/onboarding/post-visibility.jpg'),
     },
   ];
 
@@ -306,6 +304,7 @@ export default function CreatePostScreen() {
     // Auto-generate thumbnail from the first frame for both long-form videos and Shorts.
     // The user can still tap the thumbnail to pick a custom one.
     if (type === 'video' && (contentType === 'video' || contentType === 'shorts')) {
+      setRetrievingThumb(true);
       try {
         const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 150 });
         setThumbnailUri(thumb.uri);
@@ -313,6 +312,8 @@ export default function CreatePostScreen() {
         setThumbnailName(`thumb-${Date.now()}.jpg`);
       } catch {
         // Silent fallback — thumbnail picker still visible so user can add manually
+      } finally {
+        setRetrievingThumb(false);
       }
     }
 
@@ -668,22 +669,29 @@ export default function CreatePostScreen() {
           {(contentType === 'video' || contentType === 'shorts') && (
             <View style={[styles.section, { paddingTop: 8 }]}>
               <Text style={styles.sectionTitle}>Thumbnail</Text>
-              <TouchableOpacity style={styles.thumbnailPicker} onPress={pickThumbnail} activeOpacity={0.8}>
-                {thumbnailUri ? (
-                  <>
-                    <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} resizeMode="cover" />
-                    <View style={styles.thumbnailChangeBadge}>
-                      <Text style={styles.thumbnailChangeBadgeLabel}>Change</Text>
+              {retrievingThumb ? (
+                <View style={[styles.thumbnailPicker, styles.thumbnailRetrieving]}>
+                  <ActivityIndicator size="small" color={T.TEXT_2} />
+                  <Text style={styles.thumbnailRetrievingLabel}>Retrieving thumbnail…</Text>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.thumbnailPicker} onPress={pickThumbnail} activeOpacity={0.8}>
+                  {thumbnailUri ? (
+                    <>
+                      <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} resizeMode="cover" />
+                      <View style={styles.thumbnailChangeBadge}>
+                        <Text style={styles.thumbnailChangeBadgeLabel}>Tap to change</Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.thumbnailPlaceholder}>
+                      <ImageIcon size={24} color={T.TEXT_3} />
+                      <Text style={styles.thumbnailPlaceholderLabel}>Add thumbnail</Text>
                     </View>
-                  </>
-                ) : (
-                  <View style={styles.thumbnailPlaceholder}>
-                    <ImageIcon size={24} color={T.TEXT_3} />
-                    <Text style={styles.thumbnailPlaceholderLabel}>Add thumbnail (16:9)</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-              <Text style={styles.charHint}>Thumbnail auto-extracted from video · tap to change</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+              <Text style={styles.charHint}>Auto-extracted from video · tap to use a custom image</Text>
             </View>
           )}
 
@@ -1145,6 +1153,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: T.FONT.semibold,
     color: '#fff',
+  },
+  thumbnailRetrieving: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    height: 64,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+  },
+  thumbnailRetrievingLabel: {
+    fontSize: 13,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT_2,
   },
 
   header: {

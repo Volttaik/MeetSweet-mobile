@@ -243,24 +243,28 @@ export default function CreatorDashboardScreen() {
       subtitle: 'You\'re now a creator on MeetSweet. Here\'s how to start earning.',
       icon: 'rocket',
       buttonLabel: 'Next',
+      imageSource: require('../assets/onboarding/creator-welcome.jpg'),
     },
     {
       title: 'Create Content',
       subtitle: 'Create Posts, Albums, Videos, and Shorts to share with your audience.',
       icon: 'video',
       buttonLabel: 'Next',
+      imageSource: require('../assets/onboarding/creator-content.jpg'),
     },
     {
       title: 'Set Up Subscriptions',
       subtitle: 'Enable subscriptions and set your monthly price to start earning from members.',
       icon: 'money',
       buttonLabel: 'Next',
+      imageSource: require('../assets/onboarding/creator-subscribe.jpg'),
     },
     {
       title: 'Withdraw Earnings',
       subtitle: 'Once you have ₦1,000 or more, withdraw directly to your bank account.',
       icon: 'piggy',
       buttonLabel: 'Get Started',
+      imageSource: require('../assets/onboarding/creator-withdraw.jpg'),
     },
   ];
 
