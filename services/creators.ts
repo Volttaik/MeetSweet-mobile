@@ -137,8 +137,7 @@ function normalizePostItem(raw: any): Post {
     likeCount:    raw.like_count    ?? raw.likeCount    ?? 0,
     commentCount: raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count   ?? 0,
-    // Shorts are always free — never subscriber-gated per product rules
-    isPremium:    (rawContentType !== 'short') && raw.visibility === 'subscribers',
+    isLocked:     raw.is_locked ?? raw.isLocked ?? false,
     createdAt:    raw.created_at ?? raw.createdAt ?? raw.published_at ?? new Date().toISOString(),
     publishedAt:  raw.published_at ?? raw.publishedAt ?? raw.created_at,
     updatedAt:    raw.updated_at   ?? raw.updatedAt,

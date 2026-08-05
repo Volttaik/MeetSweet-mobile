@@ -53,7 +53,7 @@ function postToShort(post: Post): Short {
     shareCount: 0,
     viewCount: 0,
     likedByMe: post.likedByMe,
-    isPremium: false,        // shorts are always free
+    isLocked: false,
     previewDuration: null,
     createdAt: post.createdAt,
     creator: {
@@ -155,7 +155,7 @@ export default function ShortsScreen() {
         likeCount: s.likeCount,
         commentCount: s.commentCount,
         bookmarkCount: 0,
-        isPremium: false,  // shorts are always free
+        isLocked: false,
         createdAt: new Date().toISOString(),
         author: {
           id: s.creator.id,

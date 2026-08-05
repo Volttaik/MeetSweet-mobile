@@ -215,7 +215,7 @@ export default function VideoWatchScreen() {
           caption:       p.title || '',
           visibility:    'public',
           contentType:   (p.contentType as Post['contentType']) ?? 'video',
-          mediaUrl:      p.isPremium ? null : (p.mediaUrl ?? null),
+          mediaUrl:      p.mediaUrl ?? null,
           mediaType:     'video',
           thumbnailUrl:  p.thumbnailUrl ?? null,
           durationSecs:  null,
@@ -225,7 +225,6 @@ export default function VideoWatchScreen() {
           likeCount:     0,
           commentCount:  p.commentCount ?? 0,
           bookmarkCount: 0,
-          isPremium:     false,
           createdAt:     p.createdAt ?? '',
           author: {
             id:         creator.id,
@@ -318,7 +317,7 @@ export default function VideoWatchScreen() {
           videoId={post.id}
           uri={videoMedia}
           posterUri={post.thumbnailUrl}
-          isPremium={post.isPremium}
+          isPremium={post.isLocked ?? false}
           autoPlay
           active={screenActive}
           initialAspectRatio={

@@ -139,7 +139,6 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
       likes: fmtLikes(raw.like_count ?? raw.likeCount ?? 0),
       likeCount: raw.like_count ?? raw.likeCount ?? 0,
       commentCount: raw.comment_count ?? raw.commentCount ?? 0,
-      isPremium: false, // Explore only shows public content — never locked
       gradient: gradientFor(raw.id),
       thumbnailUrl,
       mediaUrl,

@@ -215,7 +215,7 @@ interface MsPostCardProps {
    * free = no badge (public/Explore content).
    * subscriber = Subscriber pill badge.
    * subscriber_plus = Subscriber+ pill badge.
-   * Omit to fall back to the isPremium "Subscriber" badge.
+   * Omit to derive from post.tier.
    */
   tier?: ContentTier;
 }
@@ -427,8 +427,6 @@ export function MsPostCard({
             if (effectiveTier === 'subscriber' || effectiveTier === 'subscriber_plus') {
               return <MsTierBadge tier={effectiveTier} size="xs" />;
             }
-            // Fallback: post is paywalled without explicit tier
-            if (post.isPremium) return <MsTierBadge tier="subscriber" size="xs" />;
             return null;
           })()}
           <TouchableOpacity

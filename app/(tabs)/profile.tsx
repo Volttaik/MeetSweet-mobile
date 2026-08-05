@@ -23,7 +23,6 @@ import {
   FilmStrip,
   Gear,
   Heart,
-  LockSimple,
   Play,
   ShareNetwork,
   X,
@@ -54,6 +53,7 @@ import {
 } from '@/services/posts';
 import { usePurchasedAlbums, type AlbumCardData } from '@/services/albums';
 import { MsAlbumCard } from '@/components/MsAlbumCard';
+import { MsTierBadge } from '@/components/MsTierBadge';
 import { getCachedPosts, cachePosts, cacheUser, getCachedUser } from '@/lib/posts-db';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 
@@ -674,10 +674,10 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* Subscribers-only badge */}
-        {item.isPremium && (
-          <View style={styles.lockBadge}>
-            <LockSimple size={10} color="#fff" weight="bold" />
+        {/* Tier badge — shown for subscriber-gated content */}
+        {item.tier && item.tier !== 'free' && (
+          <View style={styles.tierBadgeWrap}>
+            <MsTierBadge tier={item.tier} size="xs" />
           </View>
         )}
       </TouchableOpacity>
@@ -1287,16 +1287,11 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
-  lockBadge: {
+  tierBadgeWrap: {
     position: 'absolute',
     top: 5,
     right: 5,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    zIndex: 3,
   },
 });
 

@@ -34,10 +34,10 @@ export interface Post {
   commentCount: number;
   bookmarkCount: number;
   /**
-   * True when visibility === 'subscribers'. Used to show a subtle
-   * "Subscribers only" indicator — NOT a paywall or per-post purchase gate.
+   * True when the viewer cannot see this content — gated by subscription tier.
+   * The backend returns empty media when isLocked is true.
    */
-  isPremium: boolean;
+  isLocked?: boolean;
   createdAt: string;
   publishedAt?: string;
   author: PostAuthor;
@@ -115,8 +115,8 @@ function normalizePost(raw: any): Post {
     likeCount:     raw.like_count    ?? raw.likeCount    ?? 0,
     commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
-    // Shorts are always free per product rules — no subscriber gate
-    isPremium: contentType !== 'short' && (raw.visibility === 'subscribers' || raw.visibility === 'subscribers_plus'),
+    // Locked when the backend signals the viewer cannot see this content (subscription gate)
+    isLocked: raw.is_locked ?? raw.isLocked ?? false,
     // Derive tier from backend value — maps to free / subscriber / subscriber_plus only
     tier: (() => {
       const t = raw.tier;

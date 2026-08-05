@@ -23,6 +23,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { ChatCircle, Clock, Heart, Play, SealCheck } from 'phosphor-react-native';
+import { MsTierBadge } from '@/components/MsTierBadge';
 import { Image } from 'expo-image';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -37,9 +38,9 @@ export interface MsFeedVideoCardData {
   /** Formatted comment count, e.g. "48" */
   comments: string;
   uploadDate?: string;
-  isPremium: boolean;
+  /** Content tier — free shows no badge, subscriber/subscriber_plus show tier pill */
+  tier?: 'free' | 'subscriber' | 'subscriber_plus';
   kind: 'video' | 'audio' | string;
-  lockedLabel?: string;
   thumbnailUrl?: string | null;
   /** Full video URL — null means locked/unavailable */
   mediaUrl?: string | null;
@@ -64,8 +65,6 @@ interface MsFeedVideoCardProps {
   card: MsFeedVideoCardData;
   onPress: () => void;
   onCreatorPress?: () => void;
-  /** @deprecated No per-video locking — kept for call-site compatibility only */
-  onUnlockPress?: () => void;
   onLongPress?: () => void;
   style?: ViewStyle;
   /**
@@ -131,7 +130,6 @@ export function MsFeedVideoCard({
   card,
   onPress,
   onCreatorPress,
-  onUnlockPress,
   onLongPress,
   style,
   videoPreviewActive = true,
@@ -173,10 +171,10 @@ export function MsFeedVideoCard({
           </View>
         ) : null}
 
-        {/* Subscribers-only badge — top-right (informational only, no lock) */}
-        {card.isPremium ? (
-          <View style={[styles.premiumBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
-            <Text style={styles.premiumText}>SUBSCRIBERS</Text>
+        {/* Tier badge — top-right for subscriber-gated content */}
+        {card.tier && card.tier !== 'free' ? (
+          <View style={styles.tierBadgeWrap} pointerEvents="none">
+            <MsTierBadge tier={card.tier} size="xs" />
           </View>
         ) : null}
       </View>
@@ -304,21 +302,11 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
 
-  // Premium badge top-right
-  premiumBadge: {
+  // Tier badge top-right
+  tierBadgeWrap: {
     position: 'absolute',
     top: 10,
     right: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: T.RADIUS.xs,
-    backgroundColor: 'rgba(0,0,0,0.62)',
-  },
-  premiumText: {
-    color: '#fff',
-    fontFamily: T.FONT.bold,
-    fontSize: 9,
-    letterSpacing: 0.8,
   },
 
   // Info row

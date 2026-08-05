@@ -110,7 +110,7 @@ export default function ContentDetailScreen() {
   }
 
   const isVideo = post.mediaType === 'video';
-  const isPremium = post.isPremium;
+  const isLocked = post.isLocked ?? false;
 
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
@@ -132,7 +132,7 @@ export default function ContentDetailScreen() {
             videoId={post.id}
             uri={post.mediaUrl}
             posterUri={post.thumbnailUrl}
-            isPremium={isPremium}
+            isPremium={isLocked}
             onPremiumRequired={() => router.push(`/creator/${post.author.id}` as any)}
           />
         ) : post.mediaUrl ? (

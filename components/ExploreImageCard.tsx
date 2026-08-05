@@ -5,8 +5,8 @@
  * It NEVER renders video UI, play buttons, or duration badges.
  * The image is the hero — large, breathing, photographic.
  *
- * Premium images are blurred with a lock overlay and unlock price.
  * Creator identity, caption, and engagement stats are shown below.
+ * Tier badge (Subscriber / Subscriber+) is shown when content is gated.
  */
 import React from 'react';
 import {
@@ -21,12 +21,12 @@ import {
   ChatCircle,
   CheckCircle,
   Heart,
-  Lock,
-  Star,
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsTierBadge } from '@/components/MsTierBadge';
 import { T } from '@/constants/theme';
+import type { ContentTier } from '@/constants/tiers';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 32;
@@ -40,8 +40,8 @@ export interface ExploreImageCardData {
   likes: string;
   comments: string;
   uploadDate: string;
-  isPremium: boolean;
-  lockedLabel?: string;
+  /** Content tier — free shows no badge, subscriber/subscriber_plus show tier pill */
+  tier?: ContentTier;
   /** Actual image URL */
   imageUrl?: string | null;
   /** Fallback background colour key */
@@ -59,7 +59,6 @@ interface ExploreImageCardProps {
   card: ExploreImageCardData;
   onPress: () => void;
   onCreatorPress?: () => void;
-  onUnlockPress?: () => void;
   onLongPress?: () => void;
 }
 
@@ -78,19 +77,14 @@ function bg(gradient: string) {
   return FALLBACK[gradient] ?? T.SURFACE_2;
 }
 
-function priceLabel(lockedLabel?: string): string {
-  if (!lockedLabel) return '';
-  // lockedLabel is already formatted as ₦X from the service layer
-  return lockedLabel;
-}
-
 export function ExploreImageCard({
   card,
   onPress,
   onCreatorPress,
-  onUnlockPress,
   onLongPress,
 }: ExploreImageCardProps) {
+  const showTierBadge = card.tier && card.tier !== 'free';
+
   return (
     <Pressable
       style={styles.card}
@@ -103,13 +97,13 @@ export function ExploreImageCard({
       {/* ── Hero image ────────────────────────────────────── */}
       <View style={[styles.imageWrap, { backgroundColor: bg(card.gradient) }]}>
 
-        {/* Real image — blurred/dimmed if premium */}
+        {/* Real image */}
         {card.imageUrl ? (
           <MsMediaLoader
             uri={card.imageUrl}
-            style={[StyleSheet.absoluteFill, card.isPremium && styles.blurredImage]}
+            style={StyleSheet.absoluteFill}
             resizeMode="cover"
-            accessibleLabel={card.isPremium ? 'Locked premium image' : (card.caption || 'Photo')}
+            accessibleLabel={card.caption || 'Photo'}
             errorMessage=""
             fallback={null}
           />
@@ -117,32 +111,6 @@ export function ExploreImageCard({
 
         {/* Gradient scrim — bottom fade for creator chip legibility */}
         <View style={styles.bottomScrim} pointerEvents="none" />
-
-        {/* Premium lock overlay — full overlay, centred lock + price */}
-        {card.isPremium && (
-          <View style={styles.lockOverlay} pointerEvents="box-none">
-            <View style={styles.lockCircle}>
-              <Lock size={22} color={T.TEXT} weight="bold" />
-            </View>
-            <Text style={styles.lockTitle}>Premium Photo</Text>
-            {card.lockedLabel && card.lockedLabel !== 'Free' ? (
-              <View style={styles.lockPriceRow}>
-                <Star size={12} color={T.ACCENT} weight="fill" />
-                <Text style={styles.lockPrice}>{priceLabel(card.lockedLabel)}</Text>
-              </View>
-            ) : null}
-            <TouchableOpacity
-              style={styles.unlockButton}
-              onPress={onUnlockPress ?? onPress}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Unlock this photo"
-            >
-              <Lock size={12} color={T.BG} weight="bold" />
-              <Text style={styles.unlockText}>Unlock</Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* Creator chip — bottom left, always visible */}
         <View style={styles.imageFooter} pointerEvents="box-none">
@@ -168,12 +136,9 @@ export function ExploreImageCard({
             </View>
           </TouchableOpacity>
 
-          {/* Premium badge */}
-          {card.isPremium && (
-            <View style={styles.premiumPill}>
-              <Star size={8} color="#fff" weight="fill" />
-              <Text style={styles.premiumText}>PREMIUM</Text>
-            </View>
+          {/* Tier badge — only shown for gated content */}
+          {showTierBadge && (
+            <MsTierBadge tier={card.tier!} size="xs" />
           )}
         </View>
       </View>
@@ -223,69 +188,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
 
-  blurredImage: {
-    opacity: 0.18,
-  },
-
   bottomScrim: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     height: 100,
-    // Gradient fade — use a dark-to-transparent scrim via backgroundColor
     backgroundColor: 'rgba(0,0,0,0)',
-    // We layer two views for a proper fade effect
-  },
-
-  lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    zIndex: 2,
-    backgroundColor: 'rgba(8,5,14,0.68)',
-  },
-  lockCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: T.ACCENT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...T.SHADOWS.medium,
-  },
-  lockTitle: {
-    color: T.TEXT,
-    fontFamily: T.FONT.semibold,
-    fontSize: 15,
-    letterSpacing: -0.2,
-  },
-  lockPriceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  lockPrice: {
-    color: T.ACCENT,
-    fontFamily: T.FONT.bold,
-    fontSize: 17,
-  },
-  unlockButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: T.TEXT,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: T.RADIUS.full,
-    marginTop: 4,
-    ...T.SHADOWS.soft,
-  },
-  unlockText: {
-    color: T.BG,
-    fontFamily: T.FONT.bold,
-    fontSize: 14,
   },
 
   imageFooter: {
@@ -299,7 +208,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     zIndex: 3,
-    // Bottom scrim inline
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   creatorChip: {
@@ -322,22 +230,6 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.semibold,
     fontSize: 12,
     maxWidth: 140,
-  },
-
-  premiumPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: T.ACCENT,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: T.RADIUS.full,
-  },
-  premiumText: {
-    color: '#fff',
-    fontFamily: T.FONT.bold,
-    fontSize: 8,
-    letterSpacing: 0.8,
   },
 
   body: {

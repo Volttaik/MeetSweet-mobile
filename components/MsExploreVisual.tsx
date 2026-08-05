@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, Lock, Play, Sparkle, Users } from 'phosphor-react-native';
+import { Check, Play, Sparkle, Users } from 'phosphor-react-native';
 import type { ContentPreview, Creator, TrendingCollection } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -237,7 +237,7 @@ export function MsPreviewCard({
         {preview.thumbnailUrl ? (
           <MsMediaLoader
             uri={preview.thumbnailUrl}
-            style={[StyleSheet.absoluteFill, preview.isPremium && previewStyles.dimmedArt]}
+            style={StyleSheet.absoluteFill}
             resizeMode="cover"
             accessibleLabel={`Thumbnail for ${preview.title}`}
             errorMessage=""
@@ -261,17 +261,11 @@ export function MsPreviewCard({
         </View>
 
         <View style={previewStyles.typeMark}>
-          {preview.isPremium ? (
-            <Lock size={13} color={T.TEXT} />
-          ) : (
-            <Play size={13} color={T.TEXT} weight="fill" />
-          )}
+          <Play size={13} color={T.TEXT} weight="fill" />
           <Text style={previewStyles.typeText}>{preview.kind}</Text>
         </View>
         <View style={previewStyles.previewBadge}>
-          <Text style={previewStyles.previewBadgeText}>
-            {preview.isPremium ? 'PREMIUM' : 'PREVIEW'}
-          </Text>
+          <Text style={previewStyles.previewBadgeText}>PREVIEW</Text>
         </View>
       </View>
       <View style={previewStyles.body}>
@@ -283,11 +277,6 @@ export function MsPreviewCard({
         </Text>
         <View style={previewStyles.footer}>
           <Text style={previewStyles.likes}>{preview.likes} likes</Text>
-          {preview.isPremium && (
-            <Text style={[previewStyles.locked, previewStyles.lockedPremium]}>
-              Subscribers Only
-            </Text>
-          )}
         </View>
       </View>
     </Pressable>

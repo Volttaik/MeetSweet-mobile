@@ -177,7 +177,6 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
     likeCount: preview.likeCount ?? 0,
     commentCount: preview.commentCount ?? 0,
     bookmarkCount: 0,
-    isPremium: preview.isPremium ?? false,
     createdAt: preview.createdAt ?? new Date().toISOString(),
     author: {
       id: creator.id,

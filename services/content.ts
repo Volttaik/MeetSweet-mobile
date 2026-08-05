@@ -41,7 +41,10 @@ export interface LongFormVideo {
   likeCount: number;
   commentCount: number;
   shareCount: number;
-  isPremium: boolean;
+  /** True when this content is gated behind a subscription tier. */
+  isLocked?: boolean;
+  /** Content tier — free / subscriber / subscriber_plus */
+  tier?: 'free' | 'subscriber' | 'subscriber_plus';
   previewDuration: number | null;
   likedByMe: boolean;
   bookmarkedByMe: boolean;
@@ -61,8 +64,8 @@ export interface Short {
   likeCount: number;
   commentCount: number;
   shareCount: number;
-  /** Always false — shorts are always free per product rules */
-  isPremium: false;
+  /** Shorts are always free — isLocked is always false */
+  isLocked: false;
   previewDuration: null;
   likedByMe: boolean;
   createdAt: string;
@@ -119,7 +122,8 @@ function videoFrom(raw: any): LongFormVideo {
     likeCount: numberFrom(raw.like_count),
     commentCount: numberFrom(raw.comment_count),
     shareCount: 0,
-    isPremium: raw.visibility === 'subscribers',
+    isLocked: raw.is_locked ?? raw.isLocked ?? false,
+    tier: raw.tier ?? (raw.visibility === 'subscribers' ? 'subscriber' : 'free'),
     previewDuration: raw.preview_duration ?? null,
     likedByMe: Boolean(raw.liked_by_me),
     bookmarkedByMe: Boolean(raw.bookmarked_by_me),
@@ -145,7 +149,7 @@ function shortFrom(raw: any): Short {
     likeCount: numberFrom(raw.like_count),
     commentCount: numberFrom(raw.comment_count),
     shareCount: 0,
-    isPremium: false,        // shorts are always free
+    isLocked: false,         // shorts are always free
     previewDuration: null,   // no preview gates for shorts
     likedByMe: Boolean(raw.liked_by_me),
     createdAt: raw.published_at ?? raw.created_at ?? '',

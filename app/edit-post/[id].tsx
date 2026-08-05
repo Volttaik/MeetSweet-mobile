@@ -89,7 +89,6 @@ export default function EditPostScreen() {
       markEdited(id, {
         caption: caption.trim(),
         visibility,
-        isPremium: visibility === 'subscribers',
       });
       toast.success('Post updated');
       router.back();

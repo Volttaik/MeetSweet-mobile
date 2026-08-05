@@ -8,7 +8,7 @@
  * - Half-width, portrait ratio (takes CARD_WIDTH as a prop)
  * - Smaller creator avatar chip (22px)
  * - No body section — only the image area with overlaid meta
- * - Compact premium overlay (icon + label, no big unlock button)
+ * - Tier badge shown top-right for subscriber/subscriber_plus content
  */
 import React from 'react';
 import {
@@ -20,11 +20,10 @@ import {
 } from 'react-native';
 import {
   CheckCircle,
-  Lock,
-  Star,
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsTierBadge } from '@/components/MsTierBadge';
 import { T } from '@/constants/theme';
 import type { ExploreImageCardData } from '@/components/ExploreImageCard';
 
@@ -60,6 +59,7 @@ export function CreatorImageCard({
 }: CreatorImageCardProps) {
   // Portrait ratio — slightly taller than square for visual interest
   const height = Math.round(width * 1.22);
+  const showTierBadge = card.tier && card.tier !== 'free';
 
   return (
     <Pressable
@@ -77,9 +77,9 @@ export function CreatorImageCard({
         {card.imageUrl ? (
           <MsMediaLoader
             uri={card.imageUrl}
-            style={[StyleSheet.absoluteFill, card.isPremium && styles.dimmed]}
+            style={StyleSheet.absoluteFill}
             resizeMode="cover"
-            accessibleLabel={card.isPremium ? 'Locked photo' : (card.caption || 'Photo')}
+            accessibleLabel={card.caption || 'Photo'}
             errorMessage=""
             fallback={null}
           />
@@ -88,20 +88,10 @@ export function CreatorImageCard({
         {/* Bottom gradient scrim */}
         <View style={styles.scrim} pointerEvents="none" />
 
-        {/* Premium overlay — compact lock icon centred */}
-        {card.isPremium && (
-          <View style={styles.lockOverlay} pointerEvents="box-none">
-            <View style={styles.lockCircle}>
-              <Lock size={16} color={T.TEXT} weight="bold" />
-            </View>
-          </View>
-        )}
-
-        {/* Subscriber-only badge — top right (never shown in Explore, only in subscriber feeds) */}
-        {card.isPremium && (
-          <View style={styles.premiumBadge}>
-            <Star size={8} color="#fff" weight="fill" />
-            <Text style={styles.premiumText}>SUBSCRIBER</Text>
+        {/* Tier badge — top right for subscriber-gated content */}
+        {showTierBadge && (
+          <View style={styles.tierBadgeWrap}>
+            <MsTierBadge tier={card.tier!} size="xs" />
           </View>
         )}
 
@@ -146,8 +136,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
 
-  dimmed: { opacity: 0.15 },
-
   scrim: {
     position: 'absolute',
     bottom: 0,
@@ -157,40 +145,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
 
-  lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(8,5,14,0.55)',
-    zIndex: 2,
-  },
-  lockCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: T.ACCENT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  premiumBadge: {
+  tierBadgeWrap: {
     position: 'absolute',
     top: 8,
     right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: T.ACCENT,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: T.RADIUS.full,
     zIndex: 3,
-  },
-  premiumText: {
-    color: '#fff',
-    fontFamily: T.FONT.bold,
-    fontSize: 7,
-    letterSpacing: 0.8,
   },
 
   creatorChip: {
