@@ -39,8 +39,7 @@ export function MsShortsPlayer({
       mode="shorts"
       active={active}
       pageHeight={pageHeight}
-      isPremium={item.isPremium}
-      onPremiumRequired={onPremiumRequired}
+      isPremium={false}
       onViewProgress={onViewProgress}
       onDoubleTap={onDoubleTap}
       onError={onError}

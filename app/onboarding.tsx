@@ -129,7 +129,7 @@ const PAGES = [
     key: 'chat',
     tag: 'CONNECT',
     title: 'Connect Privately\nWith Creators',
-    description: 'Send direct messages and receive exclusive content directly from the creators you follow.',
+    description: 'Send direct messages and receive exclusive content directly from the creators you subscribe to.',
     features: [
       'DM creators directly',
       'Voice messages & photo sharing',

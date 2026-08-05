@@ -2,8 +2,8 @@
  * MsUserProfileSheet — compact profile bottom sheet shown when a user
  * taps the avatar, name, or username inside a DM conversation header.
  *
- * Shows a polished profile summary with follow/unfollow action and
- * a "View Full Profile" CTA. Swipe-to-dismiss enabled.
+ * Shows a polished profile summary with a "View Full Profile" CTA.
+ * Swipe-to-dismiss enabled.
  */
 
 import React, { useRef } from 'react';
@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowRight, CheckCircle, UserPlus, X } from 'phosphor-react-native';
+import { ArrowRight, CheckCircle, X } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -28,16 +28,12 @@ export interface ProfileSheetUser {
   avatarUrl: string | null;
   bio?: string | null;
   isVerified?: boolean;
-  followerCount?: number;
-  followingCount?: number;
+  subscriberCount?: number;
 }
 
 interface Props {
   visible: boolean;
   user: ProfileSheetUser | null;
-  isFollowing?: boolean;
-  onFollow?: () => void;
-  onUnfollow?: () => void;
   onClose: () => void;
 }
 
@@ -59,9 +55,6 @@ function fmtCount(n: number | undefined): string {
 export function MsUserProfileSheet({
   visible,
   user,
-  isFollowing,
-  onFollow,
-  onUnfollow,
   onClose,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -71,11 +64,6 @@ export function MsUserProfileSheet({
   const handleViewProfile = () => {
     onClose();
     setTimeout(() => router.push(`/creator/${user.username}` as any), 200);
-  };
-
-  const handleFollowToggle = () => {
-    if (isFollowing) onUnfollow?.();
-    else onFollow?.();
   };
 
   return (
@@ -106,17 +94,12 @@ export function MsUserProfileSheet({
         <Text style={s.usernameText}>@{user.username}</Text>
       </View>
 
-      {/* Stats row */}
-      {(user.followerCount !== undefined || user.followingCount !== undefined) && (
+      {/* Subscriber count */}
+      {user.subscriberCount !== undefined && (
         <View style={s.statsRow}>
           <View style={s.stat}>
-            <Text style={s.statNum}>{fmtCount(user.followerCount)}</Text>
+            <Text style={s.statNum}>{fmtCount(user.subscriberCount)}</Text>
             <Text style={s.statLabel}>Subscribers</Text>
-          </View>
-          <View style={s.statDivider} />
-          <View style={s.stat}>
-            <Text style={s.statNum}>{fmtCount(user.followingCount)}</Text>
-            <Text style={s.statLabel}>Subscribed To</Text>
           </View>
         </View>
       )}
@@ -128,18 +111,6 @@ export function MsUserProfileSheet({
 
       {/* Action buttons */}
       <View style={[s.actions, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        {(onFollow || onUnfollow) && (
-          <TouchableOpacity
-            style={[s.actionBtn, isFollowing ? s.actionBtnOutline : s.actionBtnFill]}
-            onPress={handleFollowToggle}
-            activeOpacity={0.8}
-          >
-            <UserPlus size={16} color={isFollowing ? T.TEXT_2 : '#fff'} />
-            <Text style={[s.actionBtnText, isFollowing && s.actionBtnTextOutline]}>
-              {isFollowing ? 'Subscribed' : 'Subscribe'}
-            </Text>
-          </TouchableOpacity>
-        )}
         <TouchableOpacity style={s.viewProfileBtn} onPress={handleViewProfile} activeOpacity={0.8}>
           <Text style={s.viewProfileText}>View Full Profile</Text>
           <ArrowRight size={16} color={T.TEXT} />

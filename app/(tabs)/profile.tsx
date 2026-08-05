@@ -1057,14 +1057,12 @@ export default function ProfileScreen() {
         <View style={styles.statsRow}>
           <StatItem
             label="Subscribers"
-            value={formatCount(user?.followerCount ?? 0)}
-            onPress={() => router.push({ pathname: '/creator/[id]', params: { id: user?.username ?? '', tab: 'followers' } })}
+            value={formatCount(user?.subscriberCount ?? 0)}
           />
           <View style={styles.statsDivider} />
           <StatItem
             label="Subscribed To"
-            value={formatCount(user?.followingCount ?? 0)}
-            onPress={() => router.push({ pathname: '/creator/[id]', params: { id: user?.username ?? '', tab: 'following' } })}
+            value={formatCount(user?.subscribingCount ?? 0)}
           />
           <View style={styles.statsDivider} />
           <StatItem label="Posts" value={formatCount(loadingPosts ? (user?.postCount ?? 0) : posts.length)} />

@@ -443,7 +443,7 @@ export default function CreatorProfileScreen() {
   const [realProfile, setRealProfile] = useState<{
     name: string; username: string; bio?: string | null;
     avatarUrl?: string | null; bannerUrl?: string | null;
-    followerCount?: number; isVerified?: boolean;
+    subscriberCount?: number; isVerified?: boolean;
   } | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
@@ -475,7 +475,7 @@ export default function CreatorProfileScreen() {
           bio:           profile.bio,
           avatarUrl:     profile.avatarUrl,
           bannerUrl:     profile.bannerUrl,
-          followerCount: profile.followerCount,
+          subscriberCount: profile.subscriberCount,
           isVerified:    profile.isVerified,
         });
       })
@@ -522,7 +522,7 @@ export default function CreatorProfileScreen() {
     const resolvedInitials = initials(resolvedName);
     const resolvedBio      = profile?.bio ?? base?.bio ?? '';
     const resolvedFollowers = profile
-      ? fmtCount(profile.followerCount ?? 0)
+      ? fmtCount(profile.subscriberCount ?? 0)
       : (base?.followers ?? '');
     const resolvedIsVerified = profile?.isVerified ?? base?.isVerified ?? false;
 
@@ -589,7 +589,7 @@ export default function CreatorProfileScreen() {
           setRealProfile({
             name: profile.name, username: profile.username, bio: profile.bio,
             avatarUrl: profile.avatarUrl, bannerUrl: profile.bannerUrl,
-            followerCount: profile.followerCount, isVerified: profile.isVerified,
+            subscriberCount: profile.subscriberCount, isVerified: profile.isVerified,
           });
         }).catch(() => {}),
         getCreatorContentPosts(creatorUUID)

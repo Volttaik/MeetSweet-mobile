@@ -27,8 +27,7 @@ export interface CreatorProfileFull {
   isCreator: boolean;
   isVerifiedCreator: boolean;
   role: string;
-  followerCount: number;
-  followingCount: number;
+  subscriberCount: number;
   postCount: number;
   subscriptionPrice: number | null;
   /** Whether the currently authenticated user is subscribed to this creator */
@@ -51,7 +50,6 @@ export interface CreatorReview {
 
 /** Aggregate performance stats for a creator */
 export interface CreatorStats {
-  follower_count: number;
   subscriber_count: number;
   post_count: number;
   total_likes: number;
@@ -99,8 +97,7 @@ function normalizeCreatorProfile(raw: any): CreatorProfileFull {
     isCreator:          raw.is_creator ?? true,
     isVerifiedCreator:  raw.is_verified_creator ?? false,
     role:               raw.role ?? 'user',
-    followerCount:      raw.follower_count ?? 0,
-    followingCount:     raw.following_count ?? 0,
+    subscriberCount:    raw.subscriber_count ?? raw.follower_count ?? 0,
     postCount:          raw.post_count ?? 0,
     subscriptionPrice:  raw.subscription_price ?? null,
     subscribedToCreator: raw.subscribed_to_creator ?? false,
@@ -298,7 +295,6 @@ export async function getCreatorStats(_id?: string): Promise<CreatorStats | null
     const periodStats = raw?.period_stats ?? [];
     const totalLikes = periodStats.reduce((sum, p) => sum + (p.likes ?? 0), 0);
     return {
-      follower_count: 0,
       subscriber_count: raw?.active_subscribers ?? 0,
       post_count: raw?.total_posts ?? 0,
       total_likes: totalLikes,
@@ -319,8 +315,8 @@ export async function getCreatorByUsername(username: string): Promise<CreatorPro
     return {
       ...profile,
       subscription_price: profile.subscriptionPrice,
-      follower_count:     profile.followerCount,
-      subscriber_count:   0,
+      follower_count:     profile.subscriberCount,
+      subscriber_count:   profile.subscriberCount,
       post_count:         profile.postCount,
       is_verified:        profile.isVerified,
       is_online:          false,

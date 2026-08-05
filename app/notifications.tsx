@@ -221,7 +221,7 @@ export default function NotificationsScreen() {
       ) : notifications.length === 0 ? (
         <MsEmptyState
           title="You're all caught up"
-          message="When someone likes your post, follows you, or messages you — it'll show up here."
+          message="When someone likes your post, subscribes to you, or messages you — it'll show up here."
         />
       ) : (
         <ScrollView

@@ -13,7 +13,6 @@ import {
 } from '@/lib/posts-db';
 import { likePost, unlikePost, bookmarkPost, unbookmarkPost } from '@/services/posts';
 import { sendMessage } from '@/services/messages';
-import { followUser, unfollowUser } from '@/services/users';
 
 async function executeAction(action: OfflineAction): Promise<void> {
   switch (action.type) {
@@ -27,10 +26,6 @@ async function executeAction(action: OfflineAction): Promise<void> {
       break;
     case 'send_message':
       await sendMessage(action.conversationId, action.text);
-      break;
-    case 'follow_user':
-      if (action.follow) await followUser(action.username);
-      else await unfollowUser(action.username);
       break;
   }
 }

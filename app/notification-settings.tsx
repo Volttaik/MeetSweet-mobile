@@ -27,7 +27,7 @@ interface NotifPrefs {
   newComments: boolean;
   newMentions: boolean;
   newLikes: boolean;
-  newFollowers: boolean;
+  newSubscribers: boolean;
   creatorUpdates: boolean;
   marketing: boolean;
   // Channels
@@ -50,7 +50,7 @@ const DEFAULTS: NotifPrefs = {
   newComments: true,
   newMentions: true,
   newLikes: true,
-  newFollowers: true,
+  newSubscribers: true,
   creatorUpdates: true,
   marketing: false,
   pushEnabled: true,
@@ -188,15 +188,15 @@ export default function NotificationSettingsScreen() {
           />
           <View style={styles.divider} />
           <ToggleRow
-            label="New Followers"
-            description="When someone follows you"
-            value={prefs.newFollowers}
-            onValueChange={toggle('newFollowers')}
+            label="New Subscribers"
+            description="When someone subscribes to you"
+            value={prefs.newSubscribers}
+            onValueChange={toggle('newSubscribers')}
           />
           <View style={styles.divider} />
           <ToggleRow
             label="Creator Updates"
-            description="Updates from creators you follow"
+            description="Updates from creators you subscribe to"
             value={prefs.creatorUpdates}
             onValueChange={toggle('creatorUpdates')}
           />

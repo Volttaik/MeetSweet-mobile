@@ -27,8 +27,8 @@ function normalizeUser(raw: any): User {
     isCreator: raw.is_creator ?? false,
     isVerifiedCreator: raw.is_verified_creator ?? false,
     role: raw.role ?? 'user',
-    followerCount: raw.follower_count ?? 0,
-    followingCount: raw.following_count ?? 0,
+    subscriberCount: raw.subscriber_count ?? raw.follower_count ?? 0,
+    subscribingCount: raw.following_count ?? 0,
     postCount: raw.post_count ?? 0,
     createdAt: raw.created_at ?? new Date().toISOString(),
   };
@@ -74,35 +74,16 @@ export async function updateMe(data: {
 
 export async function getUser(
   username: string,
-): Promise<{ user: User; isFollowing: boolean }> {
+): Promise<{ user: User }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const raw = await apiFetch<{ user: unknown; isFollowing?: boolean }>(
+  const raw = await apiFetch<{ user: unknown }>(
     `/users/${encodeURIComponent(username)}`,
     { headers },
   );
   return {
     user: normalizeUser(raw?.user ?? raw),
-    isFollowing: raw?.isFollowing ?? false,
   };
-}
-
-export async function followUser(username: string): Promise<{ following: boolean }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/users/${encodeURIComponent(username)}/follow`, {
-    method: 'POST',
-    headers: authHeader(token),
-  });
-}
-
-export async function unfollowUser(username: string): Promise<{ following: boolean }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/users/${encodeURIComponent(username)}/follow`, {
-    method: 'DELETE',
-    headers: authHeader(token),
-  });
 }
 
 export async function searchUsers(

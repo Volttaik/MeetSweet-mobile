@@ -300,8 +300,7 @@ export async function getCachedConversationsList(userId: string): Promise<Conver
 export type OfflineAction =
   | { type: 'like_post';    postId: string; liked: boolean }
   | { type: 'save_post';    postId: string; saved: boolean }
-  | { type: 'send_message'; conversationId: string; text: string; tempId: string }
-  | { type: 'follow_user';  username: string; follow: boolean };
+  | { type: 'send_message'; conversationId: string; text: string; tempId: string };
 
 export async function enqueueOfflineAction(
   action: OfflineAction,

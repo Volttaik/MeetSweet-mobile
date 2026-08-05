@@ -87,7 +87,7 @@ import {
   markConversationRead,
   type ChatMessage,
 } from '@/services/messages';
-import { getUser, followUser, unfollowUser } from '@/services/users';
+import { getUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 import {
   getCachedMessages,
@@ -152,7 +152,6 @@ export default function ChatScreen() {
     username:  paramUsername  ?? '',
     avatarUrl: paramAvatarUrl ?? null,
   });
-  const [isFollowing, setIsFollowing] = useState(false);
 
   // ── Context menu animation ────────────────────────────────────────────────────
   const menuScaleAnim = useRef(new Animated.Value(0)).current;
@@ -1008,13 +1007,6 @@ export default function ChatScreen() {
         <MsUserProfileSheet
           visible={showProfileSheet}
           user={otherUser}
-          isFollowing={isFollowing}
-          onFollow={async () => {
-            try { await followUser(otherUser.username); setIsFollowing(true); } catch {/**/}
-          }}
-          onUnfollow={async () => {
-            try { await unfollowUser(otherUser.username); setIsFollowing(false); } catch {/**/}
-          }}
           onClose={() => setShowProfileSheet(false)}
         />
       )}

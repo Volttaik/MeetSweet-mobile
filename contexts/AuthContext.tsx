@@ -20,8 +20,8 @@ export interface User {
   isCreator: boolean;
   isVerifiedCreator: boolean;
   role: 'user' | 'creator' | 'admin';
-  followerCount: number;
-  followingCount: number;
+  subscriberCount: number;
+  subscribingCount: number;
   postCount: number;
   createdAt: string;
 }
@@ -82,8 +82,8 @@ function normalizeUser(raw: any): User {
     isCreator: raw.is_creator ?? raw.isCreator ?? false,
     isVerifiedCreator: raw.is_verified_creator ?? raw.isVerifiedCreator ?? false,
     role: raw.role ?? 'user',
-    followerCount: raw.follower_count ?? raw.followerCount ?? 0,
-    followingCount: raw.following_count ?? raw.followingCount ?? 0,
+    subscriberCount: raw.subscriber_count ?? raw.subscriberCount ?? raw.follower_count ?? 0,
+    subscribingCount: raw.following_count ?? raw.followingCount ?? 0,
     postCount: raw.post_count ?? raw.postCount ?? 0,
     createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
   };

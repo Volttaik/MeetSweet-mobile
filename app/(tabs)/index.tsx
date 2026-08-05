@@ -51,7 +51,7 @@ function DiscoveryState() {
         <View style={discoveryStyles.heroIcon}>
           <Compass size={36} color={T.ACCENT} weight="duotone" />
         </View>
-        <Text style={discoveryStyles.heroTitle}>Discover creators to follow</Text>
+        <Text style={discoveryStyles.heroTitle}>Discover creators to subscribe to</Text>
         <Text style={discoveryStyles.heroSubtitle}>
           Your feed shows posts from creators you're subscribed to.
           Subscribe to a creator to see their latest content here.

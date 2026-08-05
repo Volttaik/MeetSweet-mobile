@@ -18,7 +18,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowUp, ArrowLeft, ChatCircle, CheckCircle, Heart, Lock, ShareNetwork, UserPlus } from 'phosphor-react-native';
+import { ArrowUp, ArrowLeft, ChatCircle, CheckCircle, Heart, ShareNetwork, Users } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
 import { CommentsModal } from '@/components/MsCommentsSheet';
@@ -39,65 +39,6 @@ import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboard
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// ─── Premium paywall sheet ─────────────────────────────────────────────────────
-
-function PremiumSheet({
-  visible,
-  creatorName,
-  onSubscribe,
-  onClose,
-  insetBottom,
-}: {
-  visible: boolean;
-  creatorName: string;
-  onSubscribe: () => void;
-  onClose: () => void;
-  insetBottom: number;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={sheetStyles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={[sheetStyles.sheet, { paddingBottom: Math.max(insetBottom, 20) }]}>
-          <View style={sheetStyles.handle} />
-          <View style={sheetStyles.lockCircle}>
-            <Lock size={22} color={T.ACCENT} />
-          </View>
-          <Text style={sheetStyles.title}>Subscriber Short</Text>
-          <Text style={sheetStyles.desc}>
-            Subscribe to {creatorName} to watch this Short and unlock their full feed.
-          </Text>
-          <TouchableOpacity style={sheetStyles.primaryBtn} activeOpacity={0.85} onPress={onSubscribe}>
-            <Text style={sheetStyles.primaryLabel}>Subscribe to unlock</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={sheetStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-            <Text style={sheetStyles.cancelLabel}>Not now</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
-
-const sheetStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 24, paddingTop: 12, gap: 12,
-  },
-  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.TEXT_3, alignSelf: 'center', marginBottom: 8 },
-  lockCircle: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: T.ACCENT_LIGHT,
-    alignItems: 'center', justifyContent: 'center', alignSelf: 'center',
-  },
-  title: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center', letterSpacing: -0.4 },
-  desc: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', lineHeight: 20 },
-  primaryBtn: { height: 52, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT, alignItems: 'center', justifyContent: 'center' },
-  primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
-  cancelBtn: { alignItems: 'center', paddingVertical: 10 },
-  cancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-});
 
 /** Map a cached Post (from posts-db) into the Short shape content.ts expects */
 function postToShort(post: Post): Short {
@@ -112,7 +53,7 @@ function postToShort(post: Post): Short {
     shareCount: 0,
     viewCount: 0,
     likedByMe: post.likedByMe,
-    isPremium: post.isPremium,
+    isPremium: false,        // shorts are always free
     previewDuration: null,
     createdAt: post.createdAt,
     creator: {
@@ -202,7 +143,7 @@ export default function ShortsScreen() {
       const postsToCache: Post[] = page.items.map((s) => ({
         id: s.id,
         caption: s.caption ?? '',
-        visibility: s.isPremium ? 'subscribers' : 'public' as const,
+        visibility: 'public' as const,  // shorts are always public/free
         contentType: 'short' as const,
         mediaUrl: s.videoUrl,
         mediaType: 'video' as const,
@@ -214,7 +155,7 @@ export default function ShortsScreen() {
         likeCount: s.likeCount,
         commentCount: s.commentCount,
         bookmarkCount: 0,
-        isPremium: s.isPremium,
+        isPremium: false,  // shorts are always free
         createdAt: new Date().toISOString(),
         author: {
           id: s.creator.id,
@@ -364,7 +305,6 @@ function ShortPage({
 }) {
   const [liked,     setLiked]     = useState(item.likedByMe);
   const [likeCount, setLikeCount] = useState(item.likeCount);
-  const [premiumSheetVisible, setPremiumSheetVisible] = useState(false);
 
   const { hearts, spawnHeart } = useHeartBurst();
   const likeScale = useSharedValue(1);
@@ -427,7 +367,6 @@ function ShortPage({
           active={active}
           pageHeight={pageHeight}
           onViewProgress={onViewProgress}
-          onPremiumRequired={() => setPremiumSheetVisible(true)}
         />
       </Pressable>
 
@@ -445,18 +384,12 @@ function ShortPage({
 
       {/* Bottom content */}
       <View style={styles.content}>
-        {item.isPremium ? (
-          <TouchableOpacity style={styles.upgradePill} onPress={() => setPremiumSheetVisible(true)} activeOpacity={0.8}>
-            <Lock size={12} color="#fff" />
-            <Text style={styles.upgradeText}>Subscribe to watch</Text>
-          </TouchableOpacity>
-        ) : null}
         <View style={styles.creatorLine}>
           <MsAvatar size={38} initials={item.creator.name.slice(0, 2).toUpperCase()} imageUri={item.creator.avatarUrl ?? undefined} />
           <Text style={styles.creatorName}>{item.creator.name}</Text>
           {item.creator.isVerified ? <CheckCircle size={15} color="#fff" weight="fill" /> : null}
           <PressScale style={styles.subscribe} onPress={() => router.push(`/creator/${item.creator.id}`)}>
-            <UserPlus size={12} color={T.BG} />
+            <Users size={12} color={T.BG} />
             <Text style={styles.subscribeText}>Subscribe</Text>
           </PressScale>
         </View>
@@ -498,13 +431,6 @@ function ShortPage({
         </PressScale>
       </View>
 
-      <PremiumSheet
-        visible={premiumSheetVisible}
-        creatorName={item.creator.name}
-        onSubscribe={() => { setPremiumSheetVisible(false); router.push(`/creator/${item.creator.id}`); }}
-        onClose={() => setPremiumSheetVisible(false)}
-        insetBottom={bottomInset}
-      />
     </View>
   );
 }
@@ -534,11 +460,6 @@ const styles = StyleSheet.create({
   topEyebrow: { color: 'rgba(255,255,255,0.62)', fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 1.3 },
   topText: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 15, marginTop: 1 },
   content: { position: 'absolute', left: 18, right: 78, bottom: 36, gap: 9 },
-  upgradePill: {
-    alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: T.ACCENT, borderRadius: T.RADIUS.full, paddingHorizontal: 10, paddingVertical: 6,
-  },
-  upgradeText: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 },
   creatorLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   creatorName: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 14 },
   subscribe: {

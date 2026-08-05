@@ -61,8 +61,9 @@ export interface Short {
   likeCount: number;
   commentCount: number;
   shareCount: number;
-  isPremium: boolean;
-  previewDuration: number | null;
+  /** Always false — shorts are always free per product rules */
+  isPremium: false;
+  previewDuration: null;
   likedByMe: boolean;
   createdAt: string;
   creator: ContentCreator;
@@ -144,8 +145,8 @@ function shortFrom(raw: any): Short {
     likeCount: numberFrom(raw.like_count),
     commentCount: numberFrom(raw.comment_count),
     shareCount: 0,
-    isPremium: raw.visibility === 'subscribers',
-    previewDuration: raw.preview_duration ?? null,
+    isPremium: false,        // shorts are always free
+    previewDuration: null,   // no preview gates for shorts
     likedByMe: Boolean(raw.liked_by_me),
     createdAt: raw.published_at ?? raw.created_at ?? '',
     creator: creatorFrom(raw),
