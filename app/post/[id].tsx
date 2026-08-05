@@ -202,7 +202,7 @@ export default function PostDetailScreen() {
 
       <FlatList
         data={comments}
-        keyExtractor={(item) => item.id}
+         keyExtractor={(item, index) => `${item.id || 'comment'}-${index}`}
         ListHeaderComponent={
           <View>
             <MsPostCard

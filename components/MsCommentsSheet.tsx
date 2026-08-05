@@ -171,8 +171,8 @@ function RepliesThread({
 
   return (
     <View style={replyStyles.wrap}>
-      {replies.map((r) => (
-        <View key={r.id} style={replyStyles.row}>
+      {replies.map((r, index) => (
+        <View key={`${r.id || 'reply'}-${index}`} style={replyStyles.row}>
           <MsAvatar size={26} initials={nameInitials(r.author.name)} imageUri={r.author.avatarUrl ?? undefined} />
           <View style={replyStyles.body}>
             <View style={replyStyles.header}>
@@ -542,7 +542,7 @@ export function CommentsModal({
             ) : (
               <FlatList
                 data={comments}
-                keyExtractor={(c) => c.id}
+                keyExtractor={(c, index) => `${c.id || 'comment'}-${index}`}
                 renderItem={({ item, index }) => (
                   <CommentRow
                     comment={item}
@@ -731,7 +731,7 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
 
       {preview.map((c, i) => (
         <CommentRow
-          key={c.id}
+          key={`${c.id || 'comment'}-${i}`}
           comment={c}
           postId={postId}
           currentUserId={currentUserId}

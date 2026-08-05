@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -212,6 +213,10 @@ export default function CreatorDashboardScreen() {
 
   // ── Local settings state ────────
   const [subsEnabled, setSubsEnabled] = useState(true);
+  const [subscriberPrice, setSubscriberPrice] = useState(200);
+  const [subscriberPlusPrice, setSubscriberPlusPrice] = useState(500);
+  const [editingPrice, setEditingPrice] = useState<'subscriber' | 'subscriber_plus' | null>(null);
+  const [priceDraft, setPriceDraft] = useState('');
   const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanComment, setWhoCanComment] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
@@ -276,6 +281,12 @@ export default function CreatorDashboardScreen() {
         setWhoCanMessage(settings.who_can_message ?? 'everyone');
         setWhoCanComment(settings.allow_comments ? 'everyone' : 'none');
         setSubsEnabled(true);
+        setSubscriberPrice(settings.subscription_price && settings.subscription_price > 0 ? settings.subscription_price : 200);
+        setSubscriberPlusPrice(
+          settings.subscription_plus_price && settings.subscription_plus_price > 0
+            ? settings.subscription_plus_price
+            : 500,
+        );
       }
       setError('');
     } catch (e) {
@@ -289,6 +300,27 @@ export default function CreatorDashboardScreen() {
   useEffect(() => { load(); }, []);
 
   const handleRefresh = () => { setRefreshing(true); load(); };
+
+  const beginPriceEdit = (plan: 'subscriber' | 'subscriber_plus') => {
+    setEditingPrice(plan);
+    setPriceDraft(String(plan === 'subscriber' ? subscriberPrice : subscriberPlusPrice));
+  };
+
+  const savePrice = async (plan: 'subscriber' | 'subscriber_plus') => {
+    const price = Math.max(0, Number(priceDraft.replace(/[^0-9.]/g, '')) || 0);
+    try {
+      const next = await updateCreatorSettings(
+        plan === 'subscriber'
+          ? { subscription_price: price }
+          : { subscription_plus_price: price },
+      );
+      if (plan === 'subscriber') setSubscriberPrice(next.subscription_price ?? price);
+      else setSubscriberPlusPrice(next.subscription_plus_price ?? price);
+      setEditingPrice(null);
+    } catch {
+      Alert.alert('Could not save price', 'Please try again.');
+    }
+  };
 
   const monthRevenue = dashboard?.period_stats?.[0]?.revenue ?? 0;
   const totalRevenue = dashboard?.total_revenue ?? 0;
@@ -450,24 +482,64 @@ export default function CreatorDashboardScreen() {
             />
             <SettingsDivider />
             {/* Subscriber plan */}
-            <SettingsRow
-              label="👥 Subscriber price"
-              value="Set in dashboard"
-              onPress={() => Alert.alert(
-                'Subscriber Plan',
-                'Subscribers unlock all subscriber-only posts and videos, plus direct messaging.\n\nContact support to set your monthly price.',
-              )}
-            />
+            {editingPrice === 'subscriber' ? (
+              <View style={styles.priceEditor}>
+                <Text style={styles.priceEditorLabel}>👥 Subscriber price</Text>
+                <View style={styles.priceEditorControls}>
+                  <Text style={styles.nairaPrefix}>₦</Text>
+                  <TextInput
+                    value={priceDraft}
+                    onChangeText={setPriceDraft}
+                    keyboardType="numeric"
+                    style={styles.priceInput}
+                    autoFocus
+                    selectTextOnFocus
+                  />
+                  <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber')}>
+                    <Text style={styles.priceSaveText}>Save</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
+                    <Text style={styles.priceCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <SettingsRow
+                label="👥 Subscriber price"
+                value={`₦${subscriberPrice.toLocaleString()}/mo`}
+                onPress={() => beginPriceEdit('subscriber')}
+              />
+            )}
             <SettingsDivider />
             {/* Subscriber+ plan */}
-            <SettingsRow
-              label="⭐ Subscriber+ price"
-              value="Set in dashboard"
-              onPress={() => Alert.alert(
-                'Subscriber+ Plan',
-                'Subscriber+ members unlock everything in Subscriber plus exclusive Subscriber+ content and priority access.\n\nContact support to set your monthly price.',
-              )}
-            />
+            {editingPrice === 'subscriber_plus' ? (
+              <View style={styles.priceEditor}>
+                <Text style={styles.priceEditorLabel}>⭐ Subscriber+ price</Text>
+                <View style={styles.priceEditorControls}>
+                  <Text style={styles.nairaPrefix}>₦</Text>
+                  <TextInput
+                    value={priceDraft}
+                    onChangeText={setPriceDraft}
+                    keyboardType="numeric"
+                    style={styles.priceInput}
+                    autoFocus
+                    selectTextOnFocus
+                  />
+                  <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber_plus')}>
+                    <Text style={styles.priceSaveText}>Save</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
+                    <Text style={styles.priceCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <SettingsRow
+                label="⭐ Subscriber+ price"
+                value={`₦${subscriberPlusPrice.toLocaleString()}/mo`}
+                onPress={() => beginPriceEdit('subscriber_plus')}
+              />
+            )}
             <SettingsDivider />
             <SettingsRow
               label="Trial period"
@@ -837,6 +909,52 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: T.BORDER,
     marginHorizontal: 16,
+  },
+  priceEditor: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  priceEditorLabel: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 13,
+  },
+  priceEditorControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nairaPrefix: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 16,
+  },
+  priceInput: {
+    flex: 1,
+    minHeight: 42,
+    color: T.TEXT,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+    paddingHorizontal: 12,
+    fontFamily: T.FONT.medium,
+    fontSize: 14,
+  },
+  priceSave: {
+    backgroundColor: T.ACCENT,
+    borderRadius: T.RADIUS.full,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  priceSaveText: {
+    color: T.BG,
+    fontFamily: T.FONT.semibold,
+    fontSize: 12,
+  },
+  priceCancelText: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.medium,
+    fontSize: 12,
   },
 
   // Analytics inside settings section

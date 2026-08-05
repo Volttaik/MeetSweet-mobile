@@ -202,8 +202,8 @@ function SubscribeSheet({
 
   const planCfg  = PLANS.find((p) => p.key === selectedPlan)!;
   const price    = selectedPlan === 'subscriber'
-    ? (creatorProfile?.subscriptionPrice ?? 0)
-    : ((creatorProfile as any)?.subscriptionPlusPrice ?? 0);
+    ? (creatorProfile?.subscriptionPrice ?? 200)
+    : (creatorProfile?.subscriptionPlusPrice ?? 500);
   const canAfford = walletBalance >= price || price === 0;
 
   return (
@@ -218,8 +218,8 @@ function SubscribeSheet({
           {PLANS.map((plan) => {
             const active = selectedPlan === plan.key;
             const planPrice = plan.key === 'subscriber'
-              ? (creatorProfile?.subscriptionPrice ?? 0)
-              : ((creatorProfile as any)?.subscriptionPlusPrice ?? 0);
+              ? (creatorProfile?.subscriptionPrice ?? 200)
+              : (creatorProfile?.subscriptionPlusPrice ?? 500);
             return (
               <TouchableOpacity
                 key={plan.key}

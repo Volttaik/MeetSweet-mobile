@@ -78,7 +78,7 @@ function VideoCard({ video }: { video: LongFormVideo }) {
         <MsAvatar size={38} initials={video.creator.name.slice(0, 2).toUpperCase()} imageUri={video.creator.avatarUrl ?? undefined} />
         <View style={styles.cardCopy}><Text style={styles.videoTitle} numberOfLines={2}>{video.title || 'Untitled video'}</Text><Text style={styles.creator}>{video.creator.name}{video.creator.isVerified ? '  ✓' : ''} · {formatCount(video.viewCount)} views</Text><View style={styles.stats}><Text style={styles.stat}><Heart size={11} color={T.TEXT_3} /> {formatCount(video.likeCount)}</Text><Text style={styles.stat}><ChatCircle size={11} color={T.TEXT_3} /> {formatCount(video.commentCount)}</Text><Text style={styles.stat}><ShareNetwork size={11} color={T.TEXT_3} /> {formatCount(video.shareCount)}</Text><Text style={styles.stat}>{timeAgo(video.createdAt)}</Text></View></View>
       </View>
-      {video.commentsPreview.length > 0 ? <View style={styles.commentPreview}><Text style={styles.commentLabel}>COMMENTS</Text>{video.commentsPreview.slice(0, 2).map((comment) => <Text key={comment.id} style={styles.commentLine} numberOfLines={1}><Text style={styles.commentAuthor}>{comment.author.name}: </Text>{comment.body}</Text>)}</View> : null}
+          {video.commentsPreview.length > 0 ? <View style={styles.commentPreview}><Text style={styles.commentLabel}>COMMENTS</Text>{video.commentsPreview.slice(0, 2).map((comment, index) => <Text key={`${comment.id || 'comment'}-${index}`} style={styles.commentLine} numberOfLines={1}><Text style={styles.commentAuthor}>{comment.author.name}: </Text>{comment.body}</Text>)}</View> : null}
     </Pressable>
   );
 }

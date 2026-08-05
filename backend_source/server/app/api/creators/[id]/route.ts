@@ -107,8 +107,18 @@ export async function GET(
     shortCount,
     album_count: albumCount,
     albumCount,
-    subscription_price: settings?.subscription_price ?? user.subscription_price ?? 0,
-    subscriptionPrice: settings?.subscription_price ?? user.subscription_price ?? 0,
+     subscription_price: settings?.subscription_price && settings.subscription_price > 0
+       ? settings.subscription_price
+       : (user.subscription_price && user.subscription_price > 0 ? user.subscription_price : 200),
+     subscriptionPrice: settings?.subscription_price && settings.subscription_price > 0
+       ? settings.subscription_price
+       : (user.subscription_price && user.subscription_price > 0 ? user.subscription_price : 200),
+     subscription_plus_price: settings?.subscription_plus_price && settings.subscription_plus_price > 0
+       ? settings.subscription_plus_price
+       : 500,
+     subscriptionPlusPrice: settings?.subscription_plus_price && settings.subscription_plus_price > 0
+       ? settings.subscription_plus_price
+       : 500,
     allow_dms: settings?.allow_dms ?? true,
     allow_comments: settings?.allow_comments ?? true,
     who_can_message: (settings?.who_can_message as 'everyone' | 'subscribers' | 'none') ?? 'everyone',

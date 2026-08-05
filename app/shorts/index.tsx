@@ -66,6 +66,16 @@ function postToShort(post: Post): Short {
   };
 }
 
+function profileRoute(
+  currentUser: { id?: string; username?: string } | null,
+  creator: { id: string; username: string },
+) {
+  const isSelf =
+    currentUser?.id === creator.id ||
+    (!!currentUser?.username && currentUser.username === creator.username);
+  return isSelf ? '/(tabs)/profile' : `/creator/${creator.id}`;
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ShortsScreen() {
@@ -229,6 +239,7 @@ export default function ShortsScreen() {
             topInset={insets.top}
             bottomInset={insets.bottom}
             pageHeight={pageHeight}
+            currentUser={user}
             isFirst={index === 0}
             isLast={index === shorts.length - 1}
             onComment={() => setCommentsId(item.id)}
@@ -286,6 +297,7 @@ function ShortPage({
   topInset,
   bottomInset,
   pageHeight,
+  currentUser,
   isFirst,
   isLast,
   onComment,
@@ -297,6 +309,7 @@ function ShortPage({
   topInset: number;
   bottomInset: number;
   pageHeight: number;
+  currentUser: { id: string; username: string } | null;
   isFirst: boolean;
   isLast: boolean;
   onComment: () => void;
@@ -384,15 +397,20 @@ function ShortPage({
 
       {/* Bottom content */}
       <View style={styles.content}>
-        <View style={styles.creatorLine}>
+        <Pressable
+          style={styles.creatorLine}
+          onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${item.creator.name}'s profile`}
+        >
           <MsAvatar size={38} initials={item.creator.name.slice(0, 2).toUpperCase()} imageUri={item.creator.avatarUrl ?? undefined} />
           <Text style={styles.creatorName}>{item.creator.name}</Text>
           {item.creator.isVerified ? <CheckCircle size={15} color="#fff" weight="fill" /> : null}
-          <PressScale style={styles.subscribe} onPress={() => router.push(`/creator/${item.creator.id}`)}>
+          <PressScale style={styles.subscribe} onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}>
             <Users size={12} color={T.BG} />
             <Text style={styles.subscribeText}>Subscribe</Text>
           </PressScale>
-        </View>
+        </Pressable>
         {item.caption ? <Text style={styles.caption} numberOfLines={3}>{item.caption}</Text> : null}
         <Text style={styles.views}>{formatCount(item.viewCount)} views</Text>
         

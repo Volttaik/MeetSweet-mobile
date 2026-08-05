@@ -39,7 +39,7 @@ export function MsContentComments({ kind, contentId, visible, onClose, count = 0
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.header}><Text style={styles.title}>Comments <Text style={styles.count}>{count || comments.length}</Text></Text><Pressable onPress={onClose}><X size={19} color={T.TEXT_2} /></Pressable></View>
-          {loading ? <ActivityIndicator color={T.TEXT_2} style={styles.loader} /> : <FlatList data={comments} keyExtractor={(item) => item.id} renderItem={({ item }) => <CommentRow item={item} />} ListEmptyComponent={<Text style={styles.empty}>No comments yet. Start the conversation.</Text>} contentContainerStyle={styles.list} />}
+          {loading ? <ActivityIndicator color={T.TEXT_2} style={styles.loader} /> : <FlatList data={comments} keyExtractor={(item, index) => `${item.id || 'comment'}-${index}`} renderItem={({ item }) => <CommentRow item={item} />} ListEmptyComponent={<Text style={styles.empty}>No comments yet. Start the conversation.</Text>} contentContainerStyle={styles.list} />}
           <MsComposer mode="comment" value={draft} onChangeText={setDraft} onSend={send} disabled={sending} placeholder="Add a comment…" />
         </View>
       </KeyboardAvoidingView>

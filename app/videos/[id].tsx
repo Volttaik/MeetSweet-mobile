@@ -55,6 +55,7 @@ import {
 import { useLocalExploreCatalog, fmtTimeAgo } from '@/services/explore';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
+import { useAuth } from '@/contexts/AuthContext';
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -87,6 +88,7 @@ function ActionBtn({
 export default function VideoWatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
   const [post,                setPost]                = useState<Post | null>(null);
   const [loading,             setLoading]             = useState(true);
@@ -287,6 +289,10 @@ export default function VideoWatchScreen() {
   const uploadDateStr = new Date(post.createdAt).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+  const openProfile = (authorId: string, username: string) => {
+    const isSelf = user?.id === authorId || (!!user?.username && user.username === username);
+    router.push(isSelf ? '/(tabs)/profile' : `/creator/${authorId}`);
+  };
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -393,7 +399,7 @@ export default function VideoWatchScreen() {
         <PressScale style={styles.creatorCard}>
           <Pressable
             style={styles.creatorCardInner}
-            onPress={() => router.push(`/creator/${post.author.id}`)}
+            onPress={() => openProfile(post.author.id, post.author.username)}
             accessibilityLabel={`View ${post.author.name}'s profile`}
           >
             {post.author.avatarUrl ? (
@@ -416,7 +422,7 @@ export default function VideoWatchScreen() {
             </View>
             <PressScale
               style={styles.subscribeBtn}
-              onPress={() => router.push(`/creator/${post.author.id}`)}
+               onPress={() => openProfile(post.author.id, post.author.username)}
               hitSlop={6}
               accessibilityLabel="Subscribe"
             >
@@ -459,7 +465,7 @@ export default function VideoWatchScreen() {
               <MsPostCard
                 key={video.id}
                 post={video}
-                onAuthorPress={() => router.push(`/creator/${video.author.id}`)}
+                 onAuthorPress={() => openProfile(video.author.id, video.author.username)}
               />
             ))}
           </View>
@@ -679,5 +685,45 @@ const styles = StyleSheet.create({
   },
   relatedCard: {
     marginBottom: 6,
+  },
+  premiumGate: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    zIndex: 10,
+  },
+  premiumCard: {
+    width: '82%',
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.xl,
+    padding: 24,
+    alignItems: 'center',
+    gap: 10,
+    ...T.SHADOWS.hard,
+  },
+  premiumTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.bold,
+    fontSize: 18,
+  },
+  premiumSub: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  premiumBtn: {
+    marginTop: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+  },
+  premiumBtnLabel: {
+    color: T.BG,
+    fontFamily: T.FONT.semibold,
+    fontSize: 13,
   },
 });

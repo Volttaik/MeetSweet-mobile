@@ -137,6 +137,7 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
       kind: isVideo ? 'video' : 'photo',
       duration: fmtDuration(durationSecs),
       likes: fmtLikes(raw.like_count ?? raw.likeCount ?? 0),
+      isPremium: raw.is_premium ?? raw.isPremium ?? false,
       likeCount: raw.like_count ?? raw.likeCount ?? 0,
       commentCount: raw.comment_count ?? raw.commentCount ?? 0,
       gradient: gradientFor(raw.id),

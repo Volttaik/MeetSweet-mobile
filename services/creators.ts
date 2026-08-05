@@ -30,6 +30,7 @@ export interface CreatorProfileFull {
   subscriberCount: number;
   postCount: number;
   subscriptionPrice: number | null;
+  subscriptionPlusPrice?: number | null;
   /** Whether the currently authenticated user is subscribed to this creator */
   subscribedToCreator: boolean;
   createdAt: string;
@@ -99,6 +100,7 @@ function normalizeCreatorProfile(raw: any): CreatorProfileFull {
     subscriberCount:    raw.subscriber_count ?? 0,
     postCount:          raw.post_count ?? 0,
     subscriptionPrice:  raw.subscription_price ?? null,
+    subscriptionPlusPrice: raw.subscription_plus_price ?? raw.subscriptionPlusPrice ?? null,
     subscribedToCreator: raw.subscribed_to_creator ?? false,
     createdAt:          raw.created_at ?? new Date().toISOString(),
   };

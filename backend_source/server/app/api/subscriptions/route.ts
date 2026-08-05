@@ -110,15 +110,18 @@ export async function POST(req: NextRequest) {
   //   subscriber      → 1× creator price
   //   subscriber_plus → 2× creator price (exclusive premium tier)
   const [settings] = await db
-    .select({ subscription_price: creator_settings.subscription_price })
+    .select({
+      subscription_price: creator_settings.subscription_price,
+      subscription_plus_price: creator_settings.subscription_plus_price,
+    })
     .from(creator_settings)
     .where(eq(creator_settings.user_id, creator_id))
     .limit(1);
 
-  const creatorPrice = settings?.subscription_price ?? 0;
+  const creatorPrice = settings?.subscription_price ?? 200;
+  const creatorPlusPrice = settings?.subscription_plus_price ?? Math.round(creatorPrice * 2);
   const resolvedTier: "subscriber" | "subscriber_plus" = tier ?? "subscriber";
-  const multiplier = TIER_MULTIPLIER[resolvedTier] ?? 1;
-  const price = Math.round(creatorPrice * multiplier);
+  const price = resolvedTier === "subscriber_plus" ? creatorPlusPrice : creatorPrice;
 
   // Charge wallet if subscription has a cost
   if (price > 0) {

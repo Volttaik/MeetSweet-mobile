@@ -9,6 +9,14 @@ All responses use the `{ ok: true, data: ... }` envelope. Errors: `{ ok: false, 
 
 **Why:** Two-repo split — Expo frontend (this repo) + deployed Next.js backend (separate repo). Frontend service calls go through `services/api.ts apiFetch()` which prepends `/api` and handles the envelope/auth-retry.
 
+## Creator subscription pricing
+
+Creator settings have separate `subscription_price` and `subscription_plus_price` values. New or legacy records without usable values should resolve to ₦200 for Subscriber and ₦500 for Subscriber+. Subscription creation, upgrade, downgrade, public creator profiles, and the creator dashboard must use the same two values.
+
+**Why:** Subscriber+ is creator-configurable rather than a fixed multiplier or admin-managed value.
+
+**How to apply:** Keep the mobile dashboard editor, public profile display, and backend billing routes aligned whenever subscription pricing changes.
+
 ---
 
 ## Route Status (live-tested 2026-07-25)

@@ -32,6 +32,7 @@ export interface CreatorDashboard {
 
 export interface CreatorSettings {
   subscription_price: number | null;
+  subscription_plus_price?: number | null;
   allow_dms: boolean;
   allow_comments: boolean;
   who_can_message: 'everyone' | 'subscribers' | 'none';
@@ -44,7 +45,9 @@ export async function getCreatorSettings(): Promise<CreatorSettings> {
   return apiFetch('/creator/settings', { headers: authHeader(token) });
 }
 
-export async function updateCreatorSettings(data: Partial<CreatorSettings>): Promise<CreatorSettings> {
+export async function updateCreatorSettings(
+  data: Partial<CreatorSettings>,
+): Promise<CreatorSettings> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   return apiFetch('/creator/settings', {

@@ -10,6 +10,7 @@ import { generateId } from "@/lib/auth/codes";
 
 const patchSchema = z.object({
   subscription_price: z.number().min(0).optional(),
+  subscription_plus_price: z.number().min(0).optional(),
   allow_dms: z.boolean().optional(),
   allow_comments: z.boolean().optional(),
   // Accept both field names from mobile
@@ -24,7 +25,8 @@ function buildSettingsResponse(
 ) {
   const who = settings.who_can_message ?? "everyone";
   return {
-    subscription_price: settings.subscription_price,
+    subscription_price: settings.subscription_price > 0 ? settings.subscription_price : 200,
+    subscription_plus_price: settings.subscription_plus_price > 0 ? settings.subscription_plus_price : 500,
     allow_dms: settings.allow_dms,
     allow_comments: settings.allow_comments,
     who_can_message: who,
@@ -56,7 +58,12 @@ export async function GET(req: NextRequest) {
 
   if (!settings) {
     const newId = generateId();
-    await db.insert(creator_settings).values({ id: newId, user_id: auth.user.userId });
+    await db.insert(creator_settings).values({
+      id: newId,
+      user_id: auth.user.userId,
+      subscription_price: 200,
+      subscription_plus_price: 500,
+    });
     [settings] = await db.select().from(creator_settings).where(eq(creator_settings.user_id, auth.user.userId)).limit(1);
   }
 

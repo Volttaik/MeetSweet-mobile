@@ -587,7 +587,8 @@ export const subscriptions = sqliteTable("subscriptions", {
 export const creator_settings = sqliteTable("creator_settings", {
   id: id(),
   user_id: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  subscription_price: real("subscription_price").notNull().default(0),
+  subscription_price: real("subscription_price").notNull().default(200),
+  subscription_plus_price: real("subscription_plus_price").notNull().default(500),
   allow_dms: integer("allow_dms", { mode: "boolean" }).notNull().default(true),
   allow_comments: integer("allow_comments", { mode: "boolean" }).notNull().default(true),
   // who_can_message: 'everyone' | 'subscribers' | 'none'
