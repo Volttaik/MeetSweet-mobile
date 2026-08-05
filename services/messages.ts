@@ -41,12 +41,6 @@ export interface ChatMessage {
   isDeleted: boolean;
   /** Whether this message has been edited by the sender */
   isEdited?: boolean;
-  /** Whether this message is paid content */
-  isPaid?: boolean;
-  /** Whether the current user has unlocked this paid content */
-  isUnlocked?: boolean;
-  /** Credit price for paid content */
-  paidPrice?: number;
   /** Optional caption for media messages */
   caption?: string;
   createdAt: string;
@@ -130,9 +124,6 @@ function normalizeMessage(raw: any): ChatMessage {
     mimeType: raw.mimeType ?? raw.mime_type ?? undefined,
     isDeleted: raw.isDeleted ?? raw.is_deleted ?? raw.is_recalled ?? false,
     isEdited: raw.isEdited ?? raw.is_edited ?? false,
-    isPaid: raw.isPaid ?? raw.is_paid ?? false,
-    isUnlocked: raw.isUnlocked ?? raw.is_unlocked ?? false,
-    paidPrice: raw.paidPrice ?? raw.paid_price ?? undefined,
     caption: raw.caption ?? undefined,
     createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
     sender: raw.sender
@@ -209,8 +200,6 @@ export async function sendMessage(
   mediaType?: string,
   opts?: {
     caption?: string;
-    isPaid?: boolean;
-    paidPrice?: number;
     fileName?: string;
     fileSize?: number;
     mimeType?: string;
@@ -236,8 +225,6 @@ export async function sendMessage(
         body,
         media_url: mediaUrl,
         media_type: wireMediaType,
-        // reply_to_id is accepted by the backend (stores a FK reference).
-        // When absent or undefined the field is omitted from the payload.
         ...(opts?.replyToId ? { reply_to_id: opts.replyToId } : {}),
       }),
     },

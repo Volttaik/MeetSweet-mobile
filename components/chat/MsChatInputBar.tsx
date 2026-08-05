@@ -97,7 +97,6 @@ export interface AttachmentSendPayload extends InlineAttachment {
 export interface SendPayload {
   text?: string;
   voice?: PendingVoice;
-  isPaid?: boolean;
   /** Emoji character (text message) */
   sticker?: string;
   /** GIF or image sticker URL */

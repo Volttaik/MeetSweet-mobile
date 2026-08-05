@@ -24,12 +24,6 @@ export interface MsMessage extends IMessage {
   msIsDeleted?: boolean;
   /** Whether the sender has edited this message */
   msIsEdited?: boolean;
-  /** Paid/locked content */
-  msIsPaid?: boolean;
-  /** Whether the viewer has paid to unlock */
-  msIsUnlocked?: boolean;
-  /** Credit price to unlock */
-  msPaidPrice?: number;
 }
 
 /** Map our ChatMessage → MsMessage for the Chat component */
@@ -69,9 +63,6 @@ export function toMsMessage(raw: ChatMessage, currentUserId: string): MsMessage 
     msCaption: raw.caption,
     msIsDeleted: raw.isDeleted,
     msIsEdited: raw.isEdited,
-    msIsPaid: raw.isPaid,
-    msIsUnlocked: raw.isUnlocked,
-    msPaidPrice: raw.paidPrice,
   };
 }
 

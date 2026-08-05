@@ -189,9 +189,9 @@ export default function CreatePostScreen() {
         if (draft.tier) {
           // Normalize legacy 'bronze' draft values to new tier system
           const rawTier = draft.tier as string;
-          if (rawTier === 'bronze' || rawTier === 'free') setTier('free');
-          else if (rawTier === 'diamond' || rawTier === 'subscriber_plus') setTier('subscriber_plus');
-          else setTier('subscriber');
+          if (rawTier === 'subscriber_plus') setTier('subscriber_plus');
+          else if (rawTier === 'subscriber') setTier('subscriber');
+          else setTier('free');
         }
         if (draft.contentType && !params.type) setContentType(draft.contentType);
         if (draft.videoTitle)                  setVideoTitle(draft.videoTitle);

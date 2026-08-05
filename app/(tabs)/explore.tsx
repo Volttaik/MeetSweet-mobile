@@ -146,11 +146,10 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
     preview.contentType === 'album' ? 'album' :
     isVideo ? 'video' : 'post';
 
-  // Resolve tier from backend data — never default to bronze just because visibility is public.
-  // Bronze tier on Explore shows an unwanted dot on every free post; only show silver/gold/diamond.
+  // Only show a tier badge for paid tiers — never for free/public content.
   const rawTier = preview.tier as import('@/constants/tiers').ContentTier | null | undefined;
   const tier: import('@/constants/tiers').ContentTier | undefined =
-    rawTier === 'silver' || rawTier === 'gold' || rawTier === 'diamond' ? rawTier : undefined;
+    rawTier === 'subscriber' || rawTier === 'subscriber_plus' ? rawTier : undefined;
 
   // For video/short posts, title and caption are separate fields.
   // Setting caption = title would cause the title to render twice in MsPostCard

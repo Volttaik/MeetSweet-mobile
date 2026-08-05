@@ -10,45 +10,17 @@ function authHeader(token: string): Record<string, string> {
 }
 
 /**
- * MeetSweet subscription tier model.
+ * MeetSweet subscription model.
  *
- * Creators offer up to three paid tiers:
- *   Silver  — entry-level: unlocks all silver & below content
- *   Gold    — mid-level:   unlocks all gold & below content
- *   Diamond — top-level:   unlocks ALL subscriber content
+ * Two purchasable tiers per creator:
+ *   subscriber      — access to all subscriber content  (1× creator price)
+ *   subscriber_plus — access to all content incl. plus  (2× creator price)
  *
- * Bronze content is always free / public — no subscription needed.
- *
- * The backend currently collapses all three to a single subscription per
- * creator (one row in the subscriptions table).  The tier is tracked on
- * the frontend and will be sent to the API once the backend supports it.
- *
- * @deprecated SubscriptionTier (free/normal/premium/vip) is the legacy
- * type kept for backwards-compat only.  Use ContentSubscriptionTier.
+ * Free/public content requires no subscription.
+ * Once subscribed, the user gets everything at or below their tier — no
+ * per-post unlocking exists; the only à-la-carte purchase is albums.
  */
-export type SubscriptionTier = 'free' | 'normal' | 'premium' | 'vip';
-
-/** The three purchasable subscription tiers (excludes bronze / free). */
-export type ContentSubscriptionTier = 'silver' | 'gold' | 'diamond';
-
-/**
- * Default monthly prices (₦) for each subscription tier.
- * Creators can override these in their dashboard settings.
- */
-export const SUBSCRIPTION_TIER_PRICES: Record<ContentSubscriptionTier, number> = {
-  silver:  500,
-  gold:    1500,
-  diamond: 3000,
-};
-
-/**
- * What content a subscriber can see at each tier (cumulative / inclusive).
- */
-export const SUBSCRIPTION_TIER_ACCESS: Record<ContentSubscriptionTier, ContentSubscriptionTier[]> = {
-  silver:  ['silver'],
-  gold:    ['silver', 'gold'],
-  diamond: ['silver', 'gold', 'diamond'],
-};
+export type SubscriptionTier = 'subscriber' | 'subscriber_plus';
 
 export interface Subscription {
   id: string;
@@ -113,66 +85,39 @@ export async function subscribe(
   return { subscription_id: sub.id, subscription: sub };
 }
 
-/** @deprecated Use subscribe() instead. Kept for backwards-compat. */
-export async function subscribeTier(
-  creator_id: string,
-  _tier?: SubscriptionTier,
-): Promise<{ subscription_id: string; subscription: Subscription }> {
-  return subscribe(creator_id);
-}
-
-/** @deprecated Use subscribe() instead. Kept for backwards-compat. */
-export const TIER_PRICES: Record<SubscriptionTier, number> = {
-  free:    0,
-  normal:  0,
-  premium: 0,
-  vip:     0,
-};
 
 /**
- * Map mobile ContentSubscriptionTier → backend wire tier.
- * Backend only knows "subscriber" and "subscriber_plus".
- *   silver → subscriber
- *   gold / diamond → subscriber_plus
- */
-export function toWireTier(tier: ContentSubscriptionTier): 'subscriber' | 'subscriber_plus' {
-  return tier === 'silver' ? 'subscriber' : 'subscriber_plus';
-}
-
-/**
- * Upgrade an active subscription to a higher tier.
- * POST /api/subscriptions/:id/upgrade  { tier: "subscriber" | "subscriber_plus" }
+ * Upgrade an active subscription to subscriber_plus.
+ * POST /api/subscriptions/:id/upgrade  { tier: "subscriber_plus" }
  * Charges the wallet for the price difference.
  */
 export async function upgradeSubscription(
   subscriptionId: string,
-  newTier: ContentSubscriptionTier,
 ): Promise<{ subscription: Subscription }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const raw = await apiFetch<{ subscription: unknown }>(`/subscriptions/${subscriptionId}/upgrade`, {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ tier: toWireTier(newTier) }),
+    body: JSON.stringify({ tier: 'subscriber_plus' }),
   });
   return { subscription: normalizeSubscription(raw?.subscription ?? {}) };
 }
 
 /**
- * Downgrade an active subscription to a lower tier.
- * POST /api/subscriptions/:id/downgrade  { tier: "subscriber" | "subscriber_plus" }
- * Downgrade takes effect at the end of the billing period; no refund is issued.
+ * Downgrade a subscriber_plus subscription back to subscriber.
+ * POST /api/subscriptions/:id/downgrade  { tier: "subscriber" }
+ * Takes effect at end of billing period; no refund is issued.
  */
 export async function downgradeSubscription(
   subscriptionId: string,
-  newTier: ContentSubscriptionTier,
 ): Promise<{ subscription: Subscription }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const raw = await apiFetch<{ subscription: unknown }>(`/subscriptions/${subscriptionId}/downgrade`, {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify({ tier: toWireTier(newTier) }),
+    body: JSON.stringify({ tier: 'subscriber' }),
   });
   return { subscription: normalizeSubscription(raw?.subscription ?? {}) };
 }

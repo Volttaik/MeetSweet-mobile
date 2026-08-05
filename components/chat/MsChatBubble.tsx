@@ -6,7 +6,6 @@
  *   image/vid → MsMediaCard
  *   audio     → MsVoiceBubble
  *   document  → MsFileCard
- *   paid      → above + MsPaidOverlay
  *
  * Max-width lives here (fixed px, not %) so child percentage widths
  * resolve against the screen, not a chained percentage.
@@ -31,7 +30,6 @@ import { MsTextBubble }         from './MsTextBubble';
 import { MsMediaCard }          from './MsMediaCard';
 import { MsVoiceBubble }        from './MsVoiceBubble';
 import { MsFileCard }           from './MsFileCard';
-import { MsPaidOverlay }        from './MsPaidOverlay';
 import { MsReactionStrip }      from './MsReactionStrip';
 import { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
 
@@ -54,7 +52,6 @@ function formatTime(date: Date | number): string {
 
 interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage'> {
   currentMessage: MsMessage;
-  onUnlockPaid?: (message: MsMessage) => Promise<void>;
   onMediaPress?:  (message: MsMessage) => void;
   onRetry?:       (message: MsMessage) => void;
 }
@@ -62,13 +59,11 @@ interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage
 export function MsChatBubble({
   currentMessage,
   position,
-  onUnlockPaid,
   onMediaPress,
   onRetry,
 }: MsChatBubbleProps) {
   const msg   = currentMessage;
   const isOwn = position === 'right';
-  const [unlocking, setUnlocking] = useState(false);
 
   // ── Entrance: fade + scale 0.97→1 + 4px slide-up ─────────────────────────
   const anim = useRef(new Animated.Value(0)).current;
@@ -85,12 +80,6 @@ export function MsChatBubble({
     ? formatTime(msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt))
     : '';
 
-  const handleUnlock = useCallback(async () => {
-    if (!onUnlockPaid || unlocking) return;
-    setUnlocking(true);
-    try { await onUnlockPaid(msg); } finally { setUnlocking(false); }
-  }, [onUnlockPaid, msg, unlocking]);
-
   const handleMediaPress = useCallback(() => onMediaPress?.(msg), [onMediaPress, msg]);
   const handleRetry      = useCallback(() => onRetry?.(msg),      [onRetry, msg]);
 
@@ -101,9 +90,6 @@ export function MsChatBubble({
   const hasVideo  = mediaType === 'video'    || (!!msg.video && mediaType !== 'image');
   const hasDoc    = mediaType === 'document';
   const isDeleted = msg.msIsDeleted  ?? false;
-  const isPaid    = msg.msIsPaid     ?? false;
-  const isUnlocked= msg.msIsUnlocked ?? false;
-  const showLock  = isPaid && !isUnlocked;
   const isFailed  = msg.sent === false && msg.pending === false;
 
   // Sticker: text-only, no media, matches emoji pattern
@@ -167,21 +153,18 @@ export function MsChatBubble({
           duration={msg.msAudioDuration ?? 0}
           position={position ?? 'left'}
         />
-        {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>
     );
   } else if (hasImage || hasVideo) {
     bubble = (
       <View style={styles.mediaWrap}>
-        <MsMediaCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} isLocked={showLock} />
-        {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
+        <MsMediaCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} isLocked={false} />
       </View>
     );
   } else if (hasDoc) {
     bubble = (
       <View style={styles.mediaWrap}>
         <MsFileCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} />
-        {showLock && <MsPaidOverlay price={msg.msPaidPrice ?? 0} isUnlocking={unlocking} onUnlock={handleUnlock} />}
       </View>
     );
   } else {

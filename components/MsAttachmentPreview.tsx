@@ -70,8 +70,6 @@ export interface PendingAttachment {
 
 export interface ConfirmedAttachment extends PendingAttachment {
   caption?: string;
-  isPaid?: boolean;
-  paidPrice?: number;
 }
 
 interface Props {

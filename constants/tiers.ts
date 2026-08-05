@@ -1,16 +1,17 @@
 /**
  * MeetSweet content tier system.
  *
- * free           — free / public. Visible to everyone on Explore.
- * subscriber     — requires a Subscriber subscription.
- * subscriber_plus — requires a Subscriber Plus subscription.
+ * free            — public, visible to everyone on Explore.
+ * subscriber      — requires a Subscriber subscription (1× creator price).
+ * subscriber_plus — requires a Subscriber Plus subscription (2× creator price).
  *
- * Backend mapping: free → visibility "public",
- *                  subscriber → visibility "subscribers",
- *                  subscriber_plus → visibility "subscribers_plus" (backend pending)
+ * Backend visibility mapping:
+ *   free            → "public"
+ *   subscriber      → "subscribers"
+ *   subscriber_plus → "subscribers" (same visibility column, gated by tier field)
  *
- * Legacy values bronze/silver/gold/diamond are still handled for backward
- * compat with the old backend and are mapped at normalisation time.
+ * Once subscribed to a creator the user gets all content at or below their
+ * tier — no per-post unlocking. The only à-la-carte purchase is albums.
  */
 
 export type ContentTier = 'free' | 'subscriber' | 'subscriber_plus';
@@ -49,13 +50,13 @@ export const TIERS = {
 export const TIER_ORDER: ContentTier[] = ['free', 'subscriber', 'subscriber_plus'];
 
 /**
- * Map old backend tier strings (bronze/silver/gold/diamond) to the new 3-tier system.
- * Called in post normalisers so the UI always gets a valid ContentTier.
+ * Map backend tier strings to a valid ContentTier.
+ * Called in post normalisers so the UI always gets a known value.
  */
 export function normalizeTier(raw: string | null | undefined): ContentTier | undefined {
   if (!raw) return undefined;
-  if (raw === 'bronze' || raw === 'free') return 'free';
-  if (raw === 'silver' || raw === 'gold' || raw === 'subscriber') return 'subscriber';
-  if (raw === 'diamond' || raw === 'subscriber_plus') return 'subscriber_plus';
+  if (raw === 'free') return 'free';
+  if (raw === 'subscriber') return 'subscriber';
+  if (raw === 'subscriber_plus') return 'subscriber_plus';
   return undefined;
 }
