@@ -129,6 +129,54 @@ export const TIER_PRICES: Record<SubscriptionTier, number> = {
   vip:     0,
 };
 
+/**
+ * Map mobile ContentSubscriptionTier → backend wire tier.
+ * Backend only knows "subscriber" and "subscriber_plus".
+ *   silver → subscriber
+ *   gold / diamond → subscriber_plus
+ */
+export function toWireTier(tier: ContentSubscriptionTier): 'subscriber' | 'subscriber_plus' {
+  return tier === 'silver' ? 'subscriber' : 'subscriber_plus';
+}
+
+/**
+ * Upgrade an active subscription to a higher tier.
+ * POST /api/subscriptions/:id/upgrade  { tier: "subscriber" | "subscriber_plus" }
+ * Charges the wallet for the price difference.
+ */
+export async function upgradeSubscription(
+  subscriptionId: string,
+  newTier: ContentSubscriptionTier,
+): Promise<{ subscription: Subscription }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ subscription: unknown }>(`/subscriptions/${subscriptionId}/upgrade`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ tier: toWireTier(newTier) }),
+  });
+  return { subscription: normalizeSubscription(raw?.subscription ?? {}) };
+}
+
+/**
+ * Downgrade an active subscription to a lower tier.
+ * POST /api/subscriptions/:id/downgrade  { tier: "subscriber" | "subscriber_plus" }
+ * Downgrade takes effect at the end of the billing period; no refund is issued.
+ */
+export async function downgradeSubscription(
+  subscriptionId: string,
+  newTier: ContentSubscriptionTier,
+): Promise<{ subscription: Subscription }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ subscription: unknown }>(`/subscriptions/${subscriptionId}/downgrade`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ tier: toWireTier(newTier) }),
+  });
+  return { subscription: normalizeSubscription(raw?.subscription ?? {}) };
+}
+
 export async function cancelSubscription(subscriptionId: string): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');

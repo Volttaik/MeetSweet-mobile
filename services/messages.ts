@@ -221,10 +221,12 @@ export async function sendMessage(
 ): Promise<{ message: ChatMessage }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // Backend validates media_type as "image" | "video" only.
-  // Audio/document messages upload fine but we wire media_type as null to avoid 422.
-  // The chat preserves richer local metadata (mediaType, audioDuration, etc.) for the session.
-  const wireMediaType = mediaType === 'image' || mediaType === 'video' ? mediaType : null;
+  // Backend accepts "image" | "video" | "audio" | "document" — send exactly what was given.
+  // Only coerce truly unknown types to null.
+  const wireMediaType =
+    mediaType === 'image' || mediaType === 'video' || mediaType === 'audio' || mediaType === 'document'
+      ? mediaType
+      : null;
   const raw = await apiFetch<{ message: unknown }>(
     `/conversations/${conversationId}/messages`,
     {

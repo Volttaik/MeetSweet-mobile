@@ -621,11 +621,11 @@ export async function likeComment(
 ): Promise<{ liked: boolean; likeCount: number }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ liked: boolean; likeCount: number }>(
+  const raw = await apiFetch<{ liked: boolean; like_count?: number; likeCount?: number }>(
     `/posts/${postId}/comments/${commentId}/like`,
     { method: 'POST', headers: authHeader(token) },
   );
-  return { liked: raw.liked, likeCount: raw.likeCount ?? 0 };
+  return { liked: raw.liked, likeCount: raw.like_count ?? raw.likeCount ?? 0 };
 }
 
 export async function unlikeComment(
@@ -634,11 +634,31 @@ export async function unlikeComment(
 ): Promise<{ liked: boolean; likeCount: number }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ liked: boolean; likeCount: number }>(
+  const raw = await apiFetch<{ liked: boolean; like_count?: number; likeCount?: number }>(
     `/posts/${postId}/comments/${commentId}/like`,
     { method: 'DELETE', headers: authHeader(token) },
   );
-  return { liked: raw.liked, likeCount: raw.likeCount ?? 0 };
+  return { liked: raw.liked, likeCount: raw.like_count ?? raw.likeCount ?? 0 };
+}
+
+/**
+ * Unlock a paid post using wallet credits.
+ * POST /api/posts/:id/unlock
+ * Response: { unlocked: boolean, already_unlocked: boolean }
+ */
+export async function unlockPost(
+  id: string,
+): Promise<{ unlocked: boolean; alreadyUnlocked: boolean }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const raw = await apiFetch<{ unlocked?: boolean; already_unlocked?: boolean }>(
+    `/posts/${id}/unlock`,
+    { method: 'POST', headers: authHeader(token) },
+  );
+  return {
+    unlocked: raw?.unlocked ?? false,
+    alreadyUnlocked: raw?.already_unlocked ?? false,
+  };
 }
 
 export async function reportComment(commentId: string, reason: string): Promise<void> {

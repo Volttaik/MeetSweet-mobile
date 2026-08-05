@@ -282,10 +282,32 @@ export async function getCreatorReviews(
 }
 
 /**
- * GET /api/creators/:id/stats
+ * GET /api/creator/statistics  (authenticated — returns stats for the current creator)
+ * Response: { period_stats, active_subscribers, total_posts, total_revenue, statistics }
  */
-export async function getCreatorStats(_id: string): Promise<CreatorStats | null> {
-  return null;
+export async function getCreatorStats(_id?: string): Promise<CreatorStats | null> {
+  const token = await getToken();
+  if (!token) return null;
+  try {
+    const raw = await apiFetch<{
+      active_subscribers?: number;
+      total_posts?: number;
+      total_revenue?: number;
+      period_stats?: Array<{ views?: number; likes?: number; new_subscribers?: number }>;
+    }>('/creator/statistics', { headers: authHeader(token) });
+    const periodStats = raw?.period_stats ?? [];
+    const totalLikes = periodStats.reduce((sum, p) => sum + (p.likes ?? 0), 0);
+    return {
+      follower_count: 0,
+      subscriber_count: raw?.active_subscribers ?? 0,
+      post_count: raw?.total_posts ?? 0,
+      total_likes: totalLikes,
+      average_rating: null,
+      review_count: 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -366,10 +388,12 @@ export function useCreatorReviews(id: string | undefined, _page = 1) {
   });
 }
 
-export function useCreatorStats(_id: string | undefined) {
+export function useCreatorStats(id: string | undefined) {
   return useQuery({
-    queryKey: ['creator-stats-empty'],
-    queryFn: async () => null as CreatorStats | null,
-    staleTime: Infinity,
+    queryKey: ['creator-stats', id],
+    queryFn: () => getCreatorStats(id),
+    enabled: Boolean(id),
+    staleTime: 2 * 60 * 1000,
+    retry: 1,
   });
 }
