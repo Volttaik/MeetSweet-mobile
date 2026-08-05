@@ -62,7 +62,7 @@ function PremiumSheet({
           <View style={sheetStyles.lockCircle}>
             <Lock size={22} color={T.ACCENT} />
           </View>
-          <Text style={sheetStyles.title}>Premium Short</Text>
+          <Text style={sheetStyles.title}>Subscriber Short</Text>
           <Text style={sheetStyles.desc}>
             Subscribe to {creatorName} to watch this Short and unlock their full feed.
           </Text>
@@ -215,7 +215,6 @@ export default function ShortsScreen() {
         commentCount: s.commentCount,
         bookmarkCount: 0,
         isPremium: s.isPremium,
-        priceCredits: null,
         createdAt: new Date().toISOString(),
         author: {
           id: s.creator.id,

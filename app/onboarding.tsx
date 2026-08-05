@@ -145,7 +145,7 @@ const PAGES = [
     title: 'Subscribe &\nUnlock More',
     description: 'Subscribe to unlock premium content and directly support the creators who inspire you.',
     features: [
-      'Bronze, Silver, Gold & Diamond tiers',
+      'Free, Subscriber, and Subscriber Plus tiers',
       'Subscriber-only content unlocked',
       'Cancel anytime, no pressure',
     ],

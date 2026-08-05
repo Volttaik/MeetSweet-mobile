@@ -1,23 +1,25 @@
 /**
  * MsWalletBadge — compact Naira wallet balance indicator for headers.
- * Tapping opens the wallet screen.
+ * Tapping opens the wallet page.
  * Animates with a pop on balance change.
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import {
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+} from 'react-native';
 import { Wallet } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { router } from 'expo-router';
-import { useWalletBalance } from '@/hooks/useWalletBalance';
 
-function formatBalance(n: number): string {
-  if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `₦${(n / 1_000).toFixed(0)}K`;
-  return `₦${n.toLocaleString('en-NG')}`;
+interface MsWalletBadgeProps {
+  balance?: number;
+  onPress?: () => void;
 }
 
-export function MsWalletBadge({ onPress }: { onPress?: () => void }) {
-  const balance = useWalletBalance();
+export function MsWalletBadge({ balance, onPress }: MsWalletBadgeProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const prevBalance = useRef(balance);
 
@@ -32,15 +34,26 @@ export function MsWalletBadge({ onPress }: { onPress?: () => void }) {
   }, [balance]);
 
   const handlePress = () => {
-    if (onPress) onPress();
-    else router.push('/wallet' as any);
+    if (onPress) {
+      onPress();
+    } else {
+      router.push('/wallet' as any);
+    }
   };
+
+  const displayBalance = balance != null
+    ? (balance >= 1000
+        ? `₦${(balance / 1000).toFixed(0)}K`
+        : `₦${balance.toLocaleString('en-NG')}`)
+    : null;
 
   return (
     <TouchableOpacity onPress={handlePress} activeOpacity={0.75}>
       <Animated.View style={[styles.badge, { transform: [{ scale: scaleAnim }] }]}>
-        <Wallet size={11} color={T.SUCCESS ?? '#22C55E'} weight="fill" />
-        <Text style={styles.label}>{formatBalance(balance)}</Text>
+        <Wallet size={12} color={T.SUCCESS} weight="fill" />
+        {displayBalance != null && (
+          <Text style={styles.label}>{displayBalance}</Text>
+        )}
       </Animated.View>
     </TouchableOpacity>
   );
@@ -51,14 +64,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.full,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: T.RADIUS.pill,
-    backgroundColor: T.SURFACE,
   },
   label: {
     fontSize: 12,
     fontFamily: T.FONT.semibold,
-    color: T.TEXT,
+    color: T.SUCCESS,
   },
 });

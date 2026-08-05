@@ -6,7 +6,6 @@ export { MsTextBubble } from './MsTextBubble';
 export { MsMediaCard } from './MsMediaCard';
 export { MsVoiceBubble } from './MsVoiceBubble';
 export { MsFileCard } from './MsFileCard';
-export { MsPaidOverlay } from './MsPaidOverlay';
 export { MsChatBubble } from './MsChatBubble';
 export { MsChatInputBar } from './MsChatInputBar';
 export { MsReactionStrip } from './MsReactionStrip';

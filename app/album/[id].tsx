@@ -77,11 +77,11 @@ export default function AlbumScreen() {
     if (!album) return;
     Alert.alert(
       'Purchase Album',
-      `Purchase "${album.title}" for ₦${album.priceCredits?.toLocaleString()}?`,
+      `Purchase "${album.title}" for ₦${album.price?.toLocaleString()}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: `Purchase · ₦${album.priceCredits?.toLocaleString()}`,
+          text: `Purchase · ₦${album.price?.toLocaleString()}`,
           style: 'default',
           onPress: async () => {
             setUnlocking(true);
@@ -139,7 +139,7 @@ export default function AlbumScreen() {
     );
   }
 
-  const isLocked = album.isPremium && !isUnlockedByMe;
+  const isLocked = album.requiresPurchase && !isUnlockedByMe;
   const visibleItems = isLocked ? album.items.slice(0, 3) : album.items;
 
   // ── Grid item renderer ───────────────────────────────────────────────────────
@@ -228,10 +228,10 @@ export default function AlbumScreen() {
           </View>
 
           {/* Price badge */}
-          {album.isPremium && (
+          {album.requiresPurchase && (
             <View style={styles.heroPriceBadge}>
               <Star size={10} color={T.ACCENT} weight="fill" />
-              <Text style={styles.heroPriceText}>₦{album.priceCredits?.toLocaleString()}</Text>
+              <Text style={styles.heroPriceText}>₦{album.price?.toLocaleString()}</Text>
             </View>
           )}
         </View>
@@ -279,17 +279,17 @@ export default function AlbumScreen() {
               <Text style={styles.statValue}>{album.itemCount}</Text>
               <Text style={styles.statLabel}>items</Text>
             </View>
-            {album.isPremium && (
+            {album.requiresPurchase && (
               <View style={styles.stat}>
                 <Text style={[styles.statValue, { color: T.ACCENT }]}>
-                  {album.priceCredits}
+                  {album.price}
                 </Text>
                 <Text style={styles.statLabel}>Naira</Text>
               </View>
             )}
             <View style={styles.stat}>
               <Text style={styles.statValue}>
-                {album.isPremium ? 'Premium' : 'Free'}
+                {album.requiresPurchase ? 'Purchase' : 'Free'}
               </Text>
               <Text style={styles.statLabel}>access</Text>
             </View>
@@ -305,7 +305,7 @@ export default function AlbumScreen() {
             <View style={styles.unlockCopy}>
               <Text style={styles.unlockTitle}>Premium Collection</Text>
               <Text style={styles.unlockSub}>
-                Purchase all {album.itemCount} items for ₦{album.priceCredits?.toLocaleString()}.
+                Purchase all {album.itemCount} items for ₦{album.price?.toLocaleString()}.
               </Text>
             </View>
             <TouchableOpacity

@@ -22,7 +22,6 @@ export interface Creator {
   category: string;
   followers: string;
   subscriberCount: number;
-  monthlyCredits: number;
   isVerified: boolean;
   isOnline: boolean;
   gradient: string;
@@ -42,7 +41,6 @@ export interface ContentPreview {
   likes: string;
   isPremium: boolean;
   gradient: string;
-  lockedLabel: string;
   /** Real thumbnail URL from media (populated from posts feed) */
   thumbnailUrl?: string | null;
   /** Full media URL — video source for playback, full image URL for photos */
@@ -55,7 +53,7 @@ export interface ContentPreview {
   commentCount?: number;
   /** Backend content_type field — drives routing: 'short' → Shorts, 'video' → Long-form player */
   contentType?: string | null;
-  /** Content tier — bronze/silver/gold/diamond; populated from raw.tier when available */
+  /** Content tier — free / subscriber / subscriber_plus; populated from raw.tier when available */
   tier?: string | null;
 }
 
@@ -68,7 +66,6 @@ export interface TrendingCollection {
 }
 
 export interface ExploreCatalog {
-  creditBalance: number;
   categories: ExploreCategory[];
   trendingSearches: string[];
   featuredCreatorIds: string[];

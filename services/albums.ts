@@ -11,7 +11,7 @@
  *   POST /albums              → { id: string }
  *   PUT  /albums/:id          → { album: RawAlbum }
  *   DELETE /albums/:id        → 204
- *   POST /albums/:id/unlock   → { unlocked: boolean }
+ *   POST /albums/:id/purchase → { purchased: boolean }  ← wallet-based album purchase
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -38,8 +38,10 @@ export interface Album {
   previewUrls: string[];
   items: AlbumItem[];
   itemCount: number;
-  isPremium: boolean;
-  priceCredits: number;
+  /** True when the album requires a wallet purchase to access. */
+  requiresPurchase: boolean;
+  /** Album price in Naira (₦). Zero means free. */
+  price: number;
   gradient: string;
   isUnlockedByMe: boolean;
   creatorId: string;
@@ -61,8 +63,10 @@ export interface AlbumCardData {
   coverUrl: string | null;
   previewUrls: string[];
   itemCount: number;
-  isPremium: boolean;
-  priceCredits: number;
+  /** True when the album requires a wallet purchase to access. */
+  requiresPurchase: boolean;
+  /** Album price in Naira (₦). Zero means free. */
+  price: number;
   gradient: string;
   isUnlockedByMe: boolean;
   creatorId: string;
@@ -84,7 +88,8 @@ export interface CreateAlbumData {
   title: string;
   description?: string;
   visibility?: 'public' | 'subscribers' | 'draft';
-  unlock_price?: number;
+  /** Album price in Naira — omit or pass 0 for free albums. */
+  price?: number;
   cover_media_id?: string;
   media_ids?: string[];
   categories?: string[];
@@ -203,7 +208,7 @@ export function normalizeAlbumCard(raw: RawAlbum): AlbumCardData {
   const creatorIsOnline =
     creator.is_online ?? raw.creator_is_online ?? false;
 
-  const priceCredits =
+  const price =
     raw.price_credits ?? raw.priceCredits ??
     raw.unlock_price ?? raw.unlockPrice ?? 0;
 
@@ -214,8 +219,8 @@ export function normalizeAlbumCard(raw: RawAlbum): AlbumCardData {
     coverUrl: raw.cover_url ?? raw.coverUrl ?? null,
     previewUrls: raw.preview_urls ?? raw.previewUrls ?? [],
     itemCount: raw.item_count ?? raw.itemCount ?? 0,
-    isPremium: raw.is_premium ?? raw.isPremium ?? priceCredits > 0,
-    priceCredits,
+    requiresPurchase: raw.is_premium ?? raw.isPremium ?? price > 0,
+    price,
     gradient: raw.gradient ?? defaultGradient(raw.id),
     isUnlockedByMe: raw.is_unlocked_by_me ?? raw.isUnlockedByMe ?? false,
     creatorId,
@@ -337,12 +342,6 @@ export async function purchaseAlbum(id: string): Promise<{ purchased: boolean }>
     headers: { Authorization: `Bearer ${token}` },
   });
   return { purchased: raw?.purchased ?? true };
-}
-
-/** @deprecated Use purchaseAlbum instead. Kept for backward compat. */
-export async function unlockAlbum(id: string): Promise<{ unlocked: boolean }> {
-  const result = await purchaseAlbum(id);
-  return { unlocked: result.purchased };
 }
 
 /**

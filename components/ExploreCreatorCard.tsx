@@ -147,12 +147,6 @@ export function ExploreCreatorCard({
                 <Text style={styles.statText}>{imageCount} photo{imageCount !== 1 ? 's' : ''}</Text>
               </View>
             )}
-            {!hasContent && creator.monthlyCredits > 0 && (
-              <View style={styles.priceTag}>
-                <Star size={9} color={T.ACCENT} weight="fill" />
-                <Text style={styles.priceText}>₦{creator.monthlyCredits.toLocaleString()}/mo</Text>
-              </View>
-            )}
           </View>
         </View>
       </View>
@@ -160,16 +154,9 @@ export function ExploreCreatorCard({
       {/* ── Footer: price + subscribe ─────────────────────────── */}
       <View style={styles.footer}>
         <View style={styles.footerLeft}>
-          {creator.monthlyCredits > 0 ? (
-            <View style={styles.pricePill}>
-              <Star size={10} color={T.ACCENT} weight="fill" />
-              <Text style={styles.pricePillText}>₦{creator.monthlyCredits.toLocaleString()}/mo</Text>
-            </View>
-          ) : (
-            <View style={styles.freePill}>
-              <Text style={styles.freePillText}>FREE CONTENT</Text>
-            </View>
-          )}
+          <View style={styles.freePill}>
+            <Text style={styles.freePillText}>SUBSCRIBE</Text>
+          </View>
         </View>
         <TouchableOpacity
           style={styles.subscribeBtn}

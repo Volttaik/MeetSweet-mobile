@@ -187,7 +187,7 @@ export default function CreatePostScreen() {
         if (draft.caption)                     setCaption(draft.caption);
         if (draft.tags)                        setTags(draft.tags);
         if (draft.tier) {
-          // Normalize legacy 'bronze' draft values to new tier system
+          // Normalize unrecognized draft tier values to new tier system
           const rawTier = draft.tier as string;
           if (rawTier === 'subscriber_plus') setTier('subscriber_plus');
           else if (rawTier === 'subscriber') setTier('subscriber');

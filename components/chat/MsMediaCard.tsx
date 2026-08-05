@@ -83,10 +83,9 @@ interface Props {
   message:    MsMessage;
   position:   'left' | 'right';
   onPress?:   () => void;
-  isLocked?:  boolean;
 }
 
-export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
+export function MsMediaCard({ message, position, onPress }: Props) {
   const isOwn   = position === 'right';
   const isVideo = message.msMediaType === 'video' || !!message.video;
 
@@ -146,7 +145,6 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
       <View
         style={[
           s.card,
-          isLocked && s.cardLocked,
           { width: isVideo ? MAX_CARD_W : imgW },
         ]}
       >
@@ -186,7 +184,6 @@ export function MsMediaCard({ message, position, onPress, isLocked }: Props) {
               source={{ uri: imageUri }}
               style={[
                 { width: imgW, height: imgH },
-                isLocked && s.imageLocked,
                 { opacity: error ? 0 : fadeAnim },
               ]}
               onLoad={handleLoad as any}
@@ -223,15 +220,12 @@ const s = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  cardLocked: { opacity: 0.55 },
 
   shimmerWrap: {
     position: 'absolute',
     top: 0, left: 0,
     zIndex: 1,
   },
-
-  imageLocked: { opacity: 0.3 },
 
   // Video placeholder
   videoPlaceholder: {

@@ -17,8 +17,8 @@ export interface Post {
   caption: string;
   visibility: 'public' | 'subscribers' | 'draft';
   /**
-   * Content tier — derived from visibility when the backend doesn't store it
-   * explicitly.  bronze = public, silver/gold/diamond = subscriber tiers.
+   * Content tier — free / subscriber / subscriber_plus.
+   * Derived from visibility when the backend doesn't store it explicitly.
    */
   tier?: import('@/constants/tiers').ContentTier;
   /** Backend content_type field — 'post' | 'video' | 'short' | 'album' | null */
@@ -116,13 +116,12 @@ function normalizePost(raw: any): Post {
     commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
     isPremium: raw.visibility === 'subscribers' || raw.visibility === 'subscribers_plus',
-    // Derive tier: normalize old backend values (bronze/silver/gold/diamond) → new 3-tier system
+    // Derive tier from backend value — maps to free / subscriber / subscriber_plus only
     tier: (() => {
       const t = raw.tier;
       if (!t) return raw.visibility === 'public' ? 'free' : 'subscriber';
-      if (t === 'bronze' || t === 'free') return 'free';
-      if (t === 'diamond' || t === 'subscriber_plus') return 'subscriber_plus';
-      // silver, gold, subscriber → subscriber
+      if (t === 'subscriber_plus') return 'subscriber_plus';
+      if (t === 'free') return 'free';
       return 'subscriber';
     })(),
     createdAt:   raw.created_at   ?? raw.createdAt   ?? raw.published_at ?? new Date().toISOString(),
@@ -373,8 +372,7 @@ export interface CreatePostData {
   /** Video description (for content_type: 'video') */
   description?: string;
   /**
-   * Content tier — bronze (public), silver, gold, diamond.
-   * Backend stores this when the multi-tier subscription system is live.
+   * Content tier — free / subscriber / subscriber_plus.
    */
   tier?: import('@/constants/tiers').ContentTier;
   /**

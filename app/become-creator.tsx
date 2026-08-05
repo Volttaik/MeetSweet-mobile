@@ -11,7 +11,7 @@ import {
   ChartBar,
   ChatCircle,
   CurrencyDollar,
-  Diamond,
+  Sparkle,
   DeviceMobile,
   Lock,
   Users,
@@ -22,7 +22,7 @@ import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 
 const FEATURES: { Icon: React.ComponentType<{ size: number; color: string }>; title: string; desc: string }[] = [
-  { Icon: Diamond,         title: 'Exclusive Content',  desc: 'Share premium content with paying subscribers only' },
+  { Icon: Sparkle,         title: 'Exclusive Content',  desc: 'Share subscriber-only content with your paying fans' },
   { Icon: DeviceMobile,    title: 'Subscriptions',       desc: 'Earn monthly recurring revenue from your fans' },
   { Icon: Lock,            title: 'Private Posts',       desc: 'Posts only your subscribers can access and view' },
   { Icon: ChatCircle,      title: 'Private Messaging',   desc: 'Chat directly and privately with your community' },

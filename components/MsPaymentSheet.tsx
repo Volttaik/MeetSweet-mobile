@@ -4,7 +4,7 @@ import { LockSimple, Sparkle, Wallet } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsModal } from '@/components/MsModal';
 
-export type MsPaymentKind = 'unlock' | 'subscribe' | 'tip' | 'purchase';
+export type MsPaymentKind = 'subscribe' | 'tip' | 'purchase';
 
 export interface MsPaymentSheetProps {
   visible: boolean;
@@ -21,7 +21,6 @@ export interface MsPaymentSheetProps {
 }
 
 const copy: Record<MsPaymentKind, { title: string; action: string }> = {
-  unlock: { title: 'Unlock this content', action: 'Unlock' },
   subscribe: { title: 'Subscribe to creator', action: 'Subscribe' },
   tip: { title: 'Send a tip', action: 'Send tip' },
   purchase: { title: 'Complete purchase', action: 'Purchase' },
@@ -31,7 +30,7 @@ export function MsPaymentSheet({
   visible,
   onClose,
   onConfirm,
-  kind = 'unlock',
+  kind = 'purchase',
   title,
   description,
   amount,

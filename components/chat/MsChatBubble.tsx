@@ -158,7 +158,7 @@ export function MsChatBubble({
   } else if (hasImage || hasVideo) {
     bubble = (
       <View style={styles.mediaWrap}>
-        <MsMediaCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} isLocked={false} />
+        <MsMediaCard message={msg} position={position ?? 'left'} onPress={handleMediaPress} />
       </View>
     );
   } else if (hasDoc) {

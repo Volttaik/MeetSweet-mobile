@@ -141,9 +141,6 @@ export function MsFeaturedCreatorCard({
           <Users size={13} color={T.TEXT_2} />
           <Text style={featuredStyles.metricText}>{creator.followers} subscribers</Text>
         </View>
-        {creator.monthlyCredits > 0 && (
-          <Text style={featuredStyles.price}>₦{creator.monthlyCredits.toLocaleString()} / mo</Text>
-        )}
       </View>
 
       <View style={featuredStyles.subscribeBtn}>
@@ -280,9 +277,11 @@ export function MsPreviewCard({
         </Text>
         <View style={previewStyles.footer}>
           <Text style={previewStyles.likes}>{preview.likes} likes</Text>
-          <Text style={[previewStyles.locked, preview.isPremium && previewStyles.lockedPremium]}>
-            {preview.lockedLabel}
-          </Text>
+          {preview.isPremium && (
+            <Text style={[previewStyles.locked, previewStyles.lockedPremium]}>
+              Subscribers Only
+            </Text>
+          )}
         </View>
       </View>
     </Pressable>

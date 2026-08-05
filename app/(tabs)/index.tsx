@@ -13,8 +13,8 @@ import { Bell, Compass, MagnifyingGlass } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
-import { MsCreditBadge } from '@/components/MsCreditBadge';
-import { useCredits } from '@/hooks/useCredits';
+import { MsWalletBadge } from '@/components/MsWalletBadge';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsPostCard } from '@/components/MsPostCard';
@@ -278,7 +278,7 @@ export default function HomeScreen() {
   const initials = user?.name
     ? user.name.split(' ').map((w) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('')
     : 'U';
-  const walletBalance = useCredits();
+  const walletBalance = useWalletBalance();
 
   return (
     <MsAmbientBackground style={[styles.bg, { paddingTop: insets.top }]}>
@@ -293,7 +293,7 @@ export default function HomeScreen() {
           <Text style={styles.handle}>@{user?.username ?? 'username'}</Text>
         </View>
         <View style={styles.topActions}>
-          <MsCreditBadge balance={walletBalance} />
+          <MsWalletBadge balance={walletBalance} />
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => router.push('/notifications')}>
             <Bell size={20} color={T.TEXT} />
           </TouchableOpacity>
@@ -326,7 +326,7 @@ export default function HomeScreen() {
           renderItem={({ item }) => (
             <MsPostCard
               post={item}
-              tier={item.tier ?? (item.visibility === 'public' ? 'bronze' : undefined)}
+              tier={item.tier}
               doubleTapToOpen
               videoPreviewActive={visiblePostIds.has(item.id)}
               onPress={() => {

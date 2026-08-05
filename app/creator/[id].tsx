@@ -535,7 +535,6 @@ export default function CreatorProfileScreen() {
       category:        base?.category ?? '',
       followers:       resolvedFollowers,
       subscriberCount: base?.subscriberCount ?? 0,
-      monthlyCredits:  base?.monthlyCredits ?? 0,
       isVerified:      resolvedIsVerified,
       isOnline:        base?.isOnline ?? false,
       gradient:        base?.gradient ?? 'violet',
@@ -873,7 +872,7 @@ export default function CreatorProfileScreen() {
                     activeOpacity={0.85}
                   >
                     <Text style={styles.albumRowTitle}>{album.title}</Text>
-                    <Text style={styles.albumRowMeta}>{album.itemCount} items · ₦{album.priceCredits?.toLocaleString()}</Text>
+                    <Text style={styles.albumRowMeta}>{album.itemCount} items · ₦{album.price?.toLocaleString()}</Text>
                   </TouchableOpacity>
                 ))}
               </View>

@@ -91,8 +91,7 @@ export const T = {
 } as const;
 
 /**
- * Subscription tier definitions.
- * Free = bronze (explore only), Normal/Premium/VIP = home feed (paid tiers).
+ * Subscription tier definitions (legacy — kept for any remaining references).
  */
 export const TIERS = {
   free: {

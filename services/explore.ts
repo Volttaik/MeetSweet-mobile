@@ -123,7 +123,6 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
       category: '',
       followers: '',
       subscriberCount: 0,
-      monthlyCredits: 0,
       isVerified: creatorVerified,
       isOnline: false,
       gradient: gradientFor(creatorId),
@@ -143,12 +142,10 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
       commentCount: raw.comment_count ?? raw.commentCount ?? 0,
       isPremium: false, // Explore only shows public content — never locked
       gradient: gradientFor(raw.id),
-      lockedLabel: 'Free',
       thumbnailUrl,
       mediaUrl,
       createdAt: raw.created_at ?? raw.createdAt ?? raw.published_at,
       contentType,
-      // Tier from backend — bronze means free/public (no badge shown on Explore)
       tier: raw.tier ?? null,
     };
 
@@ -170,7 +167,6 @@ function normalizeUser(raw: any): Creator {
     category: '',
     followers: fmtFollowers(raw.follower_count ?? 0),
     subscriberCount: 0,
-    monthlyCredits: 0,
     isVerified: raw.is_verified ?? raw.isVerified ?? false,
     isOnline: false,
     gradient: gradientFor(raw.id),
@@ -287,7 +283,6 @@ export async function buildExploreCatalog(): Promise<ExploreCatalog> {
   const recommendedCreatorIds = ids.slice(Math.min(3, ids.length));
 
   return {
-    creditBalance: 0,
     categories: [],
     trendingSearches: [],
     featuredCreatorIds,

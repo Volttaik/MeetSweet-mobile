@@ -121,17 +121,17 @@ export function ExploreAlbumCard({
             {/* Bottom scrim */}
             <View style={styles.bottomScrim} pointerEvents="none" />
 
-            {/* Premium lock overlay */}
-            {album.isPremium && (
+            {/* Purchase lock overlay */}
+            {album.requiresPurchase && (
               <View style={styles.lockOverlay} pointerEvents="box-none">
                 <View style={styles.lockCircle}>
                   <Lock size={22} color={T.TEXT} weight="bold" />
                 </View>
-                <Text style={styles.lockTitle}>Premium Collection</Text>
-                {album.priceCredits ? (
+                <Text style={styles.lockTitle}>Purchase to Unlock</Text>
+                {album.price ? (
                   <View style={styles.lockPriceRow}>
                     <Star size={12} color={T.ACCENT} weight="fill" />
-                    <Text style={styles.lockPrice}>₦{album.priceCredits.toLocaleString()}</Text>
+                    <Text style={styles.lockPrice}>₦{album.price.toLocaleString()}</Text>
                   </View>
                 ) : null}
                 <TouchableOpacity
@@ -140,7 +140,7 @@ export function ExploreAlbumCard({
                   activeOpacity={0.85}
                 >
                   <Lock size={12} color={T.BG} weight="bold" />
-                  <Text style={styles.unlockText}>Unlock</Text>
+                  <Text style={styles.unlockText}>Purchase</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -180,10 +180,10 @@ export function ExploreAlbumCard({
                 </View>
               </TouchableOpacity>
 
-              {album.isPremium && (
+              {album.requiresPurchase && (
                 <View style={styles.premiumPill}>
                   <Star size={8} color="#fff" weight="fill" />
-                  <Text style={styles.premiumText}>PREMIUM</Text>
+                  <Text style={styles.premiumText}>PURCHASE</Text>
                 </View>
               )}
             </View>
@@ -221,7 +221,7 @@ export function ExploreAlbumCard({
                 <Images size={13} color={T.TEXT_3} />
                 <Text style={styles.footerMeta}>{album.itemCount} items in collection</Text>
               </View>
-              {album.isPremium ? (
+              {album.requiresPurchase ? (
                 <TouchableOpacity
                   style={styles.ctaUnlock}
                   onPress={onUnlockPress ?? onPress}
@@ -229,7 +229,7 @@ export function ExploreAlbumCard({
                 >
                   <Lock size={11} color="#fff" weight="bold" />
                   <Text style={styles.ctaUnlockText}>
-                    Unlock · ₦{album.priceCredits.toLocaleString()}
+                    {album.price ? `Purchase · ₦${album.price.toLocaleString()}` : 'Purchase'}
                   </Text>
                 </TouchableOpacity>
               ) : (

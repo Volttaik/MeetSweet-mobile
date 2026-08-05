@@ -71,7 +71,7 @@ function VideoCard({ video }: { video: LongFormVideo }) {
       <View style={styles.thumbnail}>
         {video.thumbnailUrl ? <MsMediaLoader uri={video.thumbnailUrl} style={StyleSheet.absoluteFill} resizeMode="cover" accessibleLabel={`${video.title} thumbnail`} errorMessage="" fallback={null} /> : null}
         <View style={styles.duration}><Clock size={11} color="#fff" /><Text style={styles.durationText}>{formatDuration(video.durationSecs)}</Text></View>
-        {video.isPremium ? <View style={styles.premium}><Text style={styles.premiumText}>PREMIUM</Text></View> : null}
+        {video.isPremium ? <View style={styles.premium}><Text style={styles.premiumText}>SUBSCRIBER</Text></View> : null}
       </View>
       <View style={styles.cardBody}>
         <MsAvatar size={38} initials={video.creator.name.slice(0, 2).toUpperCase()} imageUri={video.creator.avatarUrl ?? undefined} />

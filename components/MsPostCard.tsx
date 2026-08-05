@@ -419,20 +419,12 @@ export function MsPostCard({
         </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {/* Tier badge — prefer explicit prop, then post.tier (skip bronze — that's the
-              default for every public post and adds noise without meaning). */}
+          {/* Tier badge — prefer explicit prop, then post.tier (skip free — no badge for public posts). */}
           {(() => {
             const effectiveTier = tier ?? post.tier;
             // New tier system
             if (effectiveTier === 'subscriber' || effectiveTier === 'subscriber_plus') {
               return <MsTierBadge tier={effectiveTier} size="xs" />;
-            }
-            // Backward compat: old backend values
-            if (effectiveTier === 'silver' || effectiveTier === 'gold') {
-              return <MsTierBadge tier="subscriber" size="xs" />;
-            }
-            if ((effectiveTier as string) === 'diamond') {
-              return <MsTierBadge tier="subscriber_plus" size="xs" />;
             }
             // Fallback: post is paywalled without explicit tier
             if (post.isPremium) return <MsTierBadge tier="subscriber" size="xs" />;
@@ -527,9 +519,7 @@ export function MsPostCard({
                 <View style={styles.albumBadge}>
                   <Images size={12} color="#fff" weight="bold" />
                   <Text style={styles.albumBadgeText}>
-                    {(post as any).priceCredits && (post as any).priceCredits > 0
-                      ? `Buy · ₦${(post as any).priceCredits.toLocaleString()}`
-                      : 'Album'}
+                    {'Album'}
                   </Text>
                 </View>
               </View>

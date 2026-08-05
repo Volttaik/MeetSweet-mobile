@@ -4,7 +4,7 @@
  * Steps: details → cover → content → preview → publishing → success
  *
  * The backend accepts POST /albums with:
- *   { title, description, visibility, unlock_price?, cover_media_id?, media_ids[] }
+ *   { title, description, visibility, price?, cover_media_id?, media_ids[] }
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -201,7 +201,7 @@ export default function CreateAlbumScreen() {
         title:          title.trim(),
         description:    description.trim() || undefined,
         visibility:     isPaid ? 'subscribers' : visibility,
-        unlock_price:   isPaid ? (parseInt(price, 10) || 500) : undefined,
+        price:          isPaid ? (parseInt(price, 10) || 500) : undefined,
         cover_media_id: uploadedCover.id,
         media_ids:      itemIds,
         categories:     selectedCategories,
