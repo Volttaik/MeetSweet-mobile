@@ -571,7 +571,7 @@ export default function ExploreScreen() {
           <View style={styles.albumRowWrap}>
             <View style={styles.albumRowHeader}>
               <Images size={13} color={T.TEXT_2} />
-              <Text style={styles.albumRowLabel}>Premium Albums</Text>
+              <Text style={styles.albumRowLabel}>Albums</Text>
             </View>
             <ScrollView
               horizontal
@@ -754,7 +754,7 @@ export default function ExploreScreen() {
             {allAlbums.length > 0 && (
               <>
                 <MsSectionHeader
-                  title="Premium albums"
+                  title="Albums"
                   actionLabel="See all"
                   onAction={() => handleModeChange('albums')}
                   style={styles.sectionHeader}

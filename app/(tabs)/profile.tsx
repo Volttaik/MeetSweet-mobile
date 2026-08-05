@@ -766,7 +766,7 @@ export default function ProfileScreen() {
         return (
           <MsEmptyState
             title="No albums yet"
-            message="Create an album to curate a premium collection of photos and videos."
+            message="Create an album to curate a collection of photos and videos."
             actionLabel="Create album"
             onAction={() => router.push('/create-album')}
           />
@@ -925,11 +925,7 @@ export default function ProfileScreen() {
                   <Text style={styles.videoDuration}>{formatDuration(p.durationSecs)}</Text>
                 </View>
               )}
-              {p.isPremium && (
-                <View style={styles.lockBadge}>
-                  <LockSimple size={10} color="#fff" weight="bold" />
-                </View>
-              )}
+              {/* Shorts are always free — no lock badge */}
             </TouchableOpacity>
           ))}
         </View>

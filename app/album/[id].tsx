@@ -303,7 +303,7 @@ export default function AlbumScreen() {
               <Lock size={22} color={T.TEXT} weight="bold" />
             </View>
             <View style={styles.unlockCopy}>
-              <Text style={styles.unlockTitle}>Premium Collection</Text>
+              <Text style={styles.unlockTitle}>Exclusive Album</Text>
               <Text style={styles.unlockSub}>
                 Purchase all {album.itemCount} items for ₦{album.price?.toLocaleString()}.
               </Text>

@@ -212,9 +212,10 @@ interface MsPostCardProps {
   videoPreviewActive?: boolean;
   /**
    * Content tier badge shown next to the author name.
-   * Bronze = small coloured dot (no text — public/Explore content).
-   * Silver / Gold / Diamond = coloured pill badge.
-   * Omit to fall back to the legacy isPremium "SUBSCRIBERS" badge.
+   * free = no badge (public/Explore content).
+   * subscriber = Subscriber pill badge.
+   * subscriber_plus = Subscriber+ pill badge.
+   * Omit to fall back to the isPremium "Subscriber" badge.
    */
   tier?: ContentTier;
 }

@@ -4,7 +4,7 @@
  * Fetches the real post from GET /api/posts/:id.
  * For video posts: renders the production video player (MsLongFormPlayer).
  * For image posts: renders the full-resolution image.
- * Shows creator info, likes, comments, and paywall for premium content.
+ * Shows creator info, likes, comments. Subscriber-gated content prompts to subscribe.
  */
 import React, { useEffect, useState } from 'react';
 import {

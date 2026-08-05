@@ -53,7 +53,7 @@ export default function PurchasedAlbumsScreen() {
       ) : !albums || albums.length === 0 ? (
         <MsEmptyState
           title="No purchased albums"
-          message="Albums you buy will appear here. Browse Explore to discover premium collections."
+          message="Albums you purchase will appear here. Browse Explore to discover albums from your favourite creators."
           actionLabel="Go to Explore"
           onAction={() => router.push('/(tabs)/explore')}
         />

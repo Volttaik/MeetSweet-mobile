@@ -27,8 +27,8 @@ function normalizeUser(raw: any): User {
     isCreator: raw.is_creator ?? false,
     isVerifiedCreator: raw.is_verified_creator ?? false,
     role: raw.role ?? 'user',
-    subscriberCount: raw.subscriber_count ?? raw.follower_count ?? 0,
-    subscribingCount: raw.following_count ?? 0,
+    subscriberCount: raw.subscriber_count ?? 0,
+    subscribingCount: raw.subscription_count ?? 0,
     postCount: raw.post_count ?? 0,
     createdAt: raw.created_at ?? new Date().toISOString(),
   };

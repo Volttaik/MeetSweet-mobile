@@ -296,7 +296,7 @@ export default function CreateAlbumScreen() {
           {isPaid && (
             <View style={styles.paidBadge}>
               <LockSimple size={14} color={T.ACCENT} />
-              <Text style={styles.paidBadgeText}>Paid album · ₦{parseInt(price, 10).toLocaleString()} to unlock</Text>
+              <Text style={styles.paidBadgeText}>Paid album · ₦{parseInt(price, 10).toLocaleString()} to purchase</Text>
             </View>
           )}
 
@@ -622,7 +622,7 @@ export default function CreateAlbumScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.paidToggleLabel, isPaid && styles.paidToggleLabelActive]}>
-                  Charge Naira to unlock
+                  Charge Naira to purchase
                 </Text>
                 <Text style={styles.paidToggleDesc}>
                   Members pay from wallet to access this album

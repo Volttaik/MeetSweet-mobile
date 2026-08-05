@@ -115,7 +115,8 @@ function normalizePost(raw: any): Post {
     likeCount:     raw.like_count    ?? raw.likeCount    ?? 0,
     commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
-    isPremium: raw.visibility === 'subscribers' || raw.visibility === 'subscribers_plus',
+    // Shorts are always free per product rules — no subscriber gate
+    isPremium: contentType !== 'short' && (raw.visibility === 'subscribers' || raw.visibility === 'subscribers_plus'),
     // Derive tier from backend value — maps to free / subscriber / subscriber_plus only
     tier: (() => {
       const t = raw.tier;

@@ -164,7 +164,7 @@ function normalizeUser(raw: any): Creator {
     initials: initials(name),
     bio: raw.bio ?? '',
     category: '',
-    subscriberCount: raw.subscriber_count ?? raw.subscriberCount ?? raw.follower_count ?? 0,
+    subscriberCount: raw.subscriber_count ?? raw.subscriberCount ?? 0,
     isVerified: raw.is_verified ?? raw.isVerified ?? false,
     isOnline: false,
     gradient: gradientFor(raw.id),

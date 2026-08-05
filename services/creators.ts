@@ -96,7 +96,7 @@ function normalizeCreatorProfile(raw: any): CreatorProfileFull {
     isCreator:          raw.is_creator ?? true,
     isVerifiedCreator:  raw.is_verified_creator ?? false,
     role:               raw.role ?? 'user',
-    subscriberCount:    raw.subscriber_count ?? raw.follower_count ?? 0,
+    subscriberCount:    raw.subscriber_count ?? 0,
     postCount:          raw.post_count ?? 0,
     subscriptionPrice:  raw.subscription_price ?? null,
     subscribedToCreator: raw.subscribed_to_creator ?? false,
@@ -137,7 +137,8 @@ function normalizePostItem(raw: any): Post {
     likeCount:    raw.like_count    ?? raw.likeCount    ?? 0,
     commentCount: raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count   ?? 0,
-    isPremium:    raw.visibility === 'subscribers',
+    // Shorts are always free — never subscriber-gated per product rules
+    isPremium:    (rawContentType !== 'short') && raw.visibility === 'subscribers',
     createdAt:    raw.created_at ?? raw.createdAt ?? raw.published_at ?? new Date().toISOString(),
     publishedAt:  raw.published_at ?? raw.publishedAt ?? raw.created_at,
     updatedAt:    raw.updated_at   ?? raw.updatedAt,
@@ -314,7 +315,6 @@ export async function getCreatorByUsername(username: string): Promise<CreatorPro
     return {
       ...profile,
       subscription_price: profile.subscriptionPrice,
-      follower_count:     profile.subscriberCount,
       subscriber_count:   profile.subscriberCount,
       post_count:         profile.postCount,
       is_verified:        profile.isVerified,

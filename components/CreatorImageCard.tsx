@@ -97,11 +97,11 @@ export function CreatorImageCard({
           </View>
         )}
 
-        {/* Premium badge — top right */}
+        {/* Subscriber-only badge — top right (never shown in Explore, only in subscriber feeds) */}
         {card.isPremium && (
           <View style={styles.premiumBadge}>
             <Star size={8} color="#fff" weight="fill" />
-            <Text style={styles.premiumText}>PREMIUM</Text>
+            <Text style={styles.premiumText}>SUBSCRIBER</Text>
           </View>
         )}
 

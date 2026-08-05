@@ -115,7 +115,7 @@ const PAGES = [
     key: 'discover',
     tag: 'EXPLORE',
     title: 'Discover Your\nFavorite Creators',
-    description: 'Explore premium creators and communities built around the content you love most.',
+    description: 'Explore top creators and communities built around the content you love most.',
     features: [
       'Videos, shorts & exclusive posts',
       'Browse creators by category',
@@ -143,7 +143,7 @@ const PAGES = [
     key: 'subscribe',
     tag: 'UNLOCK',
     title: 'Subscribe &\nUnlock More',
-    description: 'Subscribe to unlock premium content and directly support the creators who inspire you.',
+    description: 'Subscribe to access exclusive content and directly support the creators who inspire you.',
     features: [
       'Free, Subscriber, and Subscriber Plus tiers',
       'Subscriber-only content unlocked',

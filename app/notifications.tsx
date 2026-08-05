@@ -93,7 +93,7 @@ function NotifRow({
         <Text style={styles.notifBody} numberOfLines={2}>
           <Text style={styles.notifActor}>{actorName} </Text>
           {item.body
-            .replace(/^.*?sent you|^.*?liked|^.*?followed|^.*?commented/, (m) =>
+            .replace(/^.*?sent you|^.*?liked|^.*?subscribed|^.*?commented/, (m) =>
               m.split(/\s/).slice(1).join(' '),
             )}
         </Text>
