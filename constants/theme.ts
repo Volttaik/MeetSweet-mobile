@@ -91,32 +91,24 @@ export const T = {
 } as const;
 
 /**
- * Subscription tier definitions (legacy — kept for any remaining references).
+ * Content tier display config — aligns with the backend ContentTier enum.
+ * Only three tiers exist: free, subscriber, subscriber_plus.
  */
 export const TIERS = {
   free: {
-    label:      'Free',
-    priceNaira: 0,
-    color:      '#CD7F32',  // bronze
-    bg:         'rgba(205,127,50,0.15)',
+    label: 'Free',
+    color: '#888888',
+    bg:    'rgba(136,136,136,0.16)',
   },
-  normal: {
-    label:      'Normal',
-    priceNaira: 200,
-    color:      '#2196F3',  // blue
-    bg:         'rgba(33,150,243,0.15)',
+  subscriber: {
+    label: 'Subscriber',
+    color: '#C45A72',
+    bg:    'rgba(196,90,114,0.15)',
   },
-  premium: {
-    label:      'Premium',
-    priceNaira: 500,
-    color:      '#FFD700',  // gold
-    bg:         'rgba(255,215,0,0.15)',
-  },
-  vip: {
-    label:      'VIP',
-    priceNaira: 1000,
-    color:      '#9C27B0',  // purple
-    bg:         'rgba(156,39,176,0.15)',
+  subscriber_plus: {
+    label: 'Subscriber+',
+    color: '#E8A020',
+    bg:    'rgba(232,160,32,0.15)',
   },
 } as const;
 

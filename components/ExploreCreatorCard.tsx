@@ -2,7 +2,7 @@
  * ExploreCreatorCard — Full-width creator profile card for the Creators feed.
  *
  * Replaces MsPreviewCard in the Creators mode. Shows a rich, tappable creator
- * identity card: avatar, name, handle, bio, follower count, content summary,
+ * identity card: avatar, name, handle, bio, subscriber count, content summary,
  * and a subscribe button.  Background is toned from the creator's gradient.
  *
  * Used in the mixed Creators feed alongside ExploreVideoCard and CreatorImageCard.
@@ -29,6 +29,12 @@ import { T } from '@/constants/theme';
 import type { Creator } from '@/lib/api-client-react';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+function fmtSubscribers(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
 
 const TONE: Record<string, string> = {
   violet:  '#1B1128',
@@ -133,7 +139,7 @@ export function ExploreCreatorCard({
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
               <Users size={11} color={T.TEXT_3} />
-              <Text style={styles.statText}>{creator.followers} subscribers</Text>
+              <Text style={styles.statText}>{fmtSubscribers(creator.subscriberCount ?? 0)} subscribers</Text>
             </View>
             {videoCount > 0 && (
               <View style={styles.statItem}>

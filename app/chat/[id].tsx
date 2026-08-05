@@ -440,7 +440,7 @@ export default function ChatScreen() {
   const handleAttachmentConfirmed = useCallback(async (confirmed: ConfirmedAttachment) => {
     setPendingAttachment(null);
     if (!conversationId) return;
-    const { uri, type: attachType, isPaid, paidPrice } = confirmed;
+    const { uri, type: attachType } = confirmed;
     const tempId = `temp_${Date.now()}`;
     const now = new Date();
 
@@ -510,8 +510,6 @@ export default function ChatScreen() {
       image: mediaType === 'image' ? uri : undefined,
       video: mediaType === 'video' ? uri : undefined,
       msMediaType: mediaType as MsMessage['msMediaType'],
-      msIsPaid: isPaid,
-      msPaidPrice: paidPrice,
       sent: false,
       pending: true,
     };
@@ -525,7 +523,6 @@ export default function ChatScreen() {
         confirmed.caption,
         uploaded.url,
         mediaType,
-        { isPaid, paidPrice: isPaid ? paidPrice : undefined },
       );
       const conf = toMsMessage(res.message, user?.id ?? '');
       setMessages((prev) =>
@@ -676,19 +673,6 @@ export default function ChatScreen() {
     });
   }, [user?.id]);
 
-  // ── Unlock paid content ───────────────────────────────────────────────────────
-  const handleUnlockPaid = useCallback(async (msg: MsMessage) => {
-    Alert.alert('Unlock', `Unlock for ₦${(msg.msPaidPrice ?? 0).toLocaleString()}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Unlock',
-        onPress: () =>
-          setMessages((prev) =>
-            prev.map((m) => m._id === msg._id ? { ...m, msIsUnlocked: true } : m),
-          ),
-      },
-    ]);
-  }, []);
 
   // ── Media press ───────────────────────────────────────────────────────────────
   const handleMediaPress = useCallback((msg: MsMessage) => {
@@ -866,7 +850,6 @@ export default function ChatScreen() {
             {...(props as any)}
             currentMessage={props.currentMessage as MsMessage}
             onLongPressMessage={handleLongPress}
-            onUnlockPaid={handleUnlockPaid}
             onMediaPress={handleMediaPress}
             onRetry={handleRetry}
           />

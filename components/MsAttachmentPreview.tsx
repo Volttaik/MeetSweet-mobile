@@ -31,8 +31,6 @@ import {
   X,
   Play,
   Pause,
-  LockSimple,
-  CurrencyDollar,
   File,
   ArrowClockwise,
   PaperPlaneRight,
@@ -85,8 +83,6 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
   const bgAnim    = useRef(new Animated.Value(0)).current;
 
   const [caption, setCaption] = useState('');
-  const [isPaid, setIsPaid] = useState(false);
-  const [paidPrice, setPaidPrice] = useState('');
 
   // Audio/voice playback
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -120,8 +116,6 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
   useEffect(() => {
     if (attachment) {
       setCaption('');
-      setIsPaid(false);
-      setPaidPrice('');
       setIsPlaying(false);
       setAudioPosition(0);
       Animated.parallel([
@@ -195,19 +189,12 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
   const handleSend = () => {
     if (!attachment) return;
-    const price = parseFloat(paidPrice);
-    if (isPaid && (isNaN(price) || price <= 0)) {
-      Alert.alert('Invalid price', 'Please enter a valid price in Naira for paid content.');
-      return;
-    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     soundRef.current?.unloadAsync().catch(() => {});
     soundRef.current = null;
     onSend({
       ...attachment,
       caption: caption.trim() || undefined,
-      isPaid,
-      paidPrice: isPaid ? price : undefined,
     });
   };
 
@@ -222,7 +209,6 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
   if (!attachment) return null;
 
-  const canBePaid = attachment.type === 'image' || attachment.type === 'video';
   const isAudio   = attachment.type === 'audio' || attachment.type === 'voice';
   const duration  = attachment.duration ?? 0;
   const progress  = duration > 0 ? Math.min(audioPosition / duration, 1) : 0;
@@ -386,51 +372,6 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
             </View>
           )}
 
-          {/* ── Paid content toggle ── */}
-          {canBePaid && (
-            <View style={s.paidSection}>
-              <TouchableOpacity
-                style={s.paidToggleRow}
-                onPress={() => {
-                  setIsPaid((v) => !v);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={s.paidToggleLeft}>
-                  <View style={s.paidIcon}>
-                    <LockSimple size={16} color={T.ACCENT} />
-                  </View>
-                  <View>
-                    <Text style={s.paidLabel}>Make this paid content</Text>
-                    <Text style={s.paidSub}>Subscribers pay to unlock this media</Text>
-                  </View>
-                </View>
-                <View style={[s.toggle, isPaid && s.toggleActive]}>
-                  <View style={[s.toggleThumb, isPaid && s.toggleThumbActive]} />
-                </View>
-              </TouchableOpacity>
-
-              {isPaid && (
-                <View style={s.priceRow}>
-                  <View style={s.priceIcon}>
-                    <CurrencyDollar size={16} color={T.TEXT_2} />
-                  </View>
-                  <TextInput
-                    style={s.priceInput}
-                    placeholder="Credits (e.g. 50)"
-                    placeholderTextColor={T.TEXT_3}
-                    value={paidPrice}
-                    onChangeText={setPaidPrice}
-                    keyboardType="numeric"
-                    selectionColor="#888"
-                    maxLength={6}
-                  />
-                  <Text style={s.priceSuffix}>Naira (₦)</Text>
-                </View>
-              )}
-            </View>
-          )}
         </ScrollView>
 
         {/* ── Action buttons ── */}

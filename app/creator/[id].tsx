@@ -521,10 +521,10 @@ export default function CreatorProfileScreen() {
     const resolvedHandle   = base?.handle || (profile?.username ? `@${profile.username}` : '');
     const resolvedInitials = initials(resolvedName);
     const resolvedBio      = profile?.bio ?? base?.bio ?? '';
-    const resolvedFollowers = profile
-      ? fmtCount(profile.subscriberCount ?? 0)
-      : (base?.followers ?? '');
     const resolvedIsVerified = profile?.isVerified ?? base?.isVerified ?? false;
+    const resolvedSubscriberCount = profile
+      ? (profile.subscriberCount ?? 0)
+      : (base?.subscriberCount ?? 0);
 
     return {
       id: id!,
@@ -533,8 +533,7 @@ export default function CreatorProfileScreen() {
       initials:        resolvedInitials,
       bio:             resolvedBio,
       category:        base?.category ?? '',
-      followers:       resolvedFollowers,
-      subscriberCount: base?.subscriberCount ?? 0,
+      subscriberCount: resolvedSubscriberCount,
       isVerified:      resolvedIsVerified,
       isOnline:        base?.isOnline ?? false,
       gradient:        base?.gradient ?? 'violet',
@@ -687,7 +686,7 @@ export default function CreatorProfileScreen() {
           {/* Metrics */}
           <View style={styles.metrics}>
             <View>
-              <Text style={styles.metricValue}>{creator.followers || '—'}</Text>
+              <Text style={styles.metricValue}>{fmtCount(creator.subscriberCount ?? 0) || '—'}</Text>
               <Text style={styles.metricLabel}>Subscribers</Text>
             </View>
             <View style={styles.metricDivider} />

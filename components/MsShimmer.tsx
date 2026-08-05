@@ -233,7 +233,7 @@ export function MsShimmerCreatorProfile() {
     <View style={{ backgroundColor: 'transparent' }}>
       {/* Banner */}
       <MsShimmer width="100%" height={160} borderRadius={0} />
-      {/* Avatar + follow row */}
+      {/* Avatar + subscribe row */}
       <View style={{ paddingHorizontal: 20, marginTop: -36, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
         <MsShimmer width={72} height={72} borderRadius={36} />
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>

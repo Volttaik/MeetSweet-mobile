@@ -1,7 +1,7 @@
 /**
  * Purchased Albums — /purchased-albums
  *
- * Shows all albums the current user has bought (unlocked with wallet credits).
+ * Shows all albums the current user has purchased from their wallet.
  * Tapping an album opens the full album detail screen.
  */
 import React from 'react';

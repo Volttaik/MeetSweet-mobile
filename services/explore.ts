@@ -38,7 +38,7 @@ function initials(name: string): string {
   return (name ?? '??').substring(0, 2).toUpperCase();
 }
 
-function fmtFollowers(n: number): string {
+function fmtSubscribers(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
@@ -121,7 +121,6 @@ function normalizeItem(raw: any): { preview: ContentPreview; creator: Creator } 
       initials: initials(creatorName),
       bio: '',
       category: '',
-      followers: '',
       subscriberCount: 0,
       isVerified: creatorVerified,
       isOnline: false,
@@ -165,8 +164,7 @@ function normalizeUser(raw: any): Creator {
     initials: initials(name),
     bio: raw.bio ?? '',
     category: '',
-    followers: fmtFollowers(raw.follower_count ?? 0),
-    subscriberCount: 0,
+    subscriberCount: raw.subscriber_count ?? raw.subscriberCount ?? raw.follower_count ?? 0,
     isVerified: raw.is_verified ?? raw.isVerified ?? false,
     isOnline: false,
     gradient: gradientFor(raw.id),

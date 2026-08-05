@@ -330,8 +330,8 @@ export async function deleteAlbum(id: string): Promise<void> {
 }
 
 /**
- * Purchase a premium album using credits.
- * Backend deducts credits and marks the album as purchased for the current user.
+ * Purchase an album from the user's wallet balance.
+ * Backend deducts the album price and marks the album as purchased for the current user.
  * Spec: POST /api/albums/:id/purchase
  */
 export async function purchaseAlbum(id: string): Promise<{ purchased: boolean }> {

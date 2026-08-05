@@ -60,7 +60,6 @@ export interface CreatorStats {
 // Keep old type alias for backward compat with code that imports CreatorProfile
 export type CreatorProfile = CreatorProfileFull & {
   subscription_price: number | null;
-  follower_count: number;
   subscriber_count: number;
   post_count: number;
   is_verified: boolean;

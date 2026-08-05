@@ -22,6 +22,12 @@ function tone(gradient: string) {
   return TONE[gradient] ?? T.SURFACE_2;
 }
 
+function fmtSubscribers(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
 // ─── Creator Identity (avatar + name + handle row) ────────────────────────────
 
 export function MsCreatorIdentity({
@@ -139,7 +145,7 @@ export function MsFeaturedCreatorCard({
       <View style={featuredStyles.footer}>
         <View style={featuredStyles.metric}>
           <Users size={13} color={T.TEXT_2} />
-          <Text style={featuredStyles.metricText}>{creator.followers} subscribers</Text>
+          <Text style={featuredStyles.metricText}>{fmtSubscribers(creator.subscriberCount ?? 0)} subscribers</Text>
         </View>
       </View>
 
@@ -195,7 +201,7 @@ export function MsRecommendedCreatorRow({
 
       <View style={recommendedStyles.meta}>
         <Text style={recommendedStyles.category}>{(creator.category ?? '').toUpperCase()}</Text>
-        <Text style={recommendedStyles.followers}>{creator.followers} subscribers</Text>
+        <Text style={recommendedStyles.subscriberCount}>{fmtSubscribers(creator.subscriberCount ?? 0)} subscribers</Text>
       </View>
 
       <View style={recommendedStyles.subscribeButton}>
@@ -418,7 +424,7 @@ const recommendedStyles = StyleSheet.create({
   handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 2 },
   meta: { alignItems: 'flex-end', marginRight: 4, gap: 3 },
   category: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1 },
-  followers: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10 },
+  subscriberCount: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10 },
   subscribeButton: {
     borderRadius: T.RADIUS.full,
     paddingHorizontal: 12,

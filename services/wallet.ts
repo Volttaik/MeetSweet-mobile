@@ -143,7 +143,6 @@ export async function verifyWalletDeposit(reference: string): Promise<DepositVer
   const raw = await apiFetch<{
     verified?: boolean;
     success?: boolean;
-    credits?: number;
     amount?: number;
     amount_added?: number;
     new_balance?: number;
@@ -156,7 +155,7 @@ export async function verifyWalletDeposit(reference: string): Promise<DepositVer
   });
   return {
     success:     raw.verified ?? raw.success ?? false,
-    amountAdded: raw.amount_added ?? raw.amount ?? raw.credits ?? 0,
+    amountAdded: raw.amount_added ?? raw.amount ?? 0,
     newBalance:  raw.newBalance ?? raw.new_balance ?? 0,
     message:     raw.message,
   };

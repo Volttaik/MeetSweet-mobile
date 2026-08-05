@@ -20,13 +20,11 @@ import {
   CaretRight,
   ChartBar,
   ChatText,
-  CurrencyDollar,
   CurrencyNgn,
   Eye,
   Gear,
   GearSix,
   Heart,
-  Lock,
   MegaphoneSimple,
   TrendUp,
   Users,
@@ -214,12 +212,9 @@ export default function CreatorDashboardScreen() {
 
   // ── Local settings state ────────
   const [subsEnabled, setSubsEnabled] = useState(true);
-  const [paidContentEnabled, setPaidContentEnabled] = useState(true);
   const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanComment, setWhoCanComment] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
-  const [subsCanMsgFree, setSubsCanMsgFree] = useState(true);
-  const [nonSubsCanPayMsg, setNonSubsCanPayMsg] = useState(false);
 
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -281,7 +276,6 @@ export default function CreatorDashboardScreen() {
         setWhoCanMessage(settings.who_can_message ?? 'everyone');
         setWhoCanComment(settings.allow_comments ? 'everyone' : 'none');
         setSubsEnabled(true);
-        setPaidContentEnabled(true);
       }
       setError('');
     } catch (e) {
@@ -530,33 +524,6 @@ export default function CreatorDashboardScreen() {
                   { text: 'Cancel', style: 'cancel' },
                 ])
               }
-            />
-          </SettingsSection>
-
-          {/* Paid Content */}
-          <SettingsSection IconComp={Lock} title="Paid Content Settings">
-            <SettingsToggleRow
-              label="Enable paid content"
-              value={paidContentEnabled}
-              onChange={setPaidContentEnabled}
-            />
-            <SettingsDivider />
-            <SettingsRow
-              label="Default content price"
-              value="₦500"
-              onPress={() => Alert.alert('Default Price', 'Set the default price for your paid content.')}
-            />
-            <SettingsDivider />
-            <SettingsToggleRow
-              label="Subscribers can message for free"
-              value={subsCanMsgFree}
-              onChange={setSubsCanMsgFree}
-            />
-            <SettingsDivider />
-            <SettingsToggleRow
-              label="Non-subscribers can pay to message"
-              value={nonSubsCanPayMsg}
-              onChange={setNonSubsCanPayMsg}
             />
           </SettingsSection>
 

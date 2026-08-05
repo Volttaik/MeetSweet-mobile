@@ -20,7 +20,6 @@ export interface Creator {
   initials: string;
   bio: string;
   category: string;
-  followers: string;
   subscriberCount: number;
   isVerified: boolean;
   isOnline: boolean;

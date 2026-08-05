@@ -200,7 +200,7 @@ export default function CreateAlbumScreen() {
       await createAlbum({
         title:          title.trim(),
         description:    description.trim() || undefined,
-        visibility:     isPaid ? 'subscribers' : visibility,
+        visibility,
         price:          isPaid ? (parseInt(price, 10) || 500) : undefined,
         cover_media_id: uploadedCover.id,
         media_ids:      itemIds,
@@ -289,7 +289,7 @@ export default function CreateAlbumScreen() {
           <View style={styles.previewMeta}>
             <Text style={styles.previewMetaLabel}>Visibility</Text>
             <Text style={styles.previewMetaValue}>
-              {isPaid ? 'Subscribers (Paid)' : VISIBILITY_OPTIONS.find(o => o.value === visibility)?.label}
+              {VISIBILITY_OPTIONS.find(o => o.value === visibility)?.label ?? 'Public'}
             </Text>
           </View>
 
@@ -654,7 +654,7 @@ export default function CreateAlbumScreen() {
             <View style={styles.accessNote}>
               <Star size={12} color={T.ACCENT} weight="fill" />
               <Text style={styles.accessNoteText}>
-                Users must be subscribed to your channel before they can purchase this album.
+                Anyone can purchase this album directly from their wallet. Album purchases are independent from subscriptions.
               </Text>
             </View>
           )}
