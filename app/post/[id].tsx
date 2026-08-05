@@ -79,7 +79,12 @@ export default function PostDetailScreen() {
           item.id === replyingTo.id ? { ...item, replyCount: item.replyCount + 1 } : item,
         ));
       } else {
-        setComments((items) => [...items, result.comment]);
+        setComments((items) => {
+          // Deduplicate in case the same comment is returned by a concurrent refresh
+          const next = [...items, result.comment];
+          const seen = new Set<string>();
+          return next.filter((c) => (seen.has(c.id) ? false : !!seen.add(c.id)));
+        });
         setPost((current) => current ? { ...current, commentCount: current.commentCount + 1 } : current);
       }
       setDraft('');

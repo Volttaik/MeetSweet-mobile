@@ -132,6 +132,12 @@ export default function HomeScreen() {
     setVisiblePostIds(new Set(viewableItems.map((v) => v.key)));
   }).current;
 
+  /** Deduplicate any posts array by id — guards against API returning the same post twice. */
+  const dedupPosts = useCallback((items: Post[]): Post[] => {
+    const seen = new Set<string>();
+    return items.filter((p) => (seen.has(p.id) ? false : !!seen.add(p.id)));
+  }, []);
+
   // ── Initial load: cached → API ─────────────────────────────────────────────
   useEffect(() => {
     if (!userId) return;
@@ -141,7 +147,7 @@ export default function HomeScreen() {
       // 1. Show cached posts immediately (user-scoped)
       const cached = await getCachedPosts('feed', userId, 20);
       if (cached.length > 0 && !cancelled) {
-        setPosts(cached);
+        setPosts(dedupPosts(cached));
         setLoading(false);
       }
 
@@ -150,7 +156,7 @@ export default function HomeScreen() {
         const data = await getHomeFeed();
         if (!cancelled) {
           reportNetworkSuccess();
-          setPosts(data.posts);
+          setPosts(dedupPosts(data.posts));
           setCursor(data.nextCursor);
           setHasMore(data.hasMore);
           setError(false);
@@ -173,10 +179,13 @@ export default function HomeScreen() {
       const data = await getHomeFeed();
       reportNetworkSuccess();
       if (reset) {
-        setPosts(data.posts);
+        setPosts(dedupPosts(data.posts));
         cachePosts(data.posts, 'feed', userId).catch(() => {});
       } else {
-        setPosts((prev) => [...prev, ...data.posts]);
+        setPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          return [...prev, ...data.posts.filter((p) => !seen.has(p.id))];
+        });
         cachePosts(data.posts, 'feed', userId).catch(() => {});
       }
       setCursor(data.nextCursor);
@@ -190,7 +199,7 @@ export default function HomeScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [cursor, userId, posts.length]);
+  }, [cursor, userId, posts.length, dedupPosts]);
 
   const handleRefresh = () => { setRefreshing(true); loadFeed(true); };
   const handleLoadMore = () => {

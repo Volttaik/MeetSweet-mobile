@@ -25,7 +25,7 @@ const { width: SCREEN_W } = Dimensions.get('window');
 
 // ─── Illustrations ─────────────────────────────────────────────────────────
 
-const ILLUS_SIZE = 220;
+const ILLUS_SIZE = 200;
 
 function IllustrationDiscover() {
   return (
@@ -108,29 +108,54 @@ function IllustrationSubscribe() {
   );
 }
 
+// ─── Page definitions ─────────────────────────────────────────────────────
+
 const PAGES = [
   {
     key: 'discover',
+    tag: 'EXPLORE',
     title: 'Discover Your\nFavorite Creators',
-    description: 'Explore premium creators and vibrant communities built around the content you love most.',
+    description: 'Explore premium creators and communities built around the content you love most.',
+    features: [
+      'Videos, shorts & exclusive posts',
+      'Browse creators by category',
+      'Personalised feed every day',
+    ],
     Illustration: IllustrationDiscover,
-    accent: 'rgba(120,120,180,0.18)',
+    accent: 'rgba(110,110,190,0.22)',
+    tagColor: 'rgba(140,140,230,0.9)',
   },
   {
     key: 'chat',
+    tag: 'CONNECT',
     title: 'Connect Privately\nWith Creators',
     description: 'Send direct messages and receive exclusive content directly from the creators you follow.',
+    features: [
+      'DM creators directly',
+      'Voice messages & photo sharing',
+      'Replies that feel personal',
+    ],
     Illustration: IllustrationChat,
-    accent: 'rgba(80,160,120,0.15)',
+    accent: 'rgba(60,160,120,0.18)',
+    tagColor: 'rgba(80,200,150,0.9)',
   },
   {
     key: 'subscribe',
+    tag: 'UNLOCK',
     title: 'Subscribe &\nUnlock More',
     description: 'Subscribe to unlock premium content and directly support the creators who inspire you.',
+    features: [
+      'Bronze, Silver, Gold & Diamond tiers',
+      'Subscriber-only content unlocked',
+      'Cancel anytime, no pressure',
+    ],
     Illustration: IllustrationSubscribe,
-    accent: 'rgba(180,140,80,0.15)',
+    accent: 'rgba(190,150,60,0.18)',
+    tagColor: 'rgba(230,185,80,0.9)',
   },
 ];
+
+// ─── Sub-components ────────────────────────────────────────────────────────
 
 function FloatingIllustration({ children }: { children: React.ReactNode }) {
   const translateY = useSharedValue(0);
@@ -139,7 +164,7 @@ function FloatingIllustration({ children }: { children: React.ReactNode }) {
     translateY.value = withRepeat(
       withSequence(
         withTiming(-10, { duration: 2200, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0,  { duration: 2200, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0,   { duration: 2200, easing: Easing.inOut(Easing.sin) }),
       ),
       -1,
       false,
@@ -163,11 +188,42 @@ function Dots({ count, active }: { count: number; active: number }) {
   );
 }
 
+function FeatureRow({ text }: { text: string }) {
+  return (
+    <View style={featureStyles.row}>
+      <View style={featureStyles.check}>
+        <Text style={featureStyles.checkMark}>✓</Text>
+      </View>
+      <Text style={featureStyles.text}>{text}</Text>
+    </View>
+  );
+}
+
 const dotStyles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' },
+  row:       { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  dot:       { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' },
   dotActive: { width: 26, backgroundColor: 'rgba(255,255,255,0.85)' },
 });
+
+const featureStyles = StyleSheet.create({
+  row:       { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  check:     {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  checkMark: { color: 'rgba(255,255,255,0.9)', fontSize: 11, lineHeight: 14 },
+  text:      {
+    fontSize: 13,
+    fontFamily: 'Poppins_400Regular',
+    color: 'rgba(255,255,255,0.55)',
+    flex: 1,
+    lineHeight: 18,
+  },
+});
+
+// ─── Main screen ───────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
@@ -215,7 +271,7 @@ export default function OnboardingScreen() {
     });
   };
 
-  const page = PAGES[displayIndex];
+  const page   = PAGES[displayIndex];
   const isLast = activeIndex === PAGES.length - 1;
 
   return (
@@ -224,12 +280,12 @@ export default function OnboardingScreen() {
         style={[
           styles.container,
           {
-            paddingTop: insets.top + 20,
+            paddingTop:    insets.top + 20,
             paddingBottom: insets.bottom + 32,
           },
         ]}
       >
-        {/* Header row: dots + skip */}
+        {/* ── Header: dots + skip ─────────────────────────────── */}
         <View style={styles.header}>
           <Dots count={PAGES.length} active={activeIndex} />
           <TouchableOpacity
@@ -240,13 +296,16 @@ export default function OnboardingScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Page content — fade transition */}
+        {/* ── Fading page content ─────────────────────────────── */}
         <Animated.View style={[styles.pageContent, { opacity: fadeAnim }]}>
+
           {/* Glass illustration card */}
           <View style={[styles.illustrationCard, { backgroundColor: page.accent }]}>
             <BlurView intensity={18} tint="dark" style={StyleSheet.absoluteFill}>
               <View style={styles.illustrationCardInner} />
             </BlurView>
+            {/* Accent corner glow */}
+            <View style={[styles.cornerGlow, { backgroundColor: page.accent }]} />
             <FloatingIllustration>
               <page.Illustration />
             </FloatingIllustration>
@@ -258,18 +317,35 @@ export default function OnboardingScreen() {
               <View style={styles.textCardInner} />
             </BlurView>
             <View style={styles.textBlock}>
+              {/* Page tag */}
+              <View style={[styles.tagPill, { borderColor: page.tagColor + '44' }]}>
+                <Text style={[styles.tagText, { color: page.tagColor }]}>{page.tag}</Text>
+              </View>
+
               <Text style={styles.title}>{page.title}</Text>
               <Text style={styles.description}>{page.description}</Text>
+
+              {/* Feature bullets */}
+              <View style={styles.featureList}>
+                {page.features.map((f) => (
+                  <FeatureRow key={f} text={f} />
+                ))}
+              </View>
             </View>
           </View>
         </Animated.View>
 
-        {/* CTA button */}
-        <TouchableOpacity style={styles.nextBtn} onPress={goToNext} activeOpacity={0.85}>
+        {/* ── CTA button ──────────────────────────────────────── */}
+        <TouchableOpacity style={styles.nextBtn} onPress={goToNext} activeOpacity={0.88}>
           <Text style={styles.nextBtnLabel}>
             {isLast ? 'Get Started' : 'Continue'}
           </Text>
         </TouchableOpacity>
+
+        {/* ── Page indicator below button ─────────────────────── */}
+        <Text style={styles.pageHint}>
+          {activeIndex + 1} of {PAGES.length}
+        </Text>
       </View>
     </MsScreenBackground>
   );
@@ -278,8 +354,8 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 28,
-    gap: 24,
+    paddingHorizontal: 24,
+    gap: 16,
   },
   header: {
     flexDirection: 'row',
@@ -289,87 +365,129 @@ const styles = StyleSheet.create({
   skipText: {
     fontSize: 15,
     fontFamily: 'Poppins_500Medium',
-    color: 'rgba(255,255,255,0.38)',
+    color: 'rgba(255,255,255,0.35)',
   },
+
+  // ── Page content ────────────────────────────────────────
   pageContent: {
     flex: 1,
-    gap: 20,
+    gap: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // Illustration card
   illustrationCard: {
-    width: SCREEN_W - 56,
-    aspectRatio: 1,
-    borderRadius: 32,
-    overflow: 'hidden',
-    alignItems: 'center',
+    width:          SCREEN_W - 48,
+    aspectRatio:    1.05,
+    borderRadius:   32,
+    overflow:       'hidden',
+    alignItems:     'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    elevation: 12,
+    borderWidth:    1,
+    borderColor:    'rgba(255,255,255,0.09)',
+    shadowColor:    '#000',
+    shadowOffset:   { width: 0, height: 16 },
+    shadowOpacity:  0.5,
+    shadowRadius:   28,
+    elevation:      14,
   },
   illustrationCardInner: {
     flex: 1,
     backgroundColor: 'transparent',
   },
+  cornerGlow: {
+    position:     'absolute',
+    bottom:       -40,
+    right:        -40,
+    width:        160,
+    height:       160,
+    borderRadius: 80,
+    opacity:      0.55,
+  },
+
+  // Text card
   textCard: {
-    width: SCREEN_W - 56,
+    width:        SCREEN_W - 48,
     borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    shadowColor: '#000',
+    overflow:     'hidden',
+    borderWidth:  1,
+    borderColor:  'rgba(255,255,255,0.09)',
+    shadowColor:  '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
-    elevation: 8,
+    elevation:    8,
   },
   textCardInner: {
     flex: 1,
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
   textBlock: {
-    padding: 24,
-    gap: 12,
-    alignItems: 'center',
+    padding: 20,
+    gap: 10,
+    alignItems: 'flex-start',
   },
+
+  // Tag pill
+  tagPill: {
+    paddingHorizontal: 10,
+    paddingVertical:   3,
+    borderRadius:      20,
+    borderWidth:       1,
+    backgroundColor:   'rgba(255,255,255,0.05)',
+  },
+  tagText: {
+    fontSize:    10,
+    fontFamily:  'Poppins_600SemiBold',
+    letterSpacing: 1.4,
+  },
+
   title: {
-    fontSize: 28,
-    fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    lineHeight: 38,
-    letterSpacing: -0.5,
+    fontSize:      24,
+    fontFamily:    'Poppins_700Bold',
+    color:         '#FFFFFF',
+    lineHeight:    34,
+    letterSpacing: -0.4,
   },
   description: {
-    fontSize: 14,
+    fontSize:   13,
     fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.48)',
-    textAlign: 'center',
-    lineHeight: 23,
+    color:      'rgba(255,255,255,0.55)',
+    lineHeight: 20,
   },
+
+  featureList: {
+    gap: 7,
+    marginTop: 2,
+    width: '100%',
+  },
+
+  // ── CTA ────────────────────────────────────────────────
   nextBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 50,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius:    50,
+    height:          56,
+    alignItems:      'center',
+    justifyContent:  'center',
+    shadowColor:     'rgba(255,255,255,0.6)',
+    shadowOffset:    { width: 0, height: 0 },
+    shadowOpacity:   0.4,
+    shadowRadius:    20,
+    elevation:       8,
   },
   nextBtnLabel: {
-    fontFamily: 'Poppins_600SemiBold',
-    fontSize: 16,
-    color: '#FFFFFF',
-    letterSpacing: 0.2,
+    fontFamily:    'Poppins_600SemiBold',
+    fontSize:      16,
+    color:         '#0A0A0A',
+    letterSpacing: 0.1,
+  },
+
+  pageHint: {
+    textAlign:  'center',
+    fontSize:   12,
+    fontFamily: 'Poppins_400Regular',
+    color:      'rgba(255,255,255,0.22)',
+    marginTop:  -8,
   },
 });

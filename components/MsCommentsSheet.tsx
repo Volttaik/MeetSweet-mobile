@@ -86,7 +86,14 @@ function useComments(postId: string) {
     setError(null);
     try {
       const res = await getComments(postId);
-      setComments(res.comments);
+      // Deduplicate by id in case optimistic entries overlap with server results
+      setComments((prev) => {
+        const incoming = res.comments;
+        const tempIds = new Set(prev.filter((c) => c.id.startsWith('tmp-')).map((c) => c.id));
+        const merged = [...prev.filter((c) => tempIds.has(c.id)), ...incoming];
+        const seen = new Set<string>();
+        return merged.filter((c) => (seen.has(c.id) ? false : !!seen.add(c.id)));
+      });
     } catch {
       setError('Could not load comments');
     } finally {

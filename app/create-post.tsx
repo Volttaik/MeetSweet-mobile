@@ -121,6 +121,7 @@ export default function CreatePostScreen() {
   const initialStep: Step = params.type ? 'onboard' : 'type-select';
   const [step,           setStep]           = useState<Step>(initialStep);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [displayPct,     setDisplayPct]     = useState(0);
   const [error,          setError]          = useState('');
 
   // Media picker modal
@@ -194,37 +195,67 @@ export default function CreatePostScreen() {
   }, []);
 
   // ── Upload progress animation ─────────────────────────────────────────────
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim   = useRef(new Animated.Value(0)).current;
+  const creepAnimRef   = useRef<Animated.CompositeAnimation | null>(null);
 
-  // Track real upload progress during the upload step
+  // Mirror animated value to displayPct so the text label updates smoothly
+  useEffect(() => {
+    const id = progressAnim.addListener(({ value }) => setDisplayPct(Math.round(value * 100)));
+    return () => progressAnim.removeListener(id);
+  }, [progressAnim]);
+
+  // When step=uploading, start a slow creep so the bar always moves from frame 1
   useEffect(() => {
     if (step === 'uploading') {
-      progressAnim.setValue(uploadProgress);
+      progressAnim.setValue(0);
+      setDisplayPct(0);
+      creepAnimRef.current = Animated.timing(progressAnim, {
+        toValue:          0.85,
+        duration:         90_000, // 90 s creep ceiling — real progress will interrupt
+        useNativeDriver:  false,
+      });
+      creepAnimRef.current.start();
+    } else {
+      // Stop any creep when we leave the upload step
+      creepAnimRef.current?.stop();
     }
+  }, [step]);
+
+  // When real progress arrives during upload, interrupt creep and animate to it
+  useEffect(() => {
+    if (step !== 'uploading' || uploadProgress <= 0) return;
+    creepAnimRef.current?.stop();
+    Animated.timing(progressAnim, {
+      toValue:         uploadProgress,
+      duration:        300,
+      useNativeDriver: false,
+    }).start(() => {
+      // After snapping to real value, continue a gentle creep to the next ceiling
+      if (uploadProgress < 0.98) {
+        creepAnimRef.current = Animated.timing(progressAnim, {
+          toValue:         Math.min(uploadProgress + 0.06, 0.98),
+          duration:        8_000,
+          useNativeDriver: false,
+        });
+        creepAnimRef.current.start();
+      }
+    });
   }, [uploadProgress, step]);
 
-  // Animate to step-specific target values after upload completes
+  // Post-upload step transitions
   useEffect(() => {
     if (step === 'creating') {
       Animated.timing(progressAnim, {
-        toValue: 0.93,
-        duration: 900,
-        useNativeDriver: false,
+        toValue: 0.93, duration: 900, useNativeDriver: false,
       }).start();
     } else if (step === 'processing') {
       Animated.timing(progressAnim, {
-        toValue: 0.99,
-        duration: 600,
-        useNativeDriver: false,
+        toValue: 0.99, duration: 600, useNativeDriver: false,
       }).start();
     } else if (step === 'success') {
       Animated.timing(progressAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: false,
+        toValue: 1, duration: 300, useNativeDriver: false,
       }).start();
-    } else if (step === 'uploading') {
-      progressAnim.setValue(0);
     }
   }, [step]);
 
@@ -255,9 +286,8 @@ export default function CreatePostScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes:       type === 'image' ? ['images'] : ['videos'],
-      allowsEditing:    type === 'image',
-      aspect:           type === 'image' ? [4, 5] : undefined,
-      quality:          type === 'image' ? 0.85 : undefined,
+      allowsEditing:    false,   // no forced crop — full native aspect ratio
+      quality:          type === 'image' ? 0.92 : undefined,
       videoMaxDuration: contentType === 'shorts' ? 60 : 300,
     });
 
@@ -289,8 +319,7 @@ export default function CreatePostScreen() {
     if (status !== 'granted') return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [16, 9],
+      allowsEditing: false,   // no forced crop on thumbnail either
       quality: 0.85,
     });
     if (result.canceled || !result.assets[0]) return;
@@ -428,8 +457,6 @@ export default function CreatePostScreen() {
   // ─── Publishing overlay ───────────────────────────────────────────────────
 
   if (step === 'uploading' || step === 'creating' || step === 'processing' || step === 'success') {
-    const pct = Math.round(uploadProgress * 100);
-
     // Animated bar width
     const animatedBarWidth = progressAnim.interpolate({
       inputRange: [0, 1],
@@ -476,10 +503,7 @@ export default function CreatePostScreen() {
               <View style={styles.progressWrap}>
                 <View style={styles.progressLabelRow}>
                   <Text style={styles.progressPct}>
-                    {step === 'uploading'   ? `${pct}%`
-                     : step === 'creating'  ? '94%'
-                     : step === 'processing'? '99%'
-                     : '100%'}
+                    {`${displayPct}%`}
                   </Text>
                   <Text style={styles.progressSubtitle}>
                     {step === 'uploading'
