@@ -10,11 +10,13 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Bell,
   Compass,
@@ -33,7 +35,6 @@ import {
 import { useLocalAlbumCatalog } from '@/services/albums';
 import type { AlbumCardData } from '@/services/albums';
 import { blockUser } from '@/services/users';
-import MsInput from '@/components/MsInput';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
@@ -221,7 +222,7 @@ function ExploreHeader({
       {/* Search */}
       <View style={styles.searchField}>
         <SearchIcon size={16} color={T.TEXT_2} />
-        <MsInput
+        <TextInput
           value={search}
           onChangeText={onSearchChange}
           placeholder={
@@ -231,8 +232,12 @@ function ExploreHeader({
               ? 'Search creators, categories'
               : 'Search posts, creators'
           }
+          placeholderTextColor={T.TEXT_3}
+          selectionColor="#888"
           style={styles.searchInput}
-          compact
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
         />
         {search.length > 0 && (
           <Pressable onPress={() => onSearchChange('')} hitSlop={10}>
@@ -387,8 +392,22 @@ export default function ExploreScreen() {
     });
   }, [allAlbums, search]);
 
+  // ── Auth ─────────────────────────────────────────────────────────────────────
+  const { user: currentUser } = useAuth();
+
+  /** Navigate to a creator page — but redirect to own profile if it's the current user */
+  const navToCreatorId = useCallback((creatorId: string, creatorHandle?: string) => {
+    if (currentUser) {
+      if (currentUser.id === creatorId) { router.push('/(tabs)/profile'); return; }
+      if (creatorHandle && currentUser.username === creatorHandle.replace('@', '')) {
+        router.push('/(tabs)/profile'); return;
+      }
+    }
+    router.push(`/creator/${creatorId}`);
+  }, [currentUser]);
+
   // ── Actions ────────────────────────────────────────────────────────────────────
-  const openCreator = (creator: Creator) => router.push(`/creator/${creator.id}`);
+  const openCreator = (creator: Creator) => navToCreatorId(creator.id, creator.handle);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -414,7 +433,7 @@ export default function ExploreScreen() {
 
   const creatorMenuActions = (creator: Creator): ActionItem[] => [
     { label: 'View Profile',  onPress: () => openCreator(creator) },
-    { label: 'Subscribe',     onPress: () => router.push(`/creator/${creator.id}`) },
+    { label: 'Subscribe',     onPress: () => navToCreatorId(creator.id, creator.handle) },
     {
       label: 'Copy Username',
       onPress: async () => {
@@ -542,7 +561,7 @@ export default function ExploreScreen() {
             post={item.post}
             onPress={navToContent}
             onMediaPress={navToContent}
-            onAuthorPress={() => router.push(`/creator/${item.post.author.id}`)}
+            onAuthorPress={() => navToCreatorId(item.post.author.id, item.post.author.username)}
             tier={item.post.tier}
           />
         );
@@ -565,7 +584,7 @@ export default function ExploreScreen() {
                   <ExploreAlbumCard
                     album={album}
                     onPress={() => router.push(`/album/${album.id}`)}
-                    onCreatorPress={() => router.push(`/creator/${album.creatorId}`)}
+                    onCreatorPress={() => navToCreatorId(album.creatorId)}
                     onUnlockPress={() => router.push(`/album/${album.id}`)}
                   />
                 </View>
@@ -586,6 +605,7 @@ export default function ExploreScreen() {
           data={feedItems}
           keyExtractor={(item) => item.id}
           renderItem={renderFeedItem}
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             <>
               <ExploreHeader {...headerProps} />
@@ -653,11 +673,12 @@ export default function ExploreScreen() {
               <ExploreAlbumCard
                 album={item}
                 onPress={() => router.push(`/album/${item.id}`)}
-                onCreatorPress={() => router.push(`/creator/${item.creatorId}`)}
+                onCreatorPress={() => navToCreatorId(item.creatorId)}
                 onUnlockPress={() => router.push(`/album/${item.id}`)}
               />
             </View>
           )}
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={<ExploreHeader {...headerProps} />}
           ListEmptyComponent={
             isLoading ? null : (
@@ -749,7 +770,7 @@ export default function ExploreScreen() {
                       <ExploreAlbumCard
                         album={album}
                         onPress={() => router.push(`/album/${album.id}`)}
-                        onCreatorPress={() => router.push(`/creator/${album.creatorId}`)}
+                        onCreatorPress={() => navToCreatorId(album.creatorId)}
                         onUnlockPress={() => router.push(`/album/${album.id}`)}
                       />
                     </View>
@@ -815,7 +836,7 @@ export default function ExploreScreen() {
                       post={post}
                       onPress={navToCreatorContent}
                       onMediaPress={navToCreatorContent}
-                      onAuthorPress={() => openCreator(creator)}
+                      onAuthorPress={() => navToCreatorId(creator.id, creator.handle)}
                     />
                   );
                 })}

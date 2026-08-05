@@ -687,7 +687,7 @@ export default function CreatorProfileScreen() {
           <View style={styles.metrics}>
             <View>
               <Text style={styles.metricValue}>{creator.followers || '—'}</Text>
-              <Text style={styles.metricLabel}>Subscribers</Text>
+              <Text style={styles.metricLabel}>Members</Text>
             </View>
             <View style={styles.metricDivider} />
             <View>
@@ -900,7 +900,7 @@ export default function CreatorProfileScreen() {
                 {reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
               </>
             ) : (
-              <MsEmptyState title="No reviews yet" message="Subscribers haven't left reviews yet." />
+              <MsEmptyState title="No reviews yet" message="Members haven't left reviews yet." />
             )}
           </View>
         )}

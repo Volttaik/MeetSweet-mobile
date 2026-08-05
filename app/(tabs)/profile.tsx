@@ -1056,7 +1056,7 @@ export default function ProfileScreen() {
         {/* Stats */}
         <View style={styles.statsRow}>
           <StatItem
-            label="Subscribers"
+            label="Members"
             value={formatCount(user?.followerCount ?? 0)}
             onPress={() => router.push({ pathname: '/creator/[id]', params: { id: user?.username ?? '', tab: 'followers' } })}
           />

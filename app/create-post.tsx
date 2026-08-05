@@ -165,7 +165,7 @@ export default function CreatePostScreen() {
     },
     {
       title: 'Set Visibility',
-      subtitle: 'Choose Public (everyone), Subscribers only, or Draft (private) for each post.',
+      subtitle: 'Choose Public (everyone), Members only, or Draft (private) for each post.',
       icon: 'shield',
       buttonLabel: 'Start Creating',
     },

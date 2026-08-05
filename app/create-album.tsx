@@ -454,7 +454,7 @@ export default function CreateAlbumScreen() {
           <View style={styles.stepHint}>
             <Text style={styles.stepTitle}>Add a Cover Image</Text>
             <Text style={styles.stepSubtitle}>
-              The cover is the first thing subscribers see. Choose something that represents your album.
+              The cover is the first thing members see. Choose something that represents your album.
             </Text>
           </View>
 
@@ -625,7 +625,7 @@ export default function CreateAlbumScreen() {
                   Charge Naira to unlock
                 </Text>
                 <Text style={styles.paidToggleDesc}>
-                  Subscribers pay from wallet to access this album
+                  Members pay from wallet to access this album
                 </Text>
               </View>
             </View>

@@ -155,7 +155,7 @@ export function MsFeedVideoCard({
           source={{ uri: card.thumbnailUrl ?? card.mediaUrl ?? undefined }}
           style={styles.media}
           contentFit="cover"
-          transition={200}
+          cachePolicy="memory-disk"
         />
 
         {/* Play button overlay */}
@@ -176,7 +176,7 @@ export function MsFeedVideoCard({
         {/* Subscribers-only badge — top-right (informational only, no lock) */}
         {card.isPremium ? (
           <View style={[styles.premiumBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
-            <Text style={styles.premiumText}>SUBSCRIBERS</Text>
+            <Text style={styles.premiumText}>MEMBERS</Text>
           </View>
         ) : null}
       </View>

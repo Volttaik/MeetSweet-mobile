@@ -190,7 +190,7 @@ export function MsMediaState({
 const styles = StyleSheet.create({
   root: {
     overflow: 'hidden',
-    backgroundColor: T.SURFACE_2,
+    backgroundColor: T.BG,
   },
   placeholder: {
     ...StyleSheet.absoluteFillObject,
