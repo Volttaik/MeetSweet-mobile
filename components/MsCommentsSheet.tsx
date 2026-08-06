@@ -20,7 +20,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Dimensions,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -32,7 +31,6 @@ import {
   View,
 } from 'react-native';
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
 import { ArrowBendUpLeft, ChatCircle, Heart, Trash, X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsComposer } from '@/components/MsComposer';
@@ -515,139 +513,112 @@ export function CommentsModal({
   return (
     <Modal
       visible={visible}
-      transparent
+      transparent={false}
       animationType="slide"
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      {/* KAV is the outermost element so it can push the sheet above the keyboard on both platforms */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={modalStyles.kvWrap}
-        keyboardVerticalOffset={0}
+        style={modalStyles.screen}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[modalStyles.sheet, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
-            {/* Handle */}
-            <View style={modalStyles.handle} />
+        {/* Header bar */}
+        <View style={[modalStyles.header, { paddingTop: insets.top + 8 }]}>
+          <TouchableOpacity onPress={onClose} hitSlop={12} style={modalStyles.backBtn}>
+            <X size={20} color={T.TEXT} />
+          </TouchableOpacity>
+          <Text style={modalStyles.title}>
+            Comments{comments.length > 0 ? ` (${comments.length})` : ''}
+          </Text>
+          {isLoading ? (
+            <ActivityIndicator size="small" color={T.TEXT_3} style={{ width: 32 }} />
+          ) : (
+            <View style={{ width: 32 }} />
+          )}
+        </View>
 
-            {/* Header */}
-            <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>Comments</Text>
-              <Text style={modalStyles.count}>{comments.length}</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={12} style={modalStyles.closeBtn}>
-                <X size={18} color={T.TEXT_2} />
-              </TouchableOpacity>
-            </View>
-
-            {/* List */}
-            {isLoading ? (
-              <ActivityIndicator style={modalStyles.loader} color={T.TEXT_3} />
-            ) : error ? (
-              <View style={modalStyles.emptyWrap}>
-                <Text style={modalStyles.emptyText}>{error}</Text>
-                <TouchableOpacity onPress={refresh} style={modalStyles.retryBtn}>
-                  <Text style={modalStyles.retryText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <FlatList
-                data={comments}
-                keyExtractor={(c, index) => `${c.id || 'comment'}-${index}`}
-                renderItem={({ item, index }) => (
-                  <CommentRow
-                    comment={item}
-                    postId={postId}
-                    currentUserId={currentUserId}
-                    showDivider={index < comments.length - 1}
-                    onLike={handleLike}
-                    onUnlike={handleUnlike}
-                    onDelete={handleDelete}
-                  />
-                )}
-                contentContainerStyle={modalStyles.listContent}
-                showsVerticalScrollIndicator={false}
-                style={modalStyles.list}
-                ListEmptyComponent={
-                  <View style={modalStyles.emptyWrap}>
-                    <Text style={modalStyles.emptyText}>No comments yet. Be the first!</Text>
-                  </View>
-                }
+        {/* Comment list — full remaining height, internally scrollable */}
+        {error ? (
+          <View style={modalStyles.emptyWrap}>
+            <Text style={modalStyles.emptyText}>{error}</Text>
+            <TouchableOpacity onPress={refresh} style={modalStyles.retryBtn}>
+              <Text style={modalStyles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={comments}
+            keyExtractor={(c, index) => `${c.id || 'comment'}-${index}`}
+            renderItem={({ item, index }) => (
+              <CommentRow
+                comment={item}
+                postId={postId}
+                currentUserId={currentUserId}
+                showDivider={index < comments.length - 1}
+                onLike={handleLike}
+                onUnlike={handleUnlike}
+                onDelete={handleDelete}
               />
             )}
+            contentContainerStyle={modalStyles.listContent}
+            showsVerticalScrollIndicator={false}
+            style={modalStyles.list}
+            ListEmptyComponent={
+              isLoading ? null : (
+                <View style={modalStyles.emptyWrap}>
+                  <ChatCircle size={36} color={T.TEXT_3} weight="duotone" />
+                  <Text style={modalStyles.emptyText}>No comments yet.</Text>
+                  <Text style={modalStyles.emptyHint}>Be the first to say something!</Text>
+                </View>
+              )
+            }
+          />
+        )}
 
-            {/* Composer — pinned at bottom, keyboard pushes sheet up */}
-            <View style={modalStyles.composerWrap}>
-              <MsComposer
-                mode="comment"
-                value={text}
-                onChangeText={setText}
-                onSend={handleSend}
-                placeholder="Add a comment…"
-                disabled={sending}
-              />
-            </View>
-          </View>
+        {/* Composer pinned at bottom */}
+        <View style={[modalStyles.composerWrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+          <MsComposer
+            mode="comment"
+            value={text}
+            onChangeText={setText}
+            onSend={handleSend}
+            placeholder="Add a comment…"
+            disabled={sending}
+          />
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const modalStyles = StyleSheet.create({
-  overlay: {
+  screen: {
     flex: 1,
-    backgroundColor: 'rgba(8,5,8,0.72)',
-    justifyContent: 'flex-end',
-  },
-  kvWrap: {
-    // KAV is outermost — flex:1 + justifyContent:'flex-end' pushes sheet to bottom
-    // and allows the keyboard to resize this container on both iOS and Android.
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(8,5,8,0.72)',
-  },
-  sheet: {
-    backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    height: SCREEN_HEIGHT * 0.72,
-    paddingTop: 12,
-    ...T.SHADOWS.hard,
-  },
-  list: {
-    flex: 1,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignSelf: 'center',
-    marginBottom: 14,
+    backgroundColor: T.BG,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: T.BORDER,
+    gap: 12,
   },
-  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16, flex: 1 },
-  count: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13 },
-  closeBtn: {
+  backBtn: {
     width: 32,
     height: 32,
     borderRadius: T.RADIUS.pill,
-    backgroundColor: T.SURFACE_2,
+    backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loader: { marginTop: 40 },
-  listContent: { paddingBottom: 8, paddingTop: 4 },
-  emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 12 },
-  emptyText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 14 },
+  title: { flex: 1, color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 17, letterSpacing: -0.3 },
+  list: { flex: 1 },
+  listContent: { paddingBottom: 8, paddingTop: 8 },
+  emptyWrap: { flex: 1, paddingVertical: 60, alignItems: 'center', gap: 10 },
+  emptyText: { color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 15 },
+  emptyHint: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13 },
   retryBtn: {
     paddingHorizontal: 20,
     paddingVertical: 8,
@@ -659,6 +630,7 @@ const modalStyles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: T.BORDER,
     paddingTop: 8,
+    backgroundColor: T.BG,
   },
 });
 

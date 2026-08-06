@@ -161,23 +161,29 @@ type SubscribePlan = 'subscriber' | 'subscriber_plus';
 const PLANS: Array<{
   key: SubscribePlan;
   label: string;
+  tagline: string;
   color: string;
+  bg: string;
   priceKey: 'subscriptionPrice' | 'subscriptionPlusPrice';
   perks: string[];
 }> = [
   {
     key:      'subscriber',
     label:    'Subscriber',
+    tagline:  'Perfect for fans',
     color:    '#C45A72',
+    bg:       'rgba(196,90,114,0.10)',
     priceKey: 'subscriptionPrice',
-    perks:    ['All subscriber posts & videos', 'Direct messaging'],
+    perks:    ['All subscriber posts & videos', 'Direct messaging', 'Exclusive subscriber feed'],
   },
   {
     key:      'subscriber_plus',
     label:    'Subscriber+',
-    color:    '#E8A020',
+    tagline:  'For the biggest supporters',
+    color:    '#D4A017',
+    bg:       'rgba(212,160,23,0.10)',
     priceKey: 'subscriptionPlusPrice',
-    perks:    ['Everything in Subscriber', 'Exclusive Subscriber+ content', 'Priority access'],
+    perks:    ['Everything in Subscriber', 'Exclusive Subscriber+ content', 'Priority support & access'],
   },
 ];
 
@@ -210,122 +216,181 @@ function SubscribeSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={shStyles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <TouchableOpacity
+          style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 28) }]}
+          activeOpacity={1}
+          onPress={() => {}}
+        >
+          {/* Drag handle */}
           <View style={shStyles.handle} />
-          <Text style={shStyles.title}>Subscribe to {creator.name}</Text>
-          <Text style={shStyles.subtitle}>Choose a plan to unlock their content.</Text>
+
+          {/* Header */}
+          <View style={shStyles.headerWrap}>
+            <Text style={shStyles.title}>Subscribe to</Text>
+            <Text style={shStyles.creatorName}>{creator.name}</Text>
+            <Text style={shStyles.subtitle}>
+              Choose a plan to unlock exclusive content and connect directly.
+            </Text>
+          </View>
 
           {/* Plan cards */}
-          {PLANS.map((plan) => {
-            const active = selectedPlan === plan.key;
-            const planPrice = plan.key === 'subscriber'
-              ? (creatorProfile?.subscriptionPrice ?? 200)
-              : (creatorProfile?.subscriptionPlusPrice ?? 500);
-            return (
-              <TouchableOpacity
-                key={plan.key}
-                style={[shStyles.tierCard, active && { borderColor: plan.color, borderWidth: 2 }]}
-                onPress={() => setSelectedPlan(plan.key)}
-                activeOpacity={0.8}
-              >
-                <View style={shStyles.tierCardHeader}>
-                  <View style={[shStyles.tierDot, { backgroundColor: plan.color }]} />
-                  <Text style={[shStyles.tierName, active && { color: plan.color }]}>
-                    {plan.label}
-                  </Text>
-                  <Text style={[shStyles.tierPrice, active && { color: plan.color }]}>
-                    {planPrice > 0 ? `₦${planPrice.toLocaleString()}/mo` : 'Free'}
-                  </Text>
-                </View>
-                {active && (
+          <View style={shStyles.plansWrap}>
+            {PLANS.map((plan) => {
+              const active = selectedPlan === plan.key;
+              const planPrice = plan.key === 'subscriber'
+                ? (creatorProfile?.subscriptionPrice ?? 200)
+                : (creatorProfile?.subscriptionPlusPrice ?? 500);
+              return (
+                <TouchableOpacity
+                  key={plan.key}
+                  style={[
+                    shStyles.tierCard,
+                    { borderColor: active ? plan.color : T.BORDER },
+                    active && { backgroundColor: plan.bg },
+                  ]}
+                  onPress={() => setSelectedPlan(plan.key)}
+                  activeOpacity={0.85}
+                >
+                  {/* Top row */}
+                  <View style={shStyles.tierTop}>
+                    <View style={[shStyles.tierBadge, { backgroundColor: plan.color }]}>
+                      {active
+                        ? <Check size={12} color="#fff" weight="bold" />
+                        : <View style={shStyles.tierBadgeEmpty} />
+                      }
+                    </View>
+                    <View style={shStyles.tierLabelWrap}>
+                      <Text style={[shStyles.tierName, active && { color: plan.color }]}>
+                        {plan.label}
+                      </Text>
+                      <Text style={shStyles.tierTagline}>{plan.tagline}</Text>
+                    </View>
+                    <View style={shStyles.tierPriceWrap}>
+                      <Text style={[shStyles.tierPriceMain, active && { color: plan.color }]}>
+                        {planPrice > 0 ? `₦${planPrice.toLocaleString()}` : 'Free'}
+                      </Text>
+                      {planPrice > 0 && <Text style={shStyles.tierPriceSub}>/month</Text>}
+                    </View>
+                  </View>
+
+                  {/* Perks — always visible */}
                   <View style={shStyles.perksWrap}>
                     {plan.perks.map((perk) => (
                       <View key={perk} style={shStyles.perkRow}>
-                        <Check size={11} color={plan.color} weight="bold" />
-                        <Text style={shStyles.perkText}>{perk}</Text>
+                        <View style={[shStyles.perkDot, { backgroundColor: active ? plan.color : T.TEXT_3 }]} />
+                        <Text style={[shStyles.perkText, active && { color: T.TEXT }]}>{perk}</Text>
                       </View>
                     ))}
                   </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-          {/* Wallet balance */}
+          {/* Wallet row */}
           <View style={shStyles.walletRow}>
-            <Text style={shStyles.walletLabel}>Wallet balance</Text>
+            <View style={shStyles.walletLeft}>
+              <Text style={shStyles.walletLabel}>Wallet balance</Text>
+              {!canAfford && (
+                <Text style={shStyles.walletInsuff}>Insufficient funds</Text>
+              )}
+            </View>
             <Text style={[shStyles.walletAmt, !canAfford && { color: T.ERROR }]}>
               ₦{walletBalance.toLocaleString()}
             </Text>
           </View>
 
+          {/* CTA */}
           <TouchableOpacity
-            style={[shStyles.primaryBtn, !canAfford && shStyles.primaryBtnOutline]}
+            style={[
+              shStyles.primaryBtn,
+              canAfford ? { backgroundColor: planCfg.color } : shStyles.primaryBtnOutline,
+            ]}
             activeOpacity={0.85}
             onPress={canAfford ? () => onConfirm(selectedPlan) : onWallet}
           >
             <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
-              {canAfford ? `Subscribe — ${planCfg.label}` : 'Top up wallet'}
+              {canAfford
+                ? `Subscribe — ₦${price.toLocaleString()}/mo`
+                : 'Top up wallet to subscribe'}
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-            <Text style={shStyles.cancelLabel}>Not now</Text>
+            <Text style={shStyles.cancelLabel}>Maybe later</Text>
           </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
   );
 }
 
 const shStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingTop: 12, gap: 10,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: 20, paddingTop: 14,
+    gap: 14,
   },
   handle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 4,
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 6,
   },
-  title: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center', letterSpacing: -0.4 },
-  subtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', marginTop: -4 },
+  headerWrap: { gap: 4, alignItems: 'center', paddingBottom: 4 },
+  title: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2, letterSpacing: 0.2 },
+  creatorName: { fontSize: 22, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.5 },
+  subtitle: {
+    fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2,
+    textAlign: 'center', lineHeight: 19, marginTop: 2,
+  },
 
+  plansWrap: { gap: 10 },
   tierCard: {
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.md,
-    padding: 12,
+    borderRadius: T.RADIUS.lg,
     borderWidth: 1.5,
-    borderColor: 'transparent',
-    gap: 8,
+    padding: 14,
+    gap: 10,
   },
-  tierCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tierDot: { width: 8, height: 8, borderRadius: 4 },
-  tierName: { flex: 1, fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
-  tierPrice: { fontSize: 13, fontFamily: T.FONT.bold, color: T.TEXT_2 },
-  perksWrap: { gap: 5, paddingLeft: 16 },
-  perkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tierTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tierBadge: {
+    width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  tierBadgeEmpty: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.4)' },
+  tierLabelWrap: { flex: 1, gap: 1 },
+  tierName: { fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT },
+  tierTagline: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3 },
+  tierPriceWrap: { alignItems: 'flex-end' },
+  tierPriceMain: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.5 },
+  tierPriceSub: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3 },
+  perksWrap: { gap: 6, paddingLeft: 4 },
+  perkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  perkDot: { width: 5, height: 5, borderRadius: 2.5 },
   perkText: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, flex: 1 },
 
   walletRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 4, paddingVertical: 6,
+    paddingHorizontal: 6, paddingVertical: 10,
     borderTopWidth: 1, borderTopColor: T.BORDER,
   },
-  walletLabel: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2 },
-  walletAmt: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
+  walletLeft: { gap: 2 },
+  walletLabel: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+  walletInsuff: { fontSize: 11, fontFamily: T.FONT.medium, color: T.ERROR },
+  walletAmt: { fontSize: 17, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
+
   primaryBtn: {
-    height: 52, borderRadius: T.RADIUS.full,
+    height: 54, borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
     alignItems: 'center', justifyContent: 'center',
   },
   primaryBtnOutline: {
-    backgroundColor: T.SURFACE_2,
+    backgroundColor: 'rgba(196,90,114,0.1)',
     borderWidth: 1.5, borderColor: T.ACCENT,
   },
-  primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
-  cancelBtn: { alignItems: 'center', paddingVertical: 10 },
-  cancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#fff' },
+  cancelBtn: { alignItems: 'center', paddingVertical: 6 },
+  cancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_3 },
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────

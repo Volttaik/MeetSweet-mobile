@@ -465,7 +465,9 @@ export default function VideoWatchScreen() {
               <MsPostCard
                 key={video.id}
                 post={video}
-                 onAuthorPress={() => openProfile(video.author.id, video.author.username)}
+                onAuthorPress={() => openProfile(video.author.id, video.author.username)}
+                onPress={() => router.push(`/videos/${video.id}`)}
+                onMediaPress={() => router.push(`/videos/${video.id}`)}
               />
             ))}
           </View>

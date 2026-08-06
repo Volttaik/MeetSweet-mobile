@@ -695,32 +695,52 @@ function PhoneModal({
   onClose: () => void;
   currentPhone: string;
 }) {
-  const [step, setStep] = useState<'enter' | 'otp'>('enter');
-  const [countryIdx, setCountryIdx] = useState(0);
+  const { refreshUser } = useAuth();
+  const [countryIdx, setCountryIdx] = useState(8); // default Nigeria (+234)
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
   const [showCountryPicker, setShowCountryPicker] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (visible) { setStep('enter'); setPhone(currentPhone ?? ''); setOtp(''); }
+    if (!visible) return;
+    const stored = (currentPhone ?? '').trim();
+    if (stored) {
+      // Find the matching country code (try longest first to avoid e.g. +1 matching +1xxx)
+      const sorted = [...COUNTRY_CODES]
+        .map((c, i) => ({ ...c, i }))
+        .sort((a, b) => b.code.length - a.code.length);
+      const match = sorted.find((c) => stored.startsWith(c.code));
+      if (match) {
+        setCountryIdx(match.i);
+        // Strip the country-code prefix; keep only the national digits
+        setPhone(stored.slice(match.code.length).replace(/\D/g, ''));
+      } else {
+        // Unknown country code — leave selector at default, show raw digits
+        setPhone(stored.replace(/\D/g, ''));
+      }
+    } else {
+      setPhone('');
+    }
   }, [visible, currentPhone]);
 
   const country = COUNTRY_CODES[countryIdx];
 
-  const handleSendOtp = async () => {
-    if (phone.replace(/\D/g, '').length < 7) { toast.error('Enter a valid phone number'); return; }
-    setSending(true);
-    await new Promise((r) => setTimeout(r, 900));
-    setSending(false);
-    setStep('otp');
-    toast.success('Verification code sent');
-  };
-
-  const handleVerify = () => {
-    if (otp.length < 4) { toast.error('Enter the verification code'); return; }
-    toast.info('Phone verification requires backend implementation.');
-    onClose();
+  const handleSave = async () => {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 7) { toast.error('Enter a valid phone number'); return; }
+    // Build exactly one E.164-style number — no double prefix
+    const fullPhone = `${country.code}${digits}`;
+    setSaving(true);
+    try {
+      await updateMe({ phone: fullPhone });
+      await refreshUser();
+      toast.success('Phone number saved');
+      onClose();
+    } catch {
+      toast.error('Could not save phone number. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (showCountryPicker) {
@@ -746,62 +766,47 @@ function PhoneModal({
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title="Phone Number">
-      {step === 'enter' ? (
-        <View style={{ gap: 12 }}>
-          <Text style={ms.label}>Country</Text>
-          <TouchableOpacity style={[inp.wrap, { justifyContent: 'space-between' }]} onPress={() => setShowCountryPicker(true)} activeOpacity={0.7}>
-            <Text style={{ color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 15 }}>
-              {country.flag}  {country.name} ({country.code})
-            </Text>
-            <CaretRight size={14} color={T.TEXT_3} />
-          </TouchableOpacity>
-          <Text style={ms.label}>Phone Number</Text>
-          <View style={[inp.wrap, { gap: 0 }]}>
-            <Text style={{ color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 15, marginRight: 8 }}>{country.code}</Text>
-            <TextInput
-              style={[inp.input]}
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="Phone number"
-              placeholderTextColor={T.TEXT_3}
-              keyboardType="phone-pad"
-              autoFocus
-              maxLength={15}
-            />
-          </View>
-          <View style={ms.buttons}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-              <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[ms.saveBtn, sending && { opacity: 0.6 }]}
-              onPress={handleSendOtp}
-              disabled={sending}
-              activeOpacity={0.8}
-            >
-              {sending
-                ? <ActivityIndicator size="small" color={T.BG} />
-                : <Text style={ms.saveLabel}>Send Code</Text>}
-            </TouchableOpacity>
-          </View>
+      <View style={{ gap: 12 }}>
+        <Text style={ms.label}>Country</Text>
+        <TouchableOpacity style={[inp.wrap, { justifyContent: 'space-between' }]} onPress={() => setShowCountryPicker(true)} activeOpacity={0.7}>
+          <Text style={{ color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 15 }}>
+            {country.flag}  {country.name} ({country.code})
+          </Text>
+          <CaretRight size={14} color={T.TEXT_3} />
+        </TouchableOpacity>
+        <Text style={ms.label}>Phone Number</Text>
+        <View style={[inp.wrap, { gap: 0 }]}>
+          <Text style={{ color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 15, marginRight: 8 }}>{country.code}</Text>
+          <TextInput
+            style={[inp.input]}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Phone number"
+            placeholderTextColor={T.TEXT_3}
+            keyboardType="phone-pad"
+            autoFocus
+            maxLength={15}
+          />
         </View>
-      ) : (
-        <View style={{ gap: 12 }}>
-          <Text style={ms.sub}>Enter the 6-digit code sent to {country.code} {phone}</Text>
-          <MsInput value={otp} onChangeText={setOtp} placeholder="000000" keyboardType="number-pad" autoFocus maxLength={6} />
-          <TouchableOpacity onPress={() => setStep('enter')} activeOpacity={0.7}>
-            <Text style={[ms.sub, { color: T.TEXT_2, textDecorationLine: 'underline' }]}>Use a different number</Text>
+        <View style={ms.buttons}>
+          <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+            <Text style={ms.cancelLabel}>Cancel</Text>
           </TouchableOpacity>
-          <View style={ms.buttons}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-              <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={ms.saveBtn} onPress={handleVerify} activeOpacity={0.8}>
-              <Text style={ms.saveLabel}>Verify</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[ms.saveBtn, saving && { opacity: 0.6 }]}
+            onPress={handleSave}
+            disabled={saving}
+            activeOpacity={0.8}
+          >
+            {saving
+              ? <ActivityIndicator size="small" color={T.BG} />
+              : <Text style={ms.saveLabel}>Save Number</Text>}
+          </TouchableOpacity>
         </View>
-      )}
+        <Text style={[ms.sub, { textAlign: 'center' }]}>
+          Your number is saved to your profile and visible only to you.
+        </Text>
+      </View>
     </BottomSheet>
   );
 }

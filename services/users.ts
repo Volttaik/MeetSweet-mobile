@@ -50,6 +50,7 @@ export async function updateMe(data: {
   location?: string | null;
   avatarUrl?: string | null;
   bannerUrl?: string | null;
+  phone?: string | null;
 }): Promise<{ user: User }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
@@ -63,6 +64,7 @@ export async function updateMe(data: {
     ...(data.location !== undefined ? { location: data.location } : {}),
     ...(data.avatarUrl !== undefined ? { avatar_url: data.avatarUrl } : {}),
     ...(data.bannerUrl !== undefined ? { banner_url: data.bannerUrl } : {}),
+    ...(data.phone !== undefined ? { phone: data.phone } : {}),
   };
   const raw = await apiFetch<{ user: unknown }>('/users/me', {
     method: 'PATCH',
