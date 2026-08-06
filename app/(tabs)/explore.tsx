@@ -192,72 +192,23 @@ function previewToPost(preview: import('@/lib/api-client-react').ContentPreview,
   };
 }
 
-// ─── Shared header component ───────────────────────────────────────────────────
+// ─── Shared content-state header (loading / error only — search+toggle are sticky) ──
 
 interface HeaderProps {
-  search: string;
-  onSearchChange: (v: string) => void;
-  viewMode: ViewMode;
-  onModeChange: (m: ViewMode) => void;
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
-  /** Whether to show MsCatalogSkeleton (false for explore mode — uses MsPostSkeleton instead) */
   showCatalogSkeleton?: boolean;
 }
 
-function ExploreHeader({
-  search,
-  onSearchChange,
-  viewMode,
-  onModeChange,
-  isLoading,
-  isError,
-  onRetry,
-  showCatalogSkeleton = true,
-}: HeaderProps) {
+function ExploreHeader({ isLoading, isError, onRetry, showCatalogSkeleton = true }: HeaderProps) {
   return (
     <>
-      {/* Search */}
-      <View style={styles.searchField}>
-        <SearchIcon size={16} color={T.TEXT_2} />
-        <TextInput
-          value={search}
-          onChangeText={onSearchChange}
-          placeholder={
-            viewMode === 'albums'
-              ? 'Search albums, creators'
-              : viewMode === 'creators'
-              ? 'Search creators, categories'
-              : 'Search posts, creators'
-          }
-          placeholderTextColor={T.TEXT_3}
-          selectionColor="#888"
-          style={styles.searchInput}
-          returnKeyType="search"
-          autoCorrect={false}
-          autoCapitalize="none"
-        />
-        {search.length > 0 && (
-          <Pressable onPress={() => onSearchChange('')} hitSlop={10}>
-            <Text style={styles.clearSearch}>×</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {/* Mode toggle */}
-      <View style={styles.modeToggleWrap}>
-        <ModeToggle mode={viewMode} onChange={onModeChange} />
-      </View>
-
-      {/* Loading skeleton (catalog/albums/creators modes) */}
       {isLoading && showCatalogSkeleton && (
         <View style={styles.loadingWrap}>
           <MsCatalogSkeleton />
         </View>
       )}
-
-      {/* Error state */}
       {isError && (
         <MsEmptyState
           title="Explore is taking a moment"
@@ -538,15 +489,43 @@ export default function ExploreScreen() {
   );
 
   const headerProps: HeaderProps = {
-    search,
-    onSearchChange: setSearch,
-    viewMode,
-    onModeChange: handleModeChange,
     isLoading,
     isError,
     onRetry: () => { catalogQuery.refetch(); feedQuery.refetch(); albumsQuery.refetch(); },
     showCatalogSkeleton: viewMode !== 'explore',
   };
+
+  // ── Sticky search + mode toggle — rendered outside every scroll container ───
+  const stickyControls = (
+    <View style={styles.stickyBar}>
+      <View style={styles.searchField}>
+        <SearchIcon size={16} color={T.TEXT_2} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder={
+            viewMode === 'albums'   ? 'Search albums, creators'
+            : viewMode === 'creators' ? 'Search creators, categories'
+            : 'Search posts, creators'
+          }
+          placeholderTextColor={T.TEXT_3}
+          selectionColor="#888"
+          style={styles.searchInput}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')} hitSlop={10}>
+            <Text style={styles.clearSearch}>×</Text>
+          </Pressable>
+        )}
+      </View>
+      <View style={styles.modeToggleWrap}>
+        <ModeToggle mode={viewMode} onChange={handleModeChange} />
+      </View>
+    </View>
+  );
 
   // ── EXPLORE MODE — same MsPostCard feed as Home (single-column) ───────────────
   if (viewMode === 'explore') {
@@ -613,6 +592,7 @@ export default function ExploreScreen() {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
         {pageHeader}
+        {stickyControls}
 
         <FlatList
           data={feedItems}
@@ -620,17 +600,13 @@ export default function ExploreScreen() {
           renderItem={renderFeedItem}
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
-            <>
-              <ExploreHeader {...headerProps} />
-              {/* Post skeletons while loading — matches Home feed exactly */}
-              {isLoading && feedItems.length === 0 && (
-                <View style={{ marginTop: 8 }}>
-                  <MsPostSkeleton />
-                  <MsPostSkeleton />
-                  <MsPostSkeleton />
-                </View>
-              )}
-            </>
+            isLoading && feedItems.length === 0 ? (
+              <View style={{ marginTop: 8 }}>
+                <MsPostSkeleton />
+                <MsPostSkeleton />
+                <MsPostSkeleton />
+              </View>
+            ) : null
           }
           ListEmptyComponent={
             isLoading ? null : (
@@ -677,6 +653,7 @@ export default function ExploreScreen() {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
         {pageHeader}
+        {stickyControls}
 
         <FlatList
           data={visibleAlbums}
@@ -693,6 +670,7 @@ export default function ExploreScreen() {
           )}
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={<ExploreHeader {...headerProps} />}
+
           ListEmptyComponent={
             isLoading ? null : (
               <MsEmptyState
@@ -725,6 +703,7 @@ export default function ExploreScreen() {
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
       {pageHeader}
+      {stickyControls}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -933,6 +912,10 @@ export default function ExploreScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.BG },
+  stickyBar: {
+    backgroundColor: T.BG,
+    zIndex: 10,
+  },
 
   header: {
     minHeight: 72,

@@ -457,9 +457,16 @@ export default function WalletScreen() {
           </View>
 
           {/* Transaction history */}
-          {transactions.length > 0 && (
+          {!loadingWallet && (
             <>
               <Text style={styles.sectionTitle}>Transaction History</Text>
+              {transactions.length === 0 ? (
+                <View style={[styles.transactions, { paddingVertical: 20, alignItems: 'center' }]}>
+                  <Text style={{ color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13 }}>
+                    No transactions yet
+                  </Text>
+                </View>
+              ) : (
               <View style={styles.transactions}>
                 {transactions.slice(0, 10).map((tx, idx) => (
                   <View key={tx.id}>
@@ -487,6 +494,7 @@ export default function WalletScreen() {
                   </View>
                 ))}
               </View>
+              )}
             </>
           )}
 

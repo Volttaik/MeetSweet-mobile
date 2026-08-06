@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -287,13 +288,12 @@ export default function HomeScreen() {
 
       {/* ── Top bar ── */}
       <View style={styles.topBar}>
-        <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(tabs)/profile')}>
-          <MsAvatar size={36} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
-        </TouchableOpacity>
-        <View style={styles.greetingWrap}>
-          <Text style={styles.greeting}>{greetingText()}</Text>
-          <Text style={styles.handle}>@{user?.username ?? 'username'}</Text>
-        </View>
+        <Image
+          source={require('@/assets/images/logo.png')}
+          style={styles.topLogo}
+          resizeMode="contain"
+        />
+        <View style={{ flex: 1 }} />
         <View style={styles.topActions}>
           <MsWalletBadge balance={walletBalance} />
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => router.push('/notifications')}>
@@ -308,6 +308,9 @@ export default function HomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => setSearchVisible(true)}>
             <MagnifyingGlass size={20} color={T.TEXT} />
+          </TouchableOpacity>
+          <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(tabs)/profile')}>
+            <MsAvatar size={34} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
           </TouchableOpacity>
         </View>
       </View>
@@ -401,10 +404,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 12 },
-  greetingWrap: { flex: 1 },
-  greeting: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT, letterSpacing: -0.1 },
-  handle: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
-  topActions: { flexDirection: 'row', gap: 8 },
+  topLogo: { width: 120, height: 32, tintColor: '#FFFFFF' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: {
     width: 38, height: 38, borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center',
