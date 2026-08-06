@@ -45,7 +45,7 @@ async function probeConnectivity(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
-    await fetch('https://api.meetsweet.space/api/health', {
+    await fetch('https://meetsweet.space/api/health', {
       method: 'HEAD',
       signal: controller.signal,
       cache: 'no-store',

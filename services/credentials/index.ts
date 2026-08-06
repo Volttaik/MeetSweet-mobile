@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export function getBrokerBase(): string {
   const url = process.env.EXPO_PUBLIC_BROKER_URL ?? process.env.EXPO_PUBLIC_API_URL;
   if (url) return `${url.replace(/\/+$/, '')}/api`;
-  return 'https://api.meetsweet.space/api';
+  return 'https://meetsweet.space/api';
 }
 
 export class BrokerError extends Error {

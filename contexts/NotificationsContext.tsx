@@ -116,32 +116,54 @@ function handleNotificationTap(notification: Notifications.Notification) {
   const data = notification.request.content.data as Record<string, string> | null;
   if (!data) return;
 
+  const type = data.type ?? '';
   const postId = data.post_id ?? data.postId;
-  const contentType = data.content_type ?? data.contentType ?? data.type;
+  const contentType = data.content_type ?? data.contentType ?? type;
   const contentId = data.content_id ?? data.contentId;
-  const userId = data.user_id ?? data.userId;
+  const actorId = data.actor_id ?? data.actorId;
   const conversationId = data.conversation_id ?? data.conversationId;
 
-  if (conversationId) {
-    router.push(`/chat/${conversationId}`);
-    return;
-  }
-
-  if (postId) {
-    // Route by content type if available, else default post detail
-    if (contentType === 'video') {
-      router.push(`/videos/${postId}`);
-    } else if (contentType === 'short') {
-      router.push('/shorts');
-    } else {
-      router.push(`/post/${postId}`);
+  // message → open the conversation
+  if (type === 'message' || type === 'dm') {
+    if (conversationId) {
+      router.push(`/chat/${conversationId}`);
     }
     return;
   }
 
-  if (userId || contentId) {
-    const id = userId ?? contentId;
-    router.push(`/creator/${id}`);
+  // subscribe → open the subscriber's profile
+  if (type === 'subscribe') {
+    if (actorId) {
+      router.push(`/creator/${actorId}`);
+    }
+    return;
+  }
+
+  // new_post → route by content_type using content_id
+  if (type === 'new_post') {
+    const id = contentId ?? postId;
+    if (!id) { router.push('/notifications'); return; }
+    if (contentType === 'video') {
+      router.push(`/videos/${id}`);
+    } else if (contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: id } });
+    } else if (contentType === 'album') {
+      router.push(`/album/${id}`);
+    } else {
+      router.push(`/post/${id}`);
+    }
+    return;
+  }
+
+  // like / comment → route by content_type using post_id
+  if (postId) {
+    if (contentType === 'video') {
+      router.push(`/videos/${postId}`);
+    } else if (contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: postId } });
+    } else {
+      router.push(`/post/${postId}`);
+    }
     return;
   }
 

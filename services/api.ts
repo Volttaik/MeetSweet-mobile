@@ -16,7 +16,7 @@ const CLIENT_APP_ID = 'meetsweet-mobile';
 export function getApiBase(): string {
   const url = process.env.EXPO_PUBLIC_API_URL;
   if (url) return `${url.replace(/\/+$/, '')}/api`;
-  return 'https://api.meetsweet.space/api';
+  return 'https://meetsweet.space/api';
 }
 
 export class ApiError extends Error {
