@@ -10,6 +10,8 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const CLIENT_APP_ID = 'meetsweet-mobile';
+
 export function getBrokerBase(): string {
   const url = process.env.EXPO_PUBLIC_BROKER_URL ?? process.env.EXPO_PUBLIC_API_URL;
   if (url) return `${url.replace(/\/+$/, '')}/api`;
@@ -36,7 +38,13 @@ async function brokerFetch<T>(
   options: RequestInit & { headers?: Record<string, string> } = {},
 ): Promise<T> {
   const url = `${getBrokerBase()}${path.startsWith('/') ? path : `/${path}`}`;
-  const response = await fetch(url, options);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Client-App-Id': CLIENT_APP_ID,
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (options.body instanceof FormData) delete headers['Content-Type'];
+  const response = await fetch(url, { ...options, headers });
   let parsed: unknown;
   try {
     parsed = await response.json();
@@ -52,8 +60,16 @@ async function brokerFetch<T>(
     throw new BrokerError(response.status, msg, code);
   }
   const env = parsed as { ok?: boolean; data?: unknown } | null;
-  if (env && typeof env === 'object' && 'ok' in env && 'data' in env) {
-    return env.data as T;
+  if (env && typeof env === 'object' && 'ok' in env) {
+    if (env.ok === false) {
+      const errorEnvelope = env as { error?: string; code?: string };
+      throw new BrokerError(
+        response.status,
+        errorEnvelope.error ?? 'The server rejected the request.',
+        errorEnvelope.code,
+      );
+    }
+    if ('data' in env) return env.data as T;
   }
   return parsed as T;
 }

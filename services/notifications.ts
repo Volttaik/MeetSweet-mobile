@@ -8,6 +8,11 @@ export interface Notification {
   body: string;
   isRead: boolean;
   postId: string | null;
+  contentType: 'post' | 'video' | 'short' | 'album' | null;
+  contentId: string | null;
+  videoId: string | null;
+  shortId: string | null;
+  albumId: string | null;
   createdAt: string;
   actor: {
     id: string;
@@ -35,6 +40,11 @@ function normalizeNotification(raw: any): Notification {
     body: raw.body ?? '',
     isRead: raw.is_read ?? false,
     postId: data.post_id ?? data.postId ?? null,
+    contentType: data.content_type ?? data.contentType ?? null,
+    contentId: data.content_id ?? data.contentId ?? data.entity_id ?? data.entityId ?? null,
+    videoId: data.video_id ?? data.videoId ?? null,
+    shortId: data.short_id ?? data.shortId ?? null,
+    albumId: data.album_id ?? data.albumId ?? null,
     createdAt: raw.created_at,
     actor: data.actor_id || data.actorId
       ? {

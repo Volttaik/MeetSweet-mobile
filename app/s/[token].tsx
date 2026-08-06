@@ -1,7 +1,7 @@
 /**
  * Share-link resolver screen  /s/:token
  *
- * When someone taps a MeetSweet share link (e.g. https://meetsweet-server.quizmi.space/s/abc123)
+ * When someone taps a MeetSweet share link (e.g. https://meetsweet.space/s/abc123)
  * and the app is installed, Expo Router deep-links here.
  * We resolve the token → content_type + content_id → navigate to the right screen.
  */

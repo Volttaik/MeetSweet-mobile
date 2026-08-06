@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-const API  = 'https://meetsweet-server.quizmi.space/api';
+const API  = 'https://meetsweet.space/api';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -34,13 +34,17 @@ async function apiFetch(path, options = {}) {
 }
 
 function authHeaders(token) {
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  return {
+    Authorization: `Bearer ${token}`,
+    'X-Client-App-Id': 'meetsweet-mobile',
+    'Content-Type': 'application/json',
+  };
 }
 
 async function login(email, password) {
   const data = await apiFetch('/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'X-Client-App-Id': 'meetsweet-mobile', 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
   return data.access_token ?? data.accessToken;

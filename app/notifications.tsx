@@ -9,13 +9,14 @@ import {
 import { Spinner } from 'heroui-native';
 import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, BellSlash, Check } from 'phosphor-react-native';
+import { ArrowLeft, BellSlash, Check, Trash } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import {
   getNotifications,
+  deleteNotification,
   markAllNotificationsRead,
   markNotificationRead,
   type Notification,
@@ -70,9 +71,11 @@ function initials(name: string): string {
 function NotifRow({
   item,
   onPress,
+  onDelete,
 }: {
   item: Notification;
   onPress: (n: Notification) => void;
+  onDelete: (n: Notification) => void;
 }) {
   const actorName = item.actor?.name ?? 'MeetSweet';
   const actorInitials = initials(actorName);
@@ -101,6 +104,15 @@ function NotifRow({
         <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
       </View>
       {!item.isRead && <View style={styles.unreadDot} />}
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={() => onDelete(item)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Delete notification"
+      >
+        <Trash size={16} color={T.TEXT_3} />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 }
@@ -109,10 +121,12 @@ function NotifGroup({
   title,
   items,
   onPress,
+  onDelete,
 }: {
   title: string;
   items: Notification[];
   onPress: (n: Notification) => void;
+  onDelete: (n: Notification) => void;
 }) {
   if (items.length === 0) return null;
   return (
@@ -121,7 +135,7 @@ function NotifGroup({
         <Text style={styles.groupTitle}>{title}</Text>
       </View>
       {items.map((item) => (
-        <NotifRow key={item.id} item={item} onPress={onPress} />
+        <NotifRow key={item.id} item={item} onPress={onPress} onDelete={onDelete} />
       ))}
     </View>
   );
@@ -159,8 +173,26 @@ export default function NotificationsScreen() {
       markNotificationRead(n.id).catch(() => {});
       decrementNotif(1);
     }
-    if (n.postId) {
-      router.push(`/post/${n.postId}`);
+    const id = n.contentId ?? n.postId;
+    if (!id) return;
+    if (n.contentType === 'video') {
+      router.push(`/videos/${n.videoId ?? id}`);
+    } else if (n.contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: n.shortId ?? id } });
+    } else if (n.contentType === 'album') {
+      router.push(`/album/${n.albumId ?? id}`);
+    } else {
+      router.push(`/post/${id}`);
+    }
+  };
+
+  const handleDelete = async (n: Notification) => {
+    try {
+      await deleteNotification(n.id);
+      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
+      if (!n.isRead) decrementNotif(1);
+    } catch {
+      // Keep the item visible when the server rejects the delete.
     }
   };
 
@@ -232,9 +264,9 @@ export default function NotificationsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          <NotifGroup title="Today" items={today} onPress={handlePress} />
-          <NotifGroup title="Yesterday" items={yesterday} onPress={handlePress} />
-          <NotifGroup title="Earlier" items={earlier} onPress={handlePress} />
+          <NotifGroup title="Today" items={today} onPress={handlePress} onDelete={handleDelete} />
+          <NotifGroup title="Yesterday" items={yesterday} onPress={handlePress} onDelete={handleDelete} />
+          <NotifGroup title="Earlier" items={earlier} onPress={handlePress} onDelete={handleDelete} />
         </ScrollView>
       )}
     </View>
@@ -328,5 +360,12 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: T.TEXT,
     marginTop: 4,
+  },
+  deleteBtn: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
   },
 });

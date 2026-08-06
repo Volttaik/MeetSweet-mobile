@@ -162,9 +162,17 @@ export async function apiFetch<T = unknown>(
   }
 
   // Unwrap the standard { ok: true, data: ... } envelope
-  const envelope = parsed as { ok?: boolean; data?: unknown } | null;
-  if (envelope && typeof envelope === 'object' && 'ok' in envelope && 'data' in envelope) {
-    return envelope.data as T;
+  const envelope = parsed as { ok?: boolean; data?: unknown; error?: string; code?: string } | null;
+  if (envelope && typeof envelope === 'object' && 'ok' in envelope) {
+    if (envelope.ok === false) {
+      throw new ApiError(
+        response.status,
+        envelope.error ?? 'The server rejected the request.',
+        envelope.code,
+        parsed,
+      );
+    }
+    if ('data' in envelope) return envelope.data as T;
   }
 
   return parsed as T;
