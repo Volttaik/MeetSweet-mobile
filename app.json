@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.meetsweet.app",
-      "associatedDomains": ["applinks:meetsweet-server.quizmi.space"],
+      "associatedDomains": ["applinks:meetsweet.space"],
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification"]
       }
@@ -32,7 +32,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "meetsweet-server.quizmi.space",
+              "host": "meetsweet.space",
               "pathPrefix": "/s"
             }
           ],

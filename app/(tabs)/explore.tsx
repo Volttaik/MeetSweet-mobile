@@ -448,7 +448,7 @@ export default function ExploreScreen() {
         try {
           const { createShareLink } = await import('@/services/sharing');
           const shareLink = await createShareLink('creator', creator.id);
-          const url = shareLink.url || `https://meetsweet.app/${creator.handle}`;
+          const url = shareLink.url || `https://meetsweet.space/${creator.handle}`;
           await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!\n${url}`, url });
         } catch {
           await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!` });

@@ -572,7 +572,7 @@ export default function ProfileScreen() {
   const handleShareProfile = async () => {
     try {
       const shareLink = await createShareLink('creator', user?.id ?? '');
-      const url = shareLink.url || `https://meetsweet.app/@${user?.username ?? ''}`;
+      const url = shareLink.url || `https://meetsweet.space/@${user?.username ?? ''}`;
       await Share.share({
         title: user?.name ?? 'MeetSweet Profile',
         message: `Check out @${user?.username ?? 'me'} on MeetSweet!\n${url}`,
@@ -581,7 +581,7 @@ export default function ProfileScreen() {
     } catch {
       // Fallback: share without backend link
       Share.share({
-        message: `Check out @${user?.username ?? 'me'} on MeetSweet!`,
+        message: `Check out @${user?.username ?? 'me'} on MeetSweet!\nhttps://meetsweet.space/@${user?.username ?? ''}`,
         title: user?.name ?? 'MeetSweet Profile',
       }).catch(() => {});
     }

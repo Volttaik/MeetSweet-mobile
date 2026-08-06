@@ -13,7 +13,7 @@ Scan the QR code from the terminal to open in Expo Go on a physical device.
 
 ## Backend
 
-Live API: `https://meetsweet-server.quizmi.space/api`
+Live API: `https://api.meetsweet.space/api`
 
 Set `EXPO_PUBLIC_API_URL` in `.env.local` to point at a different environment.
 The default in `services/api.ts` already points to the production server.
