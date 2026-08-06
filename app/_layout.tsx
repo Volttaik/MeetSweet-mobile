@@ -23,6 +23,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
+import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { MsOfflineBanner } from '@/components/MsOfflineBanner';
 import { MsToastHost } from '@/components/MsToast';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -116,6 +117,8 @@ function RootLayoutNav() {
         options={{ animation: 'slide_from_bottom', gestureEnabled: true, presentation: 'modal' }}
       />
       <Stack.Screen name="creator-dashboard" options={{ animation: 'slide_from_right' }} />
+      {/* Share deep-link resolver */}
+      <Stack.Screen name="s/[token]" options={{ animation: 'fade', headerShown: false }} />
     </Stack>
   );
 }
@@ -144,12 +147,14 @@ export default function RootLayout() {
             <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
-                  <PostActionsProvider>
-                    <AppServices />
-                    <RootLayoutNav />
-                    <MsOfflineBanner />
-                    <MsToastHost />
-                  </PostActionsProvider>
+                  <NotificationsProvider>
+                    <PostActionsProvider>
+                      <AppServices />
+                      <RootLayoutNav />
+                      <MsOfflineBanner />
+                      <MsToastHost />
+                    </PostActionsProvider>
+                  </NotificationsProvider>
                 </AuthProvider>
               </KeyboardProvider>
             </HeroUINativeProvider>

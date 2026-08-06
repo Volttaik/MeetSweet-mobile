@@ -20,6 +20,7 @@ import {
   markNotificationRead,
   type Notification,
 } from '@/services/notifications';
+import { useNotifications } from '@/contexts/NotificationsContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,6 +134,7 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
+  const { decrementNotif, clearNotif } = useNotifications();
 
   const load = useCallback(async () => {
     try {
@@ -155,6 +157,7 @@ export default function NotificationsScreen() {
         prev.map((x) => (x.id === n.id ? { ...x, isRead: true } : x)),
       );
       markNotificationRead(n.id).catch(() => {});
+      decrementNotif(1);
     }
     if (n.postId) {
       router.push(`/post/${n.postId}`);
@@ -167,6 +170,7 @@ export default function NotificationsScreen() {
     try {
       await markAllNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      clearNotif();
     } catch {
       // ignore
     } finally {

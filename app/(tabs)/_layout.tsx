@@ -10,6 +10,7 @@ import Animated, {
 import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, VideoCamera, MonitorPlay, TextT, type Icon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { tapLight, tapMedium } from '@/lib/haptics';
+import { useNotifications } from '@/contexts/NotificationsContext';
 
 const TAB_HEIGHT = 60;
 const INACTIVE_COLOR = '#777777';
@@ -262,6 +263,13 @@ const sheetStyles = StyleSheet.create({
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const insets = useSafeAreaInsets();
   const [createSheetVisible, setCreateSheetVisible] = useState(false);
+  const { notifUnread, messageUnread } = useNotifications();
+
+  // Inject live badge counts into the visual tab definitions
+  const tabsWithBadges: VisualTab[] = VISUAL_TABS.map((tab) => {
+    if (tab.routeName === 'messages') return { ...tab, badge: messageUnread > 0 ? messageUnread : undefined };
+    return tab;
+  });
 
   const handlePress = useCallback(
     (tab: VisualTab) => {
@@ -287,7 +295,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
           { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 0) },
         ]}
       >
-        {VISUAL_TABS.map((tab, i) => (
+        {tabsWithBadges.map((tab, i) => (
           <TabBtn
             key={i}
             tab={tab}

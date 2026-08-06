@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNotifications } from '@/contexts/NotificationsContext';
 import {
   Bell,
   Compass,
@@ -444,10 +445,14 @@ export default function ExploreScreen() {
       label: 'Share Profile',
       onPress: async () => {
         setMenuCreator(null);
-        await Share.share({
-          title: creator.name,
-          message: `Check out ${creator.name} ${creator.handle} on MeetSweet!`,
-        });
+        try {
+          const { createShareLink } = await import('@/services/sharing');
+          const shareLink = await createShareLink('creator', creator.id);
+          const url = shareLink.url || `https://meetsweet.app/${creator.handle}`;
+          await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!\n${url}`, url });
+        } catch {
+          await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!` });
+        }
       },
     },
     {
@@ -502,6 +507,8 @@ export default function ExploreScreen() {
     : viewMode === 'albums'  ? albumsQuery.isError
     : feedQuery.isError;
 
+  const { notifUnread } = useNotifications();
+
   // ── Shared page header ────────────────────────────────────────────────────────
   const pageHeader = (
     <View style={styles.header}>
@@ -515,8 +522,16 @@ export default function ExploreScreen() {
           onPress={() => router.push('/notifications')}
           accessibilityLabel="Notifications"
         >
-          <Bell size={19} color={T.TEXT} />
-          <View style={styles.notificationDot} />
+          <View style={{ position: 'relative' }}>
+            <Bell size={19} color={T.TEXT} />
+            {notifUnread > 0 && (
+              <View style={styles.notificationDot}>
+                <Text style={{ color: '#fff', fontSize: 8, fontFamily: T.FONT.bold, lineHeight: 11 }}>
+                  {notifUnread > 9 ? '9+' : notifUnread}
+                </Text>
+              </View>
+            )}
+          </View>
         </Pressable>
       </View>
     </View>
@@ -940,12 +955,17 @@ const styles = StyleSheet.create({
   },
   notificationDot: {
     position: 'absolute',
-    top: 8,
-    right: 9,
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: T.ACCENT,
+    top: -5,
+    right: -7,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    borderWidth: 1.5,
+    borderColor: T.BG,
   },
   scrollContent: { paddingTop: 16, paddingBottom: 0 },
   feedListContent: { paddingTop: 12, paddingBottom: 24 },

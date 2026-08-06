@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { createShareLink } from '@/services/sharing';
 import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -987,10 +988,20 @@ export default function CreatorProfileScreen() {
             label: 'Share Profile',
             onPress: async () => {
               setMoreSheetOpen(false);
-              await Share.share({
-                title: creator.name,
-                message: `Check out ${creator.name} ${creator.handle} on MeetSweet!`,
-              });
+              try {
+                const shareLink = await createShareLink('creator', creator.id);
+                const url = shareLink.url || `https://meetsweet.app/${creator.handle}`;
+                await Share.share({
+                  title: creator.name,
+                  message: `Check out ${creator.name} ${creator.handle} on MeetSweet!\n${url}`,
+                  url,
+                });
+              } catch {
+                await Share.share({
+                  title: creator.name,
+                  message: `Check out ${creator.name} ${creator.handle} on MeetSweet!`,
+                });
+              }
             },
           },
           {

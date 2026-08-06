@@ -15,6 +15,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { createShareLink } from '@/services/sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Bookmark,
@@ -568,11 +569,22 @@ export default function ProfileScreen() {
     updateUser(updated);
   };
 
-  const handleShareProfile = () => {
-    Share.share({
-      message: `Check out @${user?.username ?? 'me'} on MeetSweet!\nhttps://meetsweet.app/@${user?.username ?? ''}`,
-      title: user?.name ?? 'MeetSweet Profile',
-    }).catch(() => {});
+  const handleShareProfile = async () => {
+    try {
+      const shareLink = await createShareLink('creator', user?.id ?? '');
+      const url = shareLink.url || `https://meetsweet.app/@${user?.username ?? ''}`;
+      await Share.share({
+        title: user?.name ?? 'MeetSweet Profile',
+        message: `Check out @${user?.username ?? 'me'} on MeetSweet!\n${url}`,
+        url,
+      });
+    } catch {
+      // Fallback: share without backend link
+      Share.share({
+        message: `Check out @${user?.username ?? 'me'} on MeetSweet!`,
+        title: user?.name ?? 'MeetSweet Profile',
+      }).catch(() => {});
+    }
   };
 
   // ── Post actions ────────────────────────────────────────────────────────────

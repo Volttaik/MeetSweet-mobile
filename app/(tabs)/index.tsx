@@ -23,6 +23,7 @@ import { MsSearchModal } from '@/components/MsSearchModal';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
+import { useNotifications } from '@/contexts/NotificationsContext';
 import { getHomeFeed, likePost, unlikePost, bookmarkPost, unbookmarkPost, type Post } from '@/services/posts';
 import {
   getCachedPosts,
@@ -113,6 +114,7 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const { deletedIds } = usePostActions();
+  const { notifUnread } = useNotifications();
 
   const userId = user?.id ?? '';
 
@@ -295,7 +297,14 @@ export default function HomeScreen() {
         <View style={styles.topActions}>
           <MsWalletBadge balance={walletBalance} />
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => router.push('/notifications')}>
-            <Bell size={20} color={T.TEXT} />
+            <View style={{ position: 'relative' }}>
+              <Bell size={20} color={T.TEXT} />
+              {notifUnread > 0 && (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>{notifUnread > 9 ? '9+' : notifUnread}</Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => setSearchVisible(true)}>
             <MagnifyingGlass size={20} color={T.TEXT} />
@@ -402,4 +411,24 @@ const styles = StyleSheet.create({
   },
   skeletons: { flex: 1 },
   footer: {},
+  bellBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -7,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    borderWidth: 1.5,
+    borderColor: T.BG,
+  },
+  bellBadgeText: {
+    fontSize: 8,
+    fontFamily: T.FONT.bold,
+    color: '#FFFFFF',
+    lineHeight: 11,
+  },
 });
