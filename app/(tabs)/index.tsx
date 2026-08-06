@@ -293,6 +293,7 @@ export default function HomeScreen() {
           style={styles.topLogo}
           resizeMode="contain"
         />
+        <Text style={styles.topAppName}>MeetSweet</Text>
         <View style={{ flex: 1 }} />
         <View style={styles.topActions}>
           <MsWalletBadge balance={walletBalance} />
@@ -404,7 +405,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 12 },
-  topLogo: { width: 120, height: 32, tintColor: '#FFFFFF' },
+  topLogo: { width: 32, height: 32, tintColor: '#FFFFFF' },
+  topAppName: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18, letterSpacing: -0.3 },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: {
     width: 38, height: 38, borderRadius: T.RADIUS.full,

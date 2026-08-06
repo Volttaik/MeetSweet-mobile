@@ -20,6 +20,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -30,6 +31,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 import { ArrowBendUpLeft, ChatCircle, Heart, Trash, X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsComposer } from '@/components/MsComposer';
@@ -76,7 +79,7 @@ function nameInitials(name: string): string {
 
 // ─── Comment data hook ────────────────────────────────────────────────────────
 
-function useComments(postId: string) {
+export function useComments(postId: string) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -201,7 +204,14 @@ function RepliesThread({
 }
 
 const replyStyles = StyleSheet.create({
-  wrap: { marginLeft: 44, marginTop: 4, marginBottom: 8 },
+  wrap: {
+    marginLeft: 42,
+    marginTop: 4,
+    marginBottom: 8,
+    paddingLeft: 14,
+    borderLeftWidth: 1.5,
+    borderLeftColor: T.BORDER,
+  },
   row: { flexDirection: 'row', gap: 8, paddingVertical: 6 },
   body: { flex: 1, gap: 3 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -221,7 +231,7 @@ const replyStyles = StyleSheet.create({
 
 // ─── Single comment row ───────────────────────────────────────────────────────
 
-function CommentRow({
+export function CommentRow({
   comment,
   postId,
   currentUserId,
@@ -600,7 +610,7 @@ const modalStyles = StyleSheet.create({
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
-    maxHeight: '88%',
+    height: SCREEN_HEIGHT * 0.72,
     paddingTop: 12,
     ...T.SHADOWS.hard,
   },
