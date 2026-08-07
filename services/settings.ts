@@ -78,3 +78,72 @@ export async function logoutAllDevices(): Promise<void> {
     headers: authHeader(token),
   });
 }
+
+// ─── Privacy Settings ─────────────────────────────────────────────────────────
+
+export interface PrivacySettings {
+  private_account: boolean;
+  online_status: boolean;
+  activity_status: boolean;
+  typing_indicator: boolean;
+  read_receipts: boolean;
+  allow_dms: boolean;
+  allow_mentions: boolean;
+  allow_tags: boolean;
+  search_visible: boolean;
+  birthday_visible: boolean;
+  phone_visible: boolean;
+  sensitive_blur: boolean;
+  qr_discovery: boolean;
+  auto_archive: boolean;
+}
+
+export async function getPrivacySettings(): Promise<PrivacySettings> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/settings/privacy', { headers: authHeader(token) });
+}
+
+export async function updatePrivacySettings(data: Partial<PrivacySettings>): Promise<PrivacySettings> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/settings/privacy', {
+    method: 'PATCH',
+    headers: authHeader(token),
+    body: JSON.stringify(data),
+  });
+}
+
+// ─── Notification Settings ────────────────────────────────────────────────────
+
+export interface NotificationSettings {
+  notif_messages: boolean;
+  notif_comments: boolean;
+  notif_mentions: boolean;
+  notif_likes: boolean;
+  notif_new_subscribers: boolean;
+  notif_creator_updates: boolean;
+  notif_marketing: boolean;
+  notif_vibration: boolean;
+  notif_sound: boolean;
+  notif_preview: boolean;
+  notif_quiet_hours: boolean;
+  notif_quiet_start: string;
+  notif_quiet_end: string;
+}
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/settings/notifications', { headers: authHeader(token) });
+}
+
+export async function updateNotificationSettings(data: Partial<NotificationSettings>): Promise<NotificationSettings> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch('/settings/notifications', {
+    method: 'PATCH',
+    headers: authHeader(token),
+    body: JSON.stringify(data),
+  });
+}

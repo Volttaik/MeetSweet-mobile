@@ -55,8 +55,14 @@ import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   deleteAccount,
+  getPrivacySettings,
+  getNotificationSettings,
+  getSettings,
   logoutAllDevices,
+  updateNotificationSettings,
   updatePassword,
+  updatePrivacySettings,
+  updateSettings,
 } from '@/services/settings';
 import { checkUsernameAvailability, updateMe } from '@/services/users';
 
@@ -1413,41 +1419,113 @@ export default function SettingsScreen() {
   const [content, setContent] = useState<ContentPrefs>(CONTENT_DEFAULTS);
 
   useEffect(() => {
-    Promise.all([
-      loadPref(PRIVACY_KEY, PRIVACY_DEFAULTS),
-      loadPref(NOTIF_KEY, NOTIF_DEFAULTS),
+    // Load from API; fall back to local defaults on error
+    Promise.allSettled([
+      getPrivacySettings(),
+      getNotificationSettings(),
+      getSettings(),
       loadPref(CONTENT_KEY, CONTENT_DEFAULTS),
-    ]).then(([p, n, c]) => {
-      setPrivacy(p);
-      setNotif(n);
-      setContent(c);
+    ]).then(([privResult, notifResult, settingsResult, contentResult]) => {
+      if (privResult.status === 'fulfilled') {
+        const p = privResult.value;
+        setPrivacy({
+          privateAccount: p.private_account ?? PRIVACY_DEFAULTS.privateAccount,
+          onlineStatus: p.online_status ?? PRIVACY_DEFAULTS.onlineStatus,
+          readReceipts: p.read_receipts ?? PRIVACY_DEFAULTS.readReceipts,
+          typingIndicator: p.typing_indicator ?? PRIVACY_DEFAULTS.typingIndicator,
+          profileVisibility: PRIVACY_DEFAULTS.profileVisibility,
+          messagePerm: p.allow_dms ? 'everyone' : 'nobody',
+          mentionPerm: p.allow_mentions ?? PRIVACY_DEFAULTS.mentionPerm,
+          tagPerm: p.allow_tags ?? PRIVACY_DEFAULTS.tagPerm,
+        });
+      } else {
+        loadPref(PRIVACY_KEY, PRIVACY_DEFAULTS).then(setPrivacy);
+      }
+
+      const notifBase: NotifPrefs = { ...NOTIF_DEFAULTS };
+      if (notifResult.status === 'fulfilled') {
+        const n = notifResult.value;
+        notifBase.messages = n.notif_messages ?? NOTIF_DEFAULTS.messages;
+        notifBase.comments = n.notif_comments ?? NOTIF_DEFAULTS.comments;
+        notifBase.likes = n.notif_likes ?? NOTIF_DEFAULTS.likes;
+        notifBase.mentions = n.notif_mentions ?? NOTIF_DEFAULTS.mentions;
+        notifBase.marketing = n.notif_marketing ?? NOTIF_DEFAULTS.marketing;
+      }
+      if (settingsResult.status === 'fulfilled') {
+        const s = settingsResult.value;
+        notifBase.push = s.push_notifications ?? NOTIF_DEFAULTS.push;
+        setContent((prev) => ({
+          ...prev,
+          autoplay: s.autoplay_media ?? prev.autoplay,
+          dataSaver: s.data_saver ?? prev.dataSaver,
+        }));
+      }
+      setNotif(notifBase);
+
+      if (contentResult.status === 'fulfilled') {
+        setContent((prev) => ({ ...prev, language: contentResult.value.language ?? prev.language }));
+      }
     });
+  }, []);
+
+  // Maps UI privacy key → API field
+  const privacyApiMap = useCallback((key: keyof PrivacyPrefs, value: any): Record<string, any> => {
+    switch (key) {
+      case 'privateAccount': return { private_account: value };
+      case 'onlineStatus': return { online_status: value };
+      case 'readReceipts': return { read_receipts: value };
+      case 'typingIndicator': return { typing_indicator: value };
+      case 'messagePerm': return { allow_dms: value !== 'nobody' };
+      case 'mentionPerm': return { allow_mentions: value };
+      case 'tagPerm': return { allow_tags: value };
+      default: return {};
+    }
   }, []);
 
   const setP = useCallback((key: keyof PrivacyPrefs) => (value: any) => {
-    setPrivacy((prev) => {
-      const next = { ...prev, [key]: value };
-      savePref(PRIVACY_KEY, next);
-      return next;
-    });
-  }, []);
+    setPrivacy((prev) => ({ ...prev, [key]: value }));
+    const patch = privacyApiMap(key, value);
+    if (Object.keys(patch).length > 0) {
+      updatePrivacySettings(patch).catch(() => {});
+    }
+  }, [privacyApiMap]);
+
+  const notifApiKey: Record<keyof NotifPrefs, string | null> = {
+    push: null, // handled via /settings
+    messages: 'notif_messages',
+    comments: 'notif_comments',
+    likes: 'notif_likes',
+    mentions: 'notif_mentions',
+    marketing: 'notif_marketing',
+  };
 
   const setN = useCallback((key: keyof NotifPrefs) => (value: boolean) => {
-    setNotif((prev) => {
-      const next = { ...prev, [key]: value };
-      savePref(NOTIF_KEY, next);
-      return next;
-    });
+    setNotif((prev) => ({ ...prev, [key]: value }));
     toast.success('Preference saved');
-  }, []);
+    if (key === 'push') {
+      updateSettings({ push_notifications: value }).catch(() => {});
+    } else {
+      const apiKey = notifApiKey[key];
+      if (apiKey) {
+        updateNotificationSettings({ [apiKey]: value }).catch(() => {});
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setC = useCallback((key: keyof ContentPrefs) => (value: any) => {
-    setContent((prev) => {
-      const next = { ...prev, [key]: value };
-      savePref(CONTENT_KEY, next);
-      return next;
-    });
+    setContent((prev) => ({ ...prev, [key]: value }));
     toast.success('Preference saved');
+    if (key === 'autoplay') {
+      updateSettings({ autoplay_media: value }).catch(() => {});
+    } else if (key === 'dataSaver') {
+      updateSettings({ data_saver: value }).catch(() => {});
+    } else {
+      // language and other UI-only prefs stay local
+      setContent((prev) => {
+        savePref(CONTENT_KEY, { ...prev, [key]: value });
+        return prev;
+      });
+    }
   }, []);
 
   const togglePrivacy = (key: keyof PrivacyPrefs) => (value: boolean) => {

@@ -23,6 +23,7 @@ import {
   searchUsers,
   createConversation,
   archiveConversation,
+  deleteConversation,
   type Conversation,
   type ConversationUser,
 } from '@/services/messages';
@@ -153,7 +154,15 @@ function NewMessageModal({
       onClose();
       setQ('');
       setResults([]);
-      router.push(`/chat/${conversationId}`);
+      router.push({
+        pathname: '/chat/[id]',
+        params: {
+          id: conversationId,
+          name: user.name,
+          username: user.username,
+          avatarUrl: (user as any).avatarUrl ?? '',
+        },
+      });
     } catch {}
   };
 
@@ -301,7 +310,12 @@ export default function MessagesScreen() {
       label: 'Delete',
       destructive: true,
       onPress: () => {
+        // Optimistic remove
         setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+        deleteConversation(convo.id).catch(() => {
+          // If deletion fails restore the conversation
+          setConversations((prev) => [convo, ...prev]);
+        });
       },
     },
   ];

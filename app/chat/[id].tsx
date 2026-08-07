@@ -85,9 +85,12 @@ import {
   deleteMessage,
   editMessage,
   markConversationRead,
+  deleteConversation,
+  clearConversation,
+  toggleReaction,
   type ChatMessage,
 } from '@/services/messages';
-import { getUser } from '@/services/users';
+import { getUser, blockUser, unblockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 import {
   getCachedMessages,
@@ -587,11 +590,26 @@ export default function ChatScreen() {
         {
           text: isBlocked ? 'Unblock' : 'Block',
           style: 'destructive',
-          onPress: () => setIsBlocked(!isBlocked),
+          onPress: async () => {
+            const username = otherUser.username;
+            const next = !isBlocked;
+            setIsBlocked(next);
+            try {
+              if (next) {
+                await blockUser(username);
+              } else {
+                await unblockUser(username);
+              }
+            } catch {
+              // revert on failure
+              setIsBlocked(isBlocked);
+              Alert.alert('Error', `Could not ${next ? 'block' : 'unblock'} user. Please try again.`);
+            }
+          },
         },
       ],
     );
-  }, [isBlocked, otherUser.name]);
+  }, [isBlocked, otherUser.name, otherUser.username]);
 
   // ── Delete conversation ───────────────────────────────────────────────────
   const handleDeleteConversation = useCallback(() => {
@@ -604,11 +622,17 @@ export default function ChatScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => router.back(),
+          onPress: async () => {
+            if (conversationId) {
+              await deleteConversation(conversationId).catch(() => {});
+              await deleteCachedMessage(conversationId).catch(() => {});
+            }
+            router.back();
+          },
         },
       ],
     );
-  }, []);
+  }, [conversationId]);
 
   // ── Clear conversation ────────────────────────────────────────────────────
   const handleClearConversation = useCallback(() => {
@@ -624,6 +648,7 @@ export default function ChatScreen() {
           onPress: async () => {
             setMessages([]);
             if (conversationId) {
+              await clearConversation(conversationId).catch(() => {});
               await deleteCachedMessage(conversationId).catch(() => {});
             }
           },
@@ -657,8 +682,11 @@ export default function ChatScreen() {
   // ── Reaction handler ──────────────────────────────────────────────────────────
   const handleReaction = useCallback((msg: MsMessage, emoji: string) => {
     const userId = user?.id ?? '';
+    const msgId = String(msg._id);
+
+    // Optimistic update immediately
     setLocalReactions((prev) => {
-      const curr = prev[String(msg._id)] ?? [];
+      const curr = prev[msgId] ?? [];
       const existing = curr.find((r) => r.emoji === emoji);
       let next: MessageReaction[];
       if (existing) {
@@ -669,8 +697,42 @@ export default function ChatScreen() {
       } else {
         next = [...curr, { emoji, userIds: [userId] }];
       }
-      return { ...prev, [String(msg._id)]: next };
+      return { ...prev, [msgId]: next };
     });
+
+    // Persist to backend — tempId messages (optimistic) have no real ID yet
+    if (!msgId.startsWith('temp_')) {
+      toggleReaction(msgId, emoji).then((result) => {
+        // Sync server reaction state
+        if (result?.reactions) {
+          setLocalReactions((prev) => ({
+            ...prev,
+            [msgId]: result.reactions.map((r: any) => ({
+              emoji: r.emoji,
+              userIds: r.user_ids ?? r.userIds ?? [],
+            })),
+          }));
+        }
+      }).catch(() => {
+        // Already optimistically updated — revert on failure
+        setLocalReactions((prev) => {
+          const curr = prev[msgId] ?? [];
+          const existing = curr.find((r) => r.emoji === emoji);
+          let reverted: MessageReaction[];
+          if (existing) {
+            // Was added → remove it back
+            const ids = existing.userIds.filter((id) => id !== userId);
+            reverted = ids.length === 0
+              ? curr.filter((r) => r.emoji !== emoji)
+              : curr.map((r) => r.emoji === emoji ? { ...r, userIds: ids } : r);
+          } else {
+            // Was removed → add it back
+            reverted = [...curr, { emoji, userIds: [userId] }];
+          }
+          return { ...prev, [msgId]: reverted };
+        });
+      });
+    }
   }, [user?.id]);
 
 

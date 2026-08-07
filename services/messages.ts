@@ -285,3 +285,41 @@ export async function archiveConversation(
     body: JSON.stringify({ archived }),
   });
 }
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/conversations/${conversationId}`, {
+    method: 'DELETE',
+    headers: authHeader(token),
+  });
+}
+
+export async function clearConversation(conversationId: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/conversations/${conversationId}/clear`, {
+    method: 'POST',
+    headers: authHeader(token),
+  });
+}
+
+export async function toggleReaction(messageId: string, emoji: string): Promise<{ reactions: Array<{ emoji: string; userIds: string[] }> }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  return apiFetch(`/messages/${messageId}/reactions`, {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ emoji }),
+  });
+}
+
+export async function muteConversation(conversationId: string, muted: boolean): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await apiFetch(`/conversations/${conversationId}/mute`, {
+    method: 'PUT',
+    headers: authHeader(token),
+    body: JSON.stringify({ muted }),
+  });
+}

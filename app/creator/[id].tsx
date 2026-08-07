@@ -31,6 +31,7 @@ import {
 import { blockUser, reportUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
+import { createConversation } from '@/services/messages';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -474,12 +475,12 @@ export default function CreatorProfileScreen() {
       Alert.alert('Cannot Message', 'This creator is not accepting messages right now.');
       return;
     }
-    
-    // Subscribers only and not subscribed
+
+    // Subscribers only and not subscribed — redirect to subscribe sheet
     if (whoCanMessage === 'subscribers' && !isSubscribed) {
       Alert.alert(
         'Subscription Required',
-        'You need to subscribe to message this creator.',
+        'You need to subscribe to send this creator a message.',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Subscribe', onPress: () => setSheetOpen(true) },
@@ -487,17 +488,26 @@ export default function CreatorProfileScreen() {
       );
       return;
     }
-    
-    // Open chat — pass display info so the chat header shows the right name
-    router.push({
-      pathname: '/chat/[id]',
-      params: {
-        id,
-        name:      creator?.name ?? '',
-        username:  (creator?.handle ?? '').replace('@', ''),
-        avatarUrl: creator?.avatarUrl ?? '',
-      },
-    });
+
+    // Find or create the conversation via backend, then navigate with real conversationId
+    setLoadingMessaging(true);
+    try {
+      const creatorUserId = creatorFullProfile?.userId ?? id;
+      const { conversationId } = await createConversation(creatorUserId);
+      router.push({
+        pathname: '/chat/[id]',
+        params: {
+          id: conversationId,
+          name: realProfile?.name ?? creator?.name ?? '',
+          username: realProfile?.username ?? (creator?.handle ?? '').replace('@', ''),
+          avatarUrl: realProfile?.avatarUrl ?? creator?.avatarUrl ?? '',
+        },
+      });
+    } catch {
+      Alert.alert('Error', 'Could not open chat. Please try again.');
+    } finally {
+      setLoadingMessaging(false);
+    }
   };
 
   // ── Data sources ─────────────────────────────────────────────────────────────
