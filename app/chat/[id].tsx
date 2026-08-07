@@ -81,6 +81,7 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getMessages,
+  getConversations,
   sendMessage,
   deleteMessage,
   editMessage,
@@ -257,24 +258,35 @@ export default function ChatScreen() {
     return () => clearInterval(interval);
   }, [conversationId, user?.id]);
 
-  // ── Load other user from cached conversations ────────────────────────────────
+  // ── Load the other participant from the conversation ─────────────────────────
   useEffect(() => {
     if (!conversationId) return;
     (async () => {
       try {
-        const cached = await getCachedConversations();
-        const conv = cached.find((c) => c.id === conversationId);
+        // The route may be opened directly from a profile or notification, so
+        // params and local cache are not reliable sources of participant data.
+        // The conversations endpoint is the source of truth for this room.
+        const remote = await getConversations('all');
+        let conv = remote.conversations.find((c) => c.id === conversationId);
+        if (!conv) {
+          const archived = await getConversations('archived').catch(() => ({ conversations: [] }));
+          conv = archived.conversations.find((c) => c.id === conversationId);
+        }
+        if (!conv) {
+          const cached = await getCachedConversations();
+          conv = cached.find((c) => c.id === conversationId);
+        }
         if (conv?.otherUser) {
           setOtherUser({
             id: conv.otherUser.id,
-            name: conv.otherUser.name,
+            name: conv.otherUser.name || paramName || 'Chat',
             username: conv.otherUser.username,
-            avatarUrl: conv.otherUser.avatarUrl,
+            avatarUrl: conv.otherUser.avatarUrl ?? paramAvatarUrl ?? null,
           });
         }
       } catch {/* */}
     })();
-  }, [conversationId]);
+  }, [conversationId, paramName, paramAvatarUrl]);
 
   // ── Load earlier (older) messages ────────────────────────────────────────────
   const handleLoadEarlier = useCallback(async () => {

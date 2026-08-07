@@ -90,21 +90,32 @@ function inferMediaType(raw: any): ChatMessage['mediaType'] {
 function normalizeConversation(raw: any): Conversation {
   // Backend returns snake_case `other_user`; camelCase `otherUser` is a fallback
   // for any future normalised responses.
-  const ou = raw.other_user ?? raw.otherUser ?? null;
+  const source = raw?.conversation ?? raw ?? {};
+  const ou = source.other_user ?? source.otherUser ?? source.participant ?? null;
+  const lastMessage = source.last_message ?? source.lastMessage ?? null;
   return {
-    id: raw.id,
-    lastMessageBody: raw.lastMessageBody ?? raw.last_message_body ?? null,
-    lastMessageAt: raw.lastMessageAt ?? raw.last_message_at ?? null,
-    createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
-    isMuted: raw.isMuted ?? raw.is_muted ?? false,
-    isArchived: raw.isArchived ?? raw.is_archived ?? false,
-    unreadCount: raw.unreadCount ?? raw.unread_count ?? 0,
+    id: source.id ?? source.conversation_id ?? source.conversationId ?? '',
+    lastMessageBody:
+      source.lastMessageBody ??
+      source.last_message_body ??
+      lastMessage?.body ??
+      null,
+    lastMessageAt:
+      source.lastMessageAt ??
+      source.last_message_at ??
+      lastMessage?.created_at ??
+      lastMessage?.createdAt ??
+      null,
+    createdAt: source.createdAt ?? source.created_at ?? new Date().toISOString(),
+    isMuted: source.isMuted ?? source.is_muted ?? false,
+    isArchived: source.isArchived ?? source.is_archived ?? false,
+    unreadCount: source.unreadCount ?? source.unread_count ?? 0,
     otherUser: ou
       ? {
-          id: ou.id,
-          name: ou.name ?? ou.full_name ?? '',
+          id: ou.id ?? ou.user_id ?? '',
+          name: ou.name ?? ou.full_name ?? ou.display_name ?? ou.displayName ?? '',
           username: ou.username ?? '',
-          avatarUrl: ou.avatarUrl ?? ou.avatar_url ?? null,
+          avatarUrl: ou.avatarUrl ?? ou.avatar_url ?? ou.profile_picture_url ?? null,
           isVerified: ou.isVerified ?? ou.is_verified ?? false,
         }
       : { id: '', name: 'Unknown', username: '', avatarUrl: null, isVerified: false },
@@ -129,9 +140,9 @@ function normalizeMessage(raw: any): ChatMessage {
     sender: raw.sender
       ? {
           id: raw.sender.id,
-          name: raw.sender.name ?? raw.sender.full_name ?? '',
+          name: raw.sender.name ?? raw.sender.full_name ?? raw.sender.display_name ?? '',
           username: raw.sender.username ?? '',
-          avatarUrl: raw.sender.avatarUrl ?? raw.sender.avatar_url ?? null,
+          avatarUrl: raw.sender.avatarUrl ?? raw.sender.avatar_url ?? raw.sender.profile_picture_url ?? null,
         }
       : { id: '', name: 'Unknown', username: '', avatarUrl: null },
     isOwn: raw.isOwn ?? raw.is_own ?? false,
@@ -158,11 +169,11 @@ export async function getConversations(
 
 export async function createConversation(
   userId: string,
-): Promise<{ conversationId: string; created: boolean }> {
+): Promise<{ conversationId: string; created: boolean; conversation: Conversation | null }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   // Backend schema: { user_id: string } (snake_case)
-  const raw = await apiFetch<{ conversation_id?: string; conversationId?: string; created?: boolean }>(
+  const raw = await apiFetch<unknown>(
     '/conversations',
     {
       method: 'POST',
@@ -170,9 +181,21 @@ export async function createConversation(
       body: JSON.stringify({ user_id: userId }),
     },
   );
+  const source = (raw as any)?.conversation ?? raw ?? {};
+  const conversationId =
+    source.conversation_id ??
+    source.conversationId ??
+    source.id ??
+    '';
+  if (!conversationId) {
+    throw new Error('Conversation was not created: the server returned no conversation id.');
+  }
   return {
-    conversationId: raw?.conversation_id ?? raw?.conversationId ?? '',
-    created: raw?.created ?? true,
+    conversationId,
+    created: source.created ?? (raw as any)?.created ?? true,
+    conversation: source.id || source.other_user || source.otherUser
+      ? normalizeConversation(source)
+      : null,
   };
 }
 

@@ -19,8 +19,8 @@ function normalizeUser(raw: any): User {
     email: raw.email ?? null,
     phone: raw.phone ?? null,
     bio: raw.bio ?? null,
-    avatarUrl: raw.avatar_url ?? null,
-    bannerUrl: raw.banner_url ?? null,
+    avatarUrl: raw.avatar_url ?? raw.avatarUrl ?? raw.profile_picture_url ?? null,
+    bannerUrl: raw.banner_url ?? raw.bannerUrl ?? null,
     website: raw.website ?? null,
     location: raw.location ?? null,
     isVerified: raw.is_verified ?? false,
@@ -100,9 +100,9 @@ export async function searchUsers(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ? raw.users.map((u: any) => ({
         id: u.id,
-        name: u.name ?? u.full_name ?? '',
+        name: u.name ?? u.full_name ?? u.display_name ?? u.displayName ?? '',
         username: u.username ?? '',
-        avatarUrl: u.avatarUrl ?? u.avatar_url ?? null,
+        avatarUrl: u.avatarUrl ?? u.avatar_url ?? u.profile_picture_url ?? null,
         isVerified: u.isVerified ?? u.is_verified ?? false,
       }))
     : [];

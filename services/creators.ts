@@ -1,8 +1,8 @@
 /**
  * Creator service — public creator profiles and content.
  *
- * Uses the live /api/creators/:id endpoint (spec: `:id` can be a UUID or username).
- * Creator content is fetched via /api/creators/:id/posts|videos|shorts|albums.
+ * Uses the current user/profile and posts endpoints. Creator-specific routes
+ * from the original import are not available on the deployed API.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
@@ -15,6 +15,8 @@ import { normalizeAlbumCard as _normalizeAlbumCard } from './albums';
 
 export interface CreatorProfileFull {
   id: string;
+  /** Canonical user id used by direct-conversation creation. */
+  userId?: string;
   username: string;
   name: string;
   displayName: string | null;
@@ -85,6 +87,7 @@ function authHeader(token: string): Record<string, string> {
 function normalizeCreatorProfile(raw: any): CreatorProfileFull {
   return {
     id:                 raw.id ?? '',
+    userId:             raw.user_id ?? raw.userId ?? raw.id ?? '',
     username:           raw.username ?? '',
     name:               raw.full_name ?? raw.display_name ?? raw.name ?? '',
     displayName:        raw.display_name ?? null,
@@ -160,14 +163,15 @@ function normalizePostItem(raw: any): Post {
 // ─── Service functions ────────────────────────────────────────────────────────
 
 /**
- * GET /api/creators/:id
- * `:id` can be a UUID or a username.
- * Response includes `subscribed_to_creator` so no extra subscription check is needed.
+ * GET /api/users/:username-or-id
+ *
+ * Creator pages are addressed by either a username or a user UUID. The
+ * response's `id` is the participant ID required by POST /conversations.
  */
 export async function getCreatorById(id: string): Promise<CreatorProfileFull> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const raw = await apiFetch<unknown>(`/creators/${encodeURIComponent(id)}`, { headers });
+  const raw = await apiFetch<unknown>(`/users/${encodeURIComponent(id)}`, { headers });
   // Backend may wrap as { creator: {...} } after envelope unwrap
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = (raw as any)?.creator ?? (raw as any)?.user ?? raw;
@@ -175,7 +179,7 @@ export async function getCreatorById(id: string): Promise<CreatorProfileFull> {
 }
 
 /**
- * GET /api/creators/:id/posts
+ * GET /api/posts?creator_id=:id
  * Subscribed users get public + subscribers content.
  * Non-subscribers get public content only.
  */
@@ -185,10 +189,9 @@ export async function getCreatorContentPosts(
 ): Promise<{ posts: Post[]; nextCursor: string | null; hasMore: boolean }> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
   try {
     const raw = await apiFetch<{ posts?: unknown[]; next_cursor?: string | null; has_more?: boolean }>(
-      `/creators/${encodeURIComponent(id)}/posts${qs}`,
+      `/posts?creator_id=${encodeURIComponent(id)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}&limit=20`,
       { headers },
     );
     const posts = Array.isArray(raw?.posts) ? raw.posts.map(normalizePostItem) : [];
@@ -199,17 +202,23 @@ export async function getCreatorContentPosts(
 }
 
 /**
- * GET /api/creators/:id/videos
+ * GET /api/posts?creator_id=:id&content_type=video
  */
 export async function getCreatorContentVideos(id: string): Promise<Post[]> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
   try {
-    const raw = await apiFetch<{ videos?: unknown[]; items?: unknown[] }>(
-      `/creators/${encodeURIComponent(id)}/videos?limit=20`,
+    const raw = await apiFetch<{ posts?: unknown[]; videos?: unknown[]; items?: unknown[] }>(
+      `/posts?creator_id=${encodeURIComponent(id)}&content_type=video&limit=20`,
       { headers },
     );
-    const items = Array.isArray(raw?.videos) ? raw.videos : Array.isArray(raw?.items) ? raw.items : [];
+    const items = Array.isArray(raw?.posts)
+      ? raw.posts
+      : Array.isArray(raw?.videos)
+        ? raw.videos
+        : Array.isArray(raw?.items)
+          ? raw.items
+          : [];
     return items.map(normalizePostItem);
   } catch {
     return [];
@@ -217,17 +226,23 @@ export async function getCreatorContentVideos(id: string): Promise<Post[]> {
 }
 
 /**
- * GET /api/creators/:id/shorts
+ * GET /api/posts?creator_id=:id&content_type=short
  */
 export async function getCreatorContentShorts(id: string): Promise<Post[]> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
   try {
-    const raw = await apiFetch<{ shorts?: unknown[]; items?: unknown[] }>(
-      `/creators/${encodeURIComponent(id)}/shorts?limit=20`,
+    const raw = await apiFetch<{ posts?: unknown[]; shorts?: unknown[]; items?: unknown[] }>(
+      `/posts?creator_id=${encodeURIComponent(id)}&content_type=short&limit=20`,
       { headers },
     );
-    const items = Array.isArray(raw?.shorts) ? raw.shorts : Array.isArray(raw?.items) ? raw.items : [];
+    const items = Array.isArray(raw?.posts)
+      ? raw.posts
+      : Array.isArray(raw?.shorts)
+        ? raw.shorts
+        : Array.isArray(raw?.items)
+          ? raw.items
+          : [];
     return items.map(normalizePostItem);
   } catch {
     return [];
@@ -235,14 +250,14 @@ export async function getCreatorContentShorts(id: string): Promise<Post[]> {
 }
 
 /**
- * GET /api/creators/:id/albums
+ * GET /api/albums?creator_id=:id
  */
 export async function getCreatorContentAlbums(id: string): Promise<AlbumCardData[]> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
   try {
     const raw = await apiFetch<{ albums?: unknown[] }>(
-      `/creators/${encodeURIComponent(id)}/albums`,
+      `/albums?creator_id=${encodeURIComponent(id)}`,
       { headers },
     );
     const albums = Array.isArray(raw?.albums) ? raw.albums : [];
@@ -260,23 +275,9 @@ export async function getCreatorReviews(
   id: string,
   _page = 1,
 ): Promise<{ reviews: CreatorReview[]; total: number; average_rating: number | null }> {
-  const token = await getToken();
-  const headers = token ? authHeader(token) : {};
-  try {
-    const raw = await apiFetch<{
-      reviews?: unknown[];
-      total?: number;
-      average_rating?: number | null;
-    }>(`/creators/${encodeURIComponent(id)}/reviews`, { headers });
-    return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      reviews: Array.isArray(raw?.reviews) ? (raw.reviews as any[]).map((r) => r as CreatorReview) : [],
-      total: raw?.total ?? 0,
-      average_rating: raw?.average_rating ?? null,
-    };
-  } catch {
-    return { reviews: [], total: 0, average_rating: null };
-  }
+  // There is no reviews route in the current API. Do not probe the old
+  // /creators/:id/reviews endpoint on every profile visit.
+  return { reviews: [], total: 0, average_rating: null };
 }
 
 /**

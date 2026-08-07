@@ -31,7 +31,7 @@ import {
 import { blockUser, reportUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
-import { createConversation } from '@/services/messages';
+import { createConversation, searchUsers } from '@/services/messages';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -492,7 +492,28 @@ export default function CreatorProfileScreen() {
     // Find or create the conversation via backend, then navigate with real conversationId
     setLoadingMessaging(true);
     try {
-      const creatorUserId = creatorFullProfile?.userId ?? id;
+      const creatorUsername = (
+        realProfile?.username ??
+        creatorFullProfile?.username ??
+        creator?.handle ??
+        ''
+      ).replace(/^@/, '');
+      let creatorUserId = creatorFullProfile?.userId ?? '';
+
+      // Creator catalog entries and conversation participants are different
+      // backend records. Resolve the actual user through the same endpoint
+      // that powers the working New Message search flow.
+      if (creatorUsername.length >= 2) {
+        const result = await searchUsers(creatorUsername);
+        const exactMatch = result.users.find(
+          (candidate) => candidate.username.toLowerCase() === creatorUsername.toLowerCase(),
+        );
+        creatorUserId = exactMatch?.id ?? creatorUserId;
+      }
+      if (!creatorUserId) {
+        throw new Error('Could not resolve this creator as a messaging user.');
+      }
+
       const { conversationId } = await createConversation(creatorUserId);
       router.push({
         pathname: '/chat/[id]',
@@ -535,13 +556,16 @@ export default function CreatorProfileScreen() {
     );
   }, [id, catalogQuery.data]);
 
-  // Fetch creator profile via GET /api/creators/:id
+  // Fetch creator profile via the current user endpoint. When the route was
+  // opened with a catalog UUID, use its username instead of probing the UUID
+  // as a username.
   // This returns subscribed_to_creator so no separate subscription check needed
   const creatorUUID = catalogCreator?.id ?? id;
+  const creatorLookup = (catalogCreator?.handle ?? '').replace(/^@/, '') || id;
   useEffect(() => {
     if (!id) return;
     setProfileLoading(true);
-    getCreatorById(id)
+    getCreatorById(creatorLookup)
       .then((profile) => {
         setCreatorFullProfile(profile);
         setIsSubscribed(profile.subscribedToCreator);
@@ -557,7 +581,7 @@ export default function CreatorProfileScreen() {
       })
       .catch(() => {})
       .finally(() => setProfileLoading(false));
-  }, [id]);
+  }, [id, creatorLookup]);
 
   // Redirect to own profile immediately if slug matches username — no API wait needed
   useEffect(() => {
@@ -658,7 +682,7 @@ export default function CreatorProfileScreen() {
     try {
       await Promise.all([
         catalogQuery.refetch(),
-        getCreatorById(id ?? '').then((profile) => {
+         getCreatorById(creatorLookup).then((profile) => {
           setCreatorFullProfile(profile);
           setIsSubscribed(profile.subscribedToCreator);
           setRealProfile({
