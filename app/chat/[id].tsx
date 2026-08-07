@@ -82,6 +82,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getMessages,
   getConversations,
+  createConversation,
   sendMessage,
   deleteMessage,
   editMessage,
@@ -91,6 +92,7 @@ import {
   toggleReaction,
   type ChatMessage,
 } from '@/services/messages';
+import { ApiError } from '@/services/api';
 import { getUser, blockUser, unblockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 import {
@@ -129,8 +131,45 @@ function formatDateLabel(d: Date): string {
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
-  const { id: conversationId, name: paramName, username: paramUsername, avatarUrl: paramAvatarUrl } = useLocalSearchParams<{ id: string; name?: string; username?: string; avatarUrl?: string }>();
+  const {
+    id: routeConversationId,
+    name: paramName,
+    username: paramUsername,
+    avatarUrl: paramAvatarUrl,
+  } = useLocalSearchParams<{ id: string; name?: string; username?: string; avatarUrl?: string }>();
+  // Some older entry points navigated here with a recipient/profile ID. Keep
+  // the route param for normal room navigation, but allow the first send to
+  // repair that stale ID using the recipient username.
+  const [conversationId, setConversationId] = useState(routeConversationId ?? '');
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (routeConversationId && routeConversationId !== conversationId) {
+      setConversationId(routeConversationId);
+    }
+  }, [routeConversationId]);
+
+  const sendToConversation = useCallback(async (
+    body?: string,
+    mediaUrl?: string,
+    mediaType?: string,
+    opts?: Parameters<typeof sendMessage>[4],
+  ): ReturnType<typeof sendMessage> => {
+    try {
+      return await sendMessage(conversationId, body, mediaUrl, mediaType, opts);
+    } catch (error) {
+      // The server returns 404 only when this ID is not a conversation. This
+      // happens for chats opened from older profile links that passed the
+      // recipient ID through /chat/:id. Resolve the room by username and
+      // retry once; real 403/401/validation errors still surface normally.
+      if (!(error instanceof ApiError) || error.status !== 404 || !paramUsername) {
+        throw error;
+      }
+      const repaired = await createConversation(undefined, paramUsername);
+      setConversationId(repaired.conversationId);
+      return sendMessage(repaired.conversationId, body, mediaUrl, mediaType, opts);
+    }
+  }, [conversationId, paramUsername]);
 
   // ── Message state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<MsMessage[]>([]);
@@ -362,7 +401,7 @@ export default function ChatScreen() {
       };
       setMessages((prev) => Chat.append(prev, [optimistic]));
       try {
-        const res = await sendMessage(conversationId, payload.sticker);
+        const res = await sendToConversation(payload.sticker);
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
           prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
@@ -391,7 +430,7 @@ export default function ChatScreen() {
       setReplyMessage(null);
       setInputText('');
       try {
-        const res = await sendMessage(conversationId, payload.text, undefined, undefined, {
+        const res = await sendToConversation(payload.text, undefined, undefined, {
           replyToId: capturedReply ? String(capturedReply._id) : undefined,
         });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
@@ -424,7 +463,7 @@ export default function ChatScreen() {
       try {
         setUploadingMedia(true);
         const uploaded = await uploadMedia(uri, 'audio/m4a');
-        const res = await sendMessage(conversationId, undefined, uploaded.url, 'audio', { audioDuration: duration });
+        const res = await sendToConversation(undefined, uploaded.url, 'audio', { audioDuration: duration });
         // Server returns media_type: null for audio — preserve local audio metadata.
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
@@ -481,8 +520,7 @@ export default function ChatScreen() {
         // Always upload with correct audio MIME — never video/mp4
         const mime = confirmed.mimeType?.startsWith('audio/') ? confirmed.mimeType : 'audio/m4a';
         const uploaded = await uploadMedia(uri, mime);
-        const res = await sendMessage(
-          conversationId,
+        const res = await sendToConversation(
           undefined,
           uploaded.url,
           'audio',
@@ -533,12 +571,11 @@ export default function ChatScreen() {
       setUploadingMedia(true);
       const mime = mediaType === 'image' ? 'image/jpeg' : 'video/mp4';
       const uploaded = await uploadMedia(uri, mime);
-      const res = await sendMessage(
-        conversationId,
-        confirmed.caption,
-        uploaded.url,
-        mediaType,
-      );
+        const res = await sendToConversation(
+          confirmed.caption,
+          uploaded.url,
+          mediaType,
+        );
       const conf = toMsMessage(res.message, user?.id ?? '');
       setMessages((prev) =>
         prev.map((m) => m._id === tempId ? { ...conf, pending: false, sent: true } : m),
@@ -773,7 +810,7 @@ export default function ChatScreen() {
       ),
     );
     try {
-      const res = await sendMessage(conversationId, failedMsg.text);
+      const res = await sendToConversation(failedMsg.text);
       const confirmed = toMsMessage(res.message, user?.id ?? '');
       setMessages((prev) =>
         prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),

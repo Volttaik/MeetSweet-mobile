@@ -179,18 +179,24 @@ export async function getConversations(
 }
 
 export async function createConversation(
-  userId: string,
+  userId?: string,
+  username?: string,
 ): Promise<{ conversationId: string; created: boolean; conversation: Conversation | null }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // `userId` must be the target user's UUID, not a creator catalog ID or the
-  // eventual conversation/room ID. The backend accepts this snake_case field.
+  if (!userId && !username) {
+    throw new Error('A recipient user ID or username is required to create a conversation.');
+  }
+  // Prefer the canonical username when one is available. The current server
+  // resolves this to the participant UUID before creating the room, which
+  // prevents a profile/user ID from accidentally being used as a room ID.
+  const body = username ? { username } : { user_id: userId };
   const raw = await apiFetch<unknown>(
     '/conversations',
     {
       method: 'POST',
       headers: authHeader(token),
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify(body),
     },
   );
   const source = (raw as any)?.conversation ?? raw ?? {};

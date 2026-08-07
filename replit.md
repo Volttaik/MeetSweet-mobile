@@ -82,15 +82,20 @@ API from Expo Go. Paystack and Resend remain intentionally unset.
 - Upload endpoint `POST /media/upload` requires `Authorization: Bearer <token>` and a `multipart/form-data` body with a `file` field.
 - Allowed upload MIME types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `video/quicktime`, `video/webm`. `create-post.tsx` normalises device-reported types to this list.
 
-## Backend endpoints NOT yet implemented (return 404)
+## Backend endpoints and messaging ID rules
 
-These features will fail gracefully (empty state, no crash) until the backend adds them:
+The live server implements the conversation routes:
 
-- `GET/POST /conversations` — chat/messaging
-- `GET /users/:username` — public creator profile
-- `POST/DELETE /users/:username/follow` — follow/unfollow
-- `GET /users/search` — user search in new-message modal
-- `PATCH/PUT /users/me` — edit profile (only GET is implemented)
+- `GET/POST /conversations` — list or create a direct conversation
+- `GET/POST /conversations/:id/messages` — read or send messages
+- `PUT /conversations/:id/archive` — archive/unarchive a conversation
+
+When opening a direct chat, the recipient's user/profile ID and the
+conversation/room ID are different values. Always call `POST /conversations`
+with the recipient ID or username first, then navigate with the returned
+`conversationId`. The message route only accepts that room ID; using a
+profile ID there returns `404 Conversation not found` even when the displayed
+username and avatar are correct.
 
 ## Key features implemented
 
