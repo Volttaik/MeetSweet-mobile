@@ -28,6 +28,7 @@ import {
   type Conversation,
   type ConversationUser,
 } from '@/services/messages';
+import { ApiError } from '@/services/api';
 import { getCreatorMessagingSettings } from '@/services/subscriptions';
 import {
   getCachedConversationsList,
@@ -192,6 +193,23 @@ function NewMessageModal({
         },
       });
     } catch (error) {
+      const apiError = error instanceof ApiError ? error : null;
+      const errorData = (apiError?.data as { data?: { username?: string; redirect_to?: string } } | undefined)?.data;
+      const redirectTarget = errorData?.username ?? user.username;
+      if (apiError?.code === 'subscription_required' && redirectTarget) {
+        onClose();
+        setQ('');
+        setResults([]);
+        Alert.alert(
+          'Subscription Required',
+          'Subscribe to this creator before sending a message.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'View Creator', onPress: () => router.push(`/creator/${redirectTarget}`) },
+          ],
+        );
+        return;
+      }
       const message = error instanceof Error ? error.message : '';
       Alert.alert('Could not open chat', message || 'Please try again.');
     }

@@ -584,11 +584,11 @@ export default function CreatorProfileScreen() {
     );
   }, [id, catalogQuery.data]);
 
-  // Fetch creator profile via the current user endpoint. When the route was
+  // Fetch the canonical creator profile. When the route was
   // opened with a catalog UUID, use its username instead of probing the UUID
   // as a username.
   // This returns subscribed_to_creator so no separate subscription check needed
-  const creatorUUID = catalogCreator?.id ?? id;
+  const creatorUUID = creatorFullProfile?.userId ?? catalogCreator?.id ?? id;
   const creatorLookup = (catalogCreator?.handle ?? '').replace(/^@/, '') || id;
   useEffect(() => {
     if (!id) return;
@@ -597,6 +597,7 @@ export default function CreatorProfileScreen() {
       .then((profile) => {
         setCreatorFullProfile(profile);
         setIsSubscribed(profile.subscribedToCreator);
+        setWhoCanMessage(profile.whoCanMessage);
         setRealProfile({
           name:          profile.name,
           username:      profile.username,
@@ -713,6 +714,7 @@ export default function CreatorProfileScreen() {
          getCreatorById(creatorLookup).then((profile) => {
           setCreatorFullProfile(profile);
           setIsSubscribed(profile.subscribedToCreator);
+           setWhoCanMessage(profile.whoCanMessage);
           setRealProfile({
             name: profile.name, username: profile.username, bio: profile.bio,
             avatarUrl: profile.avatarUrl, bannerUrl: profile.bannerUrl,
@@ -752,10 +754,10 @@ export default function CreatorProfileScreen() {
   }
 
   const TABS: { key: TabKey; label: string }[] = [
-    { key: 'posts',   label: `Posts (${creatorPosts.length})` },
-    { key: 'videos',  label: `Videos (${creatorVideos.length})` },
-    { key: 'shorts',  label: `Shorts (${creatorShorts.length})` },
-    { key: 'albums',  label: `Albums (${creatorAlbums.length})` },
+    { key: 'posts',   label: `Posts (${creatorFullProfile?.postCount ?? creatorPosts.length})` },
+    { key: 'videos',  label: `Videos (${creatorFullProfile?.videoCount ?? creatorVideos.length})` },
+    { key: 'shorts',  label: `Shorts (${creatorFullProfile?.shortCount ?? creatorShorts.length})` },
+    { key: 'albums',  label: `Albums (${creatorFullProfile?.albumCount ?? creatorAlbums.length})` },
     { key: 'reviews', label: `Reviews (${reviewsQuery.isLoading ? '…' : totalReviews})` },
     { key: 'about',   label: 'About' },
   ];
@@ -819,7 +821,7 @@ export default function CreatorProfileScreen() {
             </View>
             <View style={styles.metricDivider} />
             <View>
-              <Text style={styles.metricValue}>{creatorPosts.length}</Text>
+              <Text style={styles.metricValue}>{creatorFullProfile?.postCount ?? creatorPosts.length}</Text>
               <Text style={styles.metricLabel}>Drops</Text>
             </View>
           </View>

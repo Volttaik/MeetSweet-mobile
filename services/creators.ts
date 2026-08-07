@@ -31,8 +31,13 @@ export interface CreatorProfileFull {
   role: string;
   subscriberCount: number;
   postCount: number;
+  videoCount: number;
+  shortCount: number;
+  albumCount: number;
   subscriptionPrice: number | null;
   subscriptionPlusPrice?: number | null;
+  whoCanMessage: 'everyone' | 'subscribers' | 'none';
+  allowDms: boolean;
   /** Whether the currently authenticated user is subscribed to this creator */
   subscribedToCreator: boolean;
   createdAt: string;
@@ -102,8 +107,13 @@ function normalizeCreatorProfile(raw: any): CreatorProfileFull {
     role:               raw.role ?? 'user',
     subscriberCount:    raw.subscriber_count ?? 0,
     postCount:          raw.post_count ?? 0,
+    videoCount:         raw.video_count ?? raw.videoCount ?? 0,
+    shortCount:         raw.short_count ?? raw.shortCount ?? 0,
+    albumCount:         raw.album_count ?? raw.albumCount ?? 0,
     subscriptionPrice:  raw.subscription_price ?? null,
     subscriptionPlusPrice: raw.subscription_plus_price ?? raw.subscriptionPlusPrice ?? null,
+    whoCanMessage:      raw.who_can_message ?? raw.whoCanMessage ?? 'everyone',
+    allowDms:           raw.allow_dms ?? raw.allowDms ?? true,
     subscribedToCreator: raw.subscribed_to_creator ?? false,
     createdAt:          raw.created_at ?? new Date().toISOString(),
   };
@@ -163,7 +173,7 @@ function normalizePostItem(raw: any): Post {
 // ─── Service functions ────────────────────────────────────────────────────────
 
 /**
- * GET /api/users/:username-or-id
+ * GET /api/creators/:username-or-id
  *
  * Creator pages are addressed by either a username or a user UUID. The
  * response's `id` is the participant ID required by POST /conversations.
@@ -171,8 +181,8 @@ function normalizePostItem(raw: any): Post {
 export async function getCreatorById(id: string): Promise<CreatorProfileFull> {
   const token = await getToken();
   const headers = token ? authHeader(token) : {};
-  const raw = await apiFetch<unknown>(`/users/${encodeURIComponent(id)}`, { headers });
-  // Backend may wrap as { creator: {...} } after envelope unwrap
+  const raw = await apiFetch<unknown>(`/creators/${encodeURIComponent(id)}`, { headers });
+  // Backend returns { creator: {...} } after the standard envelope unwrap.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = (raw as any)?.creator ?? (raw as any)?.user ?? raw;
   return normalizeCreatorProfile(data);
