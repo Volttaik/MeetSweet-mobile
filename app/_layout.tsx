@@ -1,5 +1,6 @@
 import '../global.css';
 import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -137,7 +138,15 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
+  // On web, a native splash screen is not displayed and returning null here
+  // leaves the preview as a blank dark page if a font request stalls. The
+  // theme fonts have sensible fallbacks, so render the navigation immediately
+  // while the font faces finish loading.
+  if (!fontsLoaded && !fontError) {
+    // Keep the native splash behavior unchanged; the web preview must not wait
+    // indefinitely for a font resource before mounting the router.
+    if (Platform.OS !== 'web') return null;
+  }
 
   return (
     <SafeAreaProvider>

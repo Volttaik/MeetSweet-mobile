@@ -129,7 +129,12 @@ export async function apiFetch<T = unknown>(
   const response = await _rawFetch(url, options);
 
   // ── 401: attempt token refresh ────────────────────────────────────────────
-  if (response.status === 401 && !_retry) {
+  // A 401 from login/register is a normal authentication error, not an
+  // expired session. Only refresh requests that were already authenticated.
+  const hasAccessToken = Object.keys(options.headers ?? {}).some(
+    (key) => key.toLowerCase() === 'authorization',
+  );
+  if (response.status === 401 && !_retry && hasAccessToken) {
     const newToken = await _refreshOnce();
     if (newToken) {
       return apiFetch<T>(path, {

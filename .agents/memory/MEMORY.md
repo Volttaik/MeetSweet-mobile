@@ -39,3 +39,4 @@
 - [Composer panel architecture](composer-panel-arch.md) — sticker/GIF panel embedded inside renderInputToolbar (not outside Chat) so it naturally pushes message list up; Tenor GIF needs EXPO_PUBLIC_TENOR_API_KEY; emoji removed from panel (native OS keyboard handles it); stickers use emoji packs.
 - [Chat screen emoji picker removed](chat-emoji-removed.md) — MsEmojiPicker and showEmoji state removed from chat/[id].tsx; composer panel (MsComposerPanel) is now internal to MsChatInputBar; onEmojiPress prop deprecated but kept for compat.
 - [Conversation participant identity](conversation-participant-identity.md) — chat rooms must resolve the other user from conversation data; profile routes may provide a user ID, never use the profile ID as a room ID.
+- [Expo web font loading](expo-web-font-loading.md) — web preview must mount navigation while fonts load; waiting for Expo fonts can leave a blank dark screen.
