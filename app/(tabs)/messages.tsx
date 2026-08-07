@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Modal,
+  Alert,
   RefreshControl,
   StyleSheet,
   Text,
@@ -27,6 +28,7 @@ import {
   type Conversation,
   type ConversationUser,
 } from '@/services/messages';
+import { getCreatorMessagingSettings } from '@/services/subscriptions';
 import {
   getCachedConversationsList,
   cacheConversationsList,
@@ -150,20 +152,49 @@ function NewMessageModal({
 
   const handleSelect = async (user: ConversationUser) => {
     try {
-      const { conversationId } = await createConversation(user.id);
+      // Check the recipient's current policy before creating a room. The
+      // backend repeats this check, but doing it here prevents empty rooms and
+      // gives the user a useful subscription/privacy explanation.
+      const access = await getCreatorMessagingSettings(user.id);
+      if (!access.can_message) {
+        if (access.who_can_message === 'subscribers') {
+          Alert.alert(
+            'Subscription Required',
+            'You need to subscribe to this creator before sending a message.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              ...(user.isCreator
+                ? [{
+                    text: 'View Creator',
+                    onPress: () => router.push(`/creator/${user.username}`),
+                  }]
+                : []),
+            ],
+          );
+        } else {
+          Alert.alert('Cannot Message', 'This user is not accepting messages right now.');
+        }
+        return;
+      }
+
+      const { conversationId, conversation } = await createConversation(user.id);
       onClose();
       setQ('');
       setResults([]);
+      const participant = conversation?.otherUser ?? user;
       router.push({
         pathname: '/chat/[id]',
         params: {
           id: conversationId,
-          name: user.name,
-          username: user.username,
-          avatarUrl: (user as any).avatarUrl ?? '',
+          name: participant.name,
+          username: participant.username,
+          avatarUrl: participant.avatarUrl ?? '',
         },
       });
-    } catch {}
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      Alert.alert('Could not open chat', message || 'Please try again.');
+    }
   };
 
   return (

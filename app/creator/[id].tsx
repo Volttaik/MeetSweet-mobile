@@ -434,11 +434,15 @@ export default function CreatorProfileScreen() {
 
   // Fetch messaging settings on mount (subscription status comes from creator profile)
   useEffect(() => {
-    if (!id || !currentUser) return;
-    getCreatorMessagingSettings(id)
-      .then((s) => setWhoCanMessage(s.who_can_message))
-      .catch(() => setWhoCanMessage('everyone'));
-  }, [id, currentUser]);
+    const creatorId = creatorFullProfile?.userId;
+    if (!creatorId || !currentUser) return;
+    getCreatorMessagingSettings(creatorId)
+      .then((s) => {
+        setWhoCanMessage(s.who_can_message);
+        setIsSubscribed(s.subscribed);
+      })
+      .catch(() => {});
+  }, [creatorFullProfile?.userId, currentUser?.id]);
 
   const handleSubscriptionOnboardingComplete = async () => {
     await completeOnboarding('subscription_onboarded');
@@ -514,18 +518,42 @@ export default function CreatorProfileScreen() {
         throw new Error('Could not resolve this creator as a messaging user.');
       }
 
-      const { conversationId } = await createConversation(creatorUserId);
+      // Re-check against the canonical participant UUID immediately before
+      // room creation. This handles stale profile state and makes this entry
+      // point obey the same policy as search and the backend.
+      const access = await getCreatorMessagingSettings(creatorUserId);
+      setWhoCanMessage(access.who_can_message);
+      setIsSubscribed(access.subscribed);
+      if (!access.can_message) {
+        if (access.who_can_message === 'subscribers') {
+          Alert.alert(
+            'Subscription Required',
+            'You need to subscribe to send this creator a message.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Subscribe', onPress: () => setSheetOpen(true) },
+            ],
+          );
+        } else {
+          Alert.alert('Cannot Message', 'This creator is not accepting messages right now.');
+        }
+        return;
+      }
+
+      const { conversationId, conversation } = await createConversation(creatorUserId);
+      const participant = conversation?.otherUser;
       router.push({
         pathname: '/chat/[id]',
         params: {
           id: conversationId,
-          name: realProfile?.name ?? creator?.name ?? '',
-          username: realProfile?.username ?? (creator?.handle ?? '').replace('@', ''),
-          avatarUrl: realProfile?.avatarUrl ?? creator?.avatarUrl ?? '',
+          name: participant?.name ?? realProfile?.name ?? creator?.name ?? '',
+          username: participant?.username ?? realProfile?.username ?? (creator?.handle ?? '').replace('@', ''),
+          avatarUrl: participant?.avatarUrl ?? realProfile?.avatarUrl ?? creator?.avatarUrl ?? '',
         },
       });
-    } catch {
-      Alert.alert('Error', 'Could not open chat. Please try again.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      Alert.alert('Could not open chat', message || 'Please try again.');
     } finally {
       setLoadingMessaging(false);
     }

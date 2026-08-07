@@ -34,13 +34,13 @@ Messages: `DELETE /messages/:id`
 Categories: `GET /categories` (200 — route exists, returns empty array — no seed data)
 Media: `POST /media/upload` (401 — route exists)
 
-### Missing (genuine 404 — backend not implemented)
+### Messaging contract
 
 - `GET /users/:username` — creator profiles
 - `POST/DELETE /users/:username/follow` — follow/unfollow
 - `GET /users/search?q=` — user search
-- `GET/POST /conversations` — messaging
-- `GET/POST /conversations/:id/messages` — messaging
+- `GET /conversations` and `POST /conversations` — implemented; POST accepts the target user's UUID and enforces block, DM, and subscription policy
+- `GET/POST /conversations/:id/messages` — implemented
 - `PUT /conversations/:id/archive` — messaging
 - `PUT /notifications/:id/read` — mark single notification read
 - `PATCH/DELETE /posts/:id/comments/:commentId` — edit/delete comment

@@ -90,7 +90,7 @@ export async function getUser(
 
 export async function searchUsers(
   q: string,
-): Promise<{ users: Array<{ id: string; name: string; username: string; avatarUrl: string | null; isVerified: boolean }> }> {
+): Promise<{ users: Array<{ id: string; name: string; username: string; avatarUrl: string | null; isVerified: boolean; isCreator: boolean }> }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const raw = await apiFetch<{ users: unknown[] }>(`/users/search?q=${encodeURIComponent(q)}`, {
@@ -104,6 +104,7 @@ export async function searchUsers(
         username: u.username ?? '',
         avatarUrl: u.avatarUrl ?? u.avatar_url ?? u.profile_picture_url ?? null,
         isVerified: u.isVerified ?? u.is_verified ?? false,
+         isCreator: u.isCreator ?? u.is_creator ?? false,
       }))
     : [];
   return { users };

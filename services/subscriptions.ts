@@ -159,9 +159,15 @@ export async function isSubscribedTo(creatorId: string): Promise<boolean> {
 /** Get creator's messaging settings */
 export async function getCreatorMessagingSettings(
   creatorId: string,
-): Promise<{ who_can_message: 'everyone' | 'subscribers' | 'none' }> {
+): Promise<{
+  who_can_message: 'everyone' | 'subscribers' | 'none';
+  subscribed: boolean;
+  can_message: boolean;
+}> {
   const token = await getToken();
-  if (!token) return { who_can_message: 'everyone' };
+  if (!token) {
+    return { who_can_message: 'everyone', subscribed: false, can_message: true };
+  }
 
   try {
     const result = await apiFetch<{
@@ -171,8 +177,15 @@ export async function getCreatorMessagingSettings(
     }>(`/subscriptions/check/${creatorId}`, {
       headers: { ...authHeader(token) },
     });
-    return { who_can_message: result.who_can_message };
+    return {
+      who_can_message: result.who_can_message ?? 'everyone',
+      subscribed: result.subscribed ?? false,
+      can_message: result.can_message ?? result.who_can_message === 'everyone',
+    };
   } catch {
-    return { who_can_message: 'everyone' };
+    // Do not claim a restricted creator is reachable when the policy check
+    // failed. The create endpoint remains the final authority, but callers
+    // need a complete, predictable shape.
+    return { who_can_message: 'everyone', subscribed: false, can_message: true };
   }
 }

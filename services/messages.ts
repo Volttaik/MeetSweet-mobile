@@ -12,6 +12,7 @@ export interface ConversationUser {
   username: string;
   avatarUrl: string | null;
   isVerified: boolean;
+  isCreator?: boolean;
 }
 
 export interface Conversation {
@@ -91,7 +92,16 @@ function normalizeConversation(raw: any): Conversation {
   // Backend returns snake_case `other_user`; camelCase `otherUser` is a fallback
   // for any future normalised responses.
   const source = raw?.conversation ?? raw ?? {};
-  const ou = source.other_user ?? source.otherUser ?? source.participant ?? null;
+  // POST /conversations returns `otherUser` beside conversationId, while GET
+  // /conversations returns it inside each conversation row. Accept both shapes
+  // so a newly-created room has the same participant data as an existing room.
+  const ou =
+    source.other_user ??
+    source.otherUser ??
+    source.participant ??
+    source.conversation?.other_user ??
+    source.conversation?.otherUser ??
+    null;
   const lastMessage = source.last_message ?? source.lastMessage ?? null;
   return {
     id: source.id ?? source.conversation_id ?? source.conversationId ?? '',
@@ -116,7 +126,8 @@ function normalizeConversation(raw: any): Conversation {
           name: ou.name ?? ou.full_name ?? ou.display_name ?? ou.displayName ?? '',
           username: ou.username ?? '',
           avatarUrl: ou.avatarUrl ?? ou.avatar_url ?? ou.profile_picture_url ?? null,
-          isVerified: ou.isVerified ?? ou.is_verified ?? false,
+           isVerified: ou.isVerified ?? ou.is_verified ?? false,
+           isCreator: ou.isCreator ?? ou.is_creator ?? undefined,
         }
       : { id: '', name: 'Unknown', username: '', avatarUrl: null, isVerified: false },
   };
@@ -172,7 +183,8 @@ export async function createConversation(
 ): Promise<{ conversationId: string; created: boolean; conversation: Conversation | null }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  // Backend schema: { user_id: string } (snake_case)
+  // `userId` must be the target user's UUID, not a creator catalog ID or the
+  // eventual conversation/room ID. The backend accepts this snake_case field.
   const raw = await apiFetch<unknown>(
     '/conversations',
     {
@@ -190,12 +202,11 @@ export async function createConversation(
   if (!conversationId) {
     throw new Error('Conversation was not created: the server returned no conversation id.');
   }
+  const conversation = normalizeConversation(raw);
   return {
     conversationId,
     created: source.created ?? (raw as any)?.created ?? true,
-    conversation: source.id || source.other_user || source.otherUser
-      ? normalizeConversation(source)
-      : null,
+    conversation: conversation.otherUser.id ? conversation : null,
   };
 }
 
