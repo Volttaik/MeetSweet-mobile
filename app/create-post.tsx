@@ -452,6 +452,9 @@ export default function CreatePostScreen() {
         tier:          contentType === 'shorts' ? 'free' : tier,
         // Send thumbnail URL directly — fallback if the separate PATCH fails
         thumbnail_url: thumbUrl,
+        // Comments ON by default — the backend creates/associates a Comment
+        // Room when the post is created (post → commentRoomId).
+        comments_enabled: true,
       });
 
       setStep('processing');

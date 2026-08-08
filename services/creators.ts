@@ -15,7 +15,7 @@ import { normalizeAlbumCard as _normalizeAlbumCard } from './albums';
 
 export interface CreatorProfileFull {
   id: string;
-  /** Canonical user id used by direct-conversation creation. */
+  /** Canonical user id used by direct-room creation. */
   userId?: string;
   username: string;
   name: string;
@@ -176,7 +176,7 @@ function normalizePostItem(raw: any): Post {
  * GET /api/creators/:username-or-id
  *
  * Creator pages are addressed by either a username or a user UUID. The
- * response's `id` is the participant ID required by POST /conversations.
+ * response's `id` is the participant ID required by POST /chat-rooms.
  */
 export async function getCreatorById(id: string): Promise<CreatorProfileFull> {
   const token = await getToken();

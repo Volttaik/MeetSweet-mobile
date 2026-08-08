@@ -31,7 +31,7 @@ import {
 import { blockUser, reportUser } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
-import { createConversation, searchUsers } from '@/services/messages';
+import { getOrCreateChatRoom, searchUsers } from '@/services/room-service';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -493,7 +493,8 @@ export default function CreatorProfileScreen() {
       return;
     }
 
-    // Find or create the conversation via backend, then navigate with real conversationId
+    // Backend owns room creation — navigate with the real chatRoomId
+    // Backend owns room creation — navigate with the real chatRoomId
     setLoadingMessaging(true);
     try {
       const creatorUsername = (
@@ -504,7 +505,7 @@ export default function CreatorProfileScreen() {
       ).replace(/^@/, '');
       let creatorUserId = creatorFullProfile?.userId ?? '';
 
-      // Creator catalog entries and conversation participants are different
+      // Creator catalog entries and room participants are different
       // backend records. Resolve the actual user through the same endpoint
       // that powers the working New Message search flow.
       if (creatorUsername.length >= 2) {
@@ -540,12 +541,14 @@ export default function CreatorProfileScreen() {
         return;
       }
 
-      const { conversationId, conversation } = await createConversation(creatorUserId);
-      const participant = conversation?.otherUser;
+      // Backend owns room creation — mobile provides participantId and opens
+      // whatever chatRoomId the backend returns (existing or new).
+      const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
+      const participant = chatRoom.otherUser;
       router.push({
-        pathname: '/chat/[id]',
+        pathname: '/chat-room/[chatRoomId]',
         params: {
-          id: conversationId,
+          chatRoomId,
           name: participant?.name ?? realProfile?.name ?? creator?.name ?? '',
           username: participant?.username ?? realProfile?.username ?? (creator?.handle ?? '').replace('@', ''),
           avatarUrl: participant?.avatarUrl ?? realProfile?.avatarUrl ?? creator?.avatarUrl ?? '',

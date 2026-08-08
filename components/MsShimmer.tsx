@@ -379,7 +379,7 @@ export function MsShimmerVideoWatch() {
   );
 }
 
-// ─── DM conversation list skeleton ────────────────────────────────────────────
+// ─── DM chat room list skeleton ──────────────────────────────────────────────
 
 export function MsShimmerDmList({ count = 5 }: { count?: number }) {
   return (

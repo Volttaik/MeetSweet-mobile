@@ -6,8 +6,8 @@
  *  - Search Chat
  *  - View Profile
  *  - Block / Unblock User
- *  - Clear Conversation
- *  - Delete Conversation
+ *  - Clear Chat
+ *  - Delete Chat
  */
 import React, { useEffect, useRef } from 'react';
 import {
@@ -28,6 +28,7 @@ import {
   Trash,
   Broom,
   CaretRight,
+  BellSlash,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
@@ -43,10 +44,12 @@ interface Props {
   visible:      boolean;
   onClose:      () => void;
   isBlocked:    boolean;
+  isMuted:      boolean;
   otherName:    string;
   onBackground: () => void;
   onSearch:     () => void;
   onProfile:    () => void;
+  onMute:       () => void;
   onBlock:      () => void;
   onClear:      () => void;
   onDelete:     () => void;
@@ -56,10 +59,12 @@ export function MsChatHeaderMenu({
   visible,
   onClose,
   isBlocked,
+  isMuted,
   otherName,
   onBackground,
   onSearch,
   onProfile,
+  onMute,
   onBlock,
   onClear,
   onDelete,
@@ -108,6 +113,12 @@ export function MsChatHeaderMenu({
       onPress: () => dismiss(onProfile),
     },
     {
+      key: 'mute',
+      label: isMuted ? `Unmute ${otherName}` : `Mute ${otherName}`,
+      icon: <BellSlash size={18} color={T.TEXT_2} />,
+      onPress: () => dismiss(onMute),
+    },
+    {
       key: 'divider1',
       divider: true,
     },
@@ -120,14 +131,14 @@ export function MsChatHeaderMenu({
     },
     {
       key: 'clear',
-      label: 'Clear Conversation',
+      label: 'Chat',
       icon: <Broom size={18} color={T.DANGER} />,
       destructive: true,
       onPress: () => dismiss(onClear),
     },
     {
       key: 'delete',
-      label: 'Delete Conversation',
+      label: 'Chat',
       icon: <Trash size={18} color={T.DANGER} />,
       destructive: true,
       onPress: () => dismiss(onDelete),

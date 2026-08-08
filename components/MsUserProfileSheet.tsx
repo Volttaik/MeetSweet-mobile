@@ -1,6 +1,6 @@
 /**
  * MsUserProfileSheet — compact profile bottom sheet shown when a user
- * taps the avatar, name, or username inside a DM conversation header.
+ * taps the avatar, name, or username inside a DM chat room header.
  *
  * Shows a polished profile summary with a "View Full Profile" CTA.
  * Swipe-to-dismiss enabled.

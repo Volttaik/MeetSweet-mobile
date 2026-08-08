@@ -40,12 +40,12 @@ import {
 } from 'phosphor-react-native';
 import { getPost, likePost, unlikePost, bookmarkPost, type Post } from '@/services/posts';
 import {
-  createComment,
-  likeComment,
-  unlikeComment,
-  deleteComment,
-  type Comment,
-} from '@/services/comments';
+  submitRoomComment,
+  likeRoomComment,
+  unlikeRoomComment,
+  deleteRoomComment,
+} from '@/services/comment-room-service';
+import { useComments, CommentRow, type Comment } from '@/components/MsCommentsSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -53,7 +53,6 @@ import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsComposer } from '@/components/MsComposer';
-import { useComments, CommentRow } from '@/components/MsCommentsSheet';
 import { useAuth } from '@/contexts/AuthContext';
 import { T } from '@/constants/theme';
 
@@ -71,7 +70,7 @@ export default function ContentDetailScreen() {
   const [shareVisible, setShareVisible] = useState(false);
 
   // ── Comment state ──────────────────────────────────────────────────────────
-  const { comments, setComments, isLoading: commentsLoading } = useComments(id ?? '');
+  const { comments, setComments, isLoading: commentsLoading, commentRoomId } = useComments(id ?? '');
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -138,41 +137,41 @@ export default function ContentDetailScreen() {
     };
     setComments((prev) => [optimistic, ...prev]);
     try {
-      const res = await createComment(id, body);
-      setComments((prev) => prev.map((c) => c.id === tempId ? res.comment : c));
+      const res = await submitRoomComment(commentRoomId ?? '', body);
+      setComments((prev) => prev.map((c) => c.id === tempId ? res.comment as unknown as Comment : c));
     } catch {
       setComments((prev) => prev.filter((c) => c.id !== tempId));
       Alert.alert('Error', 'Could not post comment. Please try again.');
     } finally {
       setSending(false);
     }
-  }, [id, commentText, sending, user, setComments]);
+  }, [commentRoomId, commentText, sending, user, setComments]);
 
   const handleLike = useCallback(async (commentId: string) => {
     setComments((prev) => prev.map((c) =>
       c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c));
     try {
-      const res = await likeComment(id!, commentId);
+      const res = await likeRoomComment(commentRoomId ?? '', commentId);
       setComments((prev) => prev.map((c) =>
         c.id === commentId ? { ...c, likeCount: res.likeCount } : c));
     } catch {
       setComments((prev) => prev.map((c) =>
         c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c));
     }
-  }, [id, setComments]);
+  }, [commentRoomId, setComments]);
 
   const handleUnlike = useCallback(async (commentId: string) => {
     setComments((prev) => prev.map((c) =>
       c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c));
     try {
-      const res = await unlikeComment(id!, commentId);
+      const res = await unlikeRoomComment(commentRoomId ?? '', commentId);
       setComments((prev) => prev.map((c) =>
         c.id === commentId ? { ...c, likeCount: res.likeCount } : c));
     } catch {
       setComments((prev) => prev.map((c) =>
         c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c));
     }
-  }, [id, setComments]);
+  }, [commentRoomId, setComments]);
 
   const handleDelete = useCallback((commentId: string) => {
     Alert.alert('Delete comment', 'Remove this comment?', [
@@ -181,12 +180,12 @@ export default function ContentDetailScreen() {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
           setComments((prev) => prev.filter((c) => c.id !== commentId));
-          try { await deleteComment(id!, commentId); }
+          try { await deleteRoomComment(commentRoomId ?? '', commentId); }
           catch { /* comment was removed optimistically; silent fail is fine */ }
         },
       },
     ]);
-  }, [id, setComments]);
+  }, [commentRoomId, setComments]);
 
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loadingPost) {

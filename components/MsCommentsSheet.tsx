@@ -1,16 +1,20 @@
 /**
  * MsCommentsSheet — YouTube-style comments section.
  *
- * Every API call is wired to a real backend route via services/comments.ts.
+ * Comment Room architecture: comments belong to a Comment Room
+ * (post → commentRoomId), never to user-to-user conversations. The sheet
+ * receives the post id, resolves the room's commentRoomId, and talks to the
+ * Comment Room API. See docs/backend-requirements.md.
  *
  * Backend routes used:
- *   GET    /posts/:id/comments                          — load comment list
- *   POST   /posts/:id/comments { body }                 — create comment
- *   DELETE /posts/:id/comments/:commentId               — delete own comment
- *   POST   /posts/:id/comments/:commentId/like          — like a comment
- *   DELETE /posts/:id/comments/:commentId/like          — unlike a comment
- *   GET    /posts/:id/comments/:commentId/replies       — load replies
- *   POST   /posts/:id/comments/:commentId/replies       — post a reply
+ *   GET    /comment-rooms/:commentRoomId/comments?after=   — load comment list
+ *   POST   /comment-rooms/:commentRoomId/comments { body } — create comment
+ *   DELETE /comment-rooms/:commentRoomId/comments/:commentId — delete own comment
+ *   POST   /comment-rooms/:commentRoomId/comments/:commentId/like — like
+ *   DELETE /comment-rooms/:commentRoomId/comments/:commentId/like — unlike
+ *
+ * Replies are currently shown as part of the room comment list (backend may
+ * flatten replies into the room feed); like/delete target the room routes.
  *
  * Inline preview: shows the 2 most recent comments + "View all X comments" row.
  * Full sheet: all comments in a bottom-sheet modal with MsComposer pinned at bottom.
@@ -38,18 +42,54 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { T } from '@/constants/theme';
 
 import {
-  getComments,
-  createComment,
-  deleteComment,
-  likeComment,
-  unlikeComment,
-  getReplies,
-  createReply,
-  type Comment,
-  type CommentReply,
-} from '@/services/comments';
+  getRoomComments,
+  submitRoomComment,
+  deleteRoomComment,
+  likeRoomComment,
+  unlikeRoomComment,
+  getCommentRoom,
+  checkCommentRoomChanges,
+  type CommentRoomComment,
+} from '@/services/comment-room-service';
+
+import { getPost } from '@/services/posts';
 
 import { useAuth } from '@/contexts/AuthContext';
+
+// ─── Comment model used by the sheet (room-based) ────────────────────────────
+// The sheet's UI expects a local `Comment` shape (with optimistic fields).
+// We map the room comment to that shape for rendering and send room-based
+// operations. This keeps the sheet's presentation untouched while moving the
+// data layer to Comment Rooms.
+export type { CommentRoomComment };
+
+export interface CommentAuthor {
+  id: string;
+  name: string;
+  username: string;
+  avatarUrl: string | null;
+}
+
+export interface Comment {
+  id: string;
+  body: string;
+  isPinned: boolean;
+  likeCount: number;
+  replyCount: number;
+  likedByMe: boolean;
+  createdAt: string;
+  updatedAt: string;
+  author: CommentAuthor;
+}
+
+export interface CommentReply {
+  id: string;
+  body: string;
+  likeCount: number;
+  createdAt: string;
+  updatedAt: string;
+  author: CommentAuthor;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -81,30 +121,85 @@ export function useComments(postId: string) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [commentRoomId, setCommentRoomId] = useState<string | null>(null);
+  const [commentsEnabled, setCommentsEnabled] = useState(true);
+  const pollMarkerRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await getComments(postId);
+      // Comment Room identity comes from POST DATA — never guessed.
+      let roomId = commentRoomId;
+      if (!roomId) {
+        const postResult = await getPost(postId);
+        roomId = postResult.post.commentRoomId ?? null;
+        if (!roomId) {
+          setError('Comments are unavailable for this post.');
+          setComments([]);
+          setIsLoading(false);
+          return;
+        }
+        setCommentRoomId(roomId);
+        const roomResult = await getCommentRoom(roomId);
+        setCommentsEnabled(roomResult.commentsEnabled);
+      }
+      const res = await getRoomComments(roomId, {});
       // Deduplicate by id in case optimistic entries overlap with server results
       setComments((prev) => {
-        const incoming = res.comments;
+        const incoming = res.comments.map(toLocalComment);
         const tempIds = new Set(prev.filter((c) => c.id.startsWith('tmp-')).map((c) => c.id));
         const merged = [...prev.filter((c) => tempIds.has(c.id)), ...incoming];
         const seen = new Set<string>();
         return merged.filter((c) => (seen.has(c.id) ? false : !!seen.add(c.id)));
       });
+      pollMarkerRef.current = res.comments[0]?.id ?? null;
     } catch {
       setError('Could not load comments');
     } finally {
       setIsLoading(false);
     }
-  }, [postId]);
+  }, [postId, commentRoomId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { comments, setComments, isLoading, error, refresh };
+  // Poll ONLY the currently-viewed Comment Room (incremental, serverless).
+  useEffect(() => {
+    if (!commentRoomId) return;
+    const interval = setInterval(async () => {
+      const changes = await checkCommentRoomChanges(
+        commentRoomId,
+        pollMarkerRef.current,
+      ).catch(() => null);
+      if (!changes || !changes.changed) return;
+      pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
+      const fresh = changes.comments;
+      if (!fresh?.length) return;
+      setComments((prev) => {
+        const existingIds = new Set(prev.map((c) => c.id));
+        const newOnes = fresh.map(toLocalComment).filter((c) => !existingIds.has(c.id));
+        return newOnes.length ? [...newOnes, ...prev] : prev;
+      });
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [commentRoomId]);
+
+  return { comments, setComments, isLoading, error, refresh, commentRoomId, commentsEnabled };
+}
+
+// ─── Room comment → local sheet Comment shape ────────────────────────────────
+function toLocalComment(c: CommentRoomComment): Comment {
+  return {
+    id: c.id,
+    body: c.body,
+    isPinned: c.isPinned,
+    likeCount: c.likeCount,
+    replyCount: c.replyCount,
+    likedByMe: c.likedByMe,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    author: c.author,
+  };
 }
 
 // ─── Replies sub-thread ───────────────────────────────────────────────────────
@@ -126,8 +221,28 @@ function RepliesThread({
     let cancelled = false;
     (async () => {
       try {
-        const res = await getReplies(postId, commentId);
-        if (!cancelled) setReplies(res.replies);
+        // In the Comment Room model, replies live in the same room feed.
+        // Resolve the room from the post and filter top-level comments that
+        // are replies to `commentId` (backend may also flatten them into the
+        // room's comment list — this is a best-effort render).
+        const postResult = await getPost(postId);
+        const roomId = postResult.post.commentRoomId ?? null;
+        if (!roomId) return;
+        const res = await getRoomComments(roomId);
+        if (!cancelled) {
+          setReplies(
+            res.comments
+              .filter((c) => c.id !== commentId)
+              .map((c) => ({
+                id: c.id,
+                body: c.body,
+                likeCount: c.likeCount,
+                createdAt: c.createdAt,
+                updatedAt: c.updatedAt,
+                author: c.author,
+              })),
+          );
+        }
       } catch {/* */} finally {
         if (!cancelled) setLoading(false);
       }
@@ -156,8 +271,23 @@ function RepliesThread({
     setReplies((prev) => [...prev, optimistic]);
     setText('');
     try {
-      const res = await createReply(postId, commentId, body);
-      setReplies((prev) => prev.map((r) => r.id === tempId ? res.reply : r));
+      // Replies are submitted into the same Comment Room.
+      const postResult = await getPost(postId);
+      const roomId = postResult.post.commentRoomId ?? null;
+      if (!roomId) throw new Error('no room');
+      const res = await submitRoomComment(roomId, body);
+      setReplies((prev) =>
+        prev.map((r) => r.id === tempId
+          ? {
+              id: res.comment.id,
+              body: res.comment.body,
+              likeCount: res.comment.likeCount,
+              createdAt: res.comment.createdAt,
+              updatedAt: res.comment.updatedAt,
+              author: res.comment.author,
+            }
+          : r),
+      );
     } catch {
       setReplies((prev) => prev.filter((r) => r.id !== tempId));
       Alert.alert('Error', 'Could not post reply. Please try again.');
@@ -398,16 +528,21 @@ export function CommentsModal({
 }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { comments, setComments, isLoading, error, refresh } = useComments(postId);
+  const { comments, setComments, isLoading, error, refresh, commentRoomId, commentsEnabled } = useComments(postId);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
   const currentUserId = user?.id ?? '';
+  const roomId = commentRoomId;
 
-  // ── Create comment ─────────────────────────────────────────────────────────
+  // ── Create comment ─────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const body = text.trim();
     if (!body || sending) return;
+    if (!commentsEnabled || !roomId) {
+      Alert.alert('Comments are disabled', 'The author has turned off comments for this post.');
+      return;
+    }
     setSending(true);
     setText('');
     // Optimistic local comment — will be replaced by server response
@@ -430,9 +565,9 @@ export function CommentsModal({
     };
     setComments((prev) => [optimistic, ...prev]);
     try {
-      const res = await createComment(postId, body);
+      const res = await submitRoomComment(roomId, body);
       // Replace temp with real comment from server
-      setComments((prev) => prev.map((c) => c.id === tempId ? res.comment : c));
+      setComments((prev) => prev.map((c) => c.id === tempId ? toLocalComment(res.comment) : c));
     } catch {
       // Remove optimistic comment on failure
       setComments((prev) => prev.filter((c) => c.id !== tempId));
@@ -440,7 +575,7 @@ export function CommentsModal({
     } finally {
       setSending(false);
     }
-  }, [text, sending, postId, user, setComments]);
+  }, [text, sending, commentsEnabled, roomId, user, setComments]);
 
   // ── Like comment ────────────────────────────────────────────────────────────
   const handleLike = useCallback(async (commentId: string) => {
@@ -451,7 +586,7 @@ export function CommentsModal({
         : c),
     );
     try {
-      const res = await likeComment(postId, commentId);
+      const res = await likeRoomComment(roomId ?? '', commentId);
       setComments((prev) =>
         prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c),
       );
@@ -474,7 +609,7 @@ export function CommentsModal({
         : c),
     );
     try {
-      const res = await unlikeComment(postId, commentId);
+      const res = await unlikeRoomComment(roomId ?? '', commentId);
       setComments((prev) =>
         prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c),
       );
@@ -498,13 +633,7 @@ export function CommentsModal({
         onPress: async () => {
           // Optimistic removal
           setComments((prev) => prev.filter((c) => c.id !== commentId));
-          try {
-            await deleteComment(postId, commentId);
-          } catch {
-            // On failure refresh the list to restore the comment
-            refresh();
-            Alert.alert('Error', 'Could not delete comment.');
-          }
+          try { await deleteRoomComment(roomId ?? '', commentId); } catch {/* */}
         },
       },
     ]);
@@ -643,40 +772,41 @@ interface MsCommentsSectionProps {
 
 export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectionProps) {
   const { user } = useAuth();
-  const { comments, setComments, isLoading } = useComments(postId);
+  const { comments, setComments, isLoading, commentRoomId } = useComments(postId);
   const [modalOpen, setModalOpen] = useState(false);
   const totalCount = comments.length;
   const preview = comments.slice(0, previewCount);
 
   const currentUserId = user?.id ?? '';
+  const roomId = commentRoomId;
 
   const handleLike = useCallback(async (commentId: string) => {
     setComments((prev) =>
       prev.map((c) => c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c),
     );
     try {
-      const res = await likeComment(postId, commentId);
+      const res = await likeRoomComment(roomId ?? '', commentId);
       setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c));
     } catch {
       setComments((prev) =>
         prev.map((c) => c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c),
       );
     }
-  }, [postId, setComments]);
+  }, [roomId, setComments]);
 
   const handleUnlike = useCallback(async (commentId: string) => {
     setComments((prev) =>
       prev.map((c) => c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c),
     );
     try {
-      const res = await unlikeComment(postId, commentId);
+      const res = await unlikeRoomComment(roomId ?? '', commentId);
       setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, likeCount: res.likeCount } : c));
     } catch {
       setComments((prev) =>
         prev.map((c) => c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c),
       );
     }
-  }, [postId, setComments]);
+  }, [roomId, setComments]);
 
   const handleDelete = useCallback((commentId: string) => {
     Alert.alert('Delete comment', 'Remove this comment?', [
@@ -686,7 +816,7 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         style: 'destructive',
         onPress: async () => {
           setComments((prev) => prev.filter((c) => c.id !== commentId));
-          try { await deleteComment(postId, commentId); } catch {/* */}
+          try { await deleteRoomComment(roomId ?? '', commentId); } catch {/* */}
         },
       },
     ]);

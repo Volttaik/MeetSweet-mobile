@@ -3,7 +3,7 @@
  * Bridges @kesha-antonov/react-native-chat's IMessage with our backend fields.
  */
 import { IMessage, ReplyMessage } from '@kesha-antonov/react-native-chat';
-import type { ChatMessage } from '@/services/messages';
+import type { RoomMessage } from '@/services/room-service';
 
 export interface MsMessage extends IMessage {
   /** Explicit media type from backend (image/video/audio/document) */
@@ -26,14 +26,14 @@ export interface MsMessage extends IMessage {
   msIsEdited?: boolean;
 }
 
-/** Map our ChatMessage → MsMessage for the Chat component */
-export function toMsMessage(raw: ChatMessage, currentUserId: string): MsMessage {
+/** Map our RoomMessage → MsMessage for the Chat component */
+export function toMsMessage(raw: RoomMessage, currentUserId: string): MsMessage {
   // The backend returns mediaType: null for audio uploads — detect by URL extension as fallback.
   const isAudioFallback =
     !raw.mediaType &&
     !!raw.mediaUrl &&
     /\.(m4a|mp3|aac|wav|ogg|opus)(\?|$)/i.test(raw.mediaUrl);
-  const effectiveMediaType: ChatMessage['mediaType'] =
+  const effectiveMediaType: RoomMessage['mediaType'] =
     raw.mediaType ?? (isAudioFallback ? 'audio' : null);
 
   return {

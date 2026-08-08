@@ -98,6 +98,7 @@ function RootLayoutNav() {
       <Stack.Screen name="notification-settings" options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="wallet"                options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="chat-room/[chatRoomId]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="videos/index" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="videos/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />

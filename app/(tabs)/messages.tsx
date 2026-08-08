@@ -20,20 +20,22 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import {
-  getConversations,
-  searchUsers,
-  createConversation,
-  archiveConversation,
-  deleteConversation,
-  type Conversation,
-  type ConversationUser,
-} from '@/services/messages';
+  getChatRoomList,
+  getOrCreateChatRoom,
+  archiveChatRoom,
+  deleteChatRoom,
+  markRoomRead,
+  type ChatRoom,
+  type RoomParticipant,
+} from '@/services/room-service';
+import { searchUsers } from '@/services/users';
 import { ApiError } from '@/services/api';
 import { getCreatorMessagingSettings } from '@/services/subscriptions';
 import {
-  getCachedConversationsList,
-  cacheConversationsList,
-} from '@/lib/posts-db';
+  getCachedChatRooms,
+  cacheChatRooms,
+  migrateLegacyConversationCache,
+} from '@/services/chat-cache';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -65,23 +67,40 @@ function initials(name: string): string {
     .join('');
 }
 
-// ─── Conversation row ─────────────────────────────────────────────────────────
+// ─── Chat Room row ────────────────────────────────────────────────────────────
 
-function ConversationRow({
+function ChatRoomRow({
   item,
   onLongPress,
+  currentUserId,
 }: {
-  item: Conversation;
-  onLongPress: (item: Conversation) => void;
+  item: ChatRoom;
+  onLongPress: (item: ChatRoom) => void;
+  currentUserId: string;
 }) {
   const isUnread = item.unreadCount > 0;
-  const avatarUrl = (item.otherUser as any)?.avatarUrl as string | undefined;
+  const avatarUrl = item.otherUser?.avatarUrl as string | undefined;
+
+  // Contextual preview label per feature doc §1.2 (media messages show icons
+  // + labels: 📷 Photo, 🎥 Video, 🎤 Voice message, 📎 Document).
+  const previewLabel = (() => {
+    if (item.lastMessageMediaType === 'image') return '📷 Photo';
+    if (item.lastMessageMediaType === 'video') return '🎥 Video';
+    if (item.lastMessageMediaType === 'audio') return '🎤 Voice message';
+    if (item.lastMessageMediaType === 'document') return '📎 Document';
+    return item.lastMessageBody ?? 'Say hello';
+  })();
+
+  const isOwnLast = !!item.lastMessageSenderId && item.lastMessageSenderId === currentUserId;
+  const previewText = item.lastMessageBody
+    ? (isOwnLast ? `You: ${item.lastMessageBody}` : item.lastMessageBody)
+    : previewLabel;
 
   return (
     <TouchableOpacity
       style={styles.convoRow}
       activeOpacity={0.7}
-      onPress={() => router.push(`/chat/${item.id}`)}
+      onPress={() => router.push(`/chat-room/${item.chatRoomId}`)}
       onLongPress={() => onLongPress(item)}
       delayLongPress={400}
     >
@@ -98,7 +117,7 @@ function ConversationRow({
           style={[styles.convoMsg, isUnread && styles.convoMsgUnread]}
           numberOfLines={1}
         >
-          {item.lastMessageBody ?? 'Say hello'}
+          {previewText}
         </Text>
       </View>
       <View style={styles.convoRight}>
@@ -127,7 +146,7 @@ function NewMessageModal({
   onClose: () => void;
 }) {
   const [q, setQ] = useState('');
-  const [results, setResults] = useState<ConversationUser[]>([]);
+  const [results, setResults] = useState<RoomParticipant[]>([]);
   const [searching, setSearching] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,9 +170,9 @@ function NewMessageModal({
     }, 300);
   };
 
-  const handleSelect = async (user: ConversationUser) => {
+  const handleSelect = async (user: RoomParticipant) => {
     try {
-      // Check the recipient's current policy before creating a room. The
+      // Check the recipient's current policy before opening a room. The
       // backend repeats this check, but doing it here prevents empty rooms and
       // gives the user a useful subscription/privacy explanation.
       const access = await getCreatorMessagingSettings(user.id);
@@ -178,18 +197,20 @@ function NewMessageModal({
         return;
       }
 
-      const { conversationId, conversation } = await createConversation(user.id);
+      // Backend owns room creation — mobile provides participantId and opens
+      // whatever chatRoomId the backend returns (existing or new).
+      const { chatRoomId, chatRoom } = await getOrCreateChatRoom(user.id);
       onClose();
       setQ('');
       setResults([]);
-      const participant = conversation?.otherUser ?? user;
+      const other = chatRoom.otherUser?.id ? chatRoom.otherUser : user;
       router.push({
-        pathname: '/chat/[id]',
+        pathname: '/chat-room/[chatRoomId]',
         params: {
-          id: conversationId,
-          name: participant.name,
-          username: participant.username,
-          avatarUrl: participant.avatarUrl ?? '',
+          chatRoomId,
+          name: other.name,
+          username: other.username,
+          avatarUrl: other.avatarUrl ?? '',
         },
       });
     } catch (error) {
@@ -278,12 +299,12 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<MsgTab>('All');
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showNewMsg, setShowNewMsg] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [menuConvo, setMenuConvo] = useState<Conversation | null>(null);
+  const [menuRoom, setMenuRoom] = useState<ChatRoom | null>(null);
 
   const load = useCallback(
     async (showRefresh = false) => {
@@ -291,22 +312,23 @@ export default function MessagesScreen() {
 
       // 1. Load from SQLite cache for instant display (all tab only)
       if (!showRefresh && activeTab === 'All') {
-        const cached = await getCachedConversationsList(user?.id ?? '');
+        await migrateLegacyConversationCache().catch(() => {});
+        const cached = await getCachedChatRooms();
         if (cached.length > 0) {
-          setConversations(cached);
+          setChatRooms(cached);
           setLoading(false);
         }
       }
 
-      // 2. Fetch from API
+      // 2. Fetch from API — lightweight room metadata only
       try {
         const tab = activeTab === 'Archived' ? 'archived' : 'all';
-        const data = await getConversations(tab);
-        setConversations(data.conversations);
+        const data = await getChatRoomList(tab);
+        setChatRooms(data.chatRooms);
         reportNetworkSuccess();
-        // Cache conversations list (only for 'all' tab)
+        // Cache room list (only for 'all' tab)
         if (activeTab === 'All') {
-          cacheConversationsList(user?.id ?? '', data.conversations).catch(() => {});
+          cacheChatRooms(data.chatRooms).catch(() => {});
         }
       } catch {
         reportNetworkError();
@@ -316,42 +338,65 @@ export default function MessagesScreen() {
         setRefreshing(false);
       }
     },
-    [activeTab, user?.id],
+    [activeTab],
   );
 
   useEffect(() => {
     setLoading(true);
-    setConversations([]);
+    setChatRooms([]);
     load();
   }, [activeTab]);
 
+  // Lightweight room-metadata refresh — the chat list polls ONLY room metadata
+  // (other user, latest message, timestamp, unread count, chatRoomId), never
+  // downloading every room's messages.
+  useEffect(() => {
+    if (activeTab !== 'All') return;
+    const interval = setInterval(() => {
+      getChatRoomList('all')
+        .then((data) => {
+          setChatRooms((prev) => {
+            const map = new Map(prev.map((r) => [r.chatRoomId, r]));
+            for (const room of data.chatRooms) map.set(room.chatRoomId, room);
+            return Array.from(map.values()).sort(
+              (a, b) => new Date(b.lastMessageAt ?? b.createdAt).getTime() - new Date(a.lastMessageAt ?? a.createdAt).getTime(),
+            );
+          });
+          cacheChatRooms(data.chatRooms).catch(() => {});
+        })
+        .catch(() => {});
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
+
   const filtered = searchText.trim()
-    ? conversations.filter(
+    ? chatRooms.filter(
         (c) =>
           c.otherUser.name.toLowerCase().includes(searchText.toLowerCase()) ||
           c.otherUser.username.toLowerCase().includes(searchText.toLowerCase()),
       )
-    : conversations;
+    : chatRooms;
 
-  // Long-press conversation actions
-  const convoActions = (convo: Conversation): ActionItem[] => [
+  // Long-press room actions
+  const roomActions = (room: ChatRoom): ActionItem[] => [
     {
       label: 'Mark as Read',
       onPress: () => {
-        setConversations((prev) =>
-          prev.map((c) => (c.id === convo.id ? { ...c, unreadCount: 0 } : c)),
+        setChatRooms((prev) =>
+          prev.map((c) => (c.chatRoomId === room.chatRoomId ? { ...c, unreadCount: 0 } : c)),
         );
+        markRoomRead(room.chatRoomId).catch(() => {});
       },
     },
     {
-      label: convo.isArchived ? 'Unarchive' : 'Archive',
+      label: room.isArchived ? 'Unarchive' : 'Archive',
       onPress: async () => {
-        const next = !convo.isArchived;
-        setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+        const next = !room.isArchived;
+        setChatRooms((prev) => prev.filter((c) => c.chatRoomId !== room.chatRoomId));
         try {
-          await archiveConversation(convo.id, next);
+          await archiveChatRoom(room.chatRoomId, next);
         } catch {
-          setConversations((prev) => [...prev, { ...convo, isArchived: next }]);
+          setChatRooms((prev) => [...prev, { ...room, isArchived: next }]);
         }
       },
     },
@@ -360,10 +405,10 @@ export default function MessagesScreen() {
       destructive: true,
       onPress: () => {
         // Optimistic remove
-        setConversations((prev) => prev.filter((c) => c.id !== convo.id));
-        deleteConversation(convo.id).catch(() => {
-          // If deletion fails restore the conversation
-          setConversations((prev) => [convo, ...prev]);
+        setChatRooms((prev) => prev.filter((c) => c.chatRoomId !== room.chatRoomId));
+        deleteChatRoom(room.chatRoomId).catch(() => {
+          // If deletion fails restore the room
+          setChatRooms((prev) => [room, ...prev]);
         });
       },
     },
@@ -387,7 +432,7 @@ export default function MessagesScreen() {
       <View style={styles.searchWrap}>
         <MagnifyingGlass size={15} color={T.TEXT_2} />
         <TextInput
-          placeholder="Search conversations…"
+          placeholder="Search chats…"
           placeholderTextColor={T.TEXT_3}
           style={styles.searchInput}
           value={searchText}
@@ -423,7 +468,7 @@ export default function MessagesScreen() {
       </View>
 
       {/* Content */}
-      {loading && conversations.length === 0 ? (
+      {loading && chatRooms.length === 0 ? (
         <View style={{ paddingTop: 4 }}>
           {[0, 1, 2, 3, 4].map((i) => (
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
@@ -439,9 +484,9 @@ export default function MessagesScreen() {
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.chatRoomId}
           renderItem={({ item }) => (
-            <ConversationRow item={item} onLongPress={setMenuConvo} />
+            <ChatRoomRow item={item} onLongPress={setMenuRoom} currentUserId={user?.id ?? ''} />
           )}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
@@ -457,7 +502,7 @@ export default function MessagesScreen() {
             <MsEmptyState
               title={
                 activeTab === 'Archived'
-                  ? 'No archived conversations'
+                  ? 'No archived chats'
                   : searchText
                   ? 'No results'
                   : 'Start your first conversation'
@@ -466,7 +511,7 @@ export default function MessagesScreen() {
                 activeTab === 'Archived'
                   ? 'Archived chats will appear here.'
                   : searchText
-                  ? `No conversations matching "${searchText}".`
+                  ? `No chats matching "${searchText}".`
                   : 'Tap the pencil icon above to message a creator you love.'
               }
               actionLabel={!activeTab && !searchText ? 'New Message' : undefined}
@@ -487,13 +532,13 @@ export default function MessagesScreen() {
 
       <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} />
 
-      {/* Conversation long-press action sheet */}
+      {/* Room long-press action sheet */}
       <MsActionSheet
-        visible={!!menuConvo}
-        title={menuConvo?.otherUser.name}
-        subtitle={menuConvo ? `@${menuConvo.otherUser.username}` : undefined}
-        actions={menuConvo ? convoActions(menuConvo) : []}
-        onClose={() => setMenuConvo(null)}
+        visible={!!menuRoom}
+        title={menuRoom?.otherUser.name}
+        subtitle={menuRoom ? `@${menuRoom.otherUser.username}` : undefined}
+        actions={menuRoom ? roomActions(menuRoom) : []}
+        onClose={() => setMenuRoom(null)}
       />
     </View>
   );

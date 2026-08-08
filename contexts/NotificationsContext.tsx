@@ -4,7 +4,7 @@
  * Responsibilities:
  * 1. Register for push notifications (permissions + Expo push token → backend)
  * 2. Poll the /notifications endpoint for unread count
- * 3. Poll /messages/conversations for total unread message count
+ * 3. Poll /api/chat-rooms for total unread message count
  * 4. Surface notifUnread + messageUnread counts app-wide (for badges)
  * 5. Handle foreground notification display
  * 6. Handle notification tap → navigate to the relevant post/profile
@@ -24,7 +24,7 @@ import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getNotifications } from '@/services/notifications';
-import { getConversations } from '@/services/messages';
+import { getChatRoomList } from '@/services/room-service';
 import { apiFetch } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -44,7 +44,7 @@ Notifications.setNotificationHandler({
 interface NotificationsContextValue {
   /** Number of unread in-app notifications */
   notifUnread: number;
-  /** Total unread messages across all conversations */
+  /** Total unread messages across all chat rooms */
   messageUnread: number;
   /** Manually re-fetch both counts right now */
   refresh: () => void;
@@ -121,12 +121,12 @@ function handleNotificationTap(notification: Notifications.Notification) {
   const contentType = data.content_type ?? data.contentType ?? type;
   const contentId = data.content_id ?? data.contentId;
   const actorId = data.actor_id ?? data.actorId;
-  const conversationId = data.conversation_id ?? data.conversationId;
+  const chatRoomId = data.chat_room_id ?? data.chatRoomId ?? data.conversation_id ?? data.conversationId;
 
-  // message → open the conversation
+  // message → open the chat room
   if (type === 'message' || type === 'dm') {
-    if (conversationId) {
-      router.push(`/chat/${conversationId}`);
+    if (chatRoomId) {
+      router.push(`/chat-room/${chatRoomId}`);
     }
     return;
   }
@@ -190,7 +190,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     try {
       const [notifResult, msgResult] = await Promise.allSettled([
         getNotifications(1),
-        getConversations('all'),
+        getChatRoomList('all'),
       ]);
 
       if (notifResult.status === 'fulfilled') {
@@ -198,7 +198,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
 
       if (msgResult.status === 'fulfilled') {
-        const total = msgResult.value.conversations.reduce(
+        const total = msgResult.value.chatRooms.reduce(
           (sum, c) => sum + (c.unreadCount ?? 0),
           0,
         );

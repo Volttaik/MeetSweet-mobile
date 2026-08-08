@@ -7,7 +7,7 @@
  * - renderBubble → MsChatBubble (our fully custom pill/card design)
  * - renderInputToolbar → MsChatInputBar (full-featured input)
  * - renderDay → MsDateSeparator
- * - All data stays wired to the existing MeetSweet backend (services/messages.ts)
+ * - All data stays wired to the existing MeetSweet backend (room-service.ts)
  *
  * DO NOT TOUCH: auth, backend APIs, navigation, uploads, payments.
  */
@@ -80,18 +80,19 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getMessages,
-  getConversations,
-  createConversation,
-  sendMessage,
-  deleteMessage,
-  editMessage,
-  markConversationRead,
-  deleteConversation,
-  clearConversation,
-  toggleReaction,
-  type ChatMessage,
-} from '@/services/messages';
+  getRoomMessages,
+  getChatRoom,
+  sendRoomMessage,
+  deleteRoomMessage,
+  editRoomMessage,
+  markRoomRead,
+  clearChatRoom,
+  deleteChatRoom,
+  toggleRoomReaction,
+  checkRoomChanges,
+  muteChatRoom,
+  type RoomMessage,
+} from '@/services/room-service';
 import { ApiError } from '@/services/api';
 import { getUser, blockUser, unblockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
@@ -99,7 +100,7 @@ import {
   getCachedMessages,
   cacheMessages,
   deleteCachedMessage,
-  getCachedConversations,
+  getCachedChatRooms,
 } from '@/services/chat-cache';
 
 import { MsChatBubble } from '@/components/chat/MsChatBubble';
@@ -132,44 +133,41 @@ function formatDateLabel(d: Date): string {
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const {
-    id: routeConversationId,
+    id: routeChatRoomId,
     name: paramName,
     username: paramUsername,
     avatarUrl: paramAvatarUrl,
   } = useLocalSearchParams<{ id: string; name?: string; username?: string; avatarUrl?: string }>();
-  // Some older entry points navigated here with a recipient/profile ID. Keep
-  // the route param for normal room navigation, but allow the first send to
-  // repair that stale ID using the recipient username.
-  const [conversationId, setConversationId] = useState(routeConversationId ?? '');
+  // The route is opened with ONLY a chatRoomId. Participant data comes from the
+  // room, never from stale navigation params. Legacy /chat/:id links may pass
+  // name/username/avatarUrl params but they are treated as cosmetic fallbacks.
+  const [chatRoomId, setChatRoomId] = useState(routeChatRoomId ?? '');
   const { user } = useAuth();
 
   useEffect(() => {
-    if (routeConversationId && routeConversationId !== conversationId) {
-      setConversationId(routeConversationId);
+    if (routeChatRoomId && routeChatRoomId !== chatRoomId) {
+      setChatRoomId(routeChatRoomId);
     }
-  }, [routeConversationId]);
+  }, [routeChatRoomId]);
 
-  const sendToConversation = useCallback(async (
+  const sendToRoom = useCallback(async (
     body?: string,
     mediaUrl?: string,
     mediaType?: string,
-    opts?: Parameters<typeof sendMessage>[4],
-  ): ReturnType<typeof sendMessage> => {
-    try {
-      return await sendMessage(conversationId, body, mediaUrl, mediaType, opts);
-    } catch (error) {
-      // The server returns 404 only when this ID is not a conversation. This
-      // happens for chats opened from older profile links that passed the
-      // recipient ID through /chat/:id. Resolve the room by username and
-      // retry once; real 403/401/validation errors still surface normally.
-      if (!(error instanceof ApiError) || error.status !== 404 || !paramUsername) {
-        throw error;
-      }
-      const repaired = await createConversation(undefined, paramUsername);
-      setConversationId(repaired.conversationId);
-      return sendMessage(repaired.conversationId, body, mediaUrl, mediaType, opts);
-    }
-  }, [conversationId, paramUsername]);
+    opts?: Parameters<typeof sendRoomMessage>[1],
+  ): ReturnType<typeof sendRoomMessage> => {
+    return sendRoomMessage(chatRoomId, {
+      body,
+      mediaUrl,
+      mediaType: (mediaType as 'image' | 'video' | 'audio' | 'document' | null | undefined),
+      caption: opts?.caption,
+      fileName: opts?.fileName,
+      fileSize: opts?.fileSize,
+      mimeType: opts?.mimeType,
+      audioDuration: opts?.audioDuration,
+      replyToId: opts?.replyToId,
+    });
+  }, [chatRoomId]);
 
   // ── Message state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<MsMessage[]>([]);
@@ -190,7 +188,7 @@ export default function ChatScreen() {
 
   // ── Other user info ──────────────────────────────────────────────────────────
   const [otherUser, setOtherUser] = useState<ProfileSheetUser>({
-    id:        conversationId ?? '',
+    id:        chatRoomId ?? '',
     name:      paramName     ?? '',
     username:  paramUsername  ?? '',
     avatarUrl: paramAvatarUrl ?? null,
@@ -236,8 +234,9 @@ export default function ChatScreen() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MsMessage | null>(null);
 
-  // ── Block / conversation state ───────────────────────────────────────────────
+  // ── Block / room state ───────────────────────────────────────────────────────
   const [isBlocked, setIsBlocked] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   // ── Message info modal ───────────────────────────────────────────────────────
   const [infoMsg, setInfoMsg] = useState<MsMessage | null>(null);
@@ -249,83 +248,96 @@ export default function ChatScreen() {
   const [showBgPicker,   setShowBgPicker]   = useState(false);
   const [chatBackground, setChatBackground] = useState<ChatBackground>({ type: 'default' });
 
-  // ── Load messages ────────────────────────────────────────────────────────────
+  // ── Load messages ─────────────────────────────────────────────────────
   const loadMessages = useCallback(async (before?: string) => {
-    if (!conversationId) return;
+    if (!chatRoomId) return;
     try {
-      const cached = await getCachedMessages(conversationId);
+      const cached = await getCachedMessages(chatRoomId);
       if (cached.length && !before) {
         setMessages(cached.map((m) => toMsMessage(m, user?.id ?? '')));
         setLoading(false);
       }
-      const result = await getMessages(conversationId, before);
-      const msgs = result.messages.map((m: ChatMessage) => toMsMessage(m, user?.id ?? ''));
+      const result = await getRoomMessages(chatRoomId, before ? { before } : undefined);
+      const msgs = result.messages.map((m: RoomMessage) => toMsMessage(m, user?.id ?? ''));
       if (before) {
         setMessages((prev) => Chat.prepend(prev, msgs));
       } else {
         setMessages(msgs);
-        await cacheMessages(conversationId, result.messages).catch(() => {});
+        await cacheMessages(chatRoomId, result.messages).catch(() => {});
+        // Seed the change marker with the newest message id so the next poll
+        // only asks for what's actually new ("messages after #N").
+        if (result.messages[0]?.id) {
+          pollMarkerRef.current = result.messages[0].id;
+        }
       }
       setHasMore(result.hasMore ?? false);
-      markConversationRead(conversationId).catch(() => {});
+      markRoomRead(chatRoomId).catch(() => {});
     } catch {
       // graceful — cached messages still visible
     } finally {
       setLoading(false);
     }
-  }, [conversationId, user?.id]);
+  }, [chatRoomId, user?.id]);
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
-  // ── Poll for new messages every 10 s (fallback for missing WebSocket) ────────
+  // ── Poll ONLY the currently-viewed room (incremental, serverless) ──────
+  // No typing indicators / presence / live cursors. Uses the change marker:
+  // "give me messages after <last id>" returns only the new ones.
+  const pollMarkerRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!conversationId) return;
-    const interval = setInterval(() => {
-      getMessages(conversationId).then((result) => {
-        if (!result.messages?.length) return;
-        const incoming = result.messages.map((m: ChatMessage) => toMsMessage(m, user?.id ?? ''));
-        setMessages((prev) => {
-          // Merge: keep existing messages, append any new ones not already in list
-          const existingIds = new Set(prev.map((m) => String(m._id)));
-          const newOnes = incoming.filter((m: MsMessage) => !existingIds.has(String(m._id)));
-          if (newOnes.length === 0) return prev;
-          cacheMessages(conversationId, result.messages).catch(() => {});
-          return [...newOnes, ...prev];
-        });
-      }).catch(() => {/* polling failure is silent */});
+    if (!chatRoomId) return;
+    const interval = setInterval(async () => {
+      const changes = await checkRoomChanges(chatRoomId, pollMarkerRef.current).catch(() => null);
+      if (!changes || !changes.changed) return;
+      pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
+      const fresh = changes.messages;
+      if (!fresh?.length) return;
+      const incoming = fresh.map((m: RoomMessage) => toMsMessage(m, user?.id ?? ''));
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => String(m._id)));
+        const newOnes = incoming.filter((m: MsMessage) => !existingIds.has(String(m._id)));
+        if (newOnes.length === 0) return prev;
+        cacheMessages(chatRoomId, fresh).catch(() => {});
+        return [...newOnes, ...prev];
+      });
     }, 10_000);
     return () => clearInterval(interval);
-  }, [conversationId, user?.id]);
+  }, [chatRoomId, user?.id]);
 
-  // ── Load the other participant from the conversation ─────────────────────────
+  // ── Resolve the other participant FROM THE ROOM (not navigation params) ──
   useEffect(() => {
-    if (!conversationId) return;
+    if (!chatRoomId) return;
     (async () => {
       try {
-        // The route may be opened directly from a profile or notification, so
-        // params and local cache are not reliable sources of participant data.
-        // The conversations endpoint is the source of truth for this room.
-        const remote = await getConversations('all');
-        let conv = remote.conversations.find((c) => c.id === conversationId);
-        if (!conv) {
-          const archived = await getConversations('archived').catch(() => ({ conversations: [] }));
-          conv = archived.conversations.find((c) => c.id === conversationId);
-        }
-        if (!conv) {
-          const cached = await getCachedConversations();
-          conv = cached.find((c) => c.id === conversationId);
-        }
-        if (conv?.otherUser) {
+        const room = await getChatRoom(chatRoomId);
+        const participants = room.participants ?? [];
+        const other =
+          participants.find((p) => p.id !== user?.id) ??
+          (room.otherUser?.id ? room.otherUser : undefined);
+        if (other) {
           setOtherUser({
-            id: conv.otherUser.id,
-            name: conv.otherUser.name || paramName || 'Chat',
-            username: conv.otherUser.username,
-            avatarUrl: conv.otherUser.avatarUrl ?? paramAvatarUrl ?? null,
+            id: other.id,
+            name: other.name || paramName || 'Chat',
+            username: other.username,
+            avatarUrl: other.avatarUrl ?? paramAvatarUrl ?? null,
           });
         }
-      } catch {/* */}
+      } catch {
+        // Fall back to local cache — stale but better than nothing
+        const cached = await getCachedChatRooms().catch(() => []);
+        const room = cached.find((r) => r.chatRoomId === chatRoomId);
+        if (room?.otherUser?.id) {
+          setOtherUser({
+            id: room.otherUser.id,
+            name: room.otherUser.name || paramName || 'Chat',
+            username: room.otherUser.username,
+            avatarUrl: room.otherUser.avatarUrl ?? paramAvatarUrl ?? null,
+          });
+        }
+      }
     })();
-  }, [conversationId, paramName, paramAvatarUrl]);
+  }, [chatRoomId, user?.id, paramName, paramAvatarUrl]);
 
   // ── Load earlier (older) messages ────────────────────────────────────────────
   const handleLoadEarlier = useCallback(async () => {
@@ -368,7 +380,7 @@ export default function ChatScreen() {
 
   // ── Send handler ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async (payload: SendPayload) => {
-    if (!conversationId) return;
+    if (!chatRoomId) return;
 
     // ── Edit mode ────────────────────────────────────────────────────────────
     if (editingMsg) {
@@ -379,7 +391,7 @@ export default function ChatScreen() {
       setEditingMsg(null);
       setInputText('');
       try {
-        await editMessage(String(editingMsg._id), newText);
+        await editRoomMessage(chatRoomId, String(editingMsg._id), newText);
       } catch {
         Alert.alert('Error', 'Could not edit message.');
       }
@@ -401,7 +413,7 @@ export default function ChatScreen() {
       };
       setMessages((prev) => Chat.append(prev, [optimistic]));
       try {
-        const res = await sendToConversation(payload.sticker);
+        const res = await sendToRoom(payload.sticker);
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
           prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
@@ -430,7 +442,7 @@ export default function ChatScreen() {
       setReplyMessage(null);
       setInputText('');
       try {
-        const res = await sendToConversation(payload.text, undefined, undefined, {
+        const res = await sendToRoom(payload.text, undefined, undefined, {
           replyToId: capturedReply ? String(capturedReply._id) : undefined,
         });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
@@ -463,7 +475,7 @@ export default function ChatScreen() {
       try {
         setUploadingMedia(true);
         const uploaded = await uploadMedia(uri, 'audio/m4a');
-        const res = await sendToConversation(undefined, uploaded.url, 'audio', { audioDuration: duration });
+        const res = await sendToRoom(undefined, uploaded.url, 'audio', { audioDuration: duration });
         // Server returns media_type: null for audio — preserve local audio metadata.
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
@@ -488,12 +500,12 @@ export default function ChatScreen() {
         setUploadingMedia(false);
       }
     }
-  }, [conversationId, editingMsg, replyMessage, user]);
+  }, [chatRoomId, editingMsg, replyMessage, user]);
 
   // ── Attachment confirmed ──────────────────────────────────────────────────────
   const handleAttachmentConfirmed = useCallback(async (confirmed: ConfirmedAttachment) => {
     setPendingAttachment(null);
-    if (!conversationId) return;
+    if (!chatRoomId) return;
     const { uri, type: attachType } = confirmed;
     const tempId = `temp_${Date.now()}`;
     const now = new Date();
@@ -520,7 +532,7 @@ export default function ChatScreen() {
         // Always upload with correct audio MIME — never video/mp4
         const mime = confirmed.mimeType?.startsWith('audio/') ? confirmed.mimeType : 'audio/m4a';
         const uploaded = await uploadMedia(uri, mime);
-        const res = await sendToConversation(
+        const res = await sendToRoom(
           undefined,
           uploaded.url,
           'audio',
@@ -571,7 +583,7 @@ export default function ChatScreen() {
       setUploadingMedia(true);
       const mime = mediaType === 'image' ? 'image/jpeg' : 'video/mp4';
       const uploaded = await uploadMedia(uri, mime);
-        const res = await sendToConversation(
+        const res = await sendToRoom(
           confirmed.caption,
           uploaded.url,
           mediaType,
@@ -587,7 +599,7 @@ export default function ChatScreen() {
     } finally {
       setUploadingMedia(false);
     }
-  }, [conversationId, user]);
+  }, [chatRoomId, user]);
 
   // ── Long-press menu ───────────────────────────────────────────────────────────
   const handleLongPress = useCallback((_ctx: unknown, msg: MsMessage) => {
@@ -614,8 +626,8 @@ export default function ChatScreen() {
       m._id === target._id ? { ...m, msIsDeleted: true } : m,
     ));
     await deleteCachedMessage(id).catch(() => {});
-    try { await deleteMessage(id); } catch {/* */}
-  }, [deleteTarget]);
+    try { await deleteRoomMessage(chatRoomId, id); } catch {/* */}
+  }, [deleteTarget, chatRoomId]);
 
   // ── Message Info ──────────────────────────────────────────────────────────
   const handleMsgInfo = useCallback(() => {
@@ -625,6 +637,17 @@ export default function ChatScreen() {
     setMenuMsg(null);
     setShowMsgInfo(true);
   }, [menuMsg, hideMenu]);
+
+  // ── Mute / unmute room (per doc §1.7, §11.6) ──────────────────────────────
+  const handleMuteUser = useCallback(() => {
+    setShowProfileSheet(false);
+    const next = !isMuted;
+    setIsMuted(next);
+    muteChatRoom(chatRoomId, next).catch(() => {
+      setIsMuted(isMuted);
+      Alert.alert('Error', `Could not ${next ? 'mute' : 'unmute'} this chat.`);
+    });
+  }, [isMuted, chatRoomId]);
 
   // ── Block user ────────────────────────────────────────────────────────────
   const handleBlockUser = useCallback(() => {
@@ -660,35 +683,34 @@ export default function ChatScreen() {
     );
   }, [isBlocked, otherUser.name, otherUser.username]);
 
-  // ── Delete conversation ───────────────────────────────────────────────────
-  const handleDeleteConversation = useCallback(() => {
+  // ── Delete chat room from list ────────────────────────────────────────
+  const handleDeleteRoom = useCallback(() => {
     setShowProfileSheet(false);
     Alert.alert(
-      'Delete Conversation',
-      'This will remove the conversation from your chat list. Messages will not be deleted for the other person.',
+      'Delete Chat',
+      'This will remove the chat from your chat list. Messages will not be deleted for the other person.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (conversationId) {
-              await deleteConversation(conversationId).catch(() => {});
-              await deleteCachedMessage(conversationId).catch(() => {});
+            if (chatRoomId) {
+              await deleteChatRoom(chatRoomId).catch(() => {});
             }
             router.back();
           },
         },
       ],
     );
-  }, [conversationId]);
+  }, [chatRoomId]);
 
-  // ── Clear conversation ────────────────────────────────────────────────────
-  const handleClearConversation = useCallback(() => {
+  // ── Clear chat (room-level; the room stays the permanent container) ────
+  const handleClearRoom = useCallback(() => {
     setShowProfileSheet(false);
     Alert.alert(
-      'Clear Conversation',
-      'All messages in this conversation will be permanently deleted for you. This cannot be undone.',
+      'Clear Chat',
+      'All messages in this chat will be permanently cleared for you. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -696,15 +718,14 @@ export default function ChatScreen() {
           style: 'destructive',
           onPress: async () => {
             setMessages([]);
-            if (conversationId) {
-              await clearConversation(conversationId).catch(() => {});
-              await deleteCachedMessage(conversationId).catch(() => {});
+            if (chatRoomId) {
+              await clearChatRoom(chatRoomId).catch(() => {});
             }
           },
         },
       ],
     );
-  }, [conversationId]);
+  }, [chatRoomId]);
 
   const handleEdit = useCallback(() => {
     if (!menuMsg) return;
@@ -751,7 +772,7 @@ export default function ChatScreen() {
 
     // Persist to backend — tempId messages (optimistic) have no real ID yet
     if (!msgId.startsWith('temp_')) {
-      toggleReaction(msgId, emoji).then((result) => {
+      toggleRoomReaction(chatRoomId, msgId, emoji).then((result) => {
         // Sync server reaction state
         if (result?.reactions) {
           setLocalReactions((prev) => ({
@@ -799,7 +820,7 @@ export default function ChatScreen() {
 
   // ── Retry failed send ────────────────────────────────────────────────────────
   const handleRetry = useCallback(async (failedMsg: MsMessage) => {
-    if (!conversationId || !failedMsg.text) return;
+    if (!chatRoomId || !failedMsg.text) return;
     // Replace the failed optimistic message with a new pending one
     const tempId = `temp_${Date.now()}`;
     setMessages((prev) =>
@@ -810,7 +831,7 @@ export default function ChatScreen() {
       ),
     );
     try {
-      const res = await sendToConversation(failedMsg.text);
+      const res = await sendToRoom(failedMsg.text);
       const confirmed = toMsMessage(res.message, user?.id ?? '');
       setMessages((prev) =>
         prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
@@ -820,7 +841,7 @@ export default function ChatScreen() {
         prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
       );
     }
-  }, [conversationId, user?.id]);
+  }, [chatRoomId, user?.id]);
 
   // ── Voice ready — handled internally by MsChatInputBar; no-op here ───────────
   const handleVoiceReady = useCallback((_voice: PendingVoice) => {
@@ -1079,13 +1100,15 @@ export default function ChatScreen() {
         visible={showHeaderMenu}
         onClose={() => setShowHeaderMenu(false)}
         isBlocked={isBlocked}
+        isMuted={isMuted}
         otherName={otherUser.name || 'User'}
         onBackground={() => setShowBgPicker(true)}
         onSearch={() => setShowChatSearch(true)}
         onProfile={() => setShowProfileSheet(true)}
+        onMute={handleMuteUser}
         onBlock={handleBlockUser}
-        onClear={handleClearConversation}
-        onDelete={handleDeleteConversation}
+        onClear={handleClearRoom}
+        onDelete={handleDeleteRoom}
       />
 
       {/* ── Chat background picker ───────────────────────────────────────────── */}
@@ -1105,7 +1128,7 @@ export default function ChatScreen() {
         />
       )}
 
-      {/* ── Conversation action sheet (block, delete, clear) ─────────────────── */}
+      {/* ── Room action sheet (block, delete, clear) ──────────────────────── */}
       <Modal
         visible={showProfileSheet === false && false}
         transparent
@@ -1115,9 +1138,9 @@ export default function ChatScreen() {
         <View />
       </Modal>
 
-      {/* ── Conversation actions accessible from header Info button ─────────── */}
+      {/* ── Room actions accessible from header Info button ──────────────── */}
       {/* Actions are triggered from Alert dialogs via handleBlockUser,
-          handleDeleteConversation, handleClearConversation */}
+          handleDeleteRoom, handleClearRoom */}
 
       {/* ── Delete confirmation sheet ────────────────────────────────────────── */}
       <Modal

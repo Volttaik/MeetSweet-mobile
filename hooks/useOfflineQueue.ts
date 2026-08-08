@@ -12,7 +12,7 @@ import {
   type OfflineAction,
 } from '@/lib/posts-db';
 import { likePost, unlikePost, bookmarkPost, unbookmarkPost } from '@/services/posts';
-import { sendMessage } from '@/services/messages';
+import { sendRoomMessage } from '@/services/room-service';
 
 async function executeAction(action: OfflineAction): Promise<void> {
   switch (action.type) {
@@ -25,7 +25,7 @@ async function executeAction(action: OfflineAction): Promise<void> {
       else await unbookmarkPost(action.postId);
       break;
     case 'send_message':
-      await sendMessage(action.conversationId, action.text);
+      await sendRoomMessage(action.chatRoomId, { body: action.text });
       break;
   }
 }

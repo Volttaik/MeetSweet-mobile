@@ -46,6 +46,11 @@ export interface Post {
   updatedAt?: string;
   /** Title field — used by videos */
   title?: string;
+  /** Comment Room id — every post has an associated Comment Room.
+   *  Mobile gets it from post data, never guesses it. */
+  commentRoomId?: string | null;
+  /** Whether the post's Comment Room accepts new comments. */
+  commentsEnabled?: boolean;
 }
 
 export interface Comment {
@@ -115,6 +120,9 @@ function normalizePost(raw: any): Post {
     likeCount:     raw.like_count    ?? raw.likeCount    ?? 0,
     commentCount:  raw.comment_count ?? raw.commentCount ?? 0,
     bookmarkCount: raw.save_count    ?? raw.saveCount    ?? 0,
+    // Comment Room identity comes from post data — never guessed client-side.
+    commentRoomId: raw.comment_room_id ?? raw.commentRoomId ?? null,
+    commentsEnabled: raw.comments_enabled ?? raw.commentsEnabled ?? true,
     // Locked when the backend signals the viewer cannot see this content (subscription gate)
     isLocked: raw.is_locked ?? raw.isLocked ?? false,
     // Derive tier from backend value — maps to free / subscriber / subscriber_plus only
@@ -381,17 +389,25 @@ export interface CreatePostData {
    * backend can associate the thumbnail even if the separate PATCH fails.
    */
   thumbnail_url?: string;
+  /**
+   * Comments ON/OFF for the post's Comment Room. Default true (ON).
+   * The backend creates/associates a Comment Room when the post is created.
+   */
+  comments_enabled?: boolean;
 }
 
-export async function createPost(data: CreatePostData): Promise<{ id: string }> {
+export async function createPost(data: CreatePostData): Promise<{ id: string; commentRoomId?: string | null }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ id: string }>('/posts', {
+  const raw = await apiFetch<{ id: string; comment_room_id?: string | null; commentRoomId?: string | null }>('/posts', {
     method: 'POST',
     headers: authHeader(token),
     body: JSON.stringify(data),
   });
-  return raw;
+  return {
+    id: raw.id,
+    commentRoomId: raw.comment_room_id ?? raw.commentRoomId ?? null,
+  };
 }
 
 export async function editPost(
@@ -402,6 +418,7 @@ export async function editPost(
     is_pinned?: boolean;
     preview_duration?: number | null;
     expires_at?: string | null;
+    comments_enabled?: boolean;
   },
 ): Promise<void> {
   const token = await getToken();

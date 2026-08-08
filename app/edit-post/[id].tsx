@@ -25,10 +25,12 @@ import {
   Eye,
   Lock,
   Users,
+  ChatCircle,
   type Icon,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { getPost, editPost, type Post } from '@/services/posts';
+import { setCommentsEnabled } from '@/services/comment-room-service';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { toast } from '@/components/MsToast';
 
@@ -59,6 +61,8 @@ export default function EditPostScreen() {
   // Editable fields
   const [caption,    setCaption]    = useState('');
   const [visibility, setVisibility] = useState<'public' | 'subscribers' | 'draft'>('public');
+  // Comment Room setting — Comments ON/OFF
+  const [commentsEnabled, setCommentsEnabledState] = useState(true);
 
   // ── Load post ───────────────────────────────────────────────────────────────
 
@@ -70,6 +74,7 @@ export default function EditPostScreen() {
         setPost(p);
         setCaption(p.caption ?? '');
         setVisibility(p.visibility);
+        setCommentsEnabledState(p.commentsEnabled ?? true);
         // Initialise tier from the post's stored tier, or fall back from visibility
       })
       .catch(() => toast.error('Could not load post'))
@@ -86,9 +91,16 @@ export default function EditPostScreen() {
         caption: caption.trim(),
         visibility,
       });
+      // Comments ON/OFF is a Comment Room setting (backend enforces it on
+      // submission). The Comment Room stays associated with the post even when
+      // disabled, so it can be re-enabled later.
+      if (post.commentRoomId) {
+        await setCommentsEnabled(id, commentsEnabled);
+      }
       markEdited(id, {
         caption: caption.trim(),
         visibility,
+        commentsEnabled,
       });
       toast.success('Post updated');
       router.back();
@@ -196,6 +208,37 @@ export default function EditPostScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+          </View>
+
+          {/* ── Comments ON/OFF (Comment Room setting) ── */}
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Comments</Text>
+            <View style={styles.commentsSettingRow}>
+              <View style={[styles.visIconWrap, { backgroundColor: T.SURFACE_2 }]}>
+                <ChatCircle size={15} color={commentsEnabled ? T.ACCENT : T.TEXT_2} />
+              </View>
+              <View style={styles.visText}>
+                <Text style={[styles.visLabel, commentsEnabled && styles.visLabelActive]}>
+                  Allow comments
+                </Text>
+                <Text style={styles.visDesc}>
+                  {commentsEnabled
+                    ? 'Viewers can comment on this post'
+                    : 'Comments are hidden; the Comment Room stays associated and can be re-enabled later'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setCommentsEnabledState((v) => !v)}
+                activeOpacity={0.8}
+                style={[
+                  styles.switch,
+                  commentsEnabled && styles.switchOn,
+                ]}
+                accessibilityLabel="Toggle comments"
+              >
+                <View style={[styles.switchThumb, commentsEnabled && styles.switchThumbOn]} />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -359,6 +402,36 @@ const styles = StyleSheet.create({
     height: 9,
     borderRadius: 4.5,
     backgroundColor: T.ACCENT,
+  },
+
+  // Comments toggle
+  commentsSettingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.xl,
+    padding: 14,
+  },
+  switch: {
+    width: 46,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: T.SURFACE_2,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  switchOn: { backgroundColor: T.ACCENT },
+  switchThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: T.TEXT_3,
+    alignSelf: 'flex-start',
+  },
+  switchThumbOn: {
+    backgroundColor: '#fff',
+    alignSelf: 'flex-end',
   },
 
   // Audience tier
