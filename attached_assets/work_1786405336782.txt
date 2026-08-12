@@ -1,0 +1,1021 @@
+FORENSIC CHAT SYSTEM CODE REVIEW — READ THE ARCHITECTURE FIRST
+
+IMPORTANT: THIS IS A CODE REVIEW, NOT AN IMPLEMENTATION TASK
+
+Do not implement, repair, refactor, redesign, or modify application code.
+
+Your job is to perform a forensic audit of the existing mobile application's messaging system and determine what is actually implemented versus what only appears to be implemented.
+
+You must inspect the real source code.
+
+Do not trust previous AI reports, comments, TODOs, function names, imports, documentation, or previous claims that something was implemented.
+
+The source code itself is the evidence.
+
+---
+
+ALLOWED FILESYSTEM ACTION
+
+There should be exactly ONE Markdown file in the project:
+
+report.md
+
+Delete all other existing ".md" files in the project.
+
+Do not modify application source code.
+
+Do not "fix" anything you discover.
+
+Do not add implementation code.
+
+Your only output artifact is:
+
+report.md
+
+The report must contain the complete findings from this audit.
+
+---
+
+UNDERSTAND THE SYSTEM BEFORE REVIEWING IT
+
+The messaging architecture is based on a Chat Room, not the old Conversation system.
+
+The old conversation architecture has been removed and must not be treated as the current architecture.
+
+The fundamental structure is:
+
+Chat Room
+│
+├── chatRoomId
+│
+├── User A
+│   └── Context ID
+│       └── Context Auth / Auth Tree
+│           ├── Message A
+│           ├── Message B
+│           ├── Message C
+│           └── ...
+│
+└── User B
+    └── Context ID
+        └── Context Auth / Auth Tree
+            ├── Message A
+            ├── Message B
+            ├── Message C
+            └── ...
+
+The Chat Room is the permanent shared room.
+
+The two users have separate contexts inside the same Chat Room.
+
+---
+
+1. CHAT ROOM
+
+A Chat Room is the shared sandbox where two users communicate.
+
+The Chat Room has a permanent:
+
+chatRoomId
+
+The mobile application does NOT invent authoritative Chat Room IDs.
+
+When a user wants to message another user:
+
+Mobile
+→ sends participant information/request
+→ Backend finds or creates the appropriate Chat Room
+→ Backend generates/resolves chatRoomId
+→ Backend returns the authoritative setup
+→ Mobile opens the returned Chat Room
+
+The client is the consumer of the Chat Room, not the authority that creates its persistent identity.
+
+Check whether the code actually follows this architecture.
+
+Look for:
+
+- client-generated room IDs
+- fake room IDs
+- duplicate room creation
+- local room creation that bypasses the backend
+- legacy conversation logic
+- hardcoded room identifiers
+- incorrect participant handling
+
+---
+
+2. PARTICIPANTS
+
+The Chat Room contains the users involved.
+
+The two users must be identifiable using their user IDs.
+
+The application should not depend on random navigation parameters such as:
+
+name
+username
+avatar
+
+as the authoritative identity of the participant.
+
+Those may be UI information, but identity must ultimately resolve from the actual user/room data.
+
+Check this carefully.
+
+---
+
+3. CONTEXT ID
+
+Each participant has their own Context ID inside the Chat Room.
+
+Example:
+
+chatRoomId
+│
+├── contextId_A
+└── contextId_B
+
+Context ID is NOT:
+
+- userId
+- chatRoomId
+- messageId
+- Context Auth
+
+It identifies that user's personal context within the shared Chat Room.
+
+The two users therefore have:
+
+User A → Context A
+User B → Context B
+
+Both contexts belong to the same Chat Room.
+
+---
+
+4. CONTEXT AUTH / AUTH TREE
+
+Context Auth is also referred to as the Auth Tree.
+
+This is extremely important.
+
+Do not confuse:
+
+Context ID
+
+with:
+
+Context Auth
+
+Context ID identifies the user's context.
+
+Context Auth is the message map belonging to that context.
+
+Think of it as:
+
+Context Auth
+│
+├── messageId_001
+├── messageId_002
+├── messageId_003
+├── messageId_004
+└── ...
+
+Each message has its own authoritative message ID.
+
+The Auth Tree allows the system to determine which messages currently belong to that user's context.
+
+Therefore:
+
+Chat Room
+→ Context
+→ Context Auth
+→ Message IDs
+→ Actual messages
+
+The Auth Tree is what allows the two users to have different message visibility while sharing the same Chat Room.
+
+---
+
+5. DUAL CONTEXT BEHAVIOR
+
+This is one of the most important things to verify.
+
+User A and User B can have different versions of the same Chat Room.
+
+Example:
+
+Chat Room: ABC
+
+User A Context:
+Message 1
+Message 2
+Message 3
+Message 4
+
+User B Context:
+Message 1
+Message 2
+Message 3
+Message 4
+
+If User A deletes Message 3 for themselves:
+
+User A Context:
+Message 1
+Message 2
+Message 4
+
+User B Context:
+Message 1
+Message 2
+Message 3
+Message 4
+
+The Chat Room itself still exists.
+
+User B still has the message.
+
+---
+
+6. DELETE FOR ME
+
+"Delete for me" affects only the requesting user's context.
+
+The backend should update that user's Context Auth/Auth Tree.
+
+The other participant must retain the message.
+
+The mobile app should then synchronize its local representation accordingly.
+
+Check that the implementation does not accidentally delete the message globally.
+
+---
+
+7. DELETE FOR EVERYONE
+
+"Delete for everyone" affects both contexts.
+
+Example:
+
+User A Auth Tree
+→ remove messageId_123
+
+User B Auth Tree
+→ remove messageId_123
+
+The message should therefore disappear for both users.
+
+Check:
+
+- authorization
+- message ownership rules
+- both-context synchronization
+- SQLite synchronization
+- UI update
+- server response handling
+
+---
+
+8. CLEAR CHAT
+
+Clear means the current user clears their own Chat Room context.
+
+It does NOT destroy the permanent Chat Room.
+
+It does NOT necessarily destroy the other user's context.
+
+Example:
+
+Chat Room
+│
+├── User A Context → cleared
+└── User B Context → unchanged
+
+User A should no longer see their previous messages.
+
+User B may still see them.
+
+When User A later opens the Chat Room again, the same "chatRoomId" is reused, but User A's context remains cleared.
+
+Verify that the code actually behaves this way.
+
+---
+
+9. DELETE CHAT / REMOVE CHAT FROM LIST
+
+Deleting/removing a chat for one user must not destroy the shared Chat Room.
+
+The Chat Room remains available.
+
+The user's own context/list visibility can be removed.
+
+When they message the same person again, the existing Chat Room should be reopened rather than creating a completely unrelated room.
+
+Verify this.
+
+---
+
+10. BLOCK / UNBLOCK
+
+Blocking does NOT delete the Chat Room.
+
+The room becomes inactive/blocked.
+
+Conceptually:
+
+chatRoom.active = false
+
+or the equivalent backend state.
+
+Messages should not be allowed while the room is blocked.
+
+Unblocking/reactivation should restore messaging.
+
+Verify that the mobile app requests this operation from the backend rather than pretending to permanently own the state.
+
+---
+
+11. SENDING MESSAGES
+
+The mobile app creates a request.
+
+It does not become the authoritative message creator.
+
+Expected architecture:
+
+User types message
+↓
+Mobile creates request payload
+↓
+Backend validates request
+↓
+Backend creates authoritative messageId
+↓
+Backend stores message
+↓
+Backend updates appropriate context/auth structures
+↓
+Backend returns authoritative result
+↓
+Mobile updates SQLite/UI
+
+Check whether the actual code follows this.
+
+---
+
+12. MESSAGE IDs
+
+Every message must have a unique message ID.
+
+The message ID is critical because operations such as:
+
+- edit
+- delete
+- delete for everyone
+- reaction
+- reply
+- synchronization
+- local cache updates
+
+must be able to target a specific message.
+
+Check for:
+
+- missing IDs
+- client-generated authoritative IDs
+- inconsistent IDs
+- temporary IDs never reconciled
+- incorrect message-to-room relationships
+
+---
+
+13. EDIT MESSAGE
+
+Editing a message changes the message for both contexts.
+
+The backend must be authoritative.
+
+Expected conceptual behavior:
+
+Edit messageId_123
+↓
+Backend updates message
+↓
+Both contexts reflect edited message
+↓
+Both local caches synchronize
+
+Verify the entire chain.
+
+---
+
+14. REACTIONS
+
+Long-pressing a message should expose the message submenu/reaction functionality.
+
+Check:
+
+- emoji reactions
+- adding reaction
+- removing reaction
+- reaction state
+- messageId targeting
+- sender/receiver synchronization
+- SQLite updates
+- UI rendering
+
+Do not assume a reaction works merely because a reaction component exists.
+
+Trace the actual function call.
+
+---
+
+15. REPLY / QUOTED MESSAGE
+
+Replying to a message should reference the original message.
+
+The sent message should contain the appropriate reply/quoted-message information.
+
+The UI should display the quoted message above the new message in the intended faded/attached style.
+
+Verify:
+
+Original message
+↓
+Reply action
+↓
+Original message ID/reference
+↓
+Send request
+↓
+Backend
+↓
+Returned message
+↓
+Quoted message rendered
+
+Check for fake/dummy reply UI where the visual component exists but no real reference is stored.
+
+---
+
+16. MESSAGE SUBMENU
+
+Audit all available message actions, including whichever are actually present in the project:
+
+- React
+- Reply
+- Edit
+- Delete for me
+- Delete for everyone
+- Copy
+- Share
+- Forward, if implemented
+- Save, if implemented
+- Report, if implemented
+- Any other message action
+
+Do not assume a feature exists because a button exists.
+
+Trace the button to its actual behavior.
+
+---
+
+17. CHAT PROFILE INTERACTION
+
+Tapping the other user's avatar/name inside the Chat Room should correctly resolve the participant and open their profile/modal.
+
+Verify that the correct user is selected from the actual room participant information.
+
+---
+
+18. CHAT LIST
+
+The Chat List should be based on Chat Rooms.
+
+Verify:
+
+- chatRoomId
+- participant
+- avatar
+- username/name
+- last message
+- unread state
+- timestamps
+- room status
+- clearing/deleting behavior
+
+Check that stale conversation architecture is not secretly being used.
+
+---
+
+19. LOCAL SQLITE
+
+SQLite is local storage/cache.
+
+It is NOT the final authority.
+
+The server is authoritative.
+
+Expected sequence:
+
+Server response
+↓
+Synchronize SQLite
+↓
+Read verified local state
+↓
+Render UI
+
+The app should not blindly trust stale SQLite data.
+
+Check synchronization after:
+
+- message creation
+- edit
+- delete
+- delete for everyone
+- clear
+- block
+- unblock
+- room updates
+- polling
+- media changes
+
+---
+
+20. MEDIA STORAGE
+
+Review the media system separately.
+
+Media must not merely be represented by a remote URL.
+
+The local device should be capable of storing actual media files through the intended Expo File System implementation.
+
+Audit:
+
+- images
+- videos
+- audio
+- voice messages
+- documents
+- file attachments
+
+Verify the relationship:
+
+chatRoomId
++
+messageId
++
+media metadata
++
+local file path
++
+remote source
+
+Check whether files are actually stored and rendered locally.
+
+---
+
+21. SENDER VS RECEIVER MEDIA
+
+The sender already possesses the original local file.
+
+Therefore the sender should not unnecessarily redownload their own media.
+
+The receiver needs to obtain the media and store it locally.
+
+Expected conceptual behavior:
+
+SENDER
+local file
+↓
+upload
+↓
+retain local file
+↓
+instant local rendering
+
+Receiver:
+
+server media
+↓
+download
+↓
+Expo File System
+↓
+local file
+↓
+render
+
+Verify whether the actual implementation matches this.
+
+---
+
+22. MESSAGE TYPE VS FILE TYPE
+
+Do not assume they are the same.
+
+Examples:
+
+Video message
+≠
+Video file attachment
+
+Voice message
+≠
+Audio file attachment
+
+Image message
+≠
+Image document/file attachment
+
+Audit the type system and renderer.
+
+Check whether the application can correctly distinguish:
+
+Audio
+
+- voice message
+- audio file
+- supported audio formats
+
+Video
+
+- video message
+- video file
+- supported video formats
+
+Documents
+
+- PDF
+- text documents
+- office documents
+- other supported document formats
+
+The exact supported types should be determined from the actual code.
+
+Do not invent support that does not exist.
+
+---
+
+23. MEDIA RENDERING
+
+The existing image/video display is considered established UI.
+
+Do not redesign it.
+
+Audit whether the correct renderer is selected.
+
+Check:
+
+- image full-screen opening
+- video player opening
+- audio playback
+- voice-note playback
+- document handling
+- loading states
+- failed downloads
+- missing local files
+- offline behavior
+
+A visual component existing does not prove its underlying data flow works.
+
+---
+
+24. LOADING STATES
+
+Check the Chat Room creation loader.
+
+Expected behavior:
+
+Message user
+↓
+Creating Chat Room loader
+↓
+subscription/messaging permission check
+↓
+backend request
+↓
+Chat Room returned
+↓
+open Chat Room
+
+The loader should not appear unnecessarily when simply opening an existing room.
+
+Verify the actual conditions.
+
+---
+
+25. POLLING
+
+The system uses lightweight polling rather than a persistent WebSocket.
+
+The purpose is primarily to detect changes and avoid requiring manual refresh.
+
+It must be scoped.
+
+Do NOT accept an implementation that continuously fetches everybody's messages.
+
+Verify:
+
+- open room polling
+- chat list polling
+- change detection
+- cleanup
+- duplicate intervals
+- stale responses
+- unnecessary network requests
+
+---
+
+26. FALSE IMPLEMENTATION DETECTION
+
+This is the most important part of the audit.
+
+For every feature, actively look for:
+
+TODO
+placeholder
+dummy
+mock
+fake response
+hardcoded response
+unused import
+unused function
+unused component
+unused state
+dead branch
+comment claiming functionality
+button with no real handler
+handler with no real API call
+API function that is never called
+database field that is never used
+local state pretending to be server state
+
+A feature is NOT implemented merely because:
+
+the function exists
+the import exists
+the button exists
+the component exists
+the API service exists
+the type exists
+the database field exists
+the UI looks correct
+
+You must trace the actual execution.
+
+---
+
+27. PROOF REQUIREMENT
+
+For every important feature, provide:
+
+Feature
+↓
+Entry point
+↓
+Function
+↓
+Service
+↓
+API request
+↓
+Response
+↓
+State/cache update
+↓
+UI result
+
+Include the exact:
+
+- filename
+- function/component
+- line number or line range
+- relevant symbol
+- problem found
+
+If possible, quote only the smallest relevant code fragment needed to identify the issue.
+
+---
+
+28. DO NOT CONFUSE "PRESENT" WITH "WORKING"
+
+Use these distinctions:
+
+PRESENT
+
+Code exists.
+
+CONNECTED
+
+Code is actually called.
+
+FUNCTIONAL
+
+The execution path produces the expected result.
+
+VERIFIED
+
+The implementation matches the architecture and has no obvious logical break in the inspected path.
+
+A component may be:
+
+PRESENT
+but NOT CONNECTED.
+
+A function may be:
+
+CONNECTED
+but NOT FUNCTIONAL.
+
+A feature may be:
+
+FUNCTIONAL
+but ARCHITECTURALLY WRONG.
+
+Your report must distinguish these.
+
+---
+
+29. DO NOT MODIFY SOURCE CODE
+
+Again:
+
+Do not fix anything.
+
+If you find a bug, report it.
+
+If you find missing implementation, report it.
+
+If you find an architectural violation, report it.
+
+If you find dead code, report it.
+
+Do not repair it during this audit.
+
+The purpose of this task is to produce an accurate map of the current state before implementation work begins.
+
+---
+
+30. REPORT STRUCTURE
+
+Create:
+
+report.md
+
+Use this structure:
+
+MeetSweet Messaging System — Forensic Code Review
+
+Executive Summary
+
+Explain whether the messaging system appears genuinely implemented or contains significant fake/incomplete implementations.
+
+Architecture Verified
+
+Explain what parts of the Chat Room architecture were actually found.
+
+Chat Room
+
+Context IDs
+
+Context Auth / Auth Trees
+
+Messages
+
+Message Operations
+
+Delete / Clear
+
+Block / Unblock
+
+Chat List
+
+SQLite
+
+Media / Expo File System
+
+Sender / Receiver Media Behavior
+
+Rendering
+
+Polling
+
+Loading States
+
+Navigation
+
+Legacy Code
+
+Dead / Dummy / Placeholder Code
+
+Critical Problems
+
+Logical Problems
+
+Architectural Problems
+
+Missing Features
+
+Suspicious Implementations
+
+Recommended Fix Order
+
+Do NOT fix the issues.
+
+Only recommend what should be fixed and why.
+
+---
+
+31. ISSUE FORMAT
+
+Every issue must use this structure:
+
+### ISSUE-001 — [Short title]
+
+Severity:
+CRITICAL / HIGH / MEDIUM / LOW
+
+Status:
+NOT IMPLEMENTED / PARTIALLY IMPLEMENTED / BROKEN / ARCHITECTURALLY WRONG / DEAD CODE / SUSPICIOUS
+
+File:
+path/to/file.tsx
+
+Lines:
+123-145
+
+Function/Component:
+functionName
+
+Finding:
+What the code actually does.
+
+Expected:
+What the Chat Room architecture requires.
+
+Why it is a problem:
+Explain the logical difference.
+
+Evidence:
+Identify the exact code path proving the finding.
+
+Recommended fix:
+Explain what should eventually be changed.
+
+Do not implement the fix.
+
+---
+
+32. FINAL REQUIREMENT
+
+Be skeptical.
+
+Assume that previous AI agents may have claimed features were implemented when they were not.
+
+Do not reward code merely for looking complete.
+
+Your job is to answer:
+
+«"If a real user uses this feature right now, will the intended system actually happen?"»
+
+If the answer is no, identify exactly where it fails.
+
+If the answer is yes, identify the actual execution path proving it.
+
+At the end provide:
+
+TOTAL FEATURES AUDITED
+ACTUALLY VERIFIED
+PARTIALLY IMPLEMENTED
+NOT IMPLEMENTED
+BROKEN
+DEAD/DUMMY CODE
+ARCHITECTURAL VIOLATIONS
+CRITICAL ISSUES
+
+Then provide a final verdict:
+
+READY FOR BACKEND INTEGRATION
+
+or
+
+MOBILE SYSTEM REQUIRES FIXES
+
+or
+
+MAJOR ARCHITECTURAL PROBLEMS
+
+Remember:
+
+This is an audit. Do not implement fixes.
+
+The only project changes permitted are:
+
+1. Remove all legacy ".md" files.
+2. Create/update "report.md".
+
+Everything else must remain untouched.

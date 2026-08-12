@@ -1,0 +1,803 @@
+/**
+ * Creator Payout — withdraw earnings in Naira.
+ *
+ * Flow:
+ *   1. View Naira balance
+ *   2. Add / edit bank details (Nigerian banks)
+ *   3. Enter withdrawal amount → request withdrawal
+ *   4. See withdrawal history with status tracking
+ *
+ * Backend placeholders (define for backend team):
+ *   GET  /api/payments/balance               → { balance, pendingWithdrawals, availableForWithdrawal }
+ *   POST /api/payments/save-bank-details      { bankName, accountNumber, accountName } → { success }
+ *   POST /api/payments/withdraw               { amount, bankDetails } → { success, withdrawalId, status }
+ *   GET  /api/payments/withdrawal-history     → { withdrawals: [...] }
+ */
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  ArrowDown,
+  ArrowLeft,
+  Bank,
+  Check,
+  CheckCircle,
+  Clock,
+  PencilSimple,
+  Warning,
+  X,
+  XCircle,
+} from 'phosphor-react-native';
+import { T } from '@/constants/theme';
+import { toast } from '@/components/MsToast';
+import { MsShimmer } from '@/components/MsShimmer';
+import { MsConfirmDialog } from '@/components/MsConfirmDialog';
+import {
+  NIGERIAN_BANKS,
+  type BankDetails,
+  type WithdrawalRecord,
+  getCreatorBalance,
+  saveBankDetails,
+  requestWithdrawal,
+  getWithdrawalHistory,
+} from '@/services/wallet';
+
+const MIN_WITHDRAWAL_NAIRA = 1000;
+const MAX_FRACTION_DIGITS = 0;
+
+function formatNaira(n: number): string {
+  return '₦' + n.toLocaleString('en-NG', { maximumFractionDigits: MAX_FRACTION_DIGITS });
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-NG', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────────
+
+type WdStatus = WithdrawalRecord['status'];
+
+function StatusBadge({ status }: { status: WdStatus }) {
+  const config: Record<WdStatus, { color: string; label: string }> = {
+    completed:  { color: T.SUCCESS,   label: 'Completed' },
+    processing: { color: '#3B82F6',   label: 'Processing' },
+    pending:    { color: '#F59E0B',   label: 'Pending' },
+    failed:     { color: T.ERROR,     label: 'Failed' },
+  };
+  const { color, label } = config[status] ?? config.pending;
+  return (
+    <View style={[badge.wrap, { backgroundColor: `${color}18` }]}>
+      <Text style={[badge.label, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+function StatusIcon({ status }: { status: WdStatus }) {
+  const props = { size: 18, weight: 'fill' as const };
+  if (status === 'completed')  return <CheckCircle {...props} color={T.SUCCESS} />;
+  if (status === 'processing') return <Clock {...props} color="#3B82F6" />;
+  if (status === 'pending')    return <Clock {...props} color="#F59E0B" />;
+  return <XCircle {...props} color={T.ERROR} />;
+}
+
+const badge = StyleSheet.create({
+  wrap: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: T.RADIUS.full },
+  label: { fontSize: 11, fontFamily: T.FONT.semibold },
+});
+
+// ─── Withdrawal record row ─────────────────────────────────────────────────────
+
+function WithdrawalRow({ item }: { item: WithdrawalRecord }) {
+  return (
+    <View style={rowS.row}>
+      <View style={[rowS.icon, { backgroundColor: `${item.status === 'completed' ? T.SUCCESS : item.status === 'failed' ? T.ERROR : '#F59E0B'}18` }]}>
+        <StatusIcon status={item.status} />
+      </View>
+      <View style={rowS.info}>
+        <Text style={rowS.bank}>{item.bankName} ···{item.accountNumber.slice(-4)}</Text>
+        <Text style={rowS.date}>{formatDate(item.createdAt)}</Text>
+      </View>
+      <View style={rowS.right}>
+        <Text style={rowS.amount}>{formatNaira(item.amount)}</Text>
+        <StatusBadge status={item.status} />
+      </View>
+    </View>
+  );
+}
+
+const rowS = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
+  icon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  info: { flex: 1 },
+  bank: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT },
+  date: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2 },
+  right: { alignItems: 'flex-end', gap: 5 },
+  amount: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT },
+});
+
+// ─── Bank details sheet ────────────────────────────────────────────────────────
+
+function BankDetailsSheet({
+  visible,
+  initial,
+  onSave,
+  onClose,
+}: {
+  visible: boolean;
+  initial: BankDetails | null;
+  onSave: (details: BankDetails) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [bankName, setBankName]           = useState(initial?.bankName ?? '');
+  const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? '');
+  const [accountName, setAccountName]     = useState(initial?.accountName ?? '');
+  const [showBanks, setShowBanks]         = useState(false);
+  const [saving, setSaving]               = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setBankName(initial?.bankName ?? '');
+      setAccountNumber(initial?.accountNumber ?? '');
+      setAccountName(initial?.accountName ?? '');
+    }
+  }, [visible, initial]);
+
+  const handleSave = async () => {
+    if (!bankName || !accountNumber || !accountName) {
+      toast.error('Please fill all bank details');
+      return;
+    }
+    if (accountNumber.length < 10) {
+      toast.error('Account number must be 10 digits');
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveBankDetails({ bankName, accountNumber, accountName });
+      onSave({ bankName, accountNumber, accountName });
+      toast.success('Bank details saved!');
+    } catch {
+      toast.error('Could not save bank details');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
+      >
+        <View style={[bankS.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={bankS.handle} />
+          <View style={bankS.titleRow}>
+            <Text style={bankS.title}>Bank Details</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={12}>
+              <X size={18} color={T.TEXT_2} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Bank picker */}
+          <TouchableOpacity style={bankS.field} onPress={() => setShowBanks(true)} activeOpacity={0.8}>
+            <Text style={bankS.fieldLabel}>Bank Name</Text>
+            <View style={bankS.fieldRow}>
+              <Text style={[bankS.fieldValue, !bankName && bankS.placeholder]}>
+                {bankName || 'Select bank'}
+              </Text>
+              <ArrowDown size={14} color={T.TEXT_2} />
+            </View>
+          </TouchableOpacity>
+
+          {/* Account number */}
+          <View style={bankS.field}>
+            <Text style={bankS.fieldLabel}>Account Number</Text>
+            <TextInput
+              style={bankS.input}
+              value={accountNumber}
+              onChangeText={(t) => setAccountNumber(t.replace(/\D/g, '').slice(0, 10))}
+              placeholder="10-digit account number"
+              placeholderTextColor={T.TEXT_3}
+              keyboardType="numeric"
+              maxLength={10}
+            />
+          </View>
+
+          {/* Account name */}
+          <View style={bankS.field}>
+            <Text style={bankS.fieldLabel}>Account Name</Text>
+            <TextInput
+              style={bankS.input}
+              value={accountName}
+              onChangeText={setAccountName}
+              placeholder="Full name on account"
+              placeholderTextColor={T.TEXT_3}
+              autoCapitalize="words"
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[bankS.saveBtn, saving && { opacity: 0.7 }]}
+            onPress={handleSave}
+            disabled={saving}
+            activeOpacity={0.85}
+          >
+            {saving ? <ActivityIndicator color={T.BG} size="small" /> : <Text style={bankS.saveBtnLabel}>Save Details</Text>}
+          </TouchableOpacity>
+        </View>
+
+        {/* Bank list modal */}
+        {showBanks && (
+          <Modal visible transparent animationType="fade" onRequestClose={() => setShowBanks(false)}>
+            <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={() => setShowBanks(false)}>
+              <View style={bankS.bankList}>
+                <Text style={bankS.bankListTitle}>Select Bank</Text>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {NIGERIAN_BANKS.map((b) => {
+                    const name = typeof b === 'string' ? b : b.name;
+                    return (
+                      <TouchableOpacity
+                        key={name}
+                        style={bankS.bankRow}
+                        onPress={() => { setBankName(name); setShowBanks(false); }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={bankS.bankName}>{name}</Text>
+                        {bankName === name && <Check size={15} color={T.TEXT} weight="bold" />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </Pressable>
+          </Modal>
+        )}
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const bankS = StyleSheet.create({
+  sheet: {
+    backgroundColor: T.SURFACE,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    gap: 4,
+    maxHeight: '90%',
+  },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 16 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18 },
+  field: { marginBottom: 16 },
+  fieldLabel: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 11, letterSpacing: 0.4, marginBottom: 7 },
+  fieldRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fieldValue: { color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 14 },
+  placeholder: { color: T.TEXT_3 },
+  input: {
+    height: 46,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+    paddingHorizontal: 14,
+    color: T.TEXT,
+    fontFamily: T.FONT.regular,
+    fontSize: 14,
+  },
+  saveBtn: {
+    height: 52,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.TEXT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  saveBtnLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+  bankList: {
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.xl,
+    marginHorizontal: 16,
+    marginTop: 80,
+    maxHeight: '70%',
+    padding: 20,
+  },
+  bankListTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16, marginBottom: 16 },
+  bankRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: T.BORDER },
+  bankName: { color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14 },
+});
+
+// ─── Withdrawal amount sheet ───────────────────────────────────────────────────
+
+function WithdrawAmountSheet({
+  visible,
+  availableBalance,
+  bankDetails,
+  onConfirm,
+  onClose,
+}: {
+  visible: boolean;
+  availableBalance: number;
+  bankDetails: BankDetails;
+  onConfirm: (amount: number) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [amount, setAmount] = useState('');
+  const parsed = parseInt(amount.replace(/,/g, ''), 10) || 0;
+  const isValid = parsed >= MIN_WITHDRAWAL_NAIRA && parsed <= availableBalance;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
+      >
+        <View style={[amtS.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={amtS.handle} />
+          <View style={amtS.titleRow}>
+            <Text style={amtS.title}>Withdraw Funds</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={12}>
+              <X size={18} color={T.TEXT_2} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={amtS.availLabel}>
+            Available: <Text style={amtS.availAmount}>{formatNaira(availableBalance)}</Text>
+          </Text>
+
+          {/* Amount input */}
+          <View style={amtS.amountWrap}>
+            <Text style={amtS.currency}>₦</Text>
+            <TextInput
+              style={amtS.amountInput}
+              value={amount}
+              onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
+              placeholder="0"
+              placeholderTextColor={T.TEXT_3}
+              keyboardType="numeric"
+              autoFocus
+            />
+          </View>
+
+          {parsed > 0 && parsed < MIN_WITHDRAWAL_NAIRA && (
+            <View style={amtS.hint}>
+              <Warning size={12} color={T.ERROR} />
+              <Text style={[amtS.hintText, { color: T.ERROR }]}>
+                Minimum withdrawal is {formatNaira(MIN_WITHDRAWAL_NAIRA)}
+              </Text>
+            </View>
+          )}
+          {parsed > availableBalance && (
+            <View style={amtS.hint}>
+              <Warning size={12} color={T.ERROR} />
+              <Text style={[amtS.hintText, { color: T.ERROR }]}>Exceeds available balance</Text>
+            </View>
+          )}
+
+          {/* Bank summary */}
+          <View style={amtS.bankSummary}>
+            <Bank size={15} color={T.TEXT_2} />
+            <Text style={amtS.bankText}>
+              {bankDetails.bankName} · ···{bankDetails.accountNumber.slice(-4)} · {bankDetails.accountName}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[amtS.withdrawBtn, !isValid && amtS.withdrawBtnDisabled]}
+            onPress={() => isValid && onConfirm(parsed)}
+            disabled={!isValid}
+            activeOpacity={0.85}
+          >
+            <Text style={[amtS.withdrawLabel, !isValid && { color: T.TEXT_3 }]}>
+              {isValid ? `Withdraw ${formatNaira(parsed)}` : 'Enter valid amount'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const amtS = StyleSheet.create({
+  sheet: {
+    backgroundColor: T.SURFACE,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+  },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 16 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18 },
+  availLabel: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12, marginBottom: 20 },
+  availAmount: { color: T.TEXT, fontFamily: T.FONT.semibold },
+  amountWrap: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 },
+  currency: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 32 },
+  amountInput: {
+    flex: 1,
+    color: T.TEXT,
+    fontFamily: T.FONT.bold,
+    fontSize: 40,
+    letterSpacing: -1,
+    paddingVertical: 0,
+  },
+  hint: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
+  hintText: { fontFamily: T.FONT.regular, fontSize: 12 },
+  bankSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+    marginBottom: 20,
+  },
+  bankText: { flex: 1, color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
+  withdrawBtn: {
+    height: 52,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.TEXT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  withdrawBtnDisabled: { backgroundColor: T.SURFACE_2 },
+  withdrawLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+});
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
+export default function CreatorPayoutScreen() {
+  const insets = useSafeAreaInsets();
+  const [balance, setBalance]             = useState<number | null>(null);
+  const [available, setAvailable]         = useState<number>(0);
+  const [withdrawals, setWithdrawals]     = useState<WithdrawalRecord[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [refreshing, setRefreshing]       = useState(false);
+  const [bankDetails, setBankDetails]     = useState<BankDetails | null>(null);
+  const [showBankSheet, setShowBankSheet] = useState(false);
+  const [showWithdrawAmt, setShowWithdrawAmt] = useState(false);
+  const [withdrawing, setWithdrawing]     = useState(false);
+  const [confirmWithdraw, setConfirmWithdraw] = useState<number | null>(null);
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [balData, histData] = await Promise.all([
+        getCreatorBalance(),
+        getWithdrawalHistory(),
+      ]);
+      setBalance(balData.balance);
+      setAvailable(balData.availableForWithdrawal);
+      setWithdrawals(histData.withdrawals);
+    } catch {
+      toast.error('Could not load payout data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleRefresh = () => { setRefreshing(true); load(true); };
+
+  const handleWithdrawRequest = (amount: number) => {
+    setShowWithdrawAmt(false);
+    setConfirmWithdraw(amount);
+  };
+
+  const doWithdraw = async () => {
+    const amount = confirmWithdraw;
+    setConfirmWithdraw(null);
+    if (!amount || !bankDetails) return;
+    setWithdrawing(true);
+    try {
+      const res = await requestWithdrawal(amount, bankDetails);
+      if (res.success) {
+        toast.success('Withdrawal request submitted!');
+        load(true);
+      } else {
+        toast.error('Could not process withdrawal. Try again.');
+      }
+    } catch {
+      toast.error('Withdrawal failed. Please try again.');
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  const canWithdraw = available >= MIN_WITHDRAWAL_NAIRA;
+
+  return (
+    <View style={[styles.bg, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <ArrowLeft size={22} color={T.TEXT} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Payouts</Text>
+        <View style={{ width: 38 }} />
+      </View>
+
+      <FlatList
+        data={withdrawals}
+        keyExtractor={(item) => item.id}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.TEXT} />
+        }
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        ListHeaderComponent={
+          <View>
+            {/* Balance card */}
+            <View style={styles.balanceCard}>
+              {loading ? (
+                <>
+                  <MsShimmer width="45%" height={13} />
+                  <MsShimmer width="65%" height={44} borderRadius={10} style={{ marginTop: 10 }} />
+                  <MsShimmer width="55%" height={11} style={{ marginTop: 8 }} />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.balanceLabel}>AVAILABLE FOR WITHDRAWAL</Text>
+                  <Text style={styles.balanceAmount}>{formatNaira(available)}</Text>
+                  <Text style={styles.balanceNote}>
+                    Total balance: {formatNaira(balance ?? 0)} · Min. withdrawal: {formatNaira(MIN_WITHDRAWAL_NAIRA)}
+                  </Text>
+                </>
+              )}
+
+              <TouchableOpacity
+                style={[styles.withdrawBtn, (!canWithdraw || withdrawing) && styles.withdrawBtnDisabled]}
+                onPress={() => {
+                  if (!canWithdraw) return;
+                  if (!bankDetails) { setShowBankSheet(true); return; }
+                  setShowWithdrawAmt(true);
+                }}
+                activeOpacity={0.85}
+                disabled={!canWithdraw || withdrawing}
+              >
+                {withdrawing ? (
+                  <ActivityIndicator color={T.BG} size="small" />
+                ) : (
+                  <>
+                    <ArrowDown size={15} color={canWithdraw ? T.BG : T.TEXT_3} />
+                    <Text style={[styles.withdrawLabel, !canWithdraw && { color: T.TEXT_3 }]}>
+                      Withdraw Funds
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Bank account card */}
+            <TouchableOpacity
+              style={styles.bankCard}
+              onPress={() => setShowBankSheet(true)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.bankIcon}>
+                <Bank size={20} color={T.TEXT_2} />
+              </View>
+              <View style={styles.bankInfo}>
+                {bankDetails ? (
+                  <>
+                    <Text style={styles.bankTitle}>{bankDetails.bankName}</Text>
+                    <Text style={styles.bankSub}>
+                      {bankDetails.accountName} · ···{bankDetails.accountNumber.slice(-4)}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.bankTitle}>Add Bank Account</Text>
+                    <Text style={styles.bankSub}>Required to withdraw funds</Text>
+                  </>
+                )}
+              </View>
+              <PencilSimple size={15} color={T.TEXT_2} />
+            </TouchableOpacity>
+
+            {/* History header */}
+            {withdrawals.length > 0 && (
+              <Text style={styles.sectionTitle}>Withdrawal History</Text>
+            )}
+          </View>
+        }
+        ListEmptyComponent={
+          loading ? (
+            <View style={{ paddingHorizontal: 20, gap: 12, paddingTop: 4 }}>
+              {[60, 60, 60].map((h, i) => <MsShimmer key={i} width="100%" height={h} borderRadius={T.RADIUS.md} />)}
+            </View>
+          ) : (
+            <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyTitle}>No withdrawals yet</Text>
+                <Text style={styles.emptySub}>
+                  Once you withdraw earnings, your history will appear here.
+                </Text>
+              </View>
+            </View>
+          )
+        }
+        renderItem={({ item }) => <WithdrawalRow item={item} />}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+      />
+
+      {/* Bank details sheet */}
+      <BankDetailsSheet
+        visible={showBankSheet}
+        initial={bankDetails}
+        onSave={(d) => { setBankDetails(d); setShowBankSheet(false); }}
+        onClose={() => setShowBankSheet(false)}
+      />
+
+      {/* Withdrawal amount sheet */}
+      {bankDetails && (
+        <WithdrawAmountSheet
+          visible={showWithdrawAmt}
+          availableBalance={available}
+          bankDetails={bankDetails}
+          onConfirm={handleWithdrawRequest}
+          onClose={() => setShowWithdrawAmt(false)}
+        />
+      )}
+
+      {/* Confirm dialog */}
+      <MsConfirmDialog
+        visible={confirmWithdraw !== null}
+        title="Confirm Withdrawal"
+        message={`Withdraw ${confirmWithdraw !== null ? formatNaira(confirmWithdraw) : ''} to ${bankDetails?.bankName ?? ''} ···${(bankDetails?.accountNumber ?? '').slice(-4)}?\n\nProcessing takes 1–3 business days.`}
+        confirmLabel="Confirm Withdrawal"
+        onConfirm={doWithdraw}
+        onCancel={() => setConfirmWithdraw(null)}
+      />
+    </View>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: T.BG },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: T.BORDER,
+    gap: 12,
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    letterSpacing: -0.3,
+    textAlign: 'center',
+  },
+
+  balanceCard: {
+    margin: 20,
+    padding: 22,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.xl,
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
+    gap: 6,
+  },
+  balanceLabel: {
+    fontSize: 10,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT_3,
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  balanceAmount: {
+    fontSize: 38,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    letterSpacing: -1.5,
+    marginVertical: 2,
+  },
+  balanceNote: {
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+    lineHeight: 17,
+  },
+  withdrawBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 18,
+    paddingHorizontal: 28,
+    paddingVertical: 13,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.TEXT,
+  },
+  withdrawBtnDisabled: { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER_2 },
+  withdrawLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.BG },
+
+  bankCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 8,
+    padding: 16,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
+    gap: 14,
+  },
+  bankIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bankInfo: { flex: 1 },
+  bankTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  bankSub: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
+
+  sectionTitle: {
+    fontSize: 11,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT_3,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 8,
+  },
+
+  separator: { height: 1, backgroundColor: T.BORDER, marginLeft: 72 },
+
+  emptyBox: {
+    padding: 24,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyTitle: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
+  emptySub: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_3, textAlign: 'center', lineHeight: 20 },
+});

@@ -1,0 +1,333 @@
+/**
+ * NotificationsContext
+ *
+ * Responsibilities:
+ * 1. Register for device/Expo push notifications (permissions + token → live backend)
+ * 2. Poll the /notifications endpoint for unread count
+ * 3. Poll /chat-rooms for total unread message count
+ * 4. Surface notifUnread + messageUnread counts app-wide (for badges)
+ * 5. Handle foreground notification display without hijacking navigation
+ * 6. Route user on explicit notification tap to the target destination
+ */
+
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import { router } from 'expo-router';
+import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
+import { getChatRoomList } from '@/services/room-service';
+import { useAuth } from '@/contexts/AuthContext';
+
+// ─── Notification display while the app is foregrounded ──────────────────────
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface NotificationsContextValue {
+  /** Number of unread in-app notifications */
+  notifUnread: number;
+  /** Total unread messages across all chat rooms */
+  messageUnread: number;
+  /** Push notification permission status */
+  permissionStatus: string | null;
+  /** Device push token if registered */
+  pushToken: string | null;
+  /** Manually re-fetch both counts right now */
+  refresh: () => void;
+  /** Decrement notifUnread by n (optimistic mark-read) */
+  decrementNotif: (n?: number) => void;
+  /** Zero out notifUnread (mark-all-read) */
+  clearNotif: () => void;
+}
+
+const NotificationsContext = createContext<NotificationsContextValue>({
+  notifUnread: 0,
+  messageUnread: 0,
+  permissionStatus: null,
+  pushToken: null,
+  refresh: () => {},
+  decrementNotif: () => {},
+  clearNotif: () => {},
+});
+
+export function useNotifications() {
+  return useContext(NotificationsContext);
+}
+
+// ─── Push-token registration ──────────────────────────────────────────────────
+
+async function registerPushToken(): Promise<{ token: string | null; status: string }> {
+  if (!Device.isDevice && Platform.OS !== 'web') {
+    return { token: null, status: 'simulator' };
+  }
+
+  let finalStatus = 'undetermined';
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    finalStatus = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+  } catch {
+    return { token: null, status: 'denied' };
+  }
+
+  if (finalStatus !== 'granted') {
+    return { token: null, status: finalStatus };
+  }
+
+  // Android needs a notification channel
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'MeetSweet',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#C45A72',
+    }).catch(() => {});
+  }
+
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
+    return { token: tokenData?.data ?? null, status: finalStatus };
+  } catch {
+    return { token: null, status: finalStatus };
+  }
+}
+
+// ─── Route notification tap to the right screen ──────────────────────────────
+
+function handleNotificationTap(notification: Notifications.Notification, isUserAction = false) {
+  const data = (notification.request.content.data ?? {}) as Record<string, string>;
+
+  const type = data.type ?? '';
+  const postId = data.post_id ?? data.postId;
+  const contentType = data.content_type ?? data.contentType ?? type;
+  const contentId = data.content_id ?? data.contentId;
+  const actorId = data.actor_id ?? data.actorId ?? data.username;
+  const chatRoomId = data.chat_room_id ?? data.chatRoomId;
+
+  // message / dm → open the chat room
+  if (type === 'message' || type === 'dm' || chatRoomId) {
+    if (chatRoomId) {
+      router.push(`/chat-room/${chatRoomId}`);
+      return;
+    }
+  }
+
+  // wallet / payout → open wallet
+  if (type === 'wallet' || type === 'payout' || type === 'payment') {
+    router.push('/wallet');
+    return;
+  }
+
+  // subscribe → open the subscriber's profile
+  if (type === 'subscribe' || type === 'creator') {
+    if (actorId) {
+      router.push(`/creator/${actorId}`);
+      return;
+    }
+  }
+
+  // new_post → route by content_type using content_id
+  if (type === 'new_post' || contentId) {
+    const id = contentId ?? postId;
+    if (id) {
+      if (contentType === 'video') {
+        router.push(`/videos/${id}`);
+      } else if (contentType === 'short') {
+        router.push({ pathname: '/shorts', params: { startId: id } });
+      } else if (contentType === 'album') {
+        router.push(`/album/${id}`);
+      } else {
+        router.push(`/post/${id}`);
+      }
+      return;
+    }
+  }
+
+  // like / comment → route by content_type using post_id
+  if (postId) {
+    if (contentType === 'video') {
+      router.push(`/videos/${postId}`);
+    } else if (contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: postId } });
+    } else {
+      router.push(`/post/${postId}`);
+    }
+    return;
+  }
+
+  // ONLY navigate to /notifications if this was an explicit user tap AND data asks for it
+  if (isUserAction && (type === 'notification_list' || data.openNotifications === 'true')) {
+    router.push('/notifications');
+  }
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
+const POLL_INTERVAL_MS = 30_000; // 30 s
+
+export function NotificationsProvider({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, user } = useAuth();
+  const [notifUnread, setNotifUnread] = useState(0);
+  const [messageUnread, setMessageUnread] = useState(0);
+  const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
+  const [pushToken, setPushToken] = useState<string | null>(null);
+
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastRegisteredUser = useRef<string | null>(null);
+  const lastHandledResponseId = useRef<string | null>(null);
+  const notifListenerRef = useRef<Notifications.EventSubscription | null>(null);
+  const responseListenerRef = useRef<Notifications.EventSubscription | null>(null);
+
+  // ── Fetch both counts ──────────────────────────────────────────────────────
+  const fetchCounts = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const [notifResult, msgResult] = await Promise.allSettled([
+        getNotifications(1),
+        getChatRoomList('all'),
+      ]);
+
+      if (notifResult.status === 'fulfilled') {
+        setNotifUnread(notifResult.value.unreadCount);
+      }
+
+      if (msgResult.status === 'fulfilled') {
+        const total = msgResult.value.chatRooms.reduce(
+          (sum, c) => sum + (c.unreadCount ?? 0),
+          0,
+        );
+        setMessageUnread(total);
+      }
+    } catch {
+      // Non-fatal — badge just stays stale
+    }
+  }, [isAuthenticated]);
+
+  // ── Push-token registration (runs silently on session start or user change) ──────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    if (lastRegisteredUser.current === user.id) return;
+
+    lastRegisteredUser.current = user.id;
+
+    registerPushToken().then(({ token, status }) => {
+      setPermissionStatus(status);
+      if (token) {
+        setPushToken(token);
+        registerPushTokenToBackend(token, Platform.OS);
+      }
+    });
+  }, [isAuthenticated, user?.id]);
+
+  // ── Polling ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated) {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      setNotifUnread(0);
+      setMessageUnread(0);
+      lastRegisteredUser.current = null;
+      return;
+    }
+
+    fetchCounts(); // immediate first fetch
+    pollTimerRef.current = setInterval(fetchCounts, POLL_INTERVAL_MS);
+
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, [isAuthenticated, fetchCounts]);
+
+  // ── Notification listeners ─────────────────────────────────────────────────
+  useEffect(() => {
+    // Foreground: a notification arrives while the app is open
+    notifListenerRef.current = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data as Record<string, string> | null;
+      const type = data?.type ?? data?.content_type ?? '';
+      if (type === 'message' || type === 'dm') {
+        setMessageUnread((n) => n + 1);
+      } else {
+        setNotifUnread((n) => n + 1);
+      }
+    });
+
+    // Background/quit: user taps a notification
+    responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const id = response.notification.request.identifier;
+        if (id && lastHandledResponseId.current === id) return;
+        if (id) lastHandledResponseId.current = id;
+
+        handleNotificationTap(response.notification, true);
+      },
+    );
+
+    return () => {
+      notifListenerRef.current?.remove();
+      responseListenerRef.current?.remove();
+    };
+  }, []);
+
+  // ── Cold start response handling (guarded against double-handling) ─────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const id = response.notification.request.identifier;
+      if (id && lastHandledResponseId.current === id) return;
+      if (id) lastHandledResponseId.current = id;
+
+      // Only handle if action was default tap and has target data
+      if (response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+        handleNotificationTap(response.notification, false);
+      }
+    });
+  }, [isAuthenticated]);
+
+  const refresh = useCallback(() => {
+    fetchCounts();
+  }, [fetchCounts]);
+
+  const decrementNotif = useCallback((n = 1) => {
+    setNotifUnread((prev) => Math.max(0, prev - n));
+  }, []);
+
+  const clearNotif = useCallback(() => {
+    setNotifUnread(0);
+  }, []);
+
+  return (
+    <NotificationsContext.Provider
+      value={{
+        notifUnread,
+        messageUnread,
+        permissionStatus,
+        pushToken,
+        refresh,
+        decrementNotif,
+        clearNotif,
+      }}
+    >
+      {children}
+    </NotificationsContext.Provider>
+  );
+}

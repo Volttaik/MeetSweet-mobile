@@ -1,0 +1,99 @@
+@import 'tailwindcss';
+@import 'uniwind';
+@import 'heroui-native/styles';
+
+@source './node_modules/heroui-native/lib';
+
+@layer theme {
+  :root {
+    @variant light {
+        --background:       #FFF9FA;
+        --foreground:       #24151B;
+       --surface:          #FFFFFF;
+       --surface-foreground: #000000;
+        --accent:           #B9536B;
+       --accent-foreground: #FFFFFF;
+        --border:           transparent;
+        --muted:            #8C6570;
+        --default:          #FFF0F2;
+        --default-foreground: #24151B;
+
+      --font-normal:   'Poppins_400Regular';
+      --font-medium:   'Poppins_500Medium';
+      --font-semibold: 'Poppins_600SemiBold';
+      --font-bold:     'Poppins_700Bold';
+      --radius: 1rem;
+    }
+
+    @variant dark {
+       --background:       #120B10;
+       --foreground:       #FFFFFF;
+       --surface:          #21151D;
+       --surface-foreground: #FFFFFF;
+       --accent:           #D96A82;
+       --accent-foreground: #FFFFFF;
+       --border:           transparent;
+       --muted:            rgba(255,255,255,0.40);
+       --default:          #2B1A25;
+       --default-foreground: #FFFFFF;
+
+      --font-normal:   'Poppins_400Regular';
+      --font-medium:   'Poppins_500Medium';
+      --font-semibold: 'Poppins_600SemiBold';
+      --font-bold:     'Poppins_700Bold';
+      --radius: 1rem;
+    }
+  }
+}
+
+/* ── Web: eliminate ALL browser-default input outlines ────────────────────── */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    outline: none !important;
+    outline-width: 0 !important;
+    outline-style: none !important;
+    box-shadow: none;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    outline: none !important;
+    border: none;
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: transparent;
+  }
+
+  /* Kill the textarea resize handle (the "dots" in the corner) */
+  textarea {
+    resize: none;
+    overflow: hidden;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus,
+  button:focus,
+  input:focus-visible,
+  textarea:focus-visible,
+  button:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+
+  /* Remove iOS tap highlight */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent white background flash on body */
+  body, html, #root {
+    background-color: #120B10;
+    color: #FFFFFF;
+  }
+}
