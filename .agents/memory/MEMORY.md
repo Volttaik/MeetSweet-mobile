@@ -1,0 +1,1 @@
+- [Antigravity CLI environment](antigravity-cli-environment.md) — managed shell startup needs user config files; use the persistent sandbox-scoped launcher rather than unrestricted autonomy.
