@@ -1,0 +1,657 @@
+/**
+ * Album detail screen — /album/[id]
+ *
+ * Shows the full album: cover hero, creator info, description, item count,
+ * price, locked/unlocked state, and a grid preview of contained items.
+ * Locked albums blur individual items and show an unlock CTA.
+ */
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
+import {
+  ArrowLeft,
+  Check,
+  Images,
+  Lock,
+  Play,
+  Star,
+  UserCircle,
+  ShareNetwork,
+} from 'phosphor-react-native';
+import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsAvatar } from '@/components/MsAvatar';
+import { MsAmbientBackground } from '@/components/MsAmbientBackground';
+import { MsEmptyState } from '@/components/MsEmptyState';
+import { MsPostSkeleton } from '@/components/MsSkeletonCard';
+import { T } from '@/constants/theme';
+import { useAlbum, purchaseAlbum } from '@/services/albums';
+import type { AlbumItem } from '@/services/albums';
+import { MsShareSheet } from '@/components/MsShareSheet';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GRID_GAP = 3;
+const GRID_COLS = 3;
+const THUMB_SIZE = (SCREEN_WIDTH - GRID_GAP * (GRID_COLS + 1)) / GRID_COLS;
+
+const TONE: Record<string, string> = {
+  violet:  '#1B1128',
+  rose:    '#1C0E13',
+  amber:   '#1C1508',
+  teal:    '#091A18',
+  indigo:  '#0E0F1E',
+  emerald: '#0B1A12',
+  sky:     '#091520',
+  fuchsia: '#1A0E1C',
+};
+
+function tone(gradient: string) {
+  return TONE[gradient] ?? T.SURFACE_2;
+}
+
+export default function AlbumScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockedOverride, setUnlockedOverride] = useState<boolean | null>(null);
+  const [shareVisible, setShareVisible] = useState(false);
+
+  const { data: album, isLoading, isError } = useAlbum(id ?? '');
+
+  // isUnlockedByMe from the backend is the source of truth; unlockedOverride
+  // reflects a successful unlock within the current session without a refetch.
+  const isUnlockedByMe = unlockedOverride ?? album?.isUnlockedByMe ?? false;
+
+  const handleUnlock = () => {
+    if (!album) return;
+    Alert.alert(
+      'Purchase Album',
+      `Purchase "${album.title}" for ₦${album.price?.toLocaleString()}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Purchase · ₦${album.price?.toLocaleString()}`,
+          style: 'default',
+          onPress: async () => {
+            setUnlocking(true);
+            try {
+              await purchaseAlbum(album.id);
+              setUnlockedOverride(true);
+              Alert.alert('Purchased!', `You now have full access to "${album.title}".`);
+            } catch (err) {
+              Alert.alert('Could not purchase', (err as Error).message ?? 'Please try again.');
+            } finally {
+              setUnlocking(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+        <View style={styles.backRow}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <ArrowLeft size={20} color={T.TEXT} />
+          </Pressable>
+        </View>
+        <View style={styles.skeletonWrap}>
+          <MsPostSkeleton />
+          <MsPostSkeleton />
+          <MsPostSkeleton />
+        </View>
+      </MsAmbientBackground>
+    );
+  }
+
+  // ── Error / not found ────────────────────────────────────────────────────────
+  if (isError || !album) {
+    return (
+      <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+        <View style={styles.backRow}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <ArrowLeft size={20} color={T.TEXT} />
+          </Pressable>
+        </View>
+        <View style={styles.loadingWrap}>
+          <MsEmptyState
+            title="Album not found"
+            message="This album may have been removed or is unavailable."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+          />
+        </View>
+      </MsAmbientBackground>
+    );
+  }
+
+  const isLocked = album.requiresPurchase && !isUnlockedByMe;
+  const visibleItems = isLocked ? album.items.slice(0, 3) : album.items;
+
+  // ── Grid item renderer ───────────────────────────────────────────────────────
+  const renderItem = ({ item, index }: { item: AlbumItem; index: number }) => {
+    const isBlurred = isLocked && index >= 2;
+    return (
+      <Pressable
+        style={[styles.gridThumb, { backgroundColor: tone(album.gradient) }]}
+        onPress={() => {
+          if (isLocked) {
+            handleUnlock();
+          } else {
+            router.push(`/content/${item.id}`);
+          }
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={isLocked ? 'Locked item — unlock to view' : `View item`}
+      >
+        {item.thumbnailUrl ? (
+          <MsMediaLoader
+            uri={item.thumbnailUrl}
+            style={[StyleSheet.absoluteFill, isBlurred && styles.blurredThumb]}
+            resizeMode="cover"
+            accessibleLabel=""
+            errorMessage=""
+            fallback={null}
+          />
+        ) : null}
+
+        {/* Video indicator */}
+        {item.type === 'video' && !isBlurred && (
+          <View style={styles.playBadge}>
+            <Play size={10} color={T.TEXT} weight="fill" />
+          </View>
+        )}
+
+        {/* Lock overlay */}
+        {isBlurred && (
+          <View style={styles.thumbLock}>
+            <Lock size={14} color={T.TEXT} weight="bold" />
+          </View>
+        )}
+      </Pressable>
+    );
+  };
+
+  const lockedCount = Math.max(0, album.itemCount - 3);
+
+  return (
+    <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        {/* ── Hero cover ─────────────────────────────────────────────────────── */}
+        <View style={[styles.hero, { backgroundColor: tone(album.gradient) }]}>
+          {album.coverUrl ? (
+            <MsMediaLoader
+              uri={album.coverUrl}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+              accessibleLabel={`${album.title} cover`}
+              errorMessage=""
+              fallback={null}
+            />
+          ) : null}
+
+          {/* Gradient scrim */}
+          <View style={styles.heroScrim} pointerEvents="none" />
+
+          {/* Back button */}
+          <View style={styles.backRow}>
+            <Pressable style={styles.backButton} onPress={() => router.back()}>
+              <ArrowLeft size={20} color={T.TEXT} />
+            </Pressable>
+          </View>
+          {/* Share button */}
+          <Pressable style={styles.shareButton} onPress={() => setShareVisible(true)} accessibilityLabel="Share album">
+            <ShareNetwork size={18} color={T.TEXT} />
+          </Pressable>
+
+          {/* Collection badge */}
+          <View style={styles.heroBadge}>
+            <Images size={12} color={T.TEXT} weight="bold" />
+            <Text style={styles.heroBadgeText}>COLLECTION</Text>
+          </View>
+
+          {/* Price badge */}
+          {album.requiresPurchase && (
+            <View style={styles.heroPriceBadge}>
+              <Star size={10} color={T.ACCENT} weight="fill" />
+              <Text style={styles.heroPriceText}>₦{album.price?.toLocaleString()}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* ── Album info ──────────────────────────────────────────────────────── */}
+        <View style={styles.info}>
+          {/* Title */}
+          <Text style={styles.albumTitle}>{album.title}</Text>
+
+          {/* Creator row */}
+          <TouchableOpacity
+            style={styles.creatorRow}
+            onPress={() => router.push(`/creator/${album.creatorId}`)}
+            activeOpacity={0.8}
+          >
+            <MsAvatar
+              size={34}
+              initials={album.creatorInitials}
+              imageUri={album.creatorAvatarUrl ?? undefined}
+              showOnline={album.creatorIsOnline}
+            />
+            <View style={styles.creatorText}>
+              <View style={styles.creatorNameRow}>
+                <Text style={styles.creatorName}>{album.creatorName}</Text>
+                {album.creatorIsVerified && (
+                  <Check size={12} color={T.TEXT_2} weight="fill" />
+                )}
+              </View>
+              <Text style={styles.creatorHandle}>{album.creatorHandle}</Text>
+            </View>
+            <View style={styles.viewProfileBtn}>
+              <UserCircle size={14} color={T.TEXT_2} />
+              <Text style={styles.viewProfileText}>Profile</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Description */}
+          {album.description ? (
+            <Text style={styles.description}>{album.description}</Text>
+          ) : null}
+
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{album.itemCount}</Text>
+              <Text style={styles.statLabel}>items</Text>
+            </View>
+            {album.requiresPurchase && (
+              <View style={styles.stat}>
+                <Text style={[styles.statValue, { color: T.ACCENT }]}>
+                  {album.price}
+                </Text>
+                <Text style={styles.statLabel}>Naira</Text>
+              </View>
+            )}
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>
+                {album.requiresPurchase ? 'Purchase' : 'Free'}
+              </Text>
+              <Text style={styles.statLabel}>access</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Unlock CTA ──────────────────────────────────────────────────────── */}
+        {isLocked && (
+          <View style={styles.unlockCard}>
+            <View style={styles.unlockIconWrap}>
+              <Lock size={22} color={T.TEXT} weight="bold" />
+            </View>
+            <View style={styles.unlockCopy}>
+              <Text style={styles.unlockTitle}>Exclusive Album</Text>
+              <Text style={styles.unlockSub}>
+                Purchase all {album.itemCount} items for ₦{album.price?.toLocaleString()}.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.unlockButton, unlocking && { opacity: 0.6 }]}
+              onPress={handleUnlock}
+              activeOpacity={0.85}
+              disabled={unlocking}
+            >
+              {unlocking
+                ? <ActivityIndicator size="small" color={T.BG} />
+                : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Purchase</Text></>}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Grid preview ────────────────────────────────────────────────────── */}
+        <View style={styles.gridSection}>
+          <View style={styles.gridHeader}>
+            <Text style={styles.gridTitle}>
+              {isLocked ? 'Preview' : `All ${album.itemCount} items`}
+            </Text>
+            {isLocked && (
+              <Text style={styles.gridSubtitle}>
+                {lockedCount} more locked
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.grid}>
+            {visibleItems.map((item, index) => (
+              <View key={item.id}>
+                {renderItem({ item, index })}
+              </View>
+            ))}
+
+            {/* Locked remainder cell */}
+            {isLocked && lockedCount > 0 && (
+              <Pressable
+                style={[styles.gridThumb, styles.lockedRemainderThumb, { backgroundColor: tone(album.gradient) }]}
+                onPress={handleUnlock}
+                accessibilityRole="button"
+                accessibilityLabel={`Unlock ${lockedCount} more items`}
+              >
+                <View style={styles.lockedRemainder}>
+                  <Lock size={18} color={T.TEXT} weight="bold" />
+                  <Text style={styles.lockedRemainderText}>+{lockedCount}</Text>
+                  <Text style={styles.lockedRemainderSub}>locked</Text>
+                </View>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.bottomSpace} />
+      </ScrollView>
+      <MsShareSheet
+        visible={shareVisible}
+        contentType="album"
+        contentId={album.id}
+        title={album.title}
+        onClose={() => setShareVisible(false)}
+      />
+    </MsAmbientBackground>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: T.BG },
+  scroll: { paddingBottom: 40 },
+
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  skeletonWrap: {
+    paddingTop: 16,
+  },
+
+  // Hero
+  hero: {
+    height: 320,
+    position: 'relative',
+    justifyContent: 'flex-end',
+  },
+  heroScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  backRow: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    zIndex: 10,
+  },
+  shareButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...T.SHADOWS.soft,
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...T.SHADOWS.soft,
+  },
+  heroBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: T.RADIUS.full,
+  },
+  heroBadgeText: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 9,
+    letterSpacing: 1,
+  },
+  heroPriceBadge: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(196,90,114,0.28)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: T.RADIUS.full,
+  },
+  heroPriceText: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 11,
+  },
+
+  // Info section
+  info: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    gap: 14,
+  },
+  albumTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.bold,
+    fontSize: 26,
+    letterSpacing: -0.5,
+  },
+  creatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  creatorText: { flex: 1, gap: 2 },
+  creatorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  creatorName: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 14,
+  },
+  creatorHandle: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 12,
+  },
+  viewProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.SURFACE,
+  },
+  viewProfileText: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.medium,
+    fontSize: 12,
+  },
+  description: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 24,
+  },
+  stat: { alignItems: 'center', gap: 2 },
+  statValue: {
+    color: T.TEXT,
+    fontFamily: T.FONT.bold,
+    fontSize: 18,
+    letterSpacing: -0.4,
+  },
+  statLabel: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.regular,
+    fontSize: 11,
+  },
+
+  // Unlock card
+  unlockCard: {
+    marginHorizontal: 20,
+    marginTop: 22,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.xl,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    ...T.SHADOWS.medium,
+  },
+  unlockIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  unlockCopy: { flex: 1, gap: 3 },
+  unlockTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 14,
+  },
+  unlockSub: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  unlockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: T.ACCENT,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: T.RADIUS.full,
+    flexShrink: 0,
+    ...T.SHADOWS.soft,
+  },
+  unlockButtonText: {
+    color: T.BG,
+    fontFamily: T.FONT.bold,
+    fontSize: 13,
+  },
+
+  // Grid
+  gridSection: {
+    marginTop: 28,
+  },
+  gridHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  gridTitle: {
+    color: T.TEXT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 15,
+  },
+  gridSubtitle: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.regular,
+    fontSize: 12,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GRID_GAP,
+    paddingHorizontal: GRID_GAP,
+  },
+  gridThumb: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 0,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  blurredThumb: {
+    opacity: 0.18,
+  },
+  playBadge: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbLock: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(8,5,12,0.72)',
+  },
+
+  lockedRemainderThumb: {
+    // same size as other thumbs
+  },
+  lockedRemainder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(8,5,12,0.82)',
+  },
+  lockedRemainderText: {
+    color: T.TEXT,
+    fontFamily: T.FONT.bold,
+    fontSize: 22,
+    letterSpacing: -0.5,
+  },
+  lockedRemainderSub: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 11,
+  },
+
+  bottomSpace: { height: 32 },
+});

@@ -1,0 +1,469 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Spinner } from 'heroui-native';
+import { MsShimmer } from '@/components/MsShimmer';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ArrowLeft, BellSlash, Check, ArrowsClockwise, Trash } from 'phosphor-react-native';
+import { router } from 'expo-router';
+import { T } from '@/constants/theme';
+import { MsAvatar } from '@/components/MsAvatar';
+import { MsEmptyState } from '@/components/MsEmptyState';
+import { toast } from '@/components/MsToast';
+import {
+  getNotifications,
+  deleteNotification,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type Notification,
+} from '@/services/notifications';
+import { useNotifications } from '@/contexts/NotificationsContext';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function groupNotifications(items: Notification[]) {
+  const today: Notification[] = [];
+  const yesterday: Notification[] = [];
+  const earlier: Notification[] = [];
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfToday.getDate() - 1);
+
+  for (const n of items) {
+    const d = new Date(n.createdAt);
+    if (isNaN(d.getTime())) {
+      earlier.push(n);
+      continue;
+    }
+    if (d >= startOfToday) today.push(n);
+    else if (d >= startOfYesterday) yesterday.push(n);
+    else earlier.push(n);
+  }
+
+  return { today, yesterday, earlier };
+}
+
+function initials(name: string): string {
+  return name
+    .split(' ')
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .slice(0, 2)
+    .join('');
+}
+
+// ─── Notification row ─────────────────────────────────────────────────────────
+
+function NotifRow({
+  item,
+  onPress,
+  onDelete,
+}: {
+  item: Notification;
+  onPress: (n: Notification) => void;
+  onDelete: (n: Notification) => void;
+}) {
+  const actorName = item.actor?.name ?? 'MeetSweet';
+  const actorInitials = initials(actorName);
+  const actorAvatar = item.actor?.avatarUrl ?? undefined;
+
+  return (
+    <TouchableOpacity
+      style={[styles.notifRow, !item.isRead && styles.notifRowUnread]}
+      onPress={() => onPress(item)}
+      activeOpacity={0.7}
+    >
+      <MsAvatar
+        size={44}
+        initials={item.actor ? actorInitials : '!'}
+        imageUri={actorAvatar}
+      />
+      <View style={styles.notifContent}>
+        <Text style={styles.notifBody} numberOfLines={2}>
+          <Text style={styles.notifActor}>{actorName} </Text>
+          {item.body
+            .replace(/^.*?sent you|^.*?liked|^.*?subscribed|^.*?commented/, (m) =>
+              m.split(/\s/).slice(1).join(' '),
+            )}
+        </Text>
+        <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
+      </View>
+      {!item.isRead && <View style={styles.unreadDot} />}
+      <TouchableOpacity
+        style={styles.deleteBtn}
+        onPress={(e) => {
+          e.stopPropagation();
+          onDelete(item);
+        }}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Delete notification"
+      >
+        <Trash size={16} color={T.TEXT_3} />
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+function NotifGroup({
+  title,
+  items,
+  onPress,
+  onDelete,
+}: {
+  title: string;
+  items: Notification[];
+  onPress: (n: Notification) => void;
+  onDelete: (n: Notification) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <View>
+      <View style={styles.groupHeader}>
+        <Text style={styles.groupTitle}>{title}</Text>
+      </View>
+      {items.map((item) => (
+        <NotifRow key={item.id} item={item} onPress={onPress} onDelete={onDelete} />
+      ))}
+    </View>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
+export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [marking, setMarking] = useState(false);
+  const { decrementNotif, clearNotif, refresh: refreshCounts } = useNotifications();
+
+  const load = useCallback(async (isPull = false) => {
+    if (isPull) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+
+    try {
+      const data = await getNotifications();
+      setNotifications(data.notifications);
+      refreshCounts();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load notifications');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [refreshCounts]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handlePress = async (n: Notification) => {
+    if (!n.isRead) {
+      setNotifications((prev) =>
+        prev.map((x) => (x.id === n.id ? { ...x, isRead: true, read: true } : x)),
+      );
+      markNotificationRead(n.id).catch(() => {});
+      decrementNotif(1);
+    }
+
+    const data = n.data || {};
+    const chatRoomId = n.chatRoomId || data.chatRoomId || data.chat_room_id;
+    if (chatRoomId || n.type === 'message' || n.type === 'dm') {
+      if (chatRoomId) {
+        router.push(`/chat-room/${chatRoomId}`);
+        return;
+      }
+    }
+
+    if (n.type === 'wallet' || n.type === 'payout' || n.type === 'payment' || n.type === 'purchase') {
+      router.push('/wallet');
+      return;
+    }
+
+    const actorId = n.actor?.id || data.actorId || data.actor_id || data.creatorId || data.creator_id;
+    if (n.type === 'subscribe' || n.type === 'creator' || n.type === 'subscription') {
+      if (actorId) {
+        router.push(`/creator/${actorId}`);
+        return;
+      }
+    }
+
+    const id = n.contentId ?? n.postId ?? data.contentId ?? data.content_id ?? data.postId ?? data.post_id;
+    if (id) {
+      const contentType = n.contentType || data.contentType || data.content_type;
+      if (contentType === 'video') {
+        router.push(`/videos/${n.videoId ?? id}`);
+      } else if (contentType === 'short') {
+        router.push({ pathname: '/shorts', params: { startId: n.shortId ?? id } });
+      } else if (contentType === 'album') {
+        router.push(`/album/${n.albumId ?? id}`);
+      } else {
+        router.push(`/post/${id}`);
+      }
+      return;
+    }
+  };
+
+  const handleDelete = async (n: Notification) => {
+    try {
+      await deleteNotification(n.id);
+      setNotifications((prev) => prev.filter((x) => x.id !== n.id));
+      if (!n.isRead) decrementNotif(1);
+    } catch {
+      toast.error('Failed to delete notification');
+    }
+  };
+
+  const handleMarkAll = async () => {
+    if (marking) return;
+    setMarking(true);
+    try {
+      await markAllNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, read: true })));
+      clearNotif();
+    } catch {
+      toast.error('Failed to mark all as read');
+    } finally {
+      setMarking(false);
+    }
+  };
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const { today, yesterday, earlier } = groupNotifications(notifications);
+
+  return (
+    <View style={[styles.bg, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backBtn}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <ArrowLeft size={22} color={T.TEXT} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Notifications</Text>
+        {unreadCount > 0 ? (
+          <TouchableOpacity style={styles.iconBtn} onPress={handleMarkAll} activeOpacity={0.7}>
+            {marking ? (
+              <Spinner size="sm" color={T.TEXT_2 as any} />
+            ) : (
+              <Check size={18} color={T.TEXT_2} />
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
+            <BellSlash size={18} color={T.TEXT_2} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {loading ? (
+        <View style={{ paddingTop: 8 }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <View key={i} style={styles.shimmerRow}>
+              <MsShimmer width={42} height={42} borderRadius={21} />
+              <View style={{ flex: 1, gap: 7 }}>
+                <MsShimmer width="75%" height={12} />
+                <MsShimmer width="45%" height={10} />
+              </View>
+              <MsShimmer width={36} height={10} />
+            </View>
+          ))}
+        </View>
+      ) : error ? (
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => load()} activeOpacity={0.7}>
+            <ArrowsClockwise size={16} color={T.TEXT} />
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : notifications.length === 0 ? (
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={T.TEXT_2}
+            />
+          }
+        >
+          <MsEmptyState
+            title="You're all caught up"
+            message="When someone likes your post, subscribes to you, or messages you — it'll show up here."
+          />
+        </ScrollView>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={T.TEXT_2}
+            />
+          }
+        >
+          <NotifGroup title="Today" items={today} onPress={handlePress} onDelete={handleDelete} />
+          <NotifGroup title="Yesterday" items={yesterday} onPress={handlePress} onDelete={handleDelete} />
+          <NotifGroup title="Earlier" items={earlier} onPress={handlePress} onDelete={handleDelete} />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: T.BG },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: T.BORDER,
+    gap: 12,
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontFamily: T.FONT.bold,
+    color: T.TEXT,
+    letterSpacing: -0.3,
+  },
+  iconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  shimmerRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+
+  errorWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  errorText: {
+    fontSize: 14,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE,
+  },
+  retryText: {
+    fontSize: 14,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT,
+  },
+
+  groupHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 8,
+  },
+  groupTitle: {
+    fontSize: 11,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT_3,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: T.BORDER,
+  },
+  notifRowUnread: { backgroundColor: 'rgba(255,255,255,0.03)' },
+  notifContent: { flex: 1 },
+  notifBody: {
+    fontSize: 14,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT,
+    lineHeight: 20,
+  },
+  notifActor: { fontFamily: T.FONT.semibold },
+  notifTime: {
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+    marginTop: 4,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: T.TEXT,
+    marginTop: 4,
+  },
+  deleteBtn: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+});
