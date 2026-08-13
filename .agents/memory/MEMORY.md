@@ -1,1 +1,1 @@
-- [Antigravity CLI environment](antigravity-cli-environment.md) — managed shell startup needs user config files; use the persistent sandbox-scoped launcher rather than unrestricted autonomy.
+- [Antigravity CLI environment](antigravity-cli-environment.md) — keep the binary/config in workspace storage and expose a sandbox-scoped `agy` launcher through the active PATH.
