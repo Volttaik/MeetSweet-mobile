@@ -30,7 +30,9 @@
       "package": "com.meetsweet.app",
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ],
       "intentFilters": [
         {
@@ -70,6 +72,13 @@
           "androidMode": "default",
           "androidCollapsedTitle": "#{unread_notifications} new interactions"
         }
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow MeetSweet to use Face ID to unlock the app."
+        }
       ]
     ],
     "experiments": {
@@ -78,8 +87,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "846d6ab6-37dd-4fc2-ad09-11b1b4fd497e"
+        "projectId": "0684f452-6326-4248-9cb9-1d09d4152146"
       }
-    }
+    },
+    "owner": "prcons-team"
   }
 }

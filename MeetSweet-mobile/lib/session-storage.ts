@@ -64,23 +64,27 @@ export async function saveSessionTokens(
   const userJson = JSON.stringify(user);
 
   // 1. SecureStore (Hardware Keychain / KeyStore) — the authoritative token
-  //    store on native. Tokens are NOT written to plaintext storage on native.
+  //    store on native. Tokens are NOT written to plaintext storage on native
+  //    unless SecureStore is unavailable or its write fails.
+  let secureStoreOk = false;
   try {
     const ss = await getSecureStore();
     if (ss) {
-      await Promise.all([
-        ss.setItemAsync(KEYS.ACCESS_TOKEN, accessToken).catch(() => {}),
-        ss.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken).catch(() => {}),
+      const results = await Promise.allSettled([
+        ss.setItemAsync(KEYS.ACCESS_TOKEN, accessToken),
+        ss.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken),
       ]);
+      secureStoreOk = results.every((r) => r.status === 'fulfilled');
     }
   } catch {}
 
-  // 2. AsyncStorage — the (non-secret) user profile always; tokens only on web
-  //    where SecureStore is unavailable.
+  // 2. AsyncStorage — the (non-secret) user profile always; tokens on web and
+  //    as a fallback whenever SecureStore is unavailable or its write failed,
+  //    so a lost SecureStore write can never silently drop the session.
   const isWeb = Platform.OS === 'web';
   try {
     const items: [string, string][] = [[KEYS.USER, userJson]];
-    if (isWeb) {
+    if (isWeb || !secureStoreOk) {
       items.push([KEYS.ACCESS_TOKEN, accessToken], [KEYS.REFRESH_TOKEN, refreshToken]);
     }
     await AsyncStorage.multiSet(items);
@@ -129,12 +133,13 @@ export async function saveSessionUser(user: User): Promise<void> {
  * Update access token in storage (e.g., after refresh).
  */
 export async function updateAccessToken(accessToken: string): Promise<void> {
-  // Native: store in SecureStore only. Web: AsyncStorage.
+  // Native: store in SecureStore; fall back to AsyncStorage if SecureStore is
+  // unavailable or the write fails, so a refresh can never silently lose the token.
   try {
     const ss = await getSecureStore();
     if (ss) {
-      await ss.setItemAsync(KEYS.ACCESS_TOKEN, accessToken).catch(() => {});
-      return;
+      const ok = await ss.setItemAsync(KEYS.ACCESS_TOKEN, accessToken).then(() => true).catch(() => false);
+      if (ok) return;
     }
   } catch {}
   await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken).catch(() => {});
@@ -144,12 +149,13 @@ export async function updateAccessToken(accessToken: string): Promise<void> {
  * Update refresh token in storage.
  */
 export async function updateRefreshToken(refreshToken: string): Promise<void> {
-  // Native: store in SecureStore only. Web: AsyncStorage.
+  // Native: store in SecureStore; fall back to AsyncStorage if SecureStore is
+  // unavailable or the write fails, so a refresh can never silently lose the token.
   try {
     const ss = await getSecureStore();
     if (ss) {
-      await ss.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken).catch(() => {});
-      return;
+      const ok = await ss.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken).then(() => true).catch(() => false);
+      if (ok) return;
     }
   } catch {}
   await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken).catch(() => {});

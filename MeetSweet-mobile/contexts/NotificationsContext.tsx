@@ -277,6 +277,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     // Background/quit: user taps a notification
     responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        // Only an explicit tap on the notification body is a navigation intent.
+        // Custom action buttons and dismissals must never navigate the app.
+        if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+
         const id = response.notification.request.identifier;
         if (id && lastHandledResponseId.current === id) return;
         if (id) {
