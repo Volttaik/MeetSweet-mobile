@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -173,7 +174,11 @@ export function MsVoiceBubble({ uri, duration, position, onLongPress }: Props) {
   const displayTime = formatDuration(isPlaying ? positionSecs : totalSecs);
 
   return (
-    <View style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft]}>
+    <Pressable
+      delayLongPress={350}
+      onLongPress={onLongPress}
+      style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft]}
+    >
 
       {/* ── Mic icon circle ──────────────────────────────────────────────── */}
       <View style={s.micCircle}>
@@ -227,7 +232,7 @@ export function MsVoiceBubble({ uri, duration, position, onLongPress }: Props) {
         )}
       </TouchableOpacity>
 
-    </View>
+    </Pressable>
   );
 }
 

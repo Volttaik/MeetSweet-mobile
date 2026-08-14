@@ -77,6 +77,11 @@ import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import { PressScale } from '@/components/motion/PressScale';
 import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
+import {
+  getCachedVideoFile,
+  downloadAndCacheVideo,
+  preloadVideo,
+} from '@/services/video-cache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,6 +205,7 @@ export function MsVideoPlayer({
   const [isBuffering,   setIsBuffering]   = useState(true);
   const [premiumGated,  setPremiumGated]  = useState(false);
   const [error,         setError]         = useState(false);
+  const [playableUri,   setPlayableUri]   = useState<string | null>(uri);
   const [progress,      setProgress]      = useState(0);
   const [durationMs,    setDurationMs]    = useState(0);
   const [positionMs,    setPositionMs]    = useState(0);
@@ -307,6 +313,40 @@ export function MsVideoPlayer({
     brightnessOpacity.value = 0.25;
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
   }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Local disk caching for 0ms rewinds and instant replay ──────────────────
+  useEffect(() => {
+    let isCurrent = true;
+    if (!uri) {
+      setPlayableUri(null);
+      return;
+    }
+
+    // 1. Check if video already exists in local disk cache
+    getCachedVideoFile(uri, videoId).then((cachedPath) => {
+      if (!isCurrent) return;
+      if (cachedPath) {
+        setPlayableUri(cachedPath);
+      } else {
+        setPlayableUri(uri);
+        // Start background cache if player is active, prebuffering, or shorts
+        if (active || prebuffer || autoPlay || isShorts) {
+          downloadAndCacheVideo(uri, videoId).catch(() => {});
+        }
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [uri, videoId, active, prebuffer, autoPlay, isShorts]);
+
+  // ── Preload upcoming videos when prebuffer is true ────────────────────────
+  useEffect(() => {
+    if (prebuffer && uri) {
+      preloadVideo(uri, videoId);
+    }
+  }, [prebuffer, uri, videoId]);
 
   // ── Standard: pause when screen loses focus (active=false) ───────────────
   useEffect(() => {
@@ -590,6 +630,10 @@ export function MsVideoPlayer({
       // Crossfade: on first play, fade poster out and video in
       if (justStartedPlaying) {
         hasPlayedRef.current = true;
+        // Trigger background disk caching so subsequent loops and rewinds are instant
+        if (uri) {
+          downloadAndCacheVideo(uri, videoId).catch(() => {});
+        }
         // Video fades in from black; poster fades out beneath
         videoOpacity.value  = withTiming(1, { duration: 280, easing: MOTION.EASE_ENTER });
         posterOpacity.value = withTiming(0, { duration: 380, easing: MOTION.EASE_ENTER });
@@ -647,7 +691,7 @@ export function MsVideoPlayer({
         videoRef.current?.pauseAsync().catch(() => {});
       }
     },
-    [isPremium, isShorts, onPremiumRequired], // eslint-disable-line react-hooks/exhaustive-deps
+    [isPremium, isShorts, onPremiumRequired, uri, videoId], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ── Playback status (fullscreen) ───────────────────────────────────────────
@@ -819,11 +863,11 @@ export function MsVideoPlayer({
       ) : null}
 
       {/* ── Video (crossfades in on first play) ── */}
-      {uri && !error ? (
+      {playableUri && !error ? (
         <Animated.View style={[StyleSheet.absoluteFill, videoFadeStyle]}>
           <Video
             ref={videoRef}
-            source={{ uri }}
+            source={{ uri: playableUri }}
             style={StyleSheet.absoluteFill}
             resizeMode={isShorts ? ResizeMode.COVER : ResizeMode.CONTAIN}
             shouldPlay={isShorts ? Boolean(active) : (autoPlay || Boolean(active))}
@@ -1011,7 +1055,7 @@ export function MsVideoPlayer({
       {!isShorts ? (
         <FullscreenModal
           visible={fsVisible}
-          uri={uri}
+          uri={playableUri ?? uri}
           posterUri={posterUri}
           isLooping={isLooping}
           startPositionMs={positionRef.current}

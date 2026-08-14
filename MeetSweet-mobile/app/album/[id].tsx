@@ -86,7 +86,10 @@ export default function AlbumScreen() {
           onPress: async () => {
             setUnlocking(true);
             try {
-              await purchaseAlbum(album.id);
+              const res = await purchaseAlbum(album.id);
+              if (!res.purchased) {
+                throw new Error('Purchase could not be completed.');
+              }
               setUnlockedOverride(true);
               Alert.alert('Purchased!', `You now have full access to "${album.title}".`);
             } catch (err) {

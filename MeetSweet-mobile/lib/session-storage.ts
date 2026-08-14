@@ -62,8 +62,9 @@ export async function saveSessionTokens(
   user: User,
 ): Promise<void> {
   const userJson = JSON.stringify(user);
-  
-  // 1. Save to SecureStore (Hardware Keychain / KeyStore)
+
+  // 1. SecureStore (Hardware Keychain / KeyStore) — the authoritative token
+  //    store on native. Tokens are NOT written to plaintext storage on native.
   try {
     const ss = await getSecureStore();
     if (ss) {
@@ -74,35 +75,28 @@ export async function saveSessionTokens(
     }
   } catch {}
 
-  // 2. Save to AsyncStorage
+  // 2. AsyncStorage — the (non-secret) user profile always; tokens only on web
+  //    where SecureStore is unavailable.
+  const isWeb = Platform.OS === 'web';
   try {
-    await Promise.all([
-      AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken),
-      AsyncStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken),
-      AsyncStorage.setItem(KEYS.USER, userJson),
-    ]);
+    const items: [string, string][] = [[KEYS.USER, userJson]];
+    if (isWeb) {
+      items.push([KEYS.ACCESS_TOKEN, accessToken], [KEYS.REFRESH_TOKEN, refreshToken]);
+    }
+    await AsyncStorage.multiSet(items);
   } catch (e) {
     console.warn('[session-storage] AsyncStorage setItem failed:', e);
   }
 
-  // 3. Save to SQLite table auth_session (native)
+  // 3. SQLite — user profile only (native). Session tokens are intentionally
+  //    kept out of plaintext SQLite.
   const db = await getAuthDb();
   if (db) {
     try {
-      await db.withTransactionAsync(async () => {
-        await db.runAsync(
-          'INSERT OR REPLACE INTO auth_session (key, value) VALUES (?, ?)',
-          [KEYS.ACCESS_TOKEN, accessToken],
-        );
-        await db.runAsync(
-          'INSERT OR REPLACE INTO auth_session (key, value) VALUES (?, ?)',
-          [KEYS.REFRESH_TOKEN, refreshToken],
-        );
-        await db.runAsync(
-          'INSERT OR REPLACE INTO auth_session (key, value) VALUES (?, ?)',
-          [KEYS.USER, userJson],
-        );
-      });
+      await db.runAsync(
+        'INSERT OR REPLACE INTO auth_session (key, value) VALUES (?, ?)',
+        [KEYS.USER, userJson],
+      );
     } catch (e) {
       console.warn('[session-storage] SQLite save error:', e);
     }
@@ -135,38 +129,30 @@ export async function saveSessionUser(user: User): Promise<void> {
  * Update access token in storage (e.g., after refresh).
  */
 export async function updateAccessToken(accessToken: string): Promise<void> {
+  // Native: store in SecureStore only. Web: AsyncStorage.
   try {
-    await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken);
+    const ss = await getSecureStore();
+    if (ss) {
+      await ss.setItemAsync(KEYS.ACCESS_TOKEN, accessToken).catch(() => {});
+      return;
+    }
   } catch {}
-
-  const db = await getAuthDb();
-  if (db) {
-    try {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO auth_session (key, value) VALUES (?, ?)',
-        [KEYS.ACCESS_TOKEN, accessToken],
-      );
-    } catch {}
-  }
+  await AsyncStorage.setItem(KEYS.ACCESS_TOKEN, accessToken).catch(() => {});
 }
 
 /**
  * Update refresh token in storage.
  */
 export async function updateRefreshToken(refreshToken: string): Promise<void> {
+  // Native: store in SecureStore only. Web: AsyncStorage.
   try {
-    await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken);
+    const ss = await getSecureStore();
+    if (ss) {
+      await ss.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken).catch(() => {});
+      return;
+    }
   } catch {}
-
-  const db = await getAuthDb();
-  if (db) {
-    try {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO auth_session (key, value) VALUES (?, ?)',
-        [KEYS.REFRESH_TOKEN, refreshToken],
-      );
-    } catch {}
-  }
+  await AsyncStorage.setItem(KEYS.REFRESH_TOKEN, refreshToken).catch(() => {});
 }
 
 /**
@@ -177,45 +163,28 @@ export async function loadSession(): Promise<{
   refreshToken: string | null;
   user: User | null;
 }> {
-  let accessToken: string | null = null;
-  let refreshToken: string | null = null;
-  let userJson: string | null = null;
+  // Tokens come from the secure source first (see getAccessToken/getRefreshToken).
+  const accessToken = await getAccessToken();
+  const refreshToken = await getRefreshToken();
 
-  // Try SQLite native DB first
+  // The user profile (non-secret) is read from SQLite (native) or AsyncStorage.
+  let user: User | null = null;
+  let userJson: string | null = null;
   const db = await getAuthDb();
   if (db) {
     try {
-      const rows = await db.getAllAsync<{ key: string; value: string }>(
-        'SELECT key, value FROM auth_session WHERE key IN (?, ?, ?)',
-        [KEYS.ACCESS_TOKEN, KEYS.REFRESH_TOKEN, KEYS.USER],
+      const row = await db.getFirstAsync<{ value: string }>(
+        'SELECT value FROM auth_session WHERE key = ?',
+        [KEYS.USER],
       );
-      for (const row of rows) {
-        if (row.key === KEYS.ACCESS_TOKEN) accessToken = row.value;
-        if (row.key === KEYS.REFRESH_TOKEN) refreshToken = row.value;
-        if (row.key === KEYS.USER) userJson = row.value;
-      }
+      userJson = row?.value ?? null;
     } catch (e) {
       console.warn('[session-storage] SQLite read error:', e);
     }
   }
-
-  // If missing any key from SQLite, try AsyncStorage
-  if (!accessToken || !refreshToken || !userJson) {
-    try {
-      const [aToken, rToken, uJson] = await Promise.all([
-        AsyncStorage.getItem(KEYS.ACCESS_TOKEN),
-        AsyncStorage.getItem(KEYS.REFRESH_TOKEN),
-        AsyncStorage.getItem(KEYS.USER),
-      ]);
-      if (!accessToken) accessToken = aToken;
-      if (!refreshToken) refreshToken = rToken;
-      if (!userJson) userJson = uJson;
-    } catch (e) {
-      console.warn('[session-storage] AsyncStorage read error:', e);
-    }
+  if (!userJson) {
+    userJson = await AsyncStorage.getItem(KEYS.USER).catch(() => null);
   }
-
-  let user: User | null = null;
   if (userJson) {
     try {
       user = JSON.parse(userJson) as User;
@@ -231,6 +200,18 @@ export async function loadSession(): Promise<{
  * Get access token synchronously or fast-async.
  */
 export async function getAccessToken(): Promise<string | null> {
+  // 1. SecureStore (native, hardware-backed) is the authoritative source.
+  try {
+    const ss = await getSecureStore();
+    if (ss) {
+      const v = await ss.getItemAsync(KEYS.ACCESS_TOKEN).catch(() => null);
+      if (v) return v;
+    }
+  } catch {}
+  // 2. AsyncStorage (web / legacy fallback).
+  const a = await AsyncStorage.getItem(KEYS.ACCESS_TOKEN).catch(() => null);
+  if (a) return a;
+  // 3. SQLite (legacy installs that predate SecureStore).
   const db = await getAuthDb();
   if (db) {
     try {
@@ -241,13 +222,25 @@ export async function getAccessToken(): Promise<string | null> {
       if (row?.value) return row.value;
     } catch {}
   }
-  return AsyncStorage.getItem(KEYS.ACCESS_TOKEN);
+  return null;
 }
 
 /**
  * Get refresh token synchronously or fast-async.
  */
 export async function getRefreshToken(): Promise<string | null> {
+  // 1. SecureStore (native, hardware-backed) is the authoritative source.
+  try {
+    const ss = await getSecureStore();
+    if (ss) {
+      const v = await ss.getItemAsync(KEYS.REFRESH_TOKEN).catch(() => null);
+      if (v) return v;
+    }
+  } catch {}
+  // 2. AsyncStorage (web / legacy fallback).
+  const a = await AsyncStorage.getItem(KEYS.REFRESH_TOKEN).catch(() => null);
+  if (a) return a;
+  // 3. SQLite (legacy installs that predate SecureStore).
   const db = await getAuthDb();
   if (db) {
     try {
@@ -258,7 +251,7 @@ export async function getRefreshToken(): Promise<string | null> {
       if (row?.value) return row.value;
     } catch {}
   }
-  return AsyncStorage.getItem(KEYS.REFRESH_TOKEN);
+  return null;
 }
 
 /**

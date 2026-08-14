@@ -85,6 +85,7 @@ export interface ChatRoom {
   createdAt: string;
   isMuted: boolean;
   isArchived: boolean;
+  isBlocked?: boolean;
   unreadCount: number;
   /** The OTHER participant, resolved by the backend for the current user. */
   otherUser: RoomParticipant;
@@ -293,6 +294,7 @@ function normalizeChatRoom(raw: any): ChatRoom {
     createdAt: source.createdAt ?? source.created_at ?? new Date().toISOString(),
     isMuted: source.isMuted ?? source.is_muted ?? false,
     isArchived: source.isArchived ?? source.is_archived ?? false,
+    isBlocked: source.isBlocked ?? source.is_blocked ?? undefined,
     unreadCount: source.unreadCount ?? source.unread_count ?? 0,
     otherUser: ou
       ? normalizeParticipant(ou)

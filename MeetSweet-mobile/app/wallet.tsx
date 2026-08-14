@@ -17,6 +17,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -136,12 +137,23 @@ function PaymentPendingView({
   verifyState: VerifyState;
 }) {
   const [copied, setCopied] = useState(false);
+  const hasBankTransfer = Boolean(result.accountNumber && result.bankName);
 
   const copyAccount = async () => {
+    if (!result.accountNumber) return;
     await Clipboard.setStringAsync(result.accountNumber);
     setCopied(true);
     toast.success('Account number copied!');
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const openPayment = async () => {
+    if (!result.authorizationUrl) return;
+    try {
+      await Linking.openURL(result.authorizationUrl);
+    } catch {
+      toast.error('Could not open the payment page.');
+    }
   };
 
   return (
@@ -150,44 +162,58 @@ function PaymentPendingView({
         <Clock size={32} color={T.TEXT} weight="duotone" />
       </View>
 
-      <Text style={pendStyles.title}>Transfer Funds</Text>
+      <Text style={pendStyles.title}>Complete Payment</Text>
       <Text style={pendStyles.subtitle}>
-        Transfer exactly {formatNaira(result.amount)} to the account below, then tap &quot;I have paid&quot;.
+        Complete your {formatNaira(result.amount)} payment securely, then return here to confirm.
       </Text>
 
-      <View style={pendStyles.card}>
-        <View style={pendStyles.cardRow}>
-          <Text style={pendStyles.cardKey}>BANK</Text>
-          <Text style={pendStyles.cardVal}>{result.bankName}</Text>
-        </View>
-        <View style={pendStyles.separator} />
-        <View style={pendStyles.cardRow}>
-          <Text style={pendStyles.cardKey}>ACCOUNT NUMBER</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={pendStyles.cardValLarge}>{result.accountNumber}</Text>
-            <TouchableOpacity onPress={copyAccount} hitSlop={8}>
-              {copied
-                ? <CheckCircle size={18} color={T.SUCCESS} weight="fill" />
-                : <Copy size={18} color={T.TEXT_2} />
-              }
-            </TouchableOpacity>
+      {hasBankTransfer && (
+        <View style={pendStyles.card}>
+          <View style={pendStyles.cardRow}>
+            <Text style={pendStyles.cardKey}>BANK</Text>
+            <Text style={pendStyles.cardVal}>{result.bankName}</Text>
+          </View>
+          <View style={pendStyles.separator} />
+          <View style={pendStyles.cardRow}>
+            <Text style={pendStyles.cardKey}>ACCOUNT NUMBER</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={pendStyles.cardValLarge}>{result.accountNumber}</Text>
+              <TouchableOpacity onPress={copyAccount} hitSlop={8}>
+                {copied
+                  ? <CheckCircle size={18} color={T.SUCCESS} weight="fill" />
+                  : <Copy size={18} color={T.TEXT_2} />
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={pendStyles.separator} />
+          <View style={pendStyles.cardRow}>
+            <Text style={pendStyles.cardKey}>AMOUNT</Text>
+            <Text style={[pendStyles.cardValLarge, { color: T.SUCCESS }]}>
+              {formatNaira(result.amount)}
+            </Text>
           </View>
         </View>
-        <View style={pendStyles.separator} />
-        <View style={pendStyles.cardRow}>
-          <Text style={pendStyles.cardKey}>AMOUNT</Text>
-          <Text style={[pendStyles.cardValLarge, { color: T.SUCCESS }]}>
-            {formatNaira(result.amount)}
+      )}
+
+      {hasBankTransfer && (
+        <View style={pendStyles.infoRow}>
+          <Warning size={14} color={T.TEXT_3} />
+          <Text style={pendStyles.infoText}>
+            Transfer the exact amount shown. Partial or incorrect amounts cannot be confirmed automatically.
           </Text>
         </View>
-      </View>
+      )}
 
-      <View style={pendStyles.infoRow}>
-        <Warning size={14} color={T.TEXT_3} />
-        <Text style={pendStyles.infoText}>
-          Transfer the exact amount shown. Partial or incorrect amounts cannot be confirmed automatically.
-        </Text>
-      </View>
+      {result.authorizationUrl && (
+        <TouchableOpacity
+          style={[pendStyles.paidBtn, { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER }]}
+          onPress={openPayment}
+          activeOpacity={0.85}
+        >
+          <Text style={[pendStyles.paidLabel, { color: T.TEXT }]}>Continue to payment</Text>
+        </TouchableOpacity>
+      )}
 
       {verifyState === 'failed' && (
         <View style={pendStyles.failBox}>

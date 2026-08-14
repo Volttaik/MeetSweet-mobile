@@ -53,6 +53,7 @@ function formatTime(date: Date | number): string {
 
 interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage' | 'onLongPressMessage'> {
   currentMessage: MsMessage;
+  currentUserId?:    string;
   onMediaPress?:     (message: MsMessage) => void;
   onRetry?:          (message: MsMessage) => void;
   onLongPressMessage?: (context?: any, message?: any) => void;
@@ -67,6 +68,7 @@ interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage
 
 export function MsChatBubble({
   currentMessage,
+  currentUserId,
   position,
   onMediaPress,
   onRetry,
@@ -130,12 +132,15 @@ export function MsChatBubble({
         position={position ?? 'left'}
         showDeleted
         timeString={timeString}
+        onLongPress={() => onLongPressMessage?.(null, msg)}
       />
     );
   } else if (isStickerImage) {
     // Floating image sticker — no card background, transparent, 120px
     bubble = (
-      <View
+      <Pressable
+        delayLongPress={350}
+        onLongPress={() => onLongPressMessage?.(null, msg)}
         style={[styles.stickerWrap, isOwn ? styles.stickerRight : styles.stickerLeft]}
         accessibilityLabel="Image sticker"
       >
@@ -148,12 +153,14 @@ export function MsChatBubble({
         <Text style={[styles.stickerTime, isOwn ? styles.stickerTimeRight : styles.stickerTimeLeft]}>
           {timeString}
         </Text>
-      </View>
+      </Pressable>
     );
   } else if (isSticker) {
     // Large emoji sticker — no bubble background, floats in chat
     bubble = (
-      <View
+      <Pressable
+        delayLongPress={350}
+        onLongPress={() => onLongPressMessage?.(null, msg)}
         style={[styles.stickerWrap, isOwn ? styles.stickerRight : styles.stickerLeft]}
         accessibilityLabel={`Sticker: ${msg.text?.trim()}`}
       >
@@ -161,7 +168,7 @@ export function MsChatBubble({
         <Text style={[styles.stickerTime, isOwn ? styles.stickerTimeRight : styles.stickerTimeLeft]}>
           {timeString}
         </Text>
-      </View>
+      </Pressable>
     );
   } else if (isVoice) {
     // Voice note — inline waveform bubble with local-first URI.
@@ -223,6 +230,7 @@ export function MsChatBubble({
         isPending={msg.pending}
         isFailed={isFailed}
         onRetry={isFailed && isOwn ? handleRetry : undefined}
+        onLongPress={() => onLongPressMessage?.(null, msg)}
       />
     );
   }
@@ -289,6 +297,7 @@ export function MsChatBubble({
           <MsReactionStrip
             reactions={reactions}
             position={position ?? 'left'}
+            currentUserId={currentUserId}
             onPress={(emoji) => onReactionPress?.(msg, emoji)}
           />
         ) : null}

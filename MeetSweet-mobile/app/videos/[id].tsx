@@ -102,6 +102,7 @@ export default function VideoWatchScreen() {
   // Flying hearts from like button
   const { hearts, spawnHeart } = useHeartBurst();
   const likeBarRef = useRef<View>(null);
+  const scrollRef  = useRef<ScrollView>(null);
 
   // ── Like button bounce animation ─────────────────────────────────────────
   const likeScale   = useSharedValue(1);
@@ -127,16 +128,27 @@ export default function VideoWatchScreen() {
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
     setLoading(true);
+    // Jump back to the top so the newly-selected video's player is visible —
+    // router.replace reuses this screen instance, so the ScrollView would
+    // otherwise stay scrolled to the related-videos list.
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
     getPost(id)
       .then((p) => {
+        if (cancelled) return;
         setPost(p);
         setLiked(p.likedByMe);
         setBookmarked(p.bookmarkedByMe ?? false);
         setLikeCount(p.likeCount);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const toggleLike = async () => {
@@ -320,6 +332,7 @@ export default function VideoWatchScreen() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}

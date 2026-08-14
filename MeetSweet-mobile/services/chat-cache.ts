@@ -154,6 +154,40 @@ export async function getCachedChatRooms(): Promise<ChatRoom[]> {
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
+/**
+ * Clear ALL locally-cached chat data (room list, messages, drafts, room
+ * contexts). Called on logout/account switch so a different account can never
+ * see the previous user's private conversations from the local cache.
+ */
+export async function clearChatCache(): Promise<void> {
+  const sqliteDb = await getDb();
+  if (sqliteDb) {
+    try {
+      await sqliteDb.withTransactionAsync(async () => {
+        await sqliteDb.runAsync('DELETE FROM messages');
+        await sqliteDb.runAsync('DELETE FROM chat_rooms');
+        await sqliteDb.runAsync('DELETE FROM drafts');
+        await sqliteDb.runAsync('DELETE FROM room_contexts');
+      });
+    } catch (e) {
+      console.warn('[chat-cache] clearChatCache error:', e);
+    }
+    return;
+  }
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const chatKeys = keys.filter(
+      (k) =>
+        k === '@ms_chat_rooms' ||
+        k.startsWith('@ms_room_messages_') ||
+        k.startsWith('@ms_room_context_'),
+    );
+    if (chatKeys.length > 0) await AsyncStorage.multiRemove(chatKeys);
+  } catch (e) {
+    console.warn('[chat-cache] clearChatCache fallback error:', e);
+  }
+}
+
 export async function cacheMessages(
   chatRoomId: string,
   messages: RoomMessage[],

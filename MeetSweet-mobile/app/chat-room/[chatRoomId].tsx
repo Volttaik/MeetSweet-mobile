@@ -188,6 +188,8 @@ export default function ChatScreen() {
       mimeType: opts?.mimeType,
       audioDuration: opts?.audioDuration,
       replyToId: opts?.replyToId,
+      fileType: opts?.fileType,
+      isVoiceNote: opts?.isVoiceNote,
     });
   }, [chatRoomId]);
 
@@ -563,6 +565,9 @@ export default function ChatScreen() {
         // Hydrate room-level flags the backend already knows, so the header
         // menu reflects the server truth on open (not a stale local default).
         setIsMuted(Boolean(room.isMuted));
+        if (room.isBlocked !== undefined) {
+          setIsBlocked(Boolean(room.isBlocked));
+        }
         const participants = room.participants ?? [];
         const other =
           participants.find((p) => p.id !== user?.id) ??
@@ -792,7 +797,11 @@ export default function ChatScreen() {
       try {
         setUploadingMedia(true);
         const uploaded = await uploadMedia(uri, 'audio/m4a');
-        const res = await sendToRoom(undefined, uploaded.url, 'audio', { audioDuration: duration });
+        const res = await sendToRoom(undefined, uploaded.url, 'audio', {
+          audioDuration: duration,
+          isVoiceNote: true,
+          fileType: 'm4a',
+        });
         // Server returns media_type: null for audio — preserve local audio metadata.
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         // Persist the original local recording into the room's media dir.
@@ -1702,6 +1711,7 @@ export default function ChatScreen() {
             <MsChatBubble
               {...(props as any)}
               currentMessage={cm}
+              currentUserId={currentUserId}
               highlighted={highlightedMsgId === String(cm._id)}
               onLongPressMessage={handleLongPress}
               onReactionPress={(msg, emoji) => handleReaction(msg, emoji)}

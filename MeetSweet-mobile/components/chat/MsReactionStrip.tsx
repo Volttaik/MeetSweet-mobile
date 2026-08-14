@@ -12,6 +12,7 @@ import type { MessageReaction } from '@kesha-antonov/react-native-chat';
 interface Props {
   reactions: MessageReaction[];
   position: 'left' | 'right';
+  currentUserId?: string;
   onPress?: (emoji: string) => void;
 }
 
@@ -19,11 +20,13 @@ interface Props {
 function ReactionPill({
   emoji,
   count,
+  hasReacted,
   onPress,
   delay,
 }: {
   emoji: string;
   count: number;
+  hasReacted?: boolean;
   onPress?: () => void;
   delay: number;
 }) {
@@ -51,37 +54,43 @@ function ReactionPill({
   return (
     <Animated.View style={{ opacity, transform: [{ scale }] }}>
       <TouchableOpacity
-        style={s.pill}
+        style={[s.pill, hasReacted && s.pillActive]}
         onPress={onPress}
         activeOpacity={0.72}
         hitSlop={4}
       >
         <Text style={s.emoji}>{emoji}</Text>
-        {count > 1 ? <Text style={s.count}>{count}</Text> : null}
+        {count > 1 ? <Text style={[s.count, hasReacted && s.countActive]}>{count}</Text> : null}
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
 // ── Strip ──────────────────────────────────────────────────────────────────────
-export function MsReactionStrip({ reactions, position, onPress }: Props) {
+export function MsReactionStrip({ reactions, position, currentUserId, onPress }: Props) {
   if (!reactions.length) return null;
 
-  // Group by emoji
-  const grouped = new Map<string, number>();
+  // Group by emoji and track whether current user reacted
+  const grouped = new Map<string, { count: number; hasReacted: boolean }>();
   for (const r of reactions) {
-    grouped.set(r.emoji, (grouped.get(r.emoji) ?? 0) + r.userIds.length);
+    const existing = grouped.get(r.emoji) ?? { count: 0, hasReacted: false };
+    const userReacted = currentUserId ? r.userIds.includes(currentUserId) : false;
+    grouped.set(r.emoji, {
+      count: existing.count + r.userIds.length,
+      hasReacted: existing.hasReacted || userReacted,
+    });
   }
 
   const isOwn = position === 'right';
 
   return (
     <View style={[s.row, isOwn ? s.rowRight : s.rowLeft]}>
-      {Array.from(grouped.entries()).map(([emoji, count], idx) => (
+      {Array.from(grouped.entries()).map(([emoji, data], idx) => (
         <ReactionPill
           key={emoji}
           emoji={emoji}
-          count={count}
+          count={data.count}
+          hasReacted={data.hasReacted}
           delay={idx * 35}
           onPress={() => onPress?.(emoji)}
         />
@@ -109,7 +118,13 @@ const s = StyleSheet.create({
     borderRadius: 50,
     paddingHorizontal: 9,
     paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'transparent',
     ...T.SHADOWS.soft,
+  },
+  pillActive: {
+    backgroundColor: `${T.ACCENT}22`,
+    borderColor: `${T.ACCENT}55`,
   },
 
   emoji: { fontSize: 13 },
@@ -117,5 +132,8 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontFamily: T.FONT.semibold,
     color: T.TEXT_2,
+  },
+  countActive: {
+    color: T.ACCENT,
   },
 });

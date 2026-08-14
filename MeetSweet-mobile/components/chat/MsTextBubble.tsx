@@ -14,7 +14,7 @@
  * fights the parent for percentage calculations.
  */
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Checks, Clock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
@@ -33,6 +33,8 @@ interface Props {
   isPending?: boolean;
   isFailed?: boolean;
   onRetry?: () => void;
+  onPress?: () => void;
+  onLongPress?: () => void;
 }
 
 export function MsTextBubble({
@@ -45,13 +47,18 @@ export function MsTextBubble({
   isPending,
   isFailed,
   onRetry,
+  onPress,
+  onLongPress,
 }: Props) {
   const isOwn = position === 'right';
   const isDeleted = showDeleted || message.msIsDeleted;
 
   return (
     <View style={[styles.container, isOwn ? styles.containerRight : styles.containerLeft]}>
-      <View
+      <Pressable
+        delayLongPress={350}
+        onPress={onPress}
+        onLongPress={onLongPress}
         style={[
           styles.bubble,
           isOwn ? styles.bubbleRight : styles.bubbleLeft,
@@ -63,10 +70,7 @@ export function MsTextBubble({
           <Text style={styles.deletedText}>This message was deleted</Text>
         ) : (
           <>
-            <Text
-              style={[styles.text, isOwn ? styles.textOwn : styles.textOther]}
-              selectable
-            >
+            <Text style={[styles.text, isOwn ? styles.textOwn : styles.textOther]}>
               {message.text}
             </Text>
             {message.msCaption ? (
@@ -100,7 +104,7 @@ export function MsTextBubble({
             ) : null}
           </View>
         ) : null}
-      </View>
+      </Pressable>
 
       {/* Failed — retry affordance below bubble */}
       {isFailed && isOwn && onRetry ? (

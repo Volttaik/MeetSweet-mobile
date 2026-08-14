@@ -1,6 +1,7 @@
 /**
  * Creators Service — Public profile data and creator lists.
  */
+import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from './api';
 import { normalizeUser, User } from './users';
 import { normalizeAlbum, AlbumCardData } from './albums';
@@ -58,22 +59,24 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
   const rawUser = resp.creator || resp.user || resp;
   const user = normalizeUser(rawUser);
   return {
-    userId: user.id || usernameOrId,
-    name: user.name || 'Creator',
-    username: user.username || usernameOrId,
-    bio: user.bio || null,
-    avatarUrl: user.avatarUrl || null,
-    bannerUrl: user.bannerUrl || null,
-    subscriberCount: user.subscriberCount || 0,
-    postCount: user.postCount || (resp.posts ? resp.posts.length : 0),
-    videoCount: resp.video_count || 0,
-    shortCount: resp.short_count || 0,
-    albumCount: resp.album_count || (resp.albums ? resp.albums.length : 0),
-    isVerified: user.isVerified || false,
-    subscribedToCreator: Boolean(resp.subscribed || resp.subscribed_to_creator || false),
-    whoCanMessage: resp.who_can_message || 'everyone',
-    subscriptionPrice: Number(resp.subscription_price || 200),
-    subscriptionPlusPrice: Number(resp.subscription_plus_price || 500),
+    userId: rawUser.id || user.id || usernameOrId,
+    name: user.name || rawUser.name || rawUser.username || usernameOrId,
+    username: user.username || rawUser.username || usernameOrId,
+    bio: user.bio || rawUser.bio || null,
+    avatarUrl: user.avatarUrl || rawUser.avatar_url || null,
+    bannerUrl: user.bannerUrl || rawUser.banner_url || null,
+    subscriberCount: Number(rawUser.subscriber_count ?? rawUser.subscriberCount ?? user.subscriberCount ?? 0),
+    postCount: Number(rawUser.post_count ?? rawUser.postCount ?? user.postCount ?? 0),
+    videoCount: Number(rawUser.video_count ?? rawUser.videoCount ?? 0),
+    shortCount: Number(rawUser.short_count ?? rawUser.shortCount ?? 0),
+    albumCount: Number(rawUser.album_count ?? rawUser.albumCount ?? 0),
+    isVerified: Boolean(rawUser.is_verified ?? rawUser.isVerified ?? user.isVerified ?? false),
+    subscribedToCreator: Boolean(
+      rawUser.subscribed_to_creator ?? rawUser.subscribedToCreator ?? rawUser.is_subscribed ?? false,
+    ),
+    whoCanMessage: (rawUser.who_can_message as 'everyone' | 'subscribers' | 'none') ?? 'everyone',
+    subscriptionPrice: Number(rawUser.subscription_price ?? rawUser.subscriptionPrice ?? 0),
+    subscriptionPlusPrice: Number(rawUser.subscription_plus_price ?? rawUser.subscriptionPlusPrice ?? 0),
   };
 }
 
@@ -101,13 +104,44 @@ export async function getCreatorContentAlbums(creatorId: string): Promise<AlbumC
   return list.map(normalizeAlbum);
 }
 
-export function useCreatorReviews(_creatorId: string) {
+export async function getCreatorReviews(creatorId: string): Promise<{
+  reviews: CreatorReview[];
+  total: number;
+  average_rating: number | null;
+}> {
+  const resp = await apiFetch<{
+    reviews?: Array<{
+      id: string;
+      reviewer_username: string;
+      reviewer_display_name?: string | null;
+      rating: number;
+      body?: string | null;
+      created_at: string;
+    }>;
+    total?: number;
+    average_rating?: number | null;
+  }>(`/creators/${encodeURIComponent(creatorId)}/reviews`);
+
   return {
-    isLoading: false,
-    data: {
-      reviews: [] as CreatorReview[],
-      total: 0,
-      average_rating: null as number | null,
-    },
+    reviews: (resp?.reviews ?? []).map((r) => ({
+      id: r.id,
+      reviewer_username: r.reviewer_username,
+      reviewer_display_name: r.reviewer_display_name ?? null,
+      rating: r.rating,
+      body: r.body ?? null,
+      created_at: r.created_at,
+    })),
+    total: resp?.total ?? 0,
+    average_rating: resp?.average_rating ?? null,
   };
+}
+
+export function useCreatorReviews(creatorId: string) {
+  return useQuery({
+    queryKey: ['creator-reviews', creatorId],
+    queryFn: () => getCreatorReviews(creatorId),
+    enabled: Boolean(creatorId),
+    staleTime: 60_000,
+    retry: 2,
+  });
 }

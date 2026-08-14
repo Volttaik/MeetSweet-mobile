@@ -410,6 +410,7 @@ export default function MessagesScreen() {
         deleteChatRoom(room.chatRoomId).catch(() => {
           // If deletion fails restore the room
           setChatRooms((prev) => [room, ...prev]);
+          Alert.alert('Error', 'Could not delete chat room. Please try again.');
         });
       },
     },

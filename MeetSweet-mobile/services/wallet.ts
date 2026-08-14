@@ -34,10 +34,10 @@ export interface Transaction {
 export interface DepositInitResult {
   transactionId: string;
   reference?: string;
-  authorizationUrl?: string;
-  accountNumber: string;
-  bankName: string;
-  accountName?: string;
+  authorizationUrl?: string | null;
+  accountNumber: string | null;
+  bankName: string | null;
+  accountName?: string | null;
   amount: number;
 }
 
@@ -115,13 +115,21 @@ export async function initiateWalletDeposit(amount: number): Promise<DepositInit
     body: JSON.stringify({ amount }),
   });
 
+  const transactionId = resp.transactionId ?? resp.transaction_id ?? resp.id;
+  if (!transactionId) {
+    throw new Error('Payment could not be initiated: the server returned no transaction id.');
+  }
+
+  // NOTE: the live backend uses Paystack hosted checkout (authorization_url),
+  // NOT a virtual bank account. accountNumber/bankName are only populated when
+  // the server actually returns them — the client never fabricates bank details.
   return {
-    transactionId: resp.transactionId ?? resp.transaction_id ?? resp.id ?? `tx_${Date.now()}`,
+    transactionId: String(transactionId),
     reference: resp.reference ?? resp.ref,
-    authorizationUrl: resp.authorizationUrl ?? resp.authorization_url,
-    accountNumber: resp.accountNumber ?? resp.account_number ?? '9901234567',
-    bankName: resp.bankName ?? resp.bank_name ?? 'Wema Bank (Paystack)',
-    accountName: resp.accountName ?? resp.account_name ?? 'MeetSweet Wallet Deposit',
+    authorizationUrl: resp.authorizationUrl ?? resp.authorization_url ?? null,
+    accountNumber: resp.accountNumber ?? resp.account_number ?? null,
+    bankName: resp.bankName ?? resp.bank_name ?? null,
+    accountName: resp.accountName ?? resp.account_name ?? null,
     amount: resp.amount ?? amount,
   };
 }
@@ -133,7 +141,7 @@ export async function verifyWalletDeposit(transactionId: string): Promise<{ succ
   });
 
   return {
-    success: resp.success ?? resp.verified ?? true,
+    success: Boolean(resp.success ?? resp.verified ?? false),
     amountAdded: resp.amountAdded ?? resp.amount_added ?? resp.amount ?? 0,
     newBalance: resp.newBalance ?? resp.new_balance ?? resp.balance ?? 0,
   };
@@ -188,14 +196,13 @@ export async function saveBankDetails(details: BankDetails): Promise<{ success: 
     account_name: details.accountName ?? details.account_name,
     bank_code: details.bankCode ?? details.bank_code,
   };
-  try {
-    await authedRequest<void>('/creator/wallet/bank-details', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    // Save locally if offline or legacy backend
-  }
+  // The server is authoritative for bank details. Let failures propagate so the
+  // UI can surface them — never report success when the save did not persist.
+  await authedRequest<void>('/creator/wallet/bank-details', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  // Cache locally only AFTER the server confirmed the save.
   await AsyncStorage.setItem('@creator_bank_details', JSON.stringify(details)).catch(() => {});
   return { success: true };
 }
@@ -218,7 +225,7 @@ export async function requestWithdrawal(
     body: JSON.stringify(payload),
   });
   return {
-    success: resp.success ?? true,
+    success: Boolean(resp.success ?? false),
     id: resp.id ?? `wd_${Date.now()}`,
     amount: resp.amount ?? amount,
     status: resp.status ?? 'pending',

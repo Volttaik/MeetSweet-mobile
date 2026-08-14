@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { AppState, type AppStateStatus } from 'react-native';
 import { apiFetch, ApiError, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
+import { clearChatCache } from '@/services/chat-cache';
 import {
   loadSession,
   saveSessionTokens,
@@ -135,6 +136,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (currentUserId) {
       await clearUserCache(currentUserId).catch(() => {});
     }
+    // Chat cache is shared across accounts — clear it so the next login never
+    // exposes the previous user's private conversations.
+    await clearChatCache().catch(() => {});
     setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
   }, [state.user?.id]);
 

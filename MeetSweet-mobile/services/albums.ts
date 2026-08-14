@@ -339,11 +339,12 @@ export async function deleteAlbum(id: string): Promise<void> {
 export async function purchaseAlbum(id: string): Promise<{ purchased: boolean }> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ purchased?: boolean }>(`/albums/${encodeURIComponent(id)}/purchase`, {
+  const raw = await apiFetch<{ unlocked?: boolean; purchased?: boolean }>(`/albums/${encodeURIComponent(id)}/purchase`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   });
-  return { purchased: raw?.purchased ?? true };
+  // The backend returns { unlocked: true } on success; never assume success.
+  return { purchased: Boolean(raw?.unlocked ?? raw?.purchased ?? false) };
 }
 
 /**

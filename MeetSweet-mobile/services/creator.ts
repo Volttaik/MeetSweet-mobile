@@ -78,8 +78,8 @@ export async function getCreatorSettings(): Promise<CreatorSettings> {
       who_can_comment: 'everyone',
       who_can_see: 'everyone',
       subscriptions_enabled: true,
-      subscription_price: 200,
-      subscription_plus_price: 500,
+      subscription_price: 0,
+      subscription_plus_price: 0,
     };
   }
 }
