@@ -82,7 +82,14 @@ export default function AuthScreen() {
     setLoading(true);
     setServerError('');
     try {
-      await login({ email: email.trim().toLowerCase(), password });
+      const result = await login({ email: email.trim().toLowerCase(), password });
+      if (result.requiresTwoFactor) {
+        router.replace({
+          pathname: '/two-factor',
+          params: { challengeToken: result.challengeToken },
+        });
+        return;
+      }
       try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
       const isNewUser = await shouldShowOnboarding('creator_onboarded');
       if (isNewUser) {

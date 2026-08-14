@@ -1,1 +1,0 @@
-- [Antigravity CLI environment](antigravity-cli-environment.md) — keep the binary/config in workspace storage and expose a sandbox-scoped `agy` launcher through the active PATH.

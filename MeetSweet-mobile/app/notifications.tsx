@@ -191,7 +191,11 @@ export default function NotificationsScreen() {
     }
 
     const data = n.data || {};
-    const chatRoomId = n.chatRoomId || data.chatRoomId || data.chat_room_id;
+    const chatRoomId =
+      n.chatRoomId ||
+      data.chatRoomId ||
+      data.chat_room_id ||
+      (data.entity_type === 'chat_room' ? data.entity_id : undefined);
     if (chatRoomId || n.type === 'message' || n.type === 'dm') {
       if (chatRoomId) {
         router.push(`/chat-room/${chatRoomId}`);

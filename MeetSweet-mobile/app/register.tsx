@@ -36,6 +36,7 @@ import {
   User,
 } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { savePendingAvatar } from '@/lib/pending-avatar';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -448,6 +449,8 @@ const Step2 = React.memo(function Step2({
 interface Step3Data {
   bio: string;
   avatarUri: string | null;
+  avatarMimeType?: string;
+  avatarFileName?: string;
 }
 
 const Step3 = React.memo(function Step3({
@@ -485,7 +488,11 @@ const Step3 = React.memo(function Step3({
       quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      onChange({ avatarUri: result.assets[0].uri });
+      onChange({
+        avatarUri: result.assets[0].uri,
+        avatarMimeType: result.assets[0].mimeType ?? 'image/jpeg',
+        avatarFileName: result.assets[0].fileName ?? 'avatar.jpg',
+      });
     }
   };
 
@@ -612,6 +619,15 @@ export default function RegisterScreen() {
     setSubmitting(true);
     setRegisterError('');
     try {
+      // The avatar is a device-local file URI and cannot be uploaded before the
+      // account exists. Stash it keyed by email; it is uploaded after first login.
+      if (step3.avatarUri) {
+        await savePendingAvatar(step1.email.trim().toLowerCase(), {
+          uri: step3.avatarUri,
+          mimeType: step3.avatarMimeType,
+          fileName: step3.avatarFileName,
+        });
+      }
       await register({
         full_name: step1.name.trim(),
         username: step1.username.trim().toLowerCase(),
@@ -622,7 +638,6 @@ export default function RegisterScreen() {
         bio: step3.bio.trim() || undefined,
         date_of_birth: step1.dob || undefined,
         dob: step1.dob || undefined,
-        avatar_url: step3.avatarUri || undefined,
       });
       router.replace({ pathname: '/verify-email', params: { email: step1.email.trim() } });
     } catch (err) {

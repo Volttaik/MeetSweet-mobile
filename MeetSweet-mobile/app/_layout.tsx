@@ -23,6 +23,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { BiometricLockProvider } from '@/contexts/BiometricLockContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { MsOfflineBanner } from '@/components/MsOfflineBanner';
@@ -73,6 +74,7 @@ function RootLayoutNav() {
       <Stack.Screen name="register" />
       <Stack.Screen name="forgot-password" />
       <Stack.Screen name="verify-email" />
+      <Stack.Screen name="two-factor" options={{ gestureEnabled: false }} />
       <Stack.Screen name="success" options={{ gestureEnabled: false, animation: 'fade' }} />
 
       {/* Legacy screens (kept for compatibility) */}
@@ -152,14 +154,16 @@ export default function RootLayout() {
             <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
-                  <NotificationsProvider>
-                    <PostActionsProvider>
-                      <AppServices />
-                      <RootLayoutNav />
-                      <MsOfflineBanner />
-                      <MsToastHost />
-                    </PostActionsProvider>
-                  </NotificationsProvider>
+                  <BiometricLockProvider>
+                    <NotificationsProvider>
+                      <PostActionsProvider>
+                        <AppServices />
+                        <RootLayoutNav />
+                        <MsOfflineBanner />
+                        <MsToastHost />
+                      </PostActionsProvider>
+                    </NotificationsProvider>
+                  </BiometricLockProvider>
                 </AuthProvider>
               </KeyboardProvider>
             </HeroUINativeProvider>

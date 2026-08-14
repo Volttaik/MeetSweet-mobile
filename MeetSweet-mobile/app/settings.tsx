@@ -65,6 +65,19 @@ import {
   updateSettings,
 } from '@/services/settings';
 import { checkUsernameAvailability, updateMe } from '@/services/users';
+import * as Clipboard from 'expo-clipboard';
+import {
+  getTwoFactorStatus,
+  setupTwoFactor,
+  enableTwoFactor,
+  disableTwoFactor,
+} from '@/services/security';
+import {
+  checkBiometricSupport,
+  authenticateBiometric,
+  isBiometricEnabled,
+  setBiometricEnabled as persistBiometricEnabled,
+} from '@/lib/biometric';
 
 // ─── Shared bottom sheet wrapper ──────────────────────────────────────────────
 
@@ -1358,6 +1371,194 @@ const ms = StyleSheet.create({
   statusLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.SUCCESS },
 });
 
+// ─── MODAL: Two-Factor Authentication ─────────────────────────────────────────
+
+function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const [phase, setPhase] = useState<'loading' | 'disabled' | 'setup' | 'enabled'>('loading');
+  const [secret, setSecret] = useState('');
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    setBusy(false);
+    setError('');
+    setCode('');
+    setPassword('');
+    getTwoFactorStatus()
+      .then((s) => setPhase(s.enabled ? 'enabled' : 'disabled'))
+      .catch(() => setPhase('disabled'));
+  }, [visible]);
+
+  const beginSetup = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const s = await setupTwoFactor();
+      setSecret(s.secret);
+      setPhase('setup');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to start setup');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copySecret = async () => {
+    try {
+      await Clipboard.setStringAsync(secret);
+      toast.success('Secret copied');
+    } catch {
+      toast.error('Could not copy secret');
+    }
+  };
+
+  const confirmEnable = async () => {
+    if (code.length !== 6) {
+      setError('Enter the 6-digit code');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await enableTwoFactor(code);
+      setPhase('enabled');
+      toast.success('Two-factor authentication enabled');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Invalid code');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDisable = async () => {
+    if (!password) {
+      setError('Enter your password');
+      return;
+    }
+    if (code.length !== 6) {
+      setError('Enter the 6-digit code');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await disableTwoFactor(password, code);
+      setPhase('disabled');
+      toast.success('Two-factor authentication disabled');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not disable two-factor authentication');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <BottomSheet visible={visible} onClose={onClose} title="Two-Factor Authentication">
+      {phase === 'loading' ? (
+        <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+          <ActivityIndicator color={T.TEXT} />
+        </View>
+      ) : phase === 'disabled' ? (
+        <View style={{ gap: 12 }}>
+          <Text style={ms.sub}>
+            Add a second layer of security to your account. After enabling, you'll enter a
+            6-digit code from your authenticator app each time you log in.
+          </Text>
+          <View style={ms.buttons}>
+            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={ms.cancelLabel}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={beginSetup} disabled={busy} activeOpacity={0.8}>
+              {busy ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={ms.saveLabel}>Set Up</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : phase === 'setup' ? (
+        <View style={{ gap: 12 }}>
+          <Text style={ms.sub}>
+            Enter this secret in your authenticator app (Google Authenticator, 1Password, etc.),
+            then enter the 6-digit code to confirm.
+          </Text>
+          <View style={{ backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md, padding: 14, gap: 8 }}>
+            <Text style={ms.label}>Secret key</Text>
+            <Text style={{ color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 16, letterSpacing: 1 }}>{secret}</Text>
+            <TouchableOpacity onPress={copySecret} hitSlop={8}>
+              <Text style={{ color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 }}>Copy secret</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ gap: 6 }}>
+            <Text style={ms.label}>Verification code</Text>
+            <MsInput
+              value={code}
+              onChangeText={(v) => {
+                setCode(v.replace(/[^0-9]/g, '').slice(0, 6));
+                setError('');
+              }}
+              placeholder="6-digit code"
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+          </View>
+          {!!error && <Text style={{ color: T.ERROR, fontSize: 12, fontFamily: T.FONT.regular }}>{error}</Text>}
+          <View style={ms.buttons}>
+            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={ms.cancelLabel}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={confirmEnable} disabled={busy} activeOpacity={0.8}>
+              {busy ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={ms.saveLabel}>Enable</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={{ gap: 12 }}>
+          <View style={ms.statusRow}>
+            <View style={[ms.statusDot, { backgroundColor: T.SUCCESS }]} />
+            <Text style={ms.statusLabel}>Two-factor authentication is on</Text>
+          </View>
+          <Text style={ms.sub}>To turn it off, confirm your password and a current 6-digit code.</Text>
+          <View style={{ gap: 6 }}>
+            <Text style={ms.label}>Password</Text>
+            <MsInput
+              value={password}
+              onChangeText={(v) => {
+                setPassword(v);
+                setError('');
+              }}
+              placeholder="Your password"
+              secureTextEntry
+            />
+          </View>
+          <View style={{ gap: 6 }}>
+            <Text style={ms.label}>6-digit code</Text>
+            <MsInput
+              value={code}
+              onChangeText={(v) => {
+                setCode(v.replace(/[^0-9]/g, '').slice(0, 6));
+                setError('');
+              }}
+              placeholder="Authenticator code"
+              keyboardType="number-pad"
+              maxLength={6}
+            />
+          </View>
+          {!!error && <Text style={{ color: T.ERROR, fontSize: 12, fontFamily: T.FONT.regular }}>{error}</Text>}
+          <View style={ms.buttons}>
+            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={ms.cancelLabel}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[ms.saveBtn, { backgroundColor: 'rgba(239,68,68,0.15)' }, busy && { opacity: 0.6 }]} onPress={confirmDisable} disabled={busy} activeOpacity={0.8}>
+              {busy ? <ActivityIndicator size="small" color={T.ERROR} /> : <Text style={[ms.saveLabel, { color: T.ERROR }]}>Disable</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </BottomSheet>
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
@@ -1370,6 +1571,7 @@ export default function SettingsScreen() {
     | 'changePassword' | 'activeSessions'
     | 'profileVisibility' | 'messagePerm' | 'mentionPerm'
     | 'language' | 'help' | 'bug' | 'contact' | 'about'
+    | 'twoFactor'
     | null
   >(null);
 
@@ -1383,6 +1585,9 @@ export default function SettingsScreen() {
   const [notif, setNotif] = useState<NotifPrefs>(NOTIF_DEFAULTS);
   // Content prefs
   const [content, setContent] = useState<ContentPrefs>(CONTENT_DEFAULTS);
+  // Security prefs
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
   useEffect(() => {
     const userId = user?.id;
@@ -1437,6 +1642,36 @@ export default function SettingsScreen() {
       }
     });
   }, [user?.id]);
+
+  // ── Security: biometric lock + 2FA status ─────────────────────────────────
+  useEffect(() => {
+    isBiometricEnabled().then(setBiometricEnabled).catch(() => {});
+    getTwoFactorStatus()
+      .then((s) => setTwoFactorEnabled(s.enabled))
+      .catch(() => {});
+  }, []);
+
+  const handleBiometricToggle = useCallback(async (value: boolean) => {
+    if (value) {
+      const support = await checkBiometricSupport();
+      if (!support.available || !support.enrollable) {
+        toast.error('No enrolled biometrics found on this device');
+        return;
+      }
+      const ok = await authenticateBiometric('Enable biometric lock');
+      if (!ok) {
+        toast.error('Biometric authentication cancelled');
+        return;
+      }
+      await persistBiometricEnabled(true);
+      setBiometricEnabled(true);
+      toast.success('Biometric lock enabled');
+    } else {
+      await persistBiometricEnabled(false);
+      setBiometricEnabled(false);
+      toast.success('Biometric lock disabled');
+    }
+  }, []);
 
   // Maps UI privacy key → API field
   const privacyApiMap = useCallback((key: keyof PrivacyPrefs, value: any): Record<string, any> => {
@@ -1662,6 +1897,19 @@ export default function SettingsScreen() {
         {/* ── SECURITY ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Security" />
         <View style={rs.section}>
+          <ToggleRow
+            label="Biometric Lock"
+            sub="Require Face ID or fingerprint to open the app"
+            value={biometricEnabled}
+            onValueChange={handleBiometricToggle}
+          />
+          <Divider />
+          <Row
+            label="Two-Factor Authentication"
+            sub={twoFactorEnabled ? 'On' : 'Add an extra login step'}
+            onPress={() => setModal('twoFactor')}
+          />
+          <Divider />
           <Row label="Change Password" sub="Update your account password" onPress={() => setModal('changePassword')} />
           <Divider />
           <Row label="Active Sessions" sub="View and manage sign-in sessions" onPress={() => setModal('activeSessions')} />
@@ -1794,6 +2042,7 @@ export default function SettingsScreen() {
       <SupportModal visible={modal === 'bug'} onClose={() => setModal(null)} type="bug" />
       <SupportModal visible={modal === 'contact'} onClose={() => setModal(null)} type="contact" />
       <SupportModal visible={modal === 'about'} onClose={() => setModal(null)} type="about" />
+      <TwoFactorModal visible={modal === 'twoFactor'} onClose={() => setModal(null)} />
 
       {/* Confirm dialogs */}
       <MsConfirmDialog

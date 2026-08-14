@@ -3,6 +3,8 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { apiFetch, ApiError, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
 import { clearChatCache } from '@/services/chat-cache';
+import { uploadMedia } from '@/services/media';
+import { peekPendingAvatar, clearPendingAvatar } from '@/lib/pending-avatar';
 import {
   loadSession,
   saveSessionTokens,
@@ -54,6 +56,10 @@ export interface LoginData {
   password: string;
 }
 
+export type LoginResult =
+  | { requiresTwoFactor: false }
+  | { requiresTwoFactor: true; challengeToken: string };
+
 interface AuthState {
   user: User | null;
   accessToken: string | null;
@@ -62,7 +68,8 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  login: (data: LoginData) => Promise<void>;
+  login: (data: LoginData) => Promise<LoginResult>;
+  completeTwoFactorLogin: (challengeToken: string, code: string) => Promise<void>;
   register: (data: RegisterData) => Promise<{ userId: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -146,6 +153,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setSessionExpiredHandler(async () => {
       await clearSessionStorage();
+      // Chat cache is shared across accounts — wipe it so a session that expires
+      // (rather than a clean logout) can never leak the prior user's messages.
+      await clearChatCache().catch(() => {});
       setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
     });
     return () => {
@@ -236,16 +246,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state.isAuthenticated, state.accessToken, fetchCurrentUser]);
 
-  const login = useCallback(async (data: LoginData) => {
+  const login = useCallback(async (data: LoginData): Promise<LoginResult> => {
     await clearSessionStorage().catch(() => {});
+    // A fresh login starts a clean account scope. Wipe any chat cache left over
+    // from a prior user (e.g. session-expired → login as a different account).
+    await clearChatCache().catch(() => {});
 
+    const result = await apiFetch<{
+      access_token?: string;
+      refresh_token?: string;
+      requires_2fa?: boolean;
+      challenge_token?: string;
+      user?: unknown;
+    }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: data.email, password: data.password }),
+    });
+
+    // 2FA-enabled account: the server returns a challenge instead of tokens.
+    if (result.requires_2fa && result.challenge_token) {
+      return { requiresTwoFactor: true, challengeToken: result.challenge_token };
+    }
+
+    if (!result.access_token || !result.refresh_token) {
+      throw new Error('Login failed: no session token returned');
+    }
+
+    const user = normalizeUser(result.user);
+    await saveSessionTokens(result.access_token, result.refresh_token, user);
+
+    setState({
+      user,
+      accessToken: result.access_token,
+      isLoading: false,
+      isAuthenticated: true,
+    });
+
+    finalizePendingAvatar(user.email).catch(() => {});
+
+    return { requiresTwoFactor: false };
+  }, []);
+
+  const completeTwoFactorLogin = useCallback(async (challengeToken: string, code: string) => {
     const result = await apiFetch<{
       access_token: string;
       refresh_token: string;
       user: unknown;
-    }>('/auth/login', {
+    }>('/auth/2fa/verify', {
       method: 'POST',
-      body: JSON.stringify({ email: data.email, password: data.password }),
+      body: JSON.stringify({ challenge_token: challengeToken, code }),
     });
 
     const user = normalizeUser(result.user);
@@ -257,7 +306,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading: false,
       isAuthenticated: true,
     });
+
+    finalizePendingAvatar(user.email).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Upload any avatar the user chose during registration, now that a session
+  // exists. Best-effort — a failed upload must never block login, and the
+  // pending avatar is only cleared after the server confirms the save so a
+  // transient network failure does not silently discard the user's chosen image.
+  const finalizePendingAvatar = useCallback(async (userEmail: string | null | undefined) => {
+    if (!userEmail) return;
+    const pending = await peekPendingAvatar(userEmail);
+    if (!pending) return;
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const { url } = await uploadMedia(
+        pending.uri,
+        pending.mimeType ?? 'image/jpeg',
+        pending.fileName ?? 'avatar.jpg',
+      );
+      if (url && /^https?:\/\//i.test(url)) {
+        await apiFetch('/users/me', {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ avatar_url: url }),
+        });
+        await clearPendingAvatar(userEmail);
+        await fetchCurrentUser(token);
+      }
+    } catch {
+      // best-effort — never block the session; retried on the next login
+    }
+  }, [fetchCurrentUser]);
 
   const register = useCallback(async (data: RegisterData): Promise<{ userId: string }> => {
     const result = await apiFetch<{ user_id?: string; id?: string }>('/auth/register', {
@@ -298,7 +380,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout, refreshUser, updateUser }}>
+    <AuthContext.Provider value={{ ...state, login, completeTwoFactorLogin, register, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
