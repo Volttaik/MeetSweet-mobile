@@ -176,27 +176,74 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 }
 
 // ─── Chat message skeleton ─────────────────────────────────────────────────────
+// Mirrors the real chat layout: a date chip, then alternating incoming (avatar +
+// bubble) and outgoing (bubble, right-aligned) messages. Uses the SAME bubble
+// colours as MsTextBubble (#1C1C23 incoming, #28282F outgoing) and the real
+// 8px-radius tail-corner shape. Widths are deterministic (no Math.random) so the
+// skeleton never flickers between renders.
 
-export function MsShimmerChatMessage({ own = false }: { own?: boolean }) {
-  const maxW = SCREEN_WIDTH * 0.65;
+const CHAT_BUBBLE_COLOR_OWN   = '#28282F'; // outgoing  (MsTextBubble BG_OWN)
+const CHAT_BUBBLE_COLOR_OTHER = '#1C1C23'; // incoming  (MsTextBubble BG_OTHER)
+// Deterministic bubble widths, cycled per row.
+const CHAT_BUBBLE_WIDTHS = [176, 214, 132, 198, 240, 150, 186, 224, 140, 208];
+
+export function MsShimmerChatMessage({
+  own = false,
+  width,
+  lines = 1,
+}: {
+  own?: boolean;
+  width?: number;
+  lines?: 1 | 2;
+}) {
+  const bubbleW = width ?? (own ? 180 : 220);
+  const bubbleH = lines === 2 ? 50 : 34;
+  const bubbleColor = own ? CHAT_BUBBLE_COLOR_OWN : CHAT_BUBBLE_COLOR_OTHER;
+  const tailRadius = own
+    ? { borderBottomRightRadius: 3 }
+    : { borderBottomLeftRadius: 3 };
   return (
-    <View style={[shimStyles.chatMsg, own && { alignItems: 'flex-end' }]}>
-      {!own && <MsShimmer width={28} height={28} borderRadius={14} />}
-      <View style={{ maxWidth: maxW, gap: 4 }}>
-        <MsShimmer width={maxW * (0.5 + Math.random() * 0.4)} height={38} borderRadius={16} />
-      </View>
+    <View style={[shimStyles.chatMsg, own ? shimStyles.chatMsgOwn : shimStyles.chatMsgOther]}>
+      {!own && <MsShimmer width={26} height={26} borderRadius={13} />}
+      <MsShimmer
+        width={bubbleW}
+        height={bubbleH}
+        borderRadius={8}
+        style={{ backgroundColor: bubbleColor, ...tailRadius }}
+      />
     </View>
   );
 }
 
-export function MsShimmerChatList() {
+export function MsShimmerChatList({ count = 8 }: { count?: number }) {
+  // A natural conversation rhythm: incoming/outgoing with 1–2 line bubbles.
+  const rhythm = [
+    { own: false, lines: 2 },
+    { own: true,  lines: 1 },
+    { own: false, lines: 1 },
+    { own: true,  lines: 2 },
+    { own: false, lines: 2 },
+    { own: true,  lines: 1 },
+    { own: false, lines: 1 },
+    { own: true,  lines: 1 },
+  ] as const;
   return (
-    <View style={{ gap: 12, paddingHorizontal: 12, paddingVertical: 16 }}>
-      <MsShimmerChatMessage own={false} />
-      <MsShimmerChatMessage own />
-      <MsShimmerChatMessage own={false} />
-      <MsShimmerChatMessage own />
-      <MsShimmerChatMessage own={false} />
+    <View style={shimStyles.chatList}>
+      {/* Date separator chip */}
+      <View style={shimStyles.chatDateChip}>
+        <MsShimmer width={104} height={16} borderRadius={8} />
+      </View>
+      {Array.from({ length: count }).map((_, i) => {
+        const r = rhythm[i % rhythm.length];
+        return (
+          <MsShimmerChatMessage
+            key={i}
+            own={r.own}
+            lines={r.lines}
+            width={CHAT_BUBBLE_WIDTHS[i % CHAT_BUBBLE_WIDTHS.length]}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -439,6 +486,22 @@ const shimStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
+  },
+  chatMsgOwn: {
+    justifyContent: 'flex-end',
+  },
+  chatMsgOther: {
+    justifyContent: 'flex-start',
+  },
+  chatList: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  chatDateChip: {
+    alignItems: 'center',
+    paddingTop: 6,
+    paddingBottom: 2,
   },
   searchRow: {
     flexDirection: 'row',

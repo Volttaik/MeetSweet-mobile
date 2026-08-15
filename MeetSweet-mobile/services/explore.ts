@@ -128,10 +128,17 @@ function creatorEmbeddedInItem(item: any): Creator | null {
   // from the embedded fields so the item is never dropped on the client.
   // Some content builders only carry the nested `creator` object — fall back to
   // it so the author is never lost.
+  //
+  // IMPORTANT: when flat `creator_id` is present, `item.id` is the POST id, not
+  // the creator id. Using `item.id` here made every embedded creator get keyed by
+  // the post id, so previews (which resolve their author by `creator_id`) never
+  // matched and the whole feed was silently dropped.
   const src = item && item.creator_id ? item : (item?.creator ?? null);
-  if (!src || !src.id) return null;
+  if (!src) return null;
+  const id = src.creator_id ?? src.creatorId ?? src.id;
+  if (!id) return null;
   return creatorFromExplore({
-    id: src.id,
+    id,
     username: src.username ?? src.creator_username,
     display_name: src.display_name ?? src.creator_display_name,
     name: src.display_name ?? src.creator_display_name ?? src.username ?? src.creator_username,

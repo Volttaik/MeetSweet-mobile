@@ -1703,9 +1703,11 @@ export default function ChatScreen() {
         <View style={styles.chatSkeletonWrap}>
           <MsShimmerChatList />
           <View style={styles.skeletonInputRow}>
-            <MsShimmer width={36} height={36} borderRadius={18} />
-            <MsShimmer width="100%" height={40} borderRadius={20} style={styles.skeletonInputPill} />
-            <MsShimmer width={36} height={36} borderRadius={18} />
+            <MsShimmer width={40} height={40} borderRadius={20} />
+            <MsShimmer width={40} height={48} borderRadius={24} style={styles.skeletonInputPill} />
+            <MsShimmer width={40} height={40} borderRadius={20} />
+            <MsShimmer width={40} height={40} borderRadius={20} />
+            <MsShimmer width={48} height={48} borderRadius={24} style={styles.skeletonSendBtn} />
           </View>
         </View>
       ) : (
@@ -2408,6 +2410,9 @@ const styles = StyleSheet.create({
   },
   skeletonInputPill: {
     flex: 1,
+  },
+  skeletonSendBtn: {
+    backgroundColor: T.ACCENT,
   },
 
   // Empty-chat state — centered overlay above the chat background
