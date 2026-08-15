@@ -121,6 +121,38 @@ function previewFromExplore(raw: any): ContentPreview {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function creatorEmbeddedInItem(item: any): Creator | null {
+  // The backend includes creator_* fields on every explore item. When the
+  // creator is not part of the separate (capped) `users` list, build a Creator
+  // from the embedded fields so the item is never dropped on the client.
+  if (!item || !item.creator_id) return null;
+  return creatorFromExplore({
+    id: item.creator_id,
+    username: item.creator_username,
+    display_name: item.creator_display_name,
+    name: item.creator_display_name ?? item.creator_username,
+    avatar_url: item.creator_avatar,
+    is_verified: item.creator_is_verified,
+    is_verified_creator: item.creator_is_verified,
+  });
+}
+
+/** Merge the capped `users` list with creators embedded on each item. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mergeItemCreators(users: any[], items: any[]): Creator[] {
+  const map = new Map<string, Creator>();
+  for (const u of users) {
+    const c = creatorFromExplore(u);
+    if (c.id) map.set(c.id, c);
+  }
+  for (const item of items) {
+    const embedded = creatorEmbeddedInItem(item);
+    if (embedded?.id && !map.has(embedded.id)) map.set(embedded.id, embedded);
+  }
+  return Array.from(map.values());
+}
+
 // ─── Explore feed (paginated mixed content) ───────────────────────────────────
 
 export interface ExplorePage {
@@ -137,7 +169,7 @@ export async function getExplorePage(page = 1): Promise<ExplorePage> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const items = Array.isArray((raw as any)?.items) ? (raw as any).items : [];
   return {
-    creators: users.map(creatorFromExplore),
+    creators: mergeItemCreators(users, items),
     previews: items.map(previewFromExplore),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     nextPage: (raw as any)?.next_page ?? (raw as any)?.nextPage ?? null,
@@ -172,7 +204,7 @@ export async function getExploreCatalog(): Promise<ExploreCatalog> {
   const users = Array.isArray((exploreRaw as any)?.users) ? (exploreRaw as any).users : [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const items = Array.isArray((exploreRaw as any)?.items) ? (exploreRaw as any).items : [];
-  const creators: Creator[] = users.map(creatorFromExplore);
+  const creators: Creator[] = mergeItemCreators(users, items);
   const previews: ContentPreview[] = items.map(previewFromExplore);
 
   const categories: ExploreCategory[] = (catRaw?.categories ?? []).map((c) => ({

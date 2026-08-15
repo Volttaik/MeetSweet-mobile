@@ -17,7 +17,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -31,7 +30,6 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
-  Check,
   CheckCircle,
   Clock,
   Copy,
@@ -40,6 +38,7 @@ import {
   Warning,
 } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { toast } from '@/components/MsToast';
@@ -154,7 +153,15 @@ function PaymentPendingView({
     if (!result.authorizationUrl || openingPayment) return;
     setOpeningPayment(true);
     try {
-      await Linking.openURL(result.authorizationUrl);
+      // In-app browser (Android Custom Tabs / iOS Safari View Controller) —
+      // keeps the Paystack hosted checkout inside MeetSweet instead of
+      // launching the external Chrome app. The real payment still completes
+      // on Paystack and is confirmed via verify-paystack below.
+      await WebBrowser.openBrowserAsync(result.authorizationUrl, {
+        toolbarColor: T.BG,
+        controlsColor: T.ACCENT,
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      });
     } catch {
       toast.error('Could not open the payment page.');
     } finally {

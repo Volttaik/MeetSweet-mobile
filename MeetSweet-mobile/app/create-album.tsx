@@ -36,7 +36,7 @@ import {
   X,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
-import { MsUploadProgress, type UploadStatus } from '@/components/MsUploadProgress';
+import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { uploadMedia } from '@/services/media';
 import { createAlbum } from '@/services/albums';
 import { getCategories, type Category } from '@/services/categories';
@@ -270,31 +270,24 @@ export default function CreateAlbumScreen() {
     }
   };
 
-  // ─── Publishing overlay ───────────────────────────────────────────────────
+  // ─── Publishing overlay (Create Chatroom-style loader) ─────────────────────
 
   if (step === 'uploading' || step === 'creating' || step === 'success') {
-    const status: UploadStatus = publishFailed ? 'error' : step === 'success' ? 'success' : 'uploading';
     return (
-      <MsUploadProgress
+      <MsRoomCreationLoader
         visible
-        title={step === 'creating' ? 'Creating Album' : 'Uploading Media'}
-        subtitle={uploadLabel || undefined}
-        progress={uploadProgress}
-        accentColor={T.ACCENT}
-        stages={[
-          { key: 'upload', label: 'Upload Media' },
-          { key: 'create', label: 'Create Album' },
-        ]}
-        activeStage={step === 'creating' ? 'create' : 'upload'}
-        status={status}
+        label={step === 'creating' ? 'Creating Album' : 'Uploading'}
+        status={
+          step === 'creating'
+            ? 'Building your album…'
+            : (uploadLabel || 'Uploading media…')
+        }
+        error={publishFailed ? error : null}
+        success={step === 'success' && !publishFailed}
         successTitle="Album Published!"
         successSubtitle="Your album is now live on Explore."
-        errorMessage={error}
         onRetry={publishFailed ? handlePublish : undefined}
-        onCancel={() => {
-          setPublishFailed(false);
-          setStep('preview');
-        }}
+        onCancel={publishFailed ? () => { setPublishFailed(false); setStep('preview'); } : undefined}
         onDone={() => router.replace('/(tabs)/explore')}
       />
     );

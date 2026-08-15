@@ -32,7 +32,7 @@ import {
 } from 'phosphor-react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsTierBadge } from '@/components/MsTierBadge';
-import { MsUploadProgress, type UploadStatus } from '@/components/MsUploadProgress';
+import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
@@ -450,48 +450,31 @@ export default function CreatePostScreen() {
     shorts: 'Short',
   }[contentType];
 
-  // ─── Publishing overlay ───────────────────────────────────────────────────
-
+  // ─── Publishing overlay (Create Chatroom-style loader) ─────────────────────
+  // The step machine drives clean status copy around the shared disc loader:
+  //   PREPARING → UPLOADING → CREATING → PROCESSING → COMPLETE
   if (step === 'uploading' || step === 'creating' || step === 'processing' || step === 'success') {
-    const accentColor = CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor ?? T.ACCENT;
-    const status: UploadStatus = publishFailed ? 'error' : step === 'success' ? 'success' : 'uploading';
-    // Text-only posts never report media progress — show the step's ceiling.
-    const progressValue =
-      step === 'creating' ? 0.93 :
-      step === 'processing' ? 0.99 :
-      step === 'success' ? 1 :
-      uploadProgress;
+    const phaseCopy = {
+      uploading: {
+        label: 'Uploading',
+        status: thumbnailUri && uploadProgress >= 0.88 ? 'Uploading thumbnail…' : 'Uploading media…',
+      },
+      creating:  { label: 'Creating',  status: `Creating your ${contentLabel.toLowerCase()}…` },
+      processing:{ label: 'Finalising',status: 'Wrapping up…' },
+    }[step === 'success' ? 'processing' : step];
 
     return (
-      <MsUploadProgress
+      <MsRoomCreationLoader
         visible
-        title={
-          step === 'creating' ? `Creating ${contentLabel.toLowerCase()}…` :
-          step === 'processing' ? 'Finalising' :
-          'Uploading Media'
-        }
-        subtitle={
-          step === 'uploading'
-            ? (thumbnailUri && uploadProgress >= 0.88 ? 'Uploading thumbnail…' : 'Uploading media…')
-            : undefined
-        }
-        progress={progressValue}
-        accentColor={accentColor}
-        stages={[
-          { key: 'uploading',  label: 'Upload Media' },
-          { key: 'creating',   label: 'Create Post'  },
-          { key: 'processing', label: 'Finalise'     },
-        ]}
-        activeStage={step === 'success' ? null : step}
-        status={status}
+        label={phaseCopy.label}
+        hint={phaseCopy.status}
+        status={step === 'success' ? null : phaseCopy.status}
+        error={publishFailed ? error : null}
+        success={step === 'success' && !publishFailed}
         successTitle="Published!"
         successSubtitle={`Your ${contentLabel.toLowerCase()} is live.`}
-        errorMessage={error}
         onRetry={publishFailed ? handlePublish : undefined}
-        onCancel={() => {
-          setPublishFailed(false);
-          setStep('preview');
-        }}
+        onCancel={publishFailed ? () => { setPublishFailed(false); setStep('preview'); } : undefined}
         onDone={() => router.replace('/(tabs)')}
       />
     );
@@ -826,7 +809,7 @@ export default function CreatePostScreen() {
                       onPress={() => setTier(opt.value)}
                       activeOpacity={0.75}
                     >
-                      <MsTierBadge tier={opt.value} size="sm" />
+                      <MsTierBadge tier={opt.value} size="xs" />
                     </TouchableOpacity>
                   );
                 })}
@@ -1198,18 +1181,21 @@ const styles = StyleSheet.create({
     color: T.TEXT_3,
     marginTop: 6,
   },
-  visibilityRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  visibilityRow: { flexDirection: 'row', gap: 8 },
   visOpt: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: T.RADIUS.md,
+    paddingVertical: 7,
+    paddingHorizontal: 2,
+    borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: 'transparent',
+    minHeight: 32,
   },
   visOptActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  visLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_3 },
+  visLabel: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_3 },
   visLabelActive: { color: T.TEXT },
 
   tierRow: { flexDirection: 'row', gap: 8 },

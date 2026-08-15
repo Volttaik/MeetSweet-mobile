@@ -45,7 +45,7 @@ import {
   unlikeRoomComment,
   deleteRoomComment,
 } from '@/services/comment-room-service';
-import { useComments, CommentRow, type Comment } from '@/components/MsCommentsSheet';
+import { useComments, CommentRow, CommentShimmerSkeleton, type Comment } from '@/components/MsCommentsSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -300,9 +300,7 @@ export default function ContentDetailScreen() {
         <Text style={styles.commentsSectionCount}>{comments.length}</Text>
       </View>
 
-      {commentsLoading && (
-        <ActivityIndicator style={{ marginVertical: 24 }} color={T.TEXT_3} />
-      )}
+      {commentsLoading && comments.length === 0 && <CommentShimmerSkeleton />}
     </View>
   );
 
@@ -346,7 +344,9 @@ export default function ContentDetailScreen() {
           ListEmptyComponent={
             !commentsLoading ? (
               <View style={styles.emptyComments}>
-                <Text style={styles.emptyCommentsText}>No comments yet. Be the first!</Text>
+                <ChatCircle size={26} color={T.TEXT_3} />
+                <Text style={styles.emptyCommentsText}>No comments yet</Text>
+                <Text style={styles.emptyCommentsSubtext}>Be the first to share your thoughts.</Text>
               </View>
             ) : null
           }
@@ -470,8 +470,9 @@ const styles = StyleSheet.create({
     color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12,
   },
 
-  emptyComments: { paddingVertical: 32, alignItems: 'center' },
-  emptyCommentsText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13 },
+  emptyComments: { paddingVertical: 36, alignItems: 'center', gap: 6 },
+  emptyCommentsText: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14 },
+  emptyCommentsSubtext: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12 },
 
   composerBar: {
     borderTopWidth: 1,
