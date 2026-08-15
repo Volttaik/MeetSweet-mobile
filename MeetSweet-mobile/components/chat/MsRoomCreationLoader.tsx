@@ -2,10 +2,11 @@
  * MsRoomCreationLoader — full-screen loading state for first-time Chat Room
  * creation.
  *
- * Design: clean and minimal.
- *   • White circular background centered on screen.
- *   • MeetSweet black logo inside the circle.
- *   • Black spinner ring rotating around the logo.
+ * Design: dark MeetSweet surface language (matches the app, not a white flash).
+ *   • Ash/black overlay covering the screen.
+ *   • Elevated dark disc centered on screen.
+ *   • Rose accent ring rotating around the disc.
+ *   • MeetSweet logo inside the disc.
  *   • Caption underneath: "Creating chatroom".
  *
  * Shown while the frontend verifies messaging eligibility and asks the backend
@@ -64,11 +65,12 @@ export function MsRoomCreationLoader({ visible, label = 'Creating chatroom' }: P
             source={LOGO}
             style={styles.logo}
             resizeMode="contain"
-            tintColor="#000000"
+            tintColor="#FFFFFF"
             accessibilityLabel="MeetSweet"
           />
         </View>
         <Text style={styles.label}>{label}</Text>
+        <Text style={styles.hint}>Setting up your conversation…</Text>
       </View>
     </View>
   );
@@ -80,7 +82,7 @@ const RING = DISC + 10;
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    backgroundColor: 'rgba(12,12,15,0.97)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
@@ -94,39 +96,45 @@ const styles = StyleSheet.create({
     width: DISC,
     height: DISC,
     borderRadius: DISC / 2,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
-    // Soft shadow so the white disc reads against the white backdrop.
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
+    // Soft shadow so the disc reads against the dark backdrop.
     shadowColor: '#000000',
-    shadowOpacity: 0.10,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    shadowOpacity: 0.55,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 16,
   },
   ring: {
     position: 'absolute',
     width: RING,
     height: RING,
     borderRadius: RING / 2,
-    // Thick black arc: full border, mostly transparent, with a solid segment
-    // produced via a conic-like gradient approximation. We use a border with a
-    // large transparent gap and a solid quarter to create the orbiting mark.
-    borderWidth: 4,
-    borderColor: '#000000',
+    borderWidth: 3,
+    borderColor: T.ACCENT,
     borderRightColor: 'transparent',
     borderBottomColor: 'transparent',
     borderLeftColor: 'transparent',
+    opacity: 0.9,
   },
   logo: {
     width: 56,
     height: 56,
   },
   label: {
-    marginTop: 22,
+    marginTop: 24,
     fontSize: 15,
-    fontFamily: T.FONT.medium,
-    color: '#000000',
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
     letterSpacing: 0.2,
+  },
+  hint: {
+    marginTop: 6,
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
   },
 });

@@ -58,16 +58,59 @@ export interface Post {
 
 export function normalizePost(raw: any): Post {
   if (!raw) return raw;
+
+  // ── Media array (backend shape) ───────────────────────────────────────────
+  // The backend returns media as an array of { url, type, thumbnail_url, ... }.
+  // Derive the flat media fields the UI consumes from that array, while still
+  // honouring any explicit top-level fields a caller may provide.
+  const mediaList: Array<Record<string, unknown>> = Array.isArray(raw.media) ? raw.media : [];
+  const firstMedia = mediaList[0] ?? null;
+  const mediaUrls =
+    raw.media_urls ??
+    raw.mediaUrls ??
+    (mediaList.length > 0 ? mediaList.map((m) => m?.url).filter(Boolean) : []);
+  const mediaUrl = raw.mediaUrl ?? raw.media_url ?? mediaUrls[0] ?? undefined;
+
+  // ── Content type — ALWAYS from metadata, never guessed from URL shape ─────
+  const contentType = raw.contentType ?? raw.content_type ?? null;
+  const mediaType =
+    raw.mediaType ??
+    raw.media_type ??
+    (contentType === 'video' || contentType === 'short'
+      ? 'video'
+      : firstMedia?.type === 'video'
+        ? 'video'
+        : mediaList.length > 0
+          ? 'image'
+          : mediaUrl
+            ? 'image'
+            : undefined);
+
+  // ── Author — backend returns flat creator_* fields (not an author object) ──
   const author: PostAuthor = {
-    id: raw.author?.id ?? raw.author_id ?? '',
-    name: raw.author?.name ?? 'Anonymous',
-    username: raw.author?.username ?? '',
-    avatar_url: raw.author?.avatar_url ?? raw.author?.avatarUrl ?? null,
-    avatarUrl: raw.author?.avatar_url ?? raw.author?.avatarUrl ?? null,
-    is_creator: raw.author?.is_creator ?? raw.author?.isCreator ?? false,
-    isCreator: raw.author?.is_creator ?? raw.author?.isCreator ?? false,
-    is_verified: raw.author?.is_verified ?? raw.author?.isVerified ?? false,
-    isVerified: raw.author?.is_verified ?? raw.author?.isVerified ?? false,
+    id: raw.author?.id ?? raw.author_id ?? raw.creator_id ?? '',
+    name:
+      raw.author?.name ??
+      raw.creator_display_name ??
+      raw.creator_username ??
+      raw.full_name ??
+      raw.author?.username ??
+      'Anonymous',
+    username: raw.author?.username ?? raw.creator_username ?? raw.username ?? '',
+    avatar_url: raw.author?.avatar_url ?? raw.author?.avatarUrl ?? raw.creator_avatar ?? null,
+    avatarUrl: raw.author?.avatar_url ?? raw.author?.avatarUrl ?? raw.creator_avatar ?? null,
+    is_creator: raw.author?.is_creator ?? raw.author?.isCreator ?? raw.creator_is_creator ?? false,
+    isCreator: raw.author?.is_creator ?? raw.author?.isCreator ?? raw.creator_is_creator ?? false,
+    is_verified:
+      raw.author?.is_verified ??
+      raw.author?.isVerified ??
+      raw.creator_is_verified ??
+      false,
+    isVerified:
+      raw.author?.is_verified ??
+      raw.author?.isVerified ??
+      raw.creator_is_verified ??
+      false,
   };
 
   const likesCount = raw.likes_count ?? raw.likeCount ?? 0;
@@ -76,10 +119,11 @@ export function normalizePost(raw: any): Post {
   const isLiked = raw.is_liked ?? raw.likedByMe ?? false;
   const isBookmarked = raw.is_bookmarked ?? raw.bookmarkedByMe ?? false;
   const createdAt = raw.created_at ?? raw.createdAt ?? new Date().toISOString();
-  const thumbnailUrl = raw.thumbnail_url ?? raw.thumbnailUrl ?? null;
-  const mediaUrls = raw.media_urls ?? raw.mediaUrls ?? [];
-  const mediaUrl = raw.mediaUrl ?? raw.media_url ?? mediaUrls[0];
-  const mediaType = raw.media_type ?? raw.mediaType ?? 'image';
+  const thumbnailUrl =
+    raw.thumbnail_url ??
+    raw.thumbnailUrl ??
+    (firstMedia?.thumbnail_url as string | null | undefined) ??
+    null;
 
   return {
     ...raw,
@@ -87,13 +131,18 @@ export function normalizePost(raw: any): Post {
     author,
     content: raw.content ?? raw.caption,
     caption: raw.caption ?? raw.content,
+    contentType,
+    content_type: contentType,
     media_urls: mediaUrls,
     mediaUrls,
     mediaUrl,
+    media_url: mediaUrl,
     media_type: mediaType,
     mediaType,
-    width: raw.width ? Number(raw.width) : undefined,
-    height: raw.height ? Number(raw.height) : undefined,
+    width: raw.width ?? firstMedia?.width ?? undefined,
+    height: raw.height ?? firstMedia?.height ?? undefined,
+    durationSecs: raw.durationSecs ?? raw.duration_secs ?? firstMedia?.duration_secs ?? null,
+    fileSize: raw.fileSize ?? raw.file_size ?? firstMedia?.file_size ?? null,
     likes_count: likesCount,
     likeCount: likesCount,
     comments_count: commentsCount,
@@ -119,13 +168,37 @@ async function getToken(): Promise<string | null> {
   return getAccessToken();
 }
 
-export async function getHomeFeed(page = 1): Promise<Post[]> {
+export interface HomeFeedResult {
+  posts: Post[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  page: number;
+}
+
+/**
+ * Fetch the authenticated Home feed (subscription-aware, includes the user's
+ * own published content). Returns the full envelope so the screen can drive
+ * cursor-based pagination and pull-to-refresh without losing metadata.
+ */
+export async function getHomeFeed(
+  page = 1,
+  cursor?: string | null,
+): Promise<HomeFeedResult> {
   const token = await getToken();
+  const params = new URLSearchParams({ page: String(page) });
+  if (cursor) params.set('cursor', cursor);
+  const qs = params.toString();
   const resp = token
-    ? await authFetch<any>(`/posts/feed?page=${page}`, token)
-    : await apiFetch<any>(`/posts/feed?page=${page}`);
-  const rawPosts = resp.posts || (Array.isArray(resp) ? resp : []);
-  return rawPosts.map((p: any) => normalizePost(p));
+    ? await authFetch<any>(`/posts/feed?${qs}`, token)
+    : await apiFetch<any>(`/posts/feed?${qs}`);
+  const rawPosts = resp?.posts || (Array.isArray(resp) ? resp : []);
+  const nextCursor = resp?.next_cursor ?? resp?.nextCursor ?? null;
+  return {
+    posts: rawPosts.map((p: any) => normalizePost(p)),
+    nextCursor,
+    hasMore: Boolean(nextCursor) || rawPosts.length >= 20,
+    page,
+  };
 }
 
 export const getFeed = getHomeFeed;

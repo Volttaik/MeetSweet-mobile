@@ -48,6 +48,10 @@ export interface MsUser {
 export interface MsMessage {
   _id: string;
   id: string;
+  /** Real server message id when `_id` is still a local temp id (optimistic
+   *  send that has been confirmed). Keeps the list key stable so confirmed
+   *  messages don't remount and flash. */
+  msServerId?: string;
   chatRoomId: string;
   contextId?: string | null;
   text: string;
@@ -178,7 +182,9 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
     status: m.status || (m.pending ? 'sending' : 'sent'),
     pending: m.pending ?? false,
     sent: m.sent ?? true,
-    received: m.received ?? true,
+    // Honest read state: only true when the backend reports the recipient has
+    // read past this message (other member's last_read_at). Never assumed.
+    received: Boolean(m.received ?? m.read ?? m.is_read ?? false),
     image: mediaType === 'image' ? (m.localUri || mediaUrl) : undefined,
     video: mediaType === 'video' ? (m.localUri || mediaUrl) : undefined,
     audio: mediaType === 'audio' ? (m.localUri || mediaUrl) : undefined,

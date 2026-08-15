@@ -23,7 +23,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Clock } from 'phosphor-react-native';
+import { Check, Checks, Clock } from 'phosphor-react-native';
 import type { BubbleProps } from '@kesha-antonov/react-native-chat';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
@@ -311,6 +311,15 @@ export function MsChatBubble({
             {msg.pending && isOwn ? (
               <View style={styles.mediaStatusIcon}>
                 <Clock size={10} color={T.TEXT_3} weight="regular" />
+              </View>
+            ) : null}
+            {!msg.pending && !isFailed && isOwn && msg.sent ? (
+              <View style={styles.mediaStatusIcon}>
+                {msg.received ? (
+                  <Checks size={11} color={T.ACCENT} weight="bold" />
+                ) : (
+                  <Check size={11} color="rgba(255,255,255,0.40)" weight="bold" />
+                )}
               </View>
             ) : null}
             {isFailed && isOwn ? (

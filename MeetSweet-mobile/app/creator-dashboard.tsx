@@ -11,27 +11,24 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowLeft,
   ArrowCircleUp,
-  Bell,
-  Broadcast,
   Camera,
   CaretDown,
   CaretRight,
-  ChartBar,
   ChatText,
   CurrencyNgn,
-  Eye,
-  Gear,
   GearSix,
-  TrendUp,
   Users,
+  Wallet,
   type Icon,
 } from 'phosphor-react-native';
-import { Spinner } from 'heroui-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
+import { MsShimmer } from '@/components/MsShimmer';
+import { MsEmptyState } from '@/components/MsEmptyState';
 import {
   getCreatorDashboard,
   getCreatorSettings,
@@ -43,31 +40,64 @@ import {
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
+const MIN_WITHDRAWAL = 1000;
 
-function StatCard({
-  IconComp,
-  label,
-  value,
-  change,
-  positive,
-}: {
-  IconComp: Icon;
-  label: string;
-  value: string;
-  change: string;
-  positive: boolean;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <View style={styles.statIcon}>
-        <IconComp size={18} color={T.TEXT_2} />
+// ─── Formatting helpers ───────────────────────────────────────────────────────
+
+function formatNaira(n: number): string {
+  return '₦' + (n ?? 0).toLocaleString('en-NG');
+}
+
+/** "2026-08" → "Aug"; anything else → truncated label. */
+function shortPeriod(period: string): string {
+  const m = period?.match(/^(\d{4})-(\d{2})/);
+  if (m) {
+    return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleString('en-US', { month: 'short' });
+  }
+  return period && period.length > 9 ? period.slice(0, 9) : period;
+}
+
+// ─── Performance chart (real period_stats only) ───────────────────────────────
+
+function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
+  // Newest-first from the API; render chronologically left → right.
+  const ascending = [...stats].reverse();
+  const totalViews = ascending.reduce((s, p) => s + p.views, 0);
+
+  if (totalViews === 0) {
+    return (
+      <View style={styles.chartCard}>
+        <MsEmptyState
+          title="No analytics yet"
+          message="Views, likes and revenue for each period will appear here once your content gets engagement."
+        />
       </View>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={[styles.statChange, { color: positive ? T.SUCCESS : T.ERROR }]}>
-        {change}
-      </Text>
+    );
+  }
+
+  const maxViews = Math.max(...ascending.map((s) => s.views), 1);
+
+  return (
+    <View style={styles.chartCard}>
+      <View style={styles.chartRow}>
+        {ascending.map((s) => {
+          const barHeight = Math.max(6, Math.round((s.views / maxViews) * 110));
+          return (
+            <View key={s.period} style={styles.chartCol}>
+              <Text style={styles.chartValue} numberOfLines={1}>
+                {s.views >= 1000 ? `${(s.views / 1000).toFixed(1)}k` : s.views}
+              </Text>
+              <View style={styles.chartTrack}>
+                <View style={[styles.chartBar, { height: barHeight }]} />
+              </View>
+              <Text style={styles.chartPeriod} numberOfLines={1}>
+                {shortPeriod(s.period)}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      <Text style={styles.chartCaption}>Views per period</Text>
     </View>
   );
 }
@@ -78,7 +108,7 @@ function ActivityRow({ stat }: { stat: PeriodStat }) {
   return (
     <View style={styles.activityRow}>
       <View style={styles.activityPeriodWrap}>
-        <Text style={styles.activityPeriod}>{stat.period}</Text>
+        <Text style={styles.activityPeriod}>{shortPeriod(stat.period)}</Text>
       </View>
       <View style={styles.activityStats}>
         <View style={styles.activityStat}>
@@ -98,11 +128,29 @@ function ActivityRow({ stat }: { stat: PeriodStat }) {
         <View style={styles.activityDivider} />
         <View style={styles.activityStat}>
           <Text style={[styles.activityValue, { color: T.SUCCESS }]}>
-            ₦{stat.revenue.toLocaleString()}
+            {formatNaira(stat.revenue)}
           </Text>
           <Text style={styles.activityStatLabel}>Revenue</Text>
         </View>
       </View>
+    </View>
+  );
+}
+
+// ─── Skeleton loading state ───────────────────────────────────────────────────
+
+function DashboardSkeleton() {
+  return (
+    <View style={styles.skeletonWrap}>
+      <MsShimmer width="100%" height={168} borderRadius={20} />
+      <View style={styles.skeletonGrid}>
+        <MsShimmer width="47%" height={108} borderRadius={16} />
+        <MsShimmer width="47%" height={108} borderRadius={16} />
+        <MsShimmer width="47%" height={108} borderRadius={16} />
+        <MsShimmer width="47%" height={108} borderRadius={16} />
+      </View>
+      <MsShimmer width="100%" height={190} borderRadius={16} />
+      <MsShimmer width="100%" height={150} borderRadius={16} />
     </View>
   );
 }
@@ -266,7 +314,8 @@ export default function CreatorDashboardScreen() {
     },
   ];
 
-  const load = async () => {
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [dash, subs, settings] = await Promise.all([
         getCreatorDashboard(),
@@ -277,8 +326,9 @@ export default function CreatorDashboardScreen() {
       setSubscribers(subs.subscribers ?? []);
       if (settings) {
         setWhoCanMessage(settings.who_can_message ?? 'everyone');
-        setWhoCanComment(settings.allow_comments ? 'everyone' : 'none');
-        setSubsEnabled(true);
+        setWhoCanComment(settings.who_can_comment ?? (settings.allow_comments === false ? 'none' : 'everyone'));
+        setWhoCanSee(settings.who_can_see ?? 'subscribers');
+        setSubsEnabled(settings.subscriptions_enabled ?? true);
         setSubscriberPrice(settings.subscription_price && settings.subscription_price > 0 ? settings.subscription_price : 200);
         setSubscriberPlusPrice(
           settings.subscription_plus_price && settings.subscription_plus_price > 0
@@ -297,7 +347,7 @@ export default function CreatorDashboardScreen() {
 
   useEffect(() => { load(); }, []);
 
-  const handleRefresh = () => { setRefreshing(true); load(); };
+  const handleRefresh = () => { setRefreshing(true); load(true); };
 
   const beginPriceEdit = (plan: 'subscriber' | 'subscriber_plus') => {
     setEditingPrice(plan);
@@ -325,13 +375,7 @@ export default function CreatorDashboardScreen() {
   const subscribers_count = dashboard?.active_subscribers ?? 0;
   const total_posts = dashboard?.total_posts ?? 0;
   const recent_stats = dashboard?.period_stats?.slice(0, 6) ?? [];
-
-  const STATS = [
-    { IconComp: CurrencyNgn, label: 'This Month', value: `₦${monthRevenue.toLocaleString()}`, change: totalRevenue > 0 ? `₦${totalRevenue.toLocaleString()} total` : '—', positive: totalRevenue > 0 },
-    { IconComp: Users,       label: 'Subscribers', value: subscribers_count.toString(), change: subscribers_count > 0 ? 'Active' : '—', positive: subscribers_count > 0 },
-    { IconComp: TrendUp,     label: 'Posts',       value: total_posts.toString(), change: total_posts > 0 ? 'Published' : '—', positive: total_posts > 0 },
-    { IconComp: ChartBar,    label: 'Engagement',  value: recent_stats[0] ? `${((recent_stats[0].likes / Math.max(recent_stats[0].views, 1)) * 100).toFixed(1)}%` : '0%', change: '—', positive: true },
-  ];
+  const latestPeriod = dashboard?.period_stats?.[0]?.period;
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
@@ -350,15 +394,15 @@ export default function CreatorDashboardScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.loadingWrap}>
-          <Spinner size="lg" color="default" />
-        </View>
+        <DashboardSkeleton />
       ) : error ? (
         <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={load} activeOpacity={0.8}>
-            <Text style={styles.retryLabel}>Retry</Text>
-          </TouchableOpacity>
+          <MsEmptyState
+            title="Could not load dashboard"
+            message="Check your connection and try again."
+            actionLabel="Retry"
+            onAction={load}
+          />
         </View>
       ) : (
         <ScrollView
@@ -368,36 +412,81 @@ export default function CreatorDashboardScreen() {
           }
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
         >
-          {/* Creator Hub banner */}
-          <View style={styles.banner}>
-            <View style={styles.bannerLeft}>
-              <Text style={styles.bannerTitle}>Creator Hub</Text>
-              <Text style={styles.bannerSubtitle}>
-                Track your earnings, subscribers, and content performance.
+          {/* ── Earnings hero (dark ash surface, not a white banner) ──────── */}
+          <LinearGradient colors={['#251319', '#121014']} style={styles.hero}>
+            <View style={styles.heroGlow} pointerEvents="none" />
+            <View style={styles.heroTop}>
+              <View style={styles.heroCopy}>
+                <Text style={styles.heroEyebrow}>TOTAL EARNINGS</Text>
+                <Text style={styles.heroValue}>{formatNaira(totalRevenue)}</Text>
+                <Text style={styles.heroSub}>
+                  {latestPeriod ? `${shortPeriod(latestPeriod)}: ${formatNaira(monthRevenue)}` : 'No earnings recorded yet'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.withdrawBtn}
+                onPress={() => router.push('/creator-payout')}
+                activeOpacity={0.85}
+              >
+                <ArrowCircleUp size={16} color="#fff" weight="fill" />
+                <Text style={styles.withdrawLabel}>Withdraw</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.heroMetaRow}>
+              <View style={styles.heroMeta}>
+                <Text style={styles.heroMetaValue}>{subscribers_count}</Text>
+                <Text style={styles.heroMetaLabel}>Subscribers</Text>
+              </View>
+              <View style={styles.heroMetaDivider} />
+              <View style={styles.heroMeta}>
+                <Text style={styles.heroMetaValue}>{total_posts}</Text>
+                <Text style={styles.heroMetaLabel}>Posts</Text>
+              </View>
+              <View style={styles.heroMetaDivider} />
+              <View style={styles.heroMeta}>
+                <Text style={styles.heroMetaValue}>
+                  {recent_stats[0] ? `${((recent_stats[0].likes / Math.max(recent_stats[0].views, 1)) * 100).toFixed(0)}%` : '—'}
+                </Text>
+                <Text style={styles.heroMetaLabel}>Engagement</Text>
+              </View>
+            </View>
+
+            {/* Withdrawal progress — real balance toward the real minimum */}
+            <View style={styles.withdrawProgressWrap}>
+              <View style={styles.withdrawProgressTrack}>
+                <View
+                  style={[
+                    styles.withdrawProgressFill,
+                    { width: `${Math.min(100, (totalRevenue / MIN_WITHDRAWAL) * 100)}%` },
+                  ]}
+                />
+              </View>
+              <Text style={styles.withdrawProgressText}>
+                {totalRevenue >= MIN_WITHDRAWAL
+                  ? 'Ready to withdraw — tap Withdraw above'
+                  : `${formatNaira(Math.max(0, MIN_WITHDRAWAL - totalRevenue))} until minimum withdrawal (${formatNaira(MIN_WITHDRAWAL)})`}
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.withdrawBtn}
-              onPress={() => router.push('/creator-payout')}
-              activeOpacity={0.8}
-            >
-              <ArrowCircleUp size={16} color={T.BG} />
-              <Text style={styles.withdrawLabel}>Withdraw</Text>
-            </TouchableOpacity>
-          </View>
+          </LinearGradient>
 
-          {/* Stats grid */}
-          <Text style={styles.sectionTitle}>Overview</Text>
-          <View style={styles.statsGrid}>
-            {STATS.map((s) => (
-              <StatCard key={s.label} {...s} />
-            ))}
-          </View>
+          {/* ── Performance chart (real data) ─────────────────────────────── */}
+          <Text style={styles.sectionTitle}>Performance</Text>
+          {recent_stats.length > 0 ? (
+            <PerformanceChart stats={recent_stats} />
+          ) : (
+            <View style={styles.chartCard}>
+              <MsEmptyState
+                title="No analytics yet"
+                message="Views, likes and revenue for each period will appear here once your content gets engagement."
+              />
+            </View>
+          )}
 
-          {/* Period performance */}
-          {recent_stats.length > 0 && (
+          {/* ── Period breakdown ──────────────────────────────────────────── */}
+          {recent_stats.length > 1 && (
             <>
-              <Text style={styles.sectionTitle}>Content Performance</Text>
+              <Text style={styles.sectionTitle}>Period Breakdown</Text>
               <View style={styles.activityCard}>
                 {recent_stats.map((s) => (
                   <ActivityRow key={s.period} stat={s} />
@@ -406,7 +495,7 @@ export default function CreatorDashboardScreen() {
             </>
           )}
 
-          {/* Recent subscribers */}
+          {/* ── Recent subscribers ────────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Recent Subscribers</Text>
           <View style={styles.subsCard}>
             {subscribers.length > 0 ? (
@@ -431,15 +520,14 @@ export default function CreatorDashboardScreen() {
                 )}
               </>
             ) : (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_3 }}>
-                  No active subscribers yet
-                </Text>
-              </View>
+              <MsEmptyState
+                title="No subscribers yet"
+                message="When people subscribe to you, they'll show up here."
+              />
             )}
           </View>
 
-          {/* Quick actions */}
+          {/* ── Quick actions ─────────────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsRow}>
             <TouchableOpacity
@@ -458,7 +546,7 @@ export default function CreatorDashboardScreen() {
               activeOpacity={0.8}
             >
               <View style={styles.actionIconWrap}>
-                <CurrencyNgn size={22} color={T.TEXT_2} />
+                <Wallet size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>Payout</Text>
             </TouchableOpacity>
@@ -483,8 +571,14 @@ export default function CreatorDashboardScreen() {
               label="Enable subscriptions"
               value={subsEnabled}
               onChange={async (v) => {
+                const prev = subsEnabled;
                 setSubsEnabled(v);
-                await updateCreatorSettings({ subscriptions_enabled: v }).catch(() => {});
+                try {
+                  await updateCreatorSettings({ subscriptions_enabled: v });
+                } catch {
+                  setSubsEnabled(prev);
+                  Alert.alert('Could not update', 'Please try again.');
+                }
               }}
             />
             <SettingsDivider />
@@ -513,7 +607,7 @@ export default function CreatorDashboardScreen() {
             ) : (
               <SettingsRow
                 label="👥 Subscriber price"
-                value={`₦${subscriberPrice.toLocaleString()}/mo`}
+                value={`${formatNaira(subscriberPrice)}/mo`}
                 onPress={() => beginPriceEdit('subscriber')}
               />
             )}
@@ -543,7 +637,7 @@ export default function CreatorDashboardScreen() {
             ) : (
               <SettingsRow
                 label="⭐ Subscriber+ price"
-                value={`₦${subscriberPlusPrice.toLocaleString()}/mo`}
+                value={`${formatNaira(subscriberPlusPrice)}/mo`}
                 onPress={() => beginPriceEdit('subscriber_plus')}
               />
             )}
@@ -557,16 +651,22 @@ export default function CreatorDashboardScreen() {
               onPress={() =>
                 Alert.alert('Who can message you?', undefined, [
                   { text: 'Everyone', onPress: async () => {
+                    const prev = whoCanMessage;
                     setWhoCanMessage('everyone');
-                    await updateCreatorSettings({ who_can_message: 'everyone' });
+                    try { await updateCreatorSettings({ who_can_message: 'everyone' }); }
+                    catch { setWhoCanMessage(prev); Alert.alert('Could not update', 'Please try again.'); }
                   }},
                   { text: 'Subscribers only', onPress: async () => {
+                    const prev = whoCanMessage;
                     setWhoCanMessage('subscribers');
-                    await updateCreatorSettings({ who_can_message: 'subscribers' });
+                    try { await updateCreatorSettings({ who_can_message: 'subscribers' }); }
+                    catch { setWhoCanMessage(prev); Alert.alert('Could not update', 'Please try again.'); }
                   }},
                   { text: 'No one', onPress: async () => {
+                    const prev = whoCanMessage;
                     setWhoCanMessage('none');
-                    await updateCreatorSettings({ who_can_message: 'none' });
+                    try { await updateCreatorSettings({ who_can_message: 'none' }); }
+                    catch { setWhoCanMessage(prev); Alert.alert('Could not update', 'Please try again.'); }
                   }},
                   { text: 'Cancel', style: 'cancel' },
                 ])
@@ -578,9 +678,24 @@ export default function CreatorDashboardScreen() {
               value={whoCanComment === 'everyone' ? 'Everyone' : whoCanComment === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
                 Alert.alert('Who can comment?', undefined, [
-                  { text: 'Everyone', onPress: async () => { setWhoCanComment('everyone'); await updateCreatorSettings({ allow_comments: true, who_can_comment: 'everyone' }).catch(() => {}); } },
-                  { text: 'Subscribers only', onPress: async () => { setWhoCanComment('subscribers'); await updateCreatorSettings({ allow_comments: true, who_can_comment: 'subscribers' }).catch(() => {}); } },
-                  { text: 'No one', onPress: async () => { setWhoCanComment('none'); await updateCreatorSettings({ allow_comments: false, who_can_comment: 'none' }).catch(() => {}); } },
+                  { text: 'Everyone', onPress: async () => {
+                    const prev = whoCanComment;
+                    setWhoCanComment('everyone');
+                    try { await updateCreatorSettings({ allow_comments: true, who_can_comment: 'everyone' }); }
+                    catch { setWhoCanComment(prev); Alert.alert('Could not update', 'Please try again.'); }
+                  }},
+                  { text: 'Subscribers only', onPress: async () => {
+                    const prev = whoCanComment;
+                    setWhoCanComment('subscribers');
+                    try { await updateCreatorSettings({ allow_comments: true, who_can_comment: 'subscribers' }); }
+                    catch { setWhoCanComment(prev); Alert.alert('Could not update', 'Please try again.'); }
+                  }},
+                  { text: 'No one', onPress: async () => {
+                    const prev = whoCanComment;
+                    setWhoCanComment('none');
+                    try { await updateCreatorSettings({ allow_comments: false, who_can_comment: 'none' }); }
+                    catch { setWhoCanComment(prev); Alert.alert('Could not update', 'Please try again.'); }
+                  }},
                   { text: 'Cancel', style: 'cancel' },
                 ])
               }
@@ -591,30 +706,28 @@ export default function CreatorDashboardScreen() {
               value={whoCanSee === 'everyone' ? 'Everyone' : whoCanSee === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
                 Alert.alert('Who can see your posts?', undefined, [
-                  { text: 'Everyone', onPress: async () => { setWhoCanSee('everyone'); await updateCreatorSettings({ who_can_see: 'everyone' }).catch(() => {}); } },
-                  { text: 'Subscribers only', onPress: async () => { setWhoCanSee('subscribers'); await updateCreatorSettings({ who_can_see: 'subscribers' }).catch(() => {}); } },
-                  { text: 'No one', onPress: async () => { setWhoCanSee('none'); await updateCreatorSettings({ who_can_see: 'none' }).catch(() => {}); } },
+                  { text: 'Everyone', onPress: async () => {
+                    const prev = whoCanSee;
+                    setWhoCanSee('everyone');
+                    try { await updateCreatorSettings({ who_can_see: 'everyone' }); }
+                    catch { setWhoCanSee(prev); Alert.alert('Could not update', 'Please try again.'); }
+                  }},
+                  { text: 'Subscribers only', onPress: async () => {
+                    const prev = whoCanSee;
+                    setWhoCanSee('subscribers');
+                    try { await updateCreatorSettings({ who_can_see: 'subscribers' }); }
+                    catch { setWhoCanSee(prev); Alert.alert('Could not update', 'Please try again.'); }
+                  }},
+                  { text: 'No one', onPress: async () => {
+                    const prev = whoCanSee;
+                    setWhoCanSee('none');
+                    try { await updateCreatorSettings({ who_can_see: 'none' }); }
+                    catch { setWhoCanSee(prev); Alert.alert('Could not update', 'Please try again.'); }
+                  }},
                   { text: 'Cancel', style: 'cancel' },
                 ])
               }
             />
-          </SettingsSection>
-
-          {/* Analytics */}
-          <SettingsSection IconComp={ChartBar} title="Analytics">
-            <View style={styles.analyticsRow}>
-              <View style={styles.analyticsItem}>
-                <Text style={styles.analyticsValue}>
-                  {recent_stats.reduce((s, p) => s + p.views, 0).toLocaleString()}
-                </Text>
-                <Text style={styles.analyticsLabel}>Total Views</Text>
-              </View>
-              <View style={styles.analyticsDivider} />
-              <View style={styles.analyticsItem}>
-                <Text style={styles.analyticsValue}>{subscribers_count}</Text>
-                <Text style={styles.analyticsLabel}>Subscribers</Text>
-              </View>
-            </View>
           </SettingsSection>
 
           {/* Payout & Earnings */}
@@ -627,7 +740,7 @@ export default function CreatorDashboardScreen() {
             <SettingsDivider />
             <View style={styles.settingsRow}>
               <Text style={styles.settingsRowLabel}>Minimum withdrawal</Text>
-              <Text style={styles.settingsRowValue}>₦1,000</Text>
+              <Text style={styles.settingsRowValue}>{formatNaira(MIN_WITHDRAWAL)}</Text>
             </View>
           </SettingsSection>
 
@@ -666,64 +779,123 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3, textAlign: 'center',
   },
 
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
-  errorText: { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center' },
-  retryBtn: {
-    paddingHorizontal: 24, paddingVertical: 12,
-    borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
-  },
-  retryLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.BG },
 
   scrollContent: { paddingTop: 8 },
 
-  banner: {
+  // ── Earnings hero ──────────────────────────────────────────────────────────
+  hero: {
     margin: 20,
     padding: 20,
-    backgroundColor: T.TEXT,
     borderRadius: T.RADIUS.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(196,90,114,0.18)',
+    overflow: 'hidden',
+    position: 'relative',
+    gap: 16,
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -80, right: -60,
+    width: 200, height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(196,90,114,0.14)',
+  },
+  heroTop: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 12,
   },
-  bannerLeft: { flex: 1 },
-  bannerTitle: { fontSize: 17, fontFamily: T.FONT.bold, color: T.BG, letterSpacing: -0.3 },
-  bannerSubtitle: {
-    fontSize: 12, fontFamily: T.FONT.regular, color: 'rgba(0,0,0,0.6)',
-    lineHeight: 18, marginTop: 4,
+  heroCopy: { flex: 1 },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: T.FONT.semibold, fontSize: 10,
+    letterSpacing: 1.5,
+  },
+  heroValue: {
+    color: '#FFFFFF', fontFamily: T.FONT.bold,
+    fontSize: 32, letterSpacing: -1, marginTop: 4,
+  },
+  heroSub: {
+    color: 'rgba(255,255,255,0.42)',
+    fontFamily: T.FONT.regular, fontSize: 12, marginTop: 4,
   },
   withdrawBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 14, paddingVertical: 9,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    ...T.SHADOWS.soft,
   },
-  withdrawLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.BG },
+  withdrawLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: '#fff' },
 
+  heroMetaRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: T.RADIUS.md,
+    paddingVertical: 12,
+  },
+  heroMeta: { flex: 1, alignItems: 'center', gap: 2 },
+  heroMetaValue: { fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
+  heroMetaLabel: { fontSize: 10, fontFamily: T.FONT.regular, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.3 },
+  heroMetaDivider: { width: 1, height: 26, backgroundColor: 'rgba(255,255,255,0.08)' },
+
+  withdrawProgressWrap: { gap: 6 },
+  withdrawProgressTrack: {
+    height: 5, borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  withdrawProgressFill: {
+    height: '100%', borderRadius: 3,
+    backgroundColor: T.ACCENT,
+  },
+  withdrawProgressText: {
+    color: 'rgba(255,255,255,0.42)',
+    fontFamily: T.FONT.regular, fontSize: 11,
+  },
+
+  // ── Section titles ─────────────────────────────────────────────────────────
   sectionTitle: {
     fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT,
     paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, letterSpacing: -0.2,
   },
 
-  statsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap',
-    paddingHorizontal: 20, gap: 12, marginBottom: 8,
-  },
-  statCard: {
-    width: '47%',
+  // ── Performance chart ──────────────────────────────────────────────────────
+  chartCard: {
+    marginHorizontal: 20, marginBottom: 8,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
-    padding: 16, gap: 4,
+    padding: 18,
   },
-  statIcon: {
-    width: 34, height: 34, borderRadius: T.RADIUS.sm,
-    backgroundColor: T.SURFACE_2,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  chartRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    height: 150,
   },
-  statLabel: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
-  statValue: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.5, marginTop: 2 },
-  statChange: { fontSize: 12, fontFamily: T.FONT.medium, marginTop: 2 },
+  chartCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 6, height: '100%' },
+  chartValue: { fontSize: 11, fontFamily: T.FONT.semibold, color: T.TEXT_2 },
+  chartTrack: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  chartBar: {
+    width: 22,
+    borderRadius: 6,
+    backgroundColor: T.ACCENT,
+    opacity: 0.85,
+  },
+  chartPeriod: { fontSize: 10, fontFamily: T.FONT.medium, color: T.TEXT_3 },
+  chartCaption: {
+    fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3,
+    marginTop: 12, textAlign: 'center',
+  },
 
+  // ── Activity rows ──────────────────────────────────────────────────────────
   activityCard: {
     marginHorizontal: 20, marginBottom: 8,
     backgroundColor: T.SURFACE,
@@ -743,6 +915,7 @@ const styles = StyleSheet.create({
   activityStatLabel: { fontSize: 9, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2, letterSpacing: 0.3 },
   activityDivider: { width: 1, height: 24, backgroundColor: T.BORDER_2 },
 
+  // ── Subscribers ────────────────────────────────────────────────────────────
   subsCard: {
     marginHorizontal: 20, marginBottom: 8,
     backgroundColor: T.SURFACE,
@@ -768,6 +941,7 @@ const styles = StyleSheet.create({
     textAlign: 'center', paddingVertical: 12,
   },
 
+  // ── Quick actions ──────────────────────────────────────────────────────────
   actionsRow: {
     flexDirection: 'row', gap: 12,
     paddingHorizontal: 20, marginBottom: 8,
@@ -786,7 +960,7 @@ const styles = StyleSheet.create({
   },
   actionLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.TEXT },
 
-  // ── Settings sections ────────────────────────────────────────────────────────
+  // ── Settings sections ──────────────────────────────────────────────────────
   settingsCard: {
     marginHorizontal: 20,
     marginBottom: 10,
@@ -883,7 +1057,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   priceSaveText: {
-    color: T.BG,
+    color: '#fff',
     fontFamily: T.FONT.semibold,
     fontSize: 12,
   },
@@ -893,15 +1067,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // Analytics inside settings section
-  analyticsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 16,
+  // ── Skeleton ───────────────────────────────────────────────────────────────
+  skeletonWrap: {
+    padding: 20,
+    gap: 16,
   },
-  analyticsItem: { flex: 1, alignItems: 'center', gap: 4 },
-  analyticsValue: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
-  analyticsLabel: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3, letterSpacing: 0.2 },
-  analyticsDivider: { width: 1, height: 36, backgroundColor: T.BORDER_2 },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
 });

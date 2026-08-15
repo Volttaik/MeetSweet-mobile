@@ -1,12 +1,12 @@
 /**
  * Content service — videos and shorts.
  *
- * The backend has a single content type: posts.
- * "Videos" are posts whose first media item has type === 'video'.
- * "Shorts" are also video posts (vertical / short-form is a UI concept only).
- *
- * All read/write operations are routed through the /api/posts endpoints.
- * There are no /api/videos or /api/shorts endpoints on this backend.
+ * Content types are first-class on the backend: posts, videos, shorts and
+ * albums are distinguished by the `content_type` column on the posts table
+ * (a video is NOT merely "a post whose media is a video"). The dedicated
+ * /api/videos and /api/shorts endpoints exist for creation, while reads are
+ * routed through /api/posts (with an explicit content_type filter) or the
+ * /api/shorts/feed endpoint.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -172,13 +172,17 @@ function isVideoPost(raw: any): boolean {
  * Videos = published posts that have at least one video media item.
  */
 export async function getVideoFeed(cursor?: string | null): Promise<ContentPage<LongFormVideo>> {
-  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
+  // Ask the backend for long-form videos only — shorts never enter this feed.
+  const qs = cursor
+    ? `?content_type=video&cursor=${encodeURIComponent(cursor)}&limit=20`
+    : '?content_type=video&limit=20';
   const raw = await apiFetch<{ posts: unknown[]; nextCursor?: string | null; next_cursor?: string | null }>(
     `/posts${qs}`,
     { headers: await authHeaders() },
   );
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
-  // Exclude shorts (content_type === 'short') from the long-form video feed.
+  // Exclude shorts (content_type === 'short') from the long-form video feed as
+  // a client-side guard; the backend filter above is the primary control.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const videoPosts = posts.filter((p: any) => isVideoPost(p) && p.content_type !== 'short');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -228,7 +232,7 @@ export async function getVideoRecommendations(videoId?: string): Promise<LongFor
       const posts = Array.isArray(relatedRaw?.posts) ? relatedRaw.posts : [];
       return posts
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((p: any) => p.id !== videoId && isVideoPost(p))
+        .filter((p: any) => p.id !== videoId && isVideoPost(p) && p.content_type !== 'short')
         .map(videoFrom)
         .slice(0, 5);
     }

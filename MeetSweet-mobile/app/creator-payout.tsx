@@ -186,8 +186,9 @@ function BankDetailsSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
+      {/* iOS pads; Android resizes the window natively (softwareKeyboardLayoutMode=resize) */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
       >
         <View style={[bankS.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -349,8 +350,9 @@ function WithdrawAmountSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
+      {/* iOS pads; Android resizes the window natively (softwareKeyboardLayoutMode=resize) */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
       >
         <View style={[amtS.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>

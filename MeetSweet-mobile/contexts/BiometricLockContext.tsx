@@ -26,11 +26,15 @@ import { authenticateBiometric, isBiometricEnabled } from '@/lib/biometric';
 interface BiometricLockContextValue {
   locked: boolean;
   unlock: () => Promise<boolean>;
+  /** Re-read the persisted biometric preference. Call after the user toggles
+   *  the setting so a disable takes effect immediately (no stale prompt). */
+  refreshLockState: () => Promise<void>;
 }
 
 const BiometricLockContext = createContext<BiometricLockContextValue>({
   locked: false,
   unlock: async () => true,
+  refreshLockState: async () => {},
 });
 
 export function useBiometricLock(): BiometricLockContextValue {
@@ -131,8 +135,17 @@ export function BiometricLockProvider({ children }: { children: React.ReactNode 
     return ok;
   }, []);
 
+  // Re-read the persisted preference so a settings change (enable/disable)
+  // takes effect immediately instead of waiting for the next auth change or
+  // app-foreground event. Disabling clears any active lock right away.
+  const refreshLockState = useCallback(async () => {
+    const enabled = await isBiometricEnabled();
+    enabledRef.current = enabled;
+    if (!enabled) setLocked(false);
+  }, []);
+
   return (
-    <BiometricLockContext.Provider value={{ locked, unlock }}>
+    <BiometricLockContext.Provider value={{ locked, unlock, refreshLockState }}>
       <View style={styles.container}>
         {children}
         {locked ? <LockScreen onUnlock={unlock} /> : null}

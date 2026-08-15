@@ -8,7 +8,6 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Modal,
@@ -37,6 +36,7 @@ import {
   X,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { MsUploadProgress, type UploadStatus } from '@/components/MsUploadProgress';
 import { uploadMedia } from '@/services/media';
 import { createAlbum } from '@/services/albums';
 import { getCategories, type Category } from '@/services/categories';
@@ -97,6 +97,7 @@ export default function CreateAlbumScreen() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadLabel,    setUploadLabel]    = useState('');
   const [error,          setError]          = useState('');
+  const [publishFailed,  setPublishFailed]  = useState(false);
 
   // Media picker modal
   const [pickerVisible,  setPickerVisible]  = useState(false);
@@ -218,6 +219,7 @@ export default function CreateAlbumScreen() {
     }
 
     setError('');
+    setPublishFailed(false);
     setStep('uploading');
     setUploadProgress(0);
 
@@ -264,43 +266,37 @@ export default function CreateAlbumScreen() {
       router.replace('/(tabs)/explore');
     } catch (err) {
       setError((err as Error).message ?? 'Publish failed. Please try again.');
-      setStep('preview');
+      setPublishFailed(true);
     }
   };
 
   // ─── Publishing overlay ───────────────────────────────────────────────────
 
   if (step === 'uploading' || step === 'creating' || step === 'success') {
+    const status: UploadStatus = publishFailed ? 'error' : step === 'success' ? 'success' : 'uploading';
     return (
-      <View style={[styles.overlay, { paddingTop: insets.top }]}>
-        <View style={styles.overlayCard}>
-          {step === 'success' ? (
-            <>
-              <View style={styles.successIcon}>
-                <Check size={32} color={T.BG} weight="bold" />
-              </View>
-              <Text style={styles.overlayTitle}>Album Published!</Text>
-              <Text style={styles.overlaySubtitle}>Your album is now live on Explore.</Text>
-            </>
-          ) : (
-            <>
-              <View style={styles.progressRing}>
-                <ActivityIndicator size="large" color={T.ACCENT} />
-                <Text style={styles.progressPct}>{Math.round(uploadProgress * 100)}%</Text>
-              </View>
-              <Text style={styles.overlayTitle}>
-                {step === 'creating' ? 'Creating Album' : 'Uploading Media'}
-              </Text>
-              <Text style={styles.overlaySubtitle}>{uploadLabel || 'Please wait…'}</Text>
-              {step === 'uploading' && (
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${Math.round(uploadProgress * 100)}%` as any }]} />
-                </View>
-              )}
-            </>
-          )}
-        </View>
-      </View>
+      <MsUploadProgress
+        visible
+        title={step === 'creating' ? 'Creating Album' : 'Uploading Media'}
+        subtitle={uploadLabel || undefined}
+        progress={uploadProgress}
+        accentColor={T.ACCENT}
+        stages={[
+          { key: 'upload', label: 'Upload Media' },
+          { key: 'create', label: 'Create Album' },
+        ]}
+        activeStage={step === 'creating' ? 'create' : 'upload'}
+        status={status}
+        successTitle="Album Published!"
+        successSubtitle="Your album is now live on Explore."
+        errorMessage={error}
+        onRetry={publishFailed ? handlePublish : undefined}
+        onCancel={() => {
+          setPublishFailed(false);
+          setStep('preview');
+        }}
+        onDone={() => router.replace('/(tabs)/explore')}
+      />
     );
   }
 
@@ -1294,33 +1290,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239,68,68,0.12)',
   },
   errorText: { fontSize: 13, fontFamily: T.FONT.regular, color: '#EF4444', textAlign: 'center' },
-
-  // Publishing overlay
-  overlay: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
-  overlayCard: { alignItems: 'center', gap: 16, padding: 32 },
-  progressRing: {
-    width: 80,
-    height: 80,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressPct: {
-    position: 'absolute',
-    fontSize: 11,
-    fontFamily: T.FONT.bold,
-    color: T.ACCENT,
-  },
-  successIcon: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: T.ACCENT, alignItems: 'center', justifyContent: 'center',
-  },
-  overlayTitle: { fontSize: 22, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
-  overlaySubtitle: { fontSize: 14, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center' },
-  progressBar: {
-    width: 200, height: 4, borderRadius: 2,
-    backgroundColor: T.SURFACE_2, overflow: 'hidden',
-  },
-  progressFill: { height: '100%', backgroundColor: T.ACCENT, borderRadius: 2 },
 
   // Media picker modal
   modalOverlay: {

@@ -14,7 +14,7 @@ import { Spinner } from 'heroui-native';
 import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PencilSimple, Plus, MagnifyingGlass, X } from 'phosphor-react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -79,6 +79,10 @@ function ChatRoomRow({
   currentUserId: string;
 }) {
   const isUnread = item.unreadCount > 0;
+  // Set when a long-press fires; suppresses the tap that may follow its
+  // release so a long-press NEVER opens the conversation (it only shows the
+  // action menu). Cleared shortly after the touch ends.
+  const suppressTapRef = useRef(false);
   const avatarUrl = item.otherUser?.avatarUrl as string | undefined;
 
   // Contextual preview label per feature doc §1.2 (media messages show icons
@@ -100,9 +104,22 @@ function ChatRoomRow({
     <TouchableOpacity
       style={styles.convoRow}
       activeOpacity={0.7}
-      onPress={() => router.push(`/chat-room/${item.chatRoomId}`)}
-      onLongPress={() => onLongPress(item)}
-      delayLongPress={400}
+      onPress={() => {
+        if (suppressTapRef.current) return;
+        router.push(`/chat-room/${item.chatRoomId}`);
+      }}
+      onLongPress={() => {
+        suppressTapRef.current = true;
+        onLongPress(item);
+      }}
+      onPressOut={() => {
+        // Release after a long-press must not navigate; clear the guard shortly
+        // after the touch ends so the next genuine tap still opens the chat.
+        setTimeout(() => {
+          suppressTapRef.current = false;
+        }, 150);
+      }}
+      delayLongPress={350}
     >
       <MsAvatar
         size={50}
@@ -347,6 +364,24 @@ export default function MessagesScreen() {
     setChatRooms([]);
     load();
   }, [activeTab]);
+
+  // Refresh the chat list whenever the tab regains focus (e.g. returning from
+  // a chat after sending a message) so the latest message / unread badge shows
+  // immediately instead of waiting for the next 15s poll or a manual pull.
+  // Only fires on an actual unfocused → focused transition (not on tab switch
+  // while already focused, which would double-fetch with the activeTab effect).
+  const isFocusedRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (!isFocusedRef.current && activeTab === 'All') {
+        load();
+      }
+      isFocusedRef.current = true;
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, [activeTab]),
+  );
 
   // Lightweight room-metadata refresh — the chat list polls ONLY room metadata
   // (other user, latest message, timestamp, unread count, chatRoomId), never

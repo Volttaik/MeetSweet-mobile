@@ -53,35 +53,13 @@ async function authedRequest<T>(
 }
 
 export async function getCreatorDashboard(): Promise<CreatorDashboard> {
-  try {
-    return await authedRequest<CreatorDashboard>('/creator/dashboard');
-  } catch {
-    // Graceful fallback for initial layout
-    return {
-      total_revenue: 0,
-      active_subscribers: 0,
-      total_posts: 0,
-      period_stats: [
-        { period: 'This Month', views: 0, likes: 0, new_subscribers: 0, revenue: 0 },
-      ],
-    };
-  }
+  // Real data only — no fabricated zero rows. Errors propagate so the screen
+  // can show a proper error/empty state instead of invented analytics.
+  return authedRequest<CreatorDashboard>('/creator/dashboard');
 }
 
 export async function getCreatorSettings(): Promise<CreatorSettings> {
-  try {
-    return await authedRequest<CreatorSettings>('/creator/settings');
-  } catch {
-    return {
-      who_can_message: 'everyone',
-      allow_comments: true,
-      who_can_comment: 'everyone',
-      who_can_see: 'everyone',
-      subscriptions_enabled: true,
-      subscription_price: 0,
-      subscription_plus_price: 0,
-    };
-  }
+  return authedRequest<CreatorSettings>('/creator/settings');
 }
 
 export async function updateCreatorSettings(patch: Partial<CreatorSettings>): Promise<CreatorSettings> {
@@ -92,9 +70,5 @@ export async function updateCreatorSettings(patch: Partial<CreatorSettings>): Pr
 }
 
 export async function getCreatorSubscribers(page = 1): Promise<{ subscribers: CreatorSubscriber[] }> {
-  try {
-    return await authedRequest<{ subscribers: CreatorSubscriber[] }>(`/creator/subscribers?page=${page}`);
-  } catch {
-    return { subscribers: [] };
-  }
+  return authedRequest<{ subscribers: CreatorSubscriber[] }>(`/creator/subscribers?page=${page}`);
 }

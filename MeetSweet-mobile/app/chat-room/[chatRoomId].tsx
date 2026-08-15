@@ -155,6 +155,31 @@ function formatDateLabel(d: Date): string {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
+/**
+ * Real message id for server operations (delete / react / poll reconciliation).
+ * A confirmed optimistic message keeps its local `_id` (stable list key — no
+ * remount/flash) but stores the real server id in `msServerId`.
+ */
+function realMessageId(m: { _id: string; msServerId?: string }): string {
+  return String(m.msServerId ?? m._id);
+}
+
+/**
+ * Turn a server-confirmed message into the object that replaces the optimistic
+ * one WITHOUT changing its list key: `_id` stays the temp id (so the bubble
+ * never remounts → no send flash), while `id`/`msServerId` carry the real id.
+ */
+function finalizeTemp(confirmed: MsMessage, tempId: string): MsMessage {
+  return {
+    ...confirmed,
+    _id: tempId,
+    id: confirmed.id || tempId,
+    msServerId: confirmed.id || tempId,
+    pending: false,
+    sent: true,
+  };
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ChatScreen() {
@@ -302,8 +327,53 @@ export default function ChatScreen() {
   //    persist the localUri onto the cached message + rendered message and
   //    flip msMediaStatus to 'local' so the UI renders the local file.
   //  • Never download the same file twice.
+  //
+  // State updates are BATCHED into at most two setMessages calls (one to flip
+  // pending downloads to 'downloading', one to apply the final local/failed
+  // patches) instead of one update per message — this avoids a render storm
+  // when a room page contains many media messages.
   const ensureMediaLocal = useCallback(async (roomMsgs: RoomMessage[]) => {
     if (!chatRoomId) return;
+    const idOf = (msg: MsMessage) => String(msg.msServerId ?? msg._id);
+
+    const mediaPatch = (m: RoomMessage, local: string): Partial<MsMessage> => {
+      const mediaType = m.mediaType;
+      return {
+        localUri: local,
+        msMediaStatus: 'local' as const,
+        image: mediaType === 'image' ? local : undefined,
+        video: mediaType === 'video' ? local : undefined,
+        audio: mediaType === 'audio' ? local : undefined,
+      };
+    };
+
+    const applyPatches = (patches: Array<{ id: string; patch: Partial<MsMessage> }>) => {
+      if (!patches.length) return;
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const hit = patches.find((p) => p.id === idOf(msg));
+          return hit ? { ...msg, ...hit.patch } : msg;
+        }),
+      );
+    };
+
+    // Mark every media message without a valid local copy as 'downloading' in
+    // one pass so the UI shows a loading state while files are fetched.
+    const needsDownload: string[] = [];
+    for (const m of roomMsgs) {
+      if (m.mediaUrl && m.mediaType && !m.localUri) needsDownload.push(String(m.id));
+    }
+    if (needsDownload.length) {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          needsDownload.includes(idOf(msg))
+            ? { ...msg, msMediaStatus: 'downloading' as const }
+            : msg,
+        ),
+      );
+    }
+
+    const patches: Array<{ id: string; patch: Partial<MsMessage> }> = [];
     for (const m of roomMsgs) {
       if (!m.mediaUrl || !m.mediaType) continue;
       const id = String(m.id);
@@ -313,20 +383,7 @@ export default function ChatScreen() {
         const stillThere = await localMediaExists(m.localUri).catch(() => false);
         if (stillThere) {
           // Local file is good — make sure the rendered message uses it.
-          setMessages((prev) =>
-            prev.map((msg) =>
-              String(msg._id) === id
-                ? {
-                    ...msg,
-                    localUri: m.localUri,
-                    msMediaStatus: 'local' as const,
-                    image: msg.msMediaType === 'image' ? (m.localUri ?? msg.image) : msg.image,
-                    video: msg.msMediaType === 'video' ? (m.localUri ?? msg.video) : msg.video,
-                    audio: msg.msMediaType === 'audio' ? (m.localUri ?? msg.audio) : msg.audio,
-                  }
-                : msg,
-            ),
-          );
+          patches.push({ id, patch: mediaPatch(m, m.localUri) });
           continue;
         }
         // File was removed out-of-band — mark unavailable locally and fall
@@ -343,13 +400,6 @@ export default function ChatScreen() {
         url: m.mediaUrl,
       }).catch(() => null);
       if (!local) {
-        // Surface a downloading state so the UI can show a loading indicator
-        // while the receiver fetches media it doesn't yet have locally.
-        setMessages((prev) =>
-          prev.map((msg) =>
-            String(msg._id) === id ? { ...msg, msMediaStatus: 'downloading' as const } : msg,
-          ),
-        );
         local = await downloadRoomMedia(chatRoomId, id, m.mediaUrl, {
           mime: m.mimeType,
           mediaType: m.mediaType,
@@ -358,29 +408,14 @@ export default function ChatScreen() {
       if (local) {
         m.localUri = local;
         setCachedMessageLocalUri(chatRoomId, id, local).catch(() => {});
-        setMessages((prev) =>
-          prev.map((msg) =>
-            String(msg._id) === id
-              ? {
-                  ...msg,
-                  localUri: local ?? null,
-                  msMediaStatus: 'local' as const,
-                  image: msg.msMediaType === 'image' ? (local ?? msg.image) : msg.image,
-                  video: msg.msMediaType === 'video' ? (local ?? msg.video) : msg.video,
-                  audio: msg.msMediaType === 'audio' ? (local ?? msg.audio) : msg.audio,
-                }
-              : msg,
-          ),
-        );
+        patches.push({ id, patch: mediaPatch(m, local) });
       } else {
         // Download failed — mark so the UI can show a retry affordance.
-        setMessages((prev) =>
-          prev.map((msg) =>
-            String(msg._id) === id ? { ...msg, msMediaStatus: 'failed' as const } : msg,
-          ),
-        );
+        patches.push({ id, patch: { msMediaStatus: 'failed' as const } });
       }
     }
+
+    applyPatches(patches);
   }, [chatRoomId]);
 
   // ── Sync this user's context (contextId + contextAuth membership) ──────
@@ -458,7 +493,7 @@ export default function ChatScreen() {
         setMessages((prev) => {
           // Drop server-removed messages from the rendered list as well.
           if (!removedIds.size) return msgs;
-          return [...msgs, ...prev.filter((m) => !removedIds.has(String(m._id)))];
+          return [...msgs, ...prev.filter((m) => !removedIds.has(realMessageId(m)))];
         });
         await cacheMessages(chatRoomId, result.messages).catch(() => {});
         // Seed the change marker with the newest message id so the next poll
@@ -503,11 +538,11 @@ export default function ChatScreen() {
 
     setMessages((prev) => {
       // 1. Filter out deleted/removed context messages
-      let updated = prev.filter((m) => !removedIds.has(String(m._id)));
+      let updated = prev.filter((m) => !removedIds.has(realMessageId(m)));
 
       // 2. Reconcile existing messages with updated fresh data
       updated = updated.map((m) => {
-        const freshMsg = incomingMap.get(String(m._id));
+        const freshMsg = incomingMap.get(realMessageId(m));
         if (freshMsg) {
           incomingMap.delete(String(m._id));
           return {
@@ -715,7 +750,7 @@ export default function ChatScreen() {
         const res = await sendToRoom(payload.sticker);
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
+          prev.map((m) => m._id === tempId ? finalizeTemp(confirmed, tempId) : m),
         );
       } catch {
         setMessages((prev) =>
@@ -760,7 +795,7 @@ export default function ChatScreen() {
         });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
+          prev.map((m) => m._id === tempId ? finalizeTemp(confirmed, tempId) : m),
         );
       } catch {
         setMessages((prev) =>
@@ -813,16 +848,14 @@ export default function ChatScreen() {
           prev.map((m) =>
             m._id === tempId
               ? {
-                  ...confirmed,
+                  ...finalizeTemp(confirmed, tempId),
                   msMediaType: 'audio' as const,
                   msIsVoiceNote: true,
                   msFileType: 'm4a',
                   msMediaStatus: 'local' as const,
-                  localUri: localAudio ?? confirmed.localUri ?? null,
-                  audio: localAudio ?? confirmed.audio ?? uploaded.url,
+                  localUri: null,
+                  audio: uri,
                   msAudioDuration: duration,
-                  pending: false,
-                  sent: true,
                 }
               : m,
           ),
@@ -909,17 +942,15 @@ export default function ChatScreen() {
           prev.map((m) =>
             m._id === tempId
               ? {
-                  ...conf,
+                  ...finalizeTemp(conf, tempId),
                   msMediaType: 'audio' as const,
                   msIsVoiceNote: isVoiceNote,
                   msFileType: optimistic.msFileType,
                   msMediaStatus: 'local' as const,
                   msFileName: isVoiceNote ? undefined : (conf.msFileName ?? confirmed.fileName),
-                  localUri: localAudio ?? conf.localUri ?? null,
-                  audio: localAudio ?? conf.audio ?? uploaded.url,
+                  localUri: null,
+                  audio: uri,
                   msAudioDuration: duration,
-                  pending: false,
-                  sent: true,
                 }
               : m,
           ),
@@ -989,21 +1020,23 @@ export default function ChatScreen() {
         mime,
         mediaType: mediaType,
       }).catch(() => null);
+      // Keep the message keyed by its temp id (finalizeTemp) and keep rendering
+      // the ORIGINAL picker file for the rest of this session — switching to the
+      // persisted copy (a different path) mid-send is what caused the image
+      // flash/glitch. The persisted copy is still cached for future sessions.
       setMessages((prev) =>
         prev.map((m) =>
           m._id === tempId
             ? {
-                ...conf,
+                ...finalizeTemp(conf, tempId),
                 msFileType: sendFileType,
                 msMediaStatus: 'local' as const,
-                localUri: localFile ?? conf.localUri ?? null,
-                image: mediaType === 'image' ? (localFile ?? conf.image) : conf.image,
-                video: mediaType === 'video' ? (localFile ?? conf.video) : conf.video,
+                localUri: null,
+                image: mediaType === 'image' ? uri : conf.image,
+                video: mediaType === 'video' ? uri : conf.video,
                 msFileName: mediaType === 'document' ? (conf.msFileName ?? confirmed.fileName) : conf.msFileName,
                 msFileSize: mediaType === 'document' ? (conf.msFileSize ?? confirmed.fileSize) : conf.msFileSize,
                 msMimeType: mediaType === 'document' ? (conf.msMimeType ?? mime) : conf.msMimeType,
-                pending: false,
-                sent: true,
               }
             : m,
         ),
@@ -1039,7 +1072,7 @@ export default function ChatScreen() {
     const target = deleteTarget;
     setDeleteTarget(null);
     if (!target) return;
-    const id = String(target._id);
+    const id = realMessageId(target);
     const scope: 'me' | 'everyone' = forEveryone ? 'everyone' : 'me';
 
     // Never assume success until the server confirms it. We keep the message
@@ -1063,7 +1096,7 @@ export default function ChatScreen() {
       // Remove the local media file for this message so it doesn't linger
       // on disk after the user no longer sees the message.
       await deleteRoomMedia(chatRoomId, id).catch(() => {});
-      setMessages((prev) => prev.filter((m) => String(m._id) !== id));
+      setMessages((prev) => prev.filter((m) => realMessageId(m) !== id));
       // Drop the optimistic-reaction entry for this message so the
       // localReactions map doesn't accumulate stale ids for deleted messages.
       setLocalReactions((prev) => {
@@ -1216,6 +1249,16 @@ export default function ChatScreen() {
 
   const handleEdit = useCallback(() => {
     if (!menuMsg) return;
+    // Editing only applies to TEXT messages. Audio/voice/image/video/document
+    // messages have no editable body — guard here so Edit can never be
+    // triggered through another route even if the menu button is hidden.
+    if (
+      menuMsg.msMediaType ||
+      menuMsg.msIsVoiceNote ||
+      menuMsg.image ||
+      menuMsg.video ||
+      menuMsg.audio
+    ) return;
     hideMenu();
     setEditingMsg(menuMsg);
     setInputText(menuMsg.text ?? '');
@@ -1239,7 +1282,7 @@ export default function ChatScreen() {
   // ── Reaction handler ──────────────────────────────────────────────────────────
   const handleReaction = useCallback((msg: MsMessage, emoji: string) => {
     const userId = user?.id ?? '';
-    const msgId = String(msg._id);
+    const msgId = realMessageId(msg);
 
     // Optimistic update immediately
     setLocalReactions((prev) => {
@@ -1308,7 +1351,7 @@ export default function ChatScreen() {
   // local file afterward, never re-downloading the same file.
   const handleOpenFile = useCallback(async (msg: MsMessage) => {
     if (!chatRoomId) return;
-    const id = String(msg._id);
+    const id = realMessageId(msg);
 
     const openUri = async (uri: string) => {
       try {
@@ -1419,7 +1462,7 @@ export default function ChatScreen() {
         const res = await sendToRoom(failedMsg.text);
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...confirmed, pending: false, sent: true } : m),
+          prev.map((m) => m._id === tempId ? finalizeTemp(confirmed, tempId) : m),
         );
       } catch {
         setMessages((prev) =>
@@ -1484,14 +1527,12 @@ export default function ChatScreen() {
         prev.map((m) =>
           m._id === tempId
             ? {
-                ...conf,
+                ...finalizeTemp(conf, tempId),
                 msMediaType: (mediaType ?? conf.msMediaType) as MsMessage['msMediaType'],
                 localUri: failedMsg.localUri ?? conf.localUri ?? null,
                 image: mediaType === 'image' ? (failedMsg.localUri ?? conf.image ?? undefined) : conf.image,
                 video: mediaType === 'video' ? (failedMsg.localUri ?? conf.video ?? undefined) : conf.video,
                 audio: mediaType === 'audio' ? (failedMsg.localUri ?? conf.audio ?? undefined) : conf.audio,
-                pending: false,
-                sent: true,
               }
             : m,
         ),
@@ -1543,7 +1584,7 @@ export default function ChatScreen() {
   const messagesWithReactions = useMemo(() =>
     messages.map((m) => ({
       ...m,
-      reactions: localReactions[String(m._id)] ?? m.reactions ?? [],
+      reactions: localReactions[realMessageId(m)] ?? m.reactions ?? [],
     })),
     [messages, localReactions],
   );
@@ -1561,7 +1602,7 @@ export default function ChatScreen() {
         const list = messagesListRef.current;
         if (!list) return false;
         const idx = messagesWithReactions.findIndex(
-          (m) => String(m._id) === targetId,
+          (m) => realMessageId(m) === targetId,
         );
         if (idx === -1) return false;
         try {
@@ -1712,7 +1753,7 @@ export default function ChatScreen() {
               {...(props as any)}
               currentMessage={cm}
               currentUserId={currentUserId}
-              highlighted={highlightedMsgId === String(cm._id)}
+              highlighted={highlightedMsgId === realMessageId(cm)}
               onLongPressMessage={handleLongPress}
               onReactionPress={(msg, emoji) => handleReaction(msg, emoji)}
               onMediaPress={handleMediaPress}
@@ -2011,9 +2052,14 @@ export default function ChatScreen() {
             </ScrollView>
             <View style={styles.menuDivider} />
             <MenuItem icon={<ArrowBendUpLeft size={18} color={T.TEXT} />} label="Reply" onPress={handleMenuReply} />
-            {String(menuMsg?.user?._id) === currentUserId && (
-              <MenuItem icon={<PencilSimple size={18} color={T.TEXT} />} label="Edit" onPress={handleEdit} />
-            )}
+            {String(menuMsg?.user?._id) === currentUserId &&
+              !menuMsg?.msMediaType &&
+              !menuMsg?.msIsVoiceNote &&
+              !menuMsg?.image &&
+              !menuMsg?.video &&
+              !menuMsg?.audio && (
+                <MenuItem icon={<PencilSimple size={18} color={T.TEXT} />} label="Edit" onPress={handleEdit} />
+              )}
             {!!menuMsg?.text && (
               <MenuItem icon={<CopyIcon size={18} color={T.TEXT} />} label="Copy" onPress={handleCopy} />
             )}

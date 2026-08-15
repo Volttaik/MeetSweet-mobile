@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
+      "backgroundColor": "#0C0C0F"
     },
     "ios": {
       "supportsTablet": false,
@@ -26,7 +26,7 @@
       }
     },
     "android": {
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "package": "com.meetsweet.app",
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",

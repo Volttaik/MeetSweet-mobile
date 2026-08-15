@@ -221,7 +221,10 @@ export default function HomeScreen() {
 
   const loadFeed = useCallback(async (reset = false) => {
     try {
-      const data: any = await getHomeFeed();
+      // Cursor-based pagination: first page (or refresh) has no cursor; every
+      // subsequent page passes the previous page's nextCursor so the backend
+      // returns the NEXT slice instead of repeating page 1.
+      const data: any = await getHomeFeed(1, reset ? null : cursor);
       const fetchedPosts: Post[] = Array.isArray(data) ? data : (data?.posts ?? []);
       reportNetworkSuccess();
       if (reset) {
@@ -378,7 +381,6 @@ export default function HomeScreen() {
             <MsPostCard
               post={item}
               tier={item.tier as import('@/constants/tiers').ContentTier | undefined}
-              doubleTapToOpen
               videoPreviewActive={visiblePostIds.has(item.id)}
               onPress={() => {
                 if (item.contentType === 'short') {
@@ -413,7 +415,7 @@ export default function HomeScreen() {
                 }
               }}
               currentUserId={user?.id}
-              onAuthorPress={() => router.push(`/creator/${item.author.username}`)}
+              onAuthorPress={() => router.push(`/creator/${item.author.id || item.author.username}`)}
               onDeleted={(id) => setPosts((prev) => prev.filter((p) => p.id !== id))}
             />
           )}

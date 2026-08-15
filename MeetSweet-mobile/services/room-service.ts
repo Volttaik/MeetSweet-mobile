@@ -139,6 +139,11 @@ export interface RoomMessage {
   createdAt: string;
   sender: RoomParticipant;
   isOwn: boolean;
+  /** True once the message is persisted server-side (server-confirmed send). */
+  delivered?: boolean;
+  /** True when the RECIPIENT has read past this message (other member's
+   *  last_read_at >= created_at). Honest read state — never inferred. */
+  read?: boolean;
   /** Reaction state for this message (server-authoritative). Each entry maps
    *  an emoji to the user ids that reacted. Stays associated with this messageId. */
   reactions?: Array<{ emoji: string; userIds: string[] }>;
@@ -424,6 +429,8 @@ function normalizeMessage(raw: any): RoomMessage {
       ? normalizeParticipant(raw.sender)
       : { id: '', name: 'Unknown', username: '', avatarUrl: null },
     isOwn: raw.isOwn ?? raw.is_own ?? false,
+    delivered: raw.delivered ?? raw.is_delivered ?? undefined,
+    read: raw.read ?? raw.is_read ?? undefined,
     reactions: normalizeReactions(raw.reactions),
     replyTo: normalizeReplyTo(raw.reply_to ?? raw.replyTo),
   };

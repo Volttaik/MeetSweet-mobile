@@ -151,7 +151,7 @@ function EditProfileModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={epm.overlay} onPress={onClose}>
           <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]} onPress={(e) => e.stopPropagation()}>
             <View style={epm.handle} />
@@ -227,7 +227,7 @@ function EditPostSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={epm.overlay} onPress={onClose}>
           <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]} onPress={(e) => e.stopPropagation()}>
             <View style={epm.handle} />

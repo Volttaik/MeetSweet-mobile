@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
   ActivityIndicator,
   Alert,
   Image,
@@ -33,6 +32,7 @@ import {
 } from 'phosphor-react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsTierBadge } from '@/components/MsTierBadge';
+import { MsUploadProgress, type UploadStatus } from '@/components/MsUploadProgress';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
@@ -124,8 +124,8 @@ export default function CreatePostScreen() {
   const initialStep: Step = params.type ? 'onboard' : 'type-select';
   const [step,           setStep]           = useState<Step>(initialStep);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [displayPct,     setDisplayPct]     = useState(0);
   const [error,          setError]          = useState('');
+  const [publishFailed,  setPublishFailed]  = useState(false);
 
   // Media picker modal
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -235,71 +235,6 @@ export default function CreatePostScreen() {
     mediaName,
     thumbnailUri,
   ]);
-
-  // ── Upload progress animation ─────────────────────────────────────────────
-  const progressAnim   = useRef(new Animated.Value(0)).current;
-  const creepAnimRef   = useRef<Animated.CompositeAnimation | null>(null);
-
-  // Mirror animated value to displayPct so the text label updates smoothly
-  useEffect(() => {
-    const id = progressAnim.addListener(({ value }) => setDisplayPct(Math.round(value * 100)));
-    return () => progressAnim.removeListener(id);
-  }, [progressAnim]);
-
-  // When step=uploading, start a slow creep so the bar always moves from frame 1
-  useEffect(() => {
-    if (step === 'uploading') {
-      progressAnim.setValue(0);
-      setDisplayPct(0);
-      creepAnimRef.current = Animated.timing(progressAnim, {
-        toValue:          0.85,
-        duration:         90_000, // 90 s creep ceiling — real progress will interrupt
-        useNativeDriver:  false,
-      });
-      creepAnimRef.current.start();
-    } else {
-      // Stop any creep when we leave the upload step
-      creepAnimRef.current?.stop();
-    }
-  }, [step]);
-
-  // When real progress arrives during upload, interrupt creep and animate to it
-  useEffect(() => {
-    if (step !== 'uploading' || uploadProgress <= 0) return;
-    creepAnimRef.current?.stop();
-    Animated.timing(progressAnim, {
-      toValue:         uploadProgress,
-      duration:        300,
-      useNativeDriver: false,
-    }).start(() => {
-      // After snapping to real value, continue a gentle creep to the next ceiling
-      if (uploadProgress < 0.98) {
-        creepAnimRef.current = Animated.timing(progressAnim, {
-          toValue:         Math.min(uploadProgress + 0.06, 0.98),
-          duration:        8_000,
-          useNativeDriver: false,
-        });
-        creepAnimRef.current.start();
-      }
-    });
-  }, [uploadProgress, step]);
-
-  // Post-upload step transitions
-  useEffect(() => {
-    if (step === 'creating') {
-      Animated.timing(progressAnim, {
-        toValue: 0.93, duration: 900, useNativeDriver: false,
-      }).start();
-    } else if (step === 'processing') {
-      Animated.timing(progressAnim, {
-        toValue: 0.99, duration: 600, useNativeDriver: false,
-      }).start();
-    } else if (step === 'success') {
-      Animated.timing(progressAnim, {
-        toValue: 1, duration: 300, useNativeDriver: false,
-      }).start();
-    }
-  }, [step]);
 
   // ── Auto-save draft on field changes ──────────────────────────────────────
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -417,6 +352,7 @@ export default function CreatePostScreen() {
     }
 
     setError('');
+    setPublishFailed(false);
     setStep('uploading');
     setUploadProgress(0);
 
@@ -503,7 +439,7 @@ export default function CreatePostScreen() {
       router.replace('/(tabs)');
     } catch (err) {
       setError((err as Error).message ?? 'Publish failed. Please try again.');
-      setStep('preview');
+      setPublishFailed(true);
     }
   };
 
@@ -517,120 +453,47 @@ export default function CreatePostScreen() {
   // ─── Publishing overlay ───────────────────────────────────────────────────
 
   if (step === 'uploading' || step === 'creating' || step === 'processing' || step === 'success') {
-    // Animated bar width
-    const animatedBarWidth = progressAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['0%', '100%'],
-    });
-
-    // Compute step index before JSX so TypeScript doesn't narrow `step`
-    type UploadStepKey = 'uploading' | 'creating' | 'processing';
-    const UPLOAD_STEP_KEYS: UploadStepKey[] = ['uploading', 'creating', 'processing'];
-    const currentStepIdx = UPLOAD_STEP_KEYS.indexOf(step as UploadStepKey);
-
-    // Step definitions with display metadata
-    const UPLOAD_STEPS: Array<{ key: UploadStepKey; label: string }> = [
-      { key: 'uploading',  label: 'Upload Media' },
-      { key: 'creating',   label: 'Create Post'  },
-      { key: 'processing', label: 'Finalise'     },
-    ];
     const accentColor = CONTENT_TYPES.find((c) => c.type === contentType)?.accentColor ?? T.ACCENT;
+    const status: UploadStatus = publishFailed ? 'error' : step === 'success' ? 'success' : 'uploading';
+    // Text-only posts never report media progress — show the step's ceiling.
+    const progressValue =
+      step === 'creating' ? 0.93 :
+      step === 'processing' ? 0.99 :
+      step === 'success' ? 1 :
+      uploadProgress;
 
     return (
-      <View style={[styles.overlay, { paddingTop: insets.top }]}>
-        {/* Background glow */}
-        <View style={[styles.overlayGlow, { backgroundColor: accentColor + '18' }]} />
-
-        <View style={styles.overlayCard}>
-          {step === 'success' ? (
-            <>
-              <View style={[styles.successIcon, { backgroundColor: accentColor }]}>
-                <Check size={36} color={T.BG} weight="bold" />
-              </View>
-              <Text style={styles.overlayTitle}>Published!</Text>
-              <Text style={styles.overlaySubtitle}>
-                Your {contentLabel.toLowerCase()} is live.
-              </Text>
-            </>
-          ) : (
-            <>
-              {/* Content type icon with accent tint */}
-              <View style={[styles.uploadIcon, { backgroundColor: accentColor + '22' }]}>
-                {CONTENT_TYPES.find((c) => c.type === contentType)?.icon}
-              </View>
-
-              {/* Animated progress bar */}
-              <View style={styles.progressWrap}>
-                <View style={styles.progressLabelRow}>
-                  <Text style={styles.progressPct}>
-                    {`${displayPct}%`}
-                  </Text>
-                  <Text style={styles.progressSubtitle}>
-                    {step === 'uploading'
-                      ? (thumbnailUri && uploadProgress >= 0.88 ? 'Uploading thumbnail…' : 'Uploading media…')
-                      : step === 'creating'  ? `Creating ${contentLabel.toLowerCase()}…`
-                      : 'Finalising…'}
-                  </Text>
-                </View>
-                <View style={styles.progressBar}>
-                  <Animated.View
-                    style={[
-                      styles.progressFill,
-                      { width: animatedBarWidth, backgroundColor: accentColor },
-                    ]}
-                  />
-                </View>
-              </View>
-
-              {/* Step tracker — vertical list with spinner / check / dim */}
-              <View style={styles.stepList}>
-                {UPLOAD_STEPS.map((s, i) => {
-                  // Inside the non-success branch, step is never 'success'
-                const isDone   = currentStepIdx === -1 || i < currentStepIdx;
-                  const isActive = i === currentStepIdx;
-                  const isPending = !isDone && !isActive;
-                  return (
-                    <View key={s.key} style={styles.stepRow}>
-                      {/* Icon column */}
-                      <View style={[
-                        styles.stepIconWrap,
-                        isDone   && { backgroundColor: accentColor + '22' },
-                        isActive && { backgroundColor: accentColor + '22' },
-                        isPending && { backgroundColor: T.SURFACE_2 },
-                      ]}>
-                        {isDone ? (
-                          <Check size={12} color={accentColor} weight="bold" />
-                        ) : isActive ? (
-                          <ActivityIndicator size="small" color={accentColor} style={{ transform: [{ scale: 0.65 }] }} />
-                        ) : (
-                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: T.BORDER }} />
-                        )}
-                      </View>
-                      {/* Label column */}
-                      <View style={{ flex: 1 }}>
-                        <Text style={[
-                          styles.stepLabel,
-                          isDone   && { color: T.TEXT_2 },
-                          isActive && { color: T.TEXT },
-                          isPending && { color: T.TEXT_3 },
-                        ]}>
-                          {s.label}
-                        </Text>
-                      </View>
-                      {/* Status */}
-                      {(isDone || isActive) && (
-                        <Text style={[styles.stepStatus, { color: isDone ? accentColor : T.TEXT_3 }]}>
-                          {isDone ? 'Done' : 'In progress'}
-                        </Text>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            </>
-          )}
-        </View>
-      </View>
+      <MsUploadProgress
+        visible
+        title={
+          step === 'creating' ? `Creating ${contentLabel.toLowerCase()}…` :
+          step === 'processing' ? 'Finalising' :
+          'Uploading Media'
+        }
+        subtitle={
+          step === 'uploading'
+            ? (thumbnailUri && uploadProgress >= 0.88 ? 'Uploading thumbnail…' : 'Uploading media…')
+            : undefined
+        }
+        progress={progressValue}
+        accentColor={accentColor}
+        stages={[
+          { key: 'uploading',  label: 'Upload Media' },
+          { key: 'creating',   label: 'Create Post'  },
+          { key: 'processing', label: 'Finalise'     },
+        ]}
+        activeStage={step === 'success' ? null : step}
+        status={status}
+        successTitle="Published!"
+        successSubtitle={`Your ${contentLabel.toLowerCase()} is live.`}
+        errorMessage={error}
+        onRetry={publishFailed ? handlePublish : undefined}
+        onCancel={() => {
+          setPublishFailed(false);
+          setStep('preview');
+        }}
+        onDone={() => router.replace('/(tabs)')}
+      />
     );
   }
 
@@ -1086,105 +949,6 @@ export default function CreatePostScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.BG },
-  overlay: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  overlayCard: {
-    width: '100%',
-    backgroundColor: T.SURFACE,
-    borderRadius: 24,
-    padding: 32,
-    alignItems: 'center',
-    gap: 16,
-    ...T.SHADOWS.hard,
-  },
-  successIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: T.ACCENT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  overlayTitle: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center' },
-  overlaySubtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center' },
-  overlayGlow: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: T.ACCENT + '1A',
-    top: '25%',
-    alignSelf: 'center',
-  },
-  uploadIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  progressWrap: { width: '100%', gap: 8 },
-  progressBar: {
-    width: '100%',
-    height: 6,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: T.ACCENT,
-    borderRadius: 3,
-  },
-  progressIndeterminate: {
-    width: '60%',
-    backgroundColor: T.ACCENT,
-  },
-  progressLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  progressPct: {
-    fontSize: 28,
-    fontFamily: T.FONT.bold,
-    color: T.TEXT,
-    letterSpacing: -1,
-  },
-  progressSubtitle: {
-    fontSize: 12,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_3,
-  },
-  stepList: {
-    width: '100%',
-    gap: 0,
-    marginTop: 4,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 9,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
-  },
-  stepIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepLabel: {
-    fontSize: 13,
-    fontFamily: T.FONT.medium,
-  },
-  stepStatus: {
-    fontSize: 11,
-    fontFamily: T.FONT.regular,
-  },
   thumbnailChangeBadge: {
     position: 'absolute',
     bottom: 8,
@@ -1253,8 +1017,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    height: 34,
-    paddingHorizontal: 14,
+    height: 38,
+    paddingHorizontal: 16,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.TEXT,
   },
@@ -1441,8 +1205,10 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
-  visOptActive: { backgroundColor: 'rgba(255,255,255,0.1)' },
+  visOptActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
   visLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_3 },
   visLabelActive: { color: T.TEXT },
 

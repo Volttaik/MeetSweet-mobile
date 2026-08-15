@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -404,6 +405,15 @@ function ShortPage({
         <View style={{ minWidth: 40 }} />
       </View>
 
+      {/* Bottom scrim — keeps captions & actions legible over bright video */}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.62)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={styles.bottomScrim}
+        pointerEvents="none"
+      />
+
       {/* Bottom content */}
       <View style={styles.content}>
         <Pressable
@@ -435,24 +445,24 @@ function ShortPage({
       {/* Side actions */}
       <View style={[styles.actions, { paddingBottom: bottomInset + 20 }]}>
         <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
-          <PressScale style={styles.actionCircleWrap} onPress={toggleLike} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
+          <PressScale style={styles.actionCircleWrap} onPress={toggleLike} hitSlop={8} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
             <Animated.View style={[styles.actionCircle, liked && styles.actionCircleActive, likeStyle]}>
-              <Heart size={19} color="#fff" weight={liked ? 'fill' : 'regular'} />
+              <Heart size={20} color="#fff" weight={liked ? 'fill' : 'regular'} />
             </Animated.View>
           </PressScale>
           <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
         </View>
 
-        <PressScale style={styles.actionButton} onPress={onComment} accessibilityLabel="Comment">
+        <PressScale style={styles.actionButton} onPress={onComment} hitSlop={8} accessibilityLabel="Comment">
           <View style={styles.actionCircle}>
-            <ChatCircle size={19} color="#fff" />
+            <ChatCircle size={20} color="#fff" />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.commentCount)}</Text>
         </PressScale>
 
-        <PressScale style={styles.actionButton} onPress={onShare} accessibilityLabel="Share">
+        <PressScale style={styles.actionButton} onPress={onShare} hitSlop={8} accessibilityLabel="Share">
           <View style={styles.actionCircle}>
-            <ShareNetwork size={19} color="#fff" />
+            <ShareNetwork size={20} color="#fff" />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.shareCount)}</Text>
         </PressScale>
@@ -474,6 +484,10 @@ const styles = StyleSheet.create({
   videoTapZone: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13, marginTop: 14 },
+  bottomScrim: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    height: 230,
+  },
   topBar: {
     position: 'absolute', left: 16, right: 16, top: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

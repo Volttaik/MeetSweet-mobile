@@ -53,6 +53,7 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBiometricLock } from '@/contexts/BiometricLockContext';
 import {
   deleteAccount,
   getPrivacySettings,
@@ -103,7 +104,7 @@ function BottomSheet({
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Pressable style={bss.overlay} onPress={onClose}>
           <Pressable
@@ -1564,6 +1565,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout, updateUser } = useAuth();
+  const { refreshLockState } = useBiometricLock();
 
   // Modal open state
   const [modal, setModal] = useState<
@@ -1671,7 +1673,10 @@ export default function SettingsScreen() {
       setBiometricEnabled(false);
       toast.success('Biometric lock disabled');
     }
-  }, []);
+    // Sync the lock provider immediately so a disable takes effect right away
+    // (no stale biometric prompt) and an enable arms the gate for next launch.
+    refreshLockState();
+  }, [refreshLockState]);
 
   // Maps UI privacy key → API field
   const privacyApiMap = useCallback((key: keyof PrivacyPrefs, value: any): Record<string, any> => {

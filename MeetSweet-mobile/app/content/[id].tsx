@@ -320,9 +320,12 @@ export default function ContentDetailScreen() {
       </View>
 
       {/* Comments + post in a single FlatList — only comments scroll */}
+      {/* iOS: pad for the keyboard. Android: the app window resizes
+          (softwareKeyboardLayoutMode=resize), so no extra padding — adding
+          'height' here would double-compensate and float the composer. */}
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={insets.top + 62}
       >
         <FlatList

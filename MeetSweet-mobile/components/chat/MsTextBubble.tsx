@@ -15,7 +15,7 @@
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Checks, Clock } from 'phosphor-react-native';
+import { Check, Checks, Clock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 
@@ -135,17 +135,17 @@ function StatusIcon({
     );
   }
   if (isRead) {
-    // Blue/accent tint = read
+    // Blue/accent tint double check = read by the recipient
     return (
       <View style={styles.statusIcon}>
         <Checks size={11} color={T.ACCENT} weight="bold" />
       </View>
     );
   }
-  // Sent / delivered — muted white
+  // Sent / delivered (server-confirmed, not yet read) — single muted check
   return (
     <View style={styles.statusIcon}>
-      <Checks size={11} color="rgba(255,255,255,0.40)" weight="bold" />
+      <Check size={11} color="rgba(255,255,255,0.40)" weight="bold" />
     </View>
   );
 }

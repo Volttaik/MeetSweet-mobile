@@ -40,9 +40,11 @@ import {
   Warning,
 } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
+import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { toast } from '@/components/MsToast';
 import { MsShimmer } from '@/components/MsShimmer';
+import { MsEmptyState } from '@/components/MsEmptyState';
 import {
   WALLET_QUICK_AMOUNTS,
   getWallet,
@@ -137,6 +139,7 @@ function PaymentPendingView({
   verifyState: VerifyState;
 }) {
   const [copied, setCopied] = useState(false);
+  const [openingPayment, setOpeningPayment] = useState(false);
   const hasBankTransfer = Boolean(result.accountNumber && result.bankName);
 
   const copyAccount = async () => {
@@ -148,11 +151,14 @@ function PaymentPendingView({
   };
 
   const openPayment = async () => {
-    if (!result.authorizationUrl) return;
+    if (!result.authorizationUrl || openingPayment) return;
+    setOpeningPayment(true);
     try {
       await Linking.openURL(result.authorizationUrl);
     } catch {
       toast.error('Could not open the payment page.');
+    } finally {
+      setOpeningPayment(false);
     }
   };
 
@@ -207,11 +213,19 @@ function PaymentPendingView({
 
       {result.authorizationUrl && (
         <TouchableOpacity
-          style={[pendStyles.paidBtn, { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER }]}
+          style={[pendStyles.primaryBtn, openingPayment && pendStyles.primaryBtnLoading]}
           onPress={openPayment}
           activeOpacity={0.85}
+          disabled={openingPayment}
         >
-          <Text style={[pendStyles.paidLabel, { color: T.TEXT }]}>Continue to payment</Text>
+          {openingPayment ? (
+            <>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={[pendStyles.primaryLabel, { marginLeft: 8 }]}>Opening Paystack…</Text>
+            </>
+          ) : (
+            <Text style={pendStyles.primaryLabel}>Continue to payment</Text>
+          )}
         </TouchableOpacity>
       )}
 
@@ -224,7 +238,7 @@ function PaymentPendingView({
       )}
 
       <TouchableOpacity
-        style={[pendStyles.paidBtn, verifyState === 'checking' && pendStyles.paidBtnLoading]}
+        style={[pendStyles.secondaryBtn, verifyState === 'checking' && pendStyles.paidBtnLoading]}
         onPress={onVerify}
         activeOpacity={0.85}
         disabled={verifyState === 'checking'}
@@ -232,7 +246,7 @@ function PaymentPendingView({
         {verifyState === 'checking' ? (
           <ActivityIndicator color={T.BG} size="small" />
         ) : (
-          <Text style={pendStyles.paidLabel}>I have paid</Text>
+          <Text style={[pendStyles.paidLabel, { color: T.TEXT }]}>I have paid</Text>
         )}
       </TouchableOpacity>
 
@@ -285,6 +299,19 @@ const pendStyles = StyleSheet.create({
   },
   paidBtnLoading: { opacity: 0.7 },
   paidLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+  primaryBtn: {
+    height: 52, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
+    alignItems: 'center', justifyContent: 'center', marginTop: 24,
+    flexDirection: 'row',
+    ...T.SHADOWS.soft,
+  },
+  primaryBtnLoading: { opacity: 0.85 },
+  primaryLabel: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 15 },
+  secondaryBtn: {
+    height: 52, borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE_2,
+    borderWidth: 1, borderColor: T.BORDER,
+    alignItems: 'center', justifyContent: 'center', marginTop: 12,
+  },
   backBtn: { alignItems: 'center', paddingVertical: 16 },
   backLabel: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13 },
 });
@@ -466,31 +493,36 @@ export default function WalletScreen() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
           {/* Balance card */}
-          <View style={styles.balanceCard}>
-            <View style={styles.balanceBg}>
-              <Wallet size={80} color="rgba(255,255,255,0.06)" weight="fill" />
-            </View>
-            <View style={styles.walletIconWrap}>
-              <Wallet size={22} color="#fff" weight="fill" />
+          <LinearGradient colors={['#251218', '#141014']} style={styles.balanceCard}>
+            <View style={styles.balanceGlow} pointerEvents="none" />
+            <View style={styles.balanceTopRow}>
+              <View style={styles.walletIconWrap}>
+                <Wallet size={20} color="#fff" weight="fill" />
+              </View>
+              <View style={styles.balanceMethodPill}>
+                <CreditCard size={11} color={T.ACCENT} weight="fill" />
+                <Text style={styles.balanceMethodText}>Paystack</Text>
+              </View>
             </View>
             <Text style={styles.balanceLabel}>WALLET BALANCE</Text>
             {loadingWallet ? (
-              <MsShimmer width="55%" height={40} borderRadius={8} style={{ marginTop: 6 }} />
+              <MsShimmer width="55%" height={42} borderRadius={8} style={{ marginTop: 4 }} />
             ) : (
               <Text style={styles.balance}>{formatNaira(balance ?? 0)}</Text>
             )}
             <Text style={styles.balanceHint}>Your Naira balance for subscriptions</Text>
-          </View>
+          </LinearGradient>
 
           {/* Transaction history */}
           {!loadingWallet && (
             <>
               <Text style={styles.sectionTitle}>Transaction History</Text>
               {transactions.length === 0 ? (
-                <View style={[styles.transactions, { paddingVertical: 20, alignItems: 'center' }]}>
-                  <Text style={{ color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13 }}>
-                    No transactions yet
-                  </Text>
+                <View style={styles.transactions}>
+                  <MsEmptyState
+                    title="No transactions yet"
+                    message="Your deposits and purchases will show up here."
+                  />
                 </View>
               ) : (
               <View style={styles.transactions}>
@@ -616,34 +648,54 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 48, gap: 0 },
 
   balanceCard: {
-    backgroundColor: '#1B4332',
     borderRadius: T.RADIUS.xl,
     padding: 22,
-    minHeight: 160,
+    minHeight: 168,
     position: 'relative',
     overflow: 'hidden',
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(196,90,114,0.18)',
   },
-  balanceBg: {
-    position: 'absolute', top: -10, right: -10,
-    transform: [{ scale: 2 }],
+  balanceGlow: {
+    position: 'absolute',
+    top: -70, right: -50,
+    width: 190, height: 190,
+    borderRadius: 95,
+    backgroundColor: 'rgba(196,90,114,0.16)',
+  },
+  balanceTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 22,
   },
   walletIconWrap: {
-    width: 42, height: 42, borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(196,90,114,0.22)',
     alignItems: 'center', justifyContent: 'center',
   },
+  balanceMethodPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  balanceMethodText: {
+    color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 10,
+    letterSpacing: 0.4,
+  },
   balanceLabel: {
-    color: 'rgba(134,239,172,0.75)',
-    fontFamily: T.FONT.semibold, fontSize: 9,
-    letterSpacing: 1.4, marginTop: 16,
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: T.FONT.semibold, fontSize: 10,
+    letterSpacing: 1.5,
   },
   balance: {
-    color: '#D1FAE5', fontFamily: T.FONT.bold,
-    fontSize: 34, letterSpacing: -1, marginTop: 2,
+    color: '#FFFFFF', fontFamily: T.FONT.bold,
+    fontSize: 36, letterSpacing: -1, marginTop: 4,
   },
   balanceHint: {
-    color: 'rgba(134,239,172,0.55)',
+    color: 'rgba(255,255,255,0.42)',
     fontFamily: T.FONT.regular, fontSize: 11, marginTop: 8, lineHeight: 17,
   },
 
@@ -677,7 +729,7 @@ const styles = StyleSheet.create({
     color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15, marginBottom: 12,
   },
   sectionMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  poweredBy: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10 },
+  poweredBy: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11 },
 
   chipsGrid: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16,
