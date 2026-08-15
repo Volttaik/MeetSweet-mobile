@@ -195,6 +195,12 @@ interface MsPostCardProps {
   onPress?: () => void;
   onMediaPress?: () => void;
   onAuthorPress?: () => void;
+  /**
+   * Dedicated handler for the comment action. When provided, the comment button
+   * opens this (e.g. the comment sheet on the post detail screen) instead of
+   * falling back to `onPress` navigation.
+   */
+  onCommentsPress?: () => void;
   onDeleted?: (id: string) => void;
   currentUserId?: string;
   onEditPress?: (post: Post) => void;
@@ -226,6 +232,7 @@ export function MsPostCard({
   onPress,
   onMediaPress,
   onAuthorPress,
+  onCommentsPress,
   onDeleted,
   currentUserId,
   onEditPress,
@@ -625,7 +632,7 @@ export function MsPostCard({
         </ActionButton>
 
         {/* Comment */}
-        <ActionButton onPress={onPress} style={styles.actionBtn}>
+        <ActionButton onPress={onCommentsPress ?? onPress} style={styles.actionBtn}>
           <ChatCircle size={18} color={T.TEXT_2} />
           {((post.commentCount ?? post.comments_count ?? 0) > 0) && (
             <Text style={styles.actionCount}>{formatCount(post.commentCount ?? post.comments_count ?? 0)}</Text>

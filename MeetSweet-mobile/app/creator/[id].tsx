@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useState, useEffect } from 'react';
+import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import {
   Alert,
   Dimensions,
@@ -32,6 +32,7 @@ import { blockUser, reportUser, searchUsers } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
 import { getOrCreateChatRoom } from '@/services/room-service';
+import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -197,6 +198,7 @@ function SubscribeSheet({
   walletBalance,
   isSubscribed = false,
   currentTier = null,
+  subscribing = false,
   onConfirm,
   onWallet,
   onClose,
@@ -207,6 +209,7 @@ function SubscribeSheet({
   walletBalance: number;
   isSubscribed?: boolean;
   currentTier?: SubscribePlan | null;
+  subscribing?: boolean;
   onConfirm: (plan: SubscribePlan) => void;
   onWallet: () => void;
   onClose: () => void;
@@ -224,9 +227,11 @@ function SubscribeSheet({
   }, [isSubscribed, currentTier]);
 
   const planCfg  = PLANS.find((p) => p.key === selectedPlan)!;
+  // Real prices only — no fabricated fallback amounts. A creator without a
+  // configured price shows "Free" rather than an invented ₦200/₦500 figure.
   const price    = selectedPlan === 'subscriber'
-    ? (creatorProfile?.subscriptionPrice ?? 200)
-    : (creatorProfile?.subscriptionPlusPrice ?? 500);
+    ? (creatorProfile?.subscriptionPrice ?? 0)
+    : (creatorProfile?.subscriptionPlusPrice ?? 0);
   const canAfford = walletBalance >= price || price === 0;
 
   const isCurrentPlan = isSubscribed && (
@@ -267,8 +272,8 @@ function SubscribeSheet({
                 (currentTier === 'subscriber' && plan.key === 'subscriber')
               );
               const planPrice = plan.key === 'subscriber'
-                ? (creatorProfile?.subscriptionPrice ?? 200)
-                : (creatorProfile?.subscriptionPlusPrice ?? 500);
+                ? (creatorProfile?.subscriptionPrice ?? 0)
+                : (creatorProfile?.subscriptionPlusPrice ?? 0);
               return (
                 <TouchableOpacity
                   key={plan.key}
@@ -346,17 +351,30 @@ function SubscribeSheet({
               style={[
                 shStyles.primaryBtn,
                 canAfford ? { backgroundColor: planCfg.color } : shStyles.primaryBtnOutline,
+                (subscribing || !canAfford) && { opacity: 0.85 },
               ]}
               activeOpacity={0.85}
+              disabled={subscribing}
               onPress={canAfford ? () => onConfirm(selectedPlan) : onWallet}
             >
-              <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
-                {canAfford
-                  ? (isSubscribed && selectedPlan === 'subscriber_plus'
-                      ? `Upgrade to Subscriber+ — ₦${price.toLocaleString()}/mo`
-                      : `Subscribe — ₦${price.toLocaleString()}/mo`)
-                  : 'Top up wallet to subscribe'}
-              </Text>
+              {subscribing ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Spinner size="sm" color="default" />
+                  <Text style={shStyles.primaryLabel}>Processing payment…</Text>
+                </View>
+              ) : (
+                <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
+                  {canAfford
+                    ? (price === 0
+                        ? (isSubscribed && selectedPlan === 'subscriber_plus'
+                            ? 'Upgrade to Subscriber+ — Free'
+                            : 'Subscribe — Free')
+                        : (isSubscribed && selectedPlan === 'subscriber_plus'
+                            ? `Upgrade to Subscriber+ — ₦${price.toLocaleString()}/mo`
+                            : `Subscribe — ₦${price.toLocaleString()}/mo`))
+                    : 'Top up wallet to subscribe'}
+                </Text>
+              )}
             </TouchableOpacity>
           )}
 
@@ -605,8 +623,29 @@ export default function CreatorProfileScreen() {
         return;
       }
 
-      // Messaging is free — ask the backend to create/find the Chat Room.
-      const { chatRoomId } = await getOrCreateChatRoom(creatorUserId);
+      // Idempotent open: if a room for this peer already exists (cached from a
+      // previous message), open it directly — never pretend to create a new
+      // chatroom when one already exists. Only fall through to the backend
+      // create/find path when no cached room matches.
+      const cachedRooms = await getCachedChatRooms().catch(() => []);
+      const existingRoom = cachedRooms.find((r) =>
+        r.chatRoomId &&
+        ((r.otherUser?.id && r.otherUser.id === creatorUserId) ||
+          (r.participants ?? []).some((p) => p.id === creatorUserId)),
+      );
+      if (existingRoom?.chatRoomId) {
+        setCreatingRoom(false);
+        router.push({
+          pathname: '/chat-room/[chatRoomId]',
+          params: { chatRoomId: existingRoom.chatRoomId },
+        });
+        return;
+      }
+
+      // No cached room — ask the backend to find-or-create the Chat Room. The
+      // backend deduplicates (one room per pair), so re-opening is idempotent.
+      const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
+      await cacheChatRooms([chatRoom]).catch(() => {});
       router.push({
         pathname: '/chat-room/[chatRoomId]',
         params: { chatRoomId },
@@ -635,27 +674,34 @@ export default function CreatorProfileScreen() {
   // Fetch the canonical creator profile.
   const creatorUUID = creatorFullProfile?.userId ?? id;
   const creatorLookup = id;
+
+  // Apply a CreatorProfileFull response to all creator-profile state. Single
+  // source of truth for mount / refresh / post-subscribe sync so the UI never
+  // shows stale subscriber counts or subscription state.
+  const applyProfile = useCallback((profile: CreatorProfileFull) => {
+    setCreatorFullProfile(profile);
+    setIsSubscribed(profile.subscribedToCreator);
+    setCurrentTier(profile.subscriptionTier ?? null);
+    setWhoCanMessage(profile.whoCanMessage);
+    setRealProfile({
+      name:            profile.name,
+      username:        profile.username,
+      bio:             profile.bio,
+      avatarUrl:       profile.avatarUrl,
+      bannerUrl:       profile.bannerUrl,
+      subscriberCount: profile.subscriberCount,
+      isVerified:      profile.isVerified,
+    });
+  }, []);
+
   useEffect(() => {
     if (!id) return;
     setProfileLoading(true);
     getCreatorById(creatorLookup)
-      .then((profile: CreatorProfileFull) => {
-        setCreatorFullProfile(profile);
-        setIsSubscribed(profile.subscribedToCreator);
-        setWhoCanMessage(profile.whoCanMessage);
-        setRealProfile({
-          name:          profile.name,
-          username:      profile.username,
-          bio:           profile.bio,
-          avatarUrl:     profile.avatarUrl,
-          bannerUrl:     profile.bannerUrl,
-          subscriberCount: profile.subscriberCount,
-          isVerified:    profile.isVerified,
-        });
-      })
+      .then((profile: CreatorProfileFull) => applyProfile(profile))
       .catch(() => {})
       .finally(() => setProfileLoading(false));
-  }, [id, creatorLookup]);
+  }, [id, creatorLookup, applyProfile]);
 
   // Redirect to own profile immediately if slug matches username — no API wait needed
   useEffect(() => {
@@ -752,16 +798,9 @@ export default function CreatorProfileScreen() {
     setRefreshing(true);
     try {
       await Promise.all([
-        getCreatorById(creatorLookup).then((profile: CreatorProfileFull) => {
-          setCreatorFullProfile(profile);
-          setIsSubscribed(profile.subscribedToCreator);
-          setWhoCanMessage(profile.whoCanMessage);
-          setRealProfile({
-            name: profile.name, username: profile.username, bio: profile.bio,
-            avatarUrl: profile.avatarUrl, bannerUrl: profile.bannerUrl,
-            subscriberCount: profile.subscriberCount, isVerified: profile.isVerified,
-          });
-        }).catch(() => {}),
+        getCreatorById(creatorLookup)
+          .then((profile: CreatorProfileFull) => applyProfile(profile))
+          .catch(() => {}),
         getCreatorContentPosts(creatorUUID)
           .then(({ posts }: { posts: Post[] }) => setCreatorPosts(posts)).catch(() => {}),
       ]);
@@ -867,14 +906,29 @@ export default function CreatorProfileScreen() {
             </View>
           </View>
 
-          {/* Subscribe button */}
+          {/* Subscribe button — reflects the authoritative server state so a
+              subscribed user never sees a contradictory "Subscribe" CTA. */}
           <TouchableOpacity
-            style={styles.subscribeButton}
+            style={[
+              styles.subscribeButton,
+              isSubscribed && styles.subscribeButtonSubscribed,
+            ]}
             onPress={handleSubscribePress}
             activeOpacity={0.85}
           >
-            <Lock size={16} color={T.BG} />
-            <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
+            {isSubscribed ? (
+              <>
+                <Check size={16} color={T.TEXT_2} weight="bold" />
+                <Text style={styles.subscribeBtnLabelSubscribed}>
+                  {currentTier === 'subscriber_plus' ? 'Subscriber+' : 'Subscribed'}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Lock size={16} color={T.BG} />
+                <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
+              </>
+            )}
           </TouchableOpacity>
 
           {/* Message button - shown when viewing another user's profile and not own profile */}
@@ -1125,19 +1179,50 @@ export default function CreatorProfileScreen() {
         walletBalance={walletBalance}
         isSubscribed={isSubscribed}
         currentTier={currentTier}
+        subscribing={subscribing}
         onConfirm={async (plan) => {
           setSubscribing(true);
           try {
-            await subscribe(creatorUUID || creator.id, plan);
+            // Server confirms the subscription; its response carries the
+            // authoritative tier + subscriber count. Never fake local state.
+            const result = await subscribe(creatorUUID || creator.id, plan);
             setIsSubscribed(true);
-            setCurrentTier(plan === 'subscriber_plus' ? 'subscriber_plus' : 'subscriber');
+            setCurrentTier(result.tier === 'subscriber_plus' ? 'subscriber_plus' : 'subscriber');
+
+            // Apply the authoritative subscriber count immediately (no stale 0).
+            const count = result.subscriber_count ?? result.subscriberCount;
+            if (typeof count === 'number') {
+              setRealProfile((p) => (p ? { ...p, subscriberCount: count } : p));
+              setCreatorFullProfile((p) => (p ? { ...p, subscriberCount: count } : p));
+            }
+
             setSheetOpen(false);
             Alert.alert(
               plan === 'subscriber_plus' ? 'Upgraded to Subscriber+!' : 'Subscribed!',
               `You now have access to ${creator.name}'s content.`,
             );
+
+            // Re-fetch the authoritative profile so subscription state, counts,
+            // and unlocked content all reflect the server (persists across tabs).
+            getCreatorById(creatorLookup)
+              .then((profile: CreatorProfileFull) => applyProfile(profile))
+              .catch(() => {});
+
+            // Refresh the creator's content so subscriber-gated posts appear
+            // immediately — the profile tab was previously showing only free
+            // content. Reset the lazily-loaded tabs so they re-fetch too.
+            getCreatorContentPosts(creatorUUID)
+              .then(({ posts }: { posts: Post[] }) => setCreatorPosts(posts))
+              .catch(() => {});
+            setCreatorVideos([]);
+            setCreatorShorts([]);
+            setCreatorAlbums([]);
           } catch (err) {
-            Alert.alert('Subscription failed', (err as Error).message ?? 'Please try again.');
+            const msg =
+              (err as { message?: string; code?: string }).code === 'INSUFFICIENT_BALANCE'
+                ? 'Insufficient wallet balance. Top up to subscribe.'
+                : ((err as Error).message ?? 'Please try again.');
+            Alert.alert('Subscription failed', msg);
           } finally {
             setSubscribing(false);
           }
@@ -1308,6 +1393,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   subscribeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
+  subscribeButtonSubscribed: {
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+  },
+  subscribeBtnLabelSubscribed: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT_2 },
 
   // Message button
   messageButton: {

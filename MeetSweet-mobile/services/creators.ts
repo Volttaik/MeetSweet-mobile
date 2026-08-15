@@ -30,6 +30,8 @@ export interface CreatorProfileFull {
   albumCount?: number;
   isVerified: boolean;
   subscribedToCreator: boolean;
+  /** The viewer's active subscription tier (null when not subscribed). */
+  subscriptionTier?: 'subscriber' | 'subscriber_plus' | null;
   whoCanMessage: 'everyone' | 'subscribers' | 'none';
   subscriptionPrice: number;
   subscriptionPlusPrice: number;
@@ -60,8 +62,10 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
   const user = normalizeUser(rawUser);
   return {
     userId: rawUser.id || user.id || usernameOrId,
-    name: user.name || rawUser.name || rawUser.username || usernameOrId,
-    username: user.username || rawUser.username || usernameOrId,
+    // Never fall back to the route param (an internal id) for user-facing
+    // fields — a missing name/username must render a neutral label, not an ID.
+    name: user.name || rawUser.name || rawUser.display_name || rawUser.username || 'Creator',
+    username: user.username || rawUser.username || '',
     bio: user.bio || rawUser.bio || null,
     avatarUrl: user.avatarUrl || rawUser.avatar_url || null,
     bannerUrl: user.bannerUrl || rawUser.banner_url || null,
@@ -74,6 +78,11 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
     subscribedToCreator: Boolean(
       rawUser.subscribed_to_creator ?? rawUser.subscribedToCreator ?? rawUser.is_subscribed ?? false,
     ),
+    subscriptionTier:
+      (rawUser.subscription_tier ?? rawUser.subscriptionTier ?? null) as
+        | 'subscriber'
+        | 'subscriber_plus'
+        | null,
     whoCanMessage: (rawUser.who_can_message as 'everyone' | 'subscribers' | 'none') ?? 'everyone',
     subscriptionPrice: Number(rawUser.subscription_price ?? rawUser.subscriptionPrice ?? 0),
     subscriptionPlusPrice: Number(rawUser.subscription_plus_price ?? rawUser.subscriptionPlusPrice ?? 0),

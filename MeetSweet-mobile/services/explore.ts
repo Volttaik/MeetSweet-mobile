@@ -102,7 +102,7 @@ function previewFromExplore(raw: any): ContentPreview {
   const title = raw.title ?? raw.caption ?? '';
   return {
     id: raw.id ?? '',
-    creatorId: raw.creator_id ?? '',
+    creatorId: raw.creator_id ?? raw.creatorId ?? raw.creator?.id ?? '',
     title,
     category: '',
     kind: isVideo ? 'video' : 'photo',
@@ -126,15 +126,18 @@ function creatorEmbeddedInItem(item: any): Creator | null {
   // The backend includes creator_* fields on every explore item. When the
   // creator is not part of the separate (capped) `users` list, build a Creator
   // from the embedded fields so the item is never dropped on the client.
-  if (!item || !item.creator_id) return null;
+  // Some content builders only carry the nested `creator` object — fall back to
+  // it so the author is never lost.
+  const src = item && item.creator_id ? item : (item?.creator ?? null);
+  if (!src || !src.id) return null;
   return creatorFromExplore({
-    id: item.creator_id,
-    username: item.creator_username,
-    display_name: item.creator_display_name,
-    name: item.creator_display_name ?? item.creator_username,
-    avatar_url: item.creator_avatar,
-    is_verified: item.creator_is_verified,
-    is_verified_creator: item.creator_is_verified,
+    id: src.id,
+    username: src.username ?? src.creator_username,
+    display_name: src.display_name ?? src.creator_display_name,
+    name: src.display_name ?? src.creator_display_name ?? src.username ?? src.creator_username,
+    avatar_url: src.avatar_url ?? src.creator_avatar,
+    is_verified: src.is_verified ?? src.creator_is_verified,
+    is_verified_creator: src.is_verified ?? src.creator_is_verified,
   });
 }
 

@@ -69,24 +69,36 @@ export function MsChatHeaderMenu({
   onClear,
   onDelete,
 }: Props) {
-  const scaleAnim   = useRef(new Animated.Value(0.88)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
+  // Dropdown is anchored top-right, so it animates with a downward slide + fade
+  // (no scale, no transformOrigin) — a scale-from-center is what caused the menu
+  // to visually "jump" from the wrong position on open.
+  const translateAnim = useRef(new Animated.Value(-10)).current;
+  const opacityAnim   = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      scaleAnim.setValue(0.88);
+      translateAnim.setValue(-10);
       opacityAnim.setValue(0);
       Animated.parallel([
-        Animated.timing(opacityAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
-        Animated.timing(scaleAnim,   { toValue: 1, duration: 200, easing: Easing.out(Easing.back(1.5)), useNativeDriver: true }),
+        Animated.timing(opacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(translateAnim, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
       ]).start();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
+  // Animate out, then close the modal and run the action. `onClose` unmounts the
+  // menu; the action (open search / profile / picker) runs after the animation
+  // so the two overlays never stack mid-transition (prevents flicker).
   const dismiss = (fn: () => void) => {
     Animated.parallel([
-      Animated.timing(opacityAnim, { toValue: 0, duration: 130, useNativeDriver: true }),
-      Animated.timing(scaleAnim,   { toValue: 0.92, duration: 130, useNativeDriver: true }),
+      Animated.timing(opacityAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(translateAnim, { toValue: -8, duration: 120, useNativeDriver: true }),
     ]).start(() => {
       onClose();
       fn();
@@ -131,14 +143,14 @@ export function MsChatHeaderMenu({
     },
     {
       key: 'clear',
-      label: 'Chat',
+      label: 'Clear Chat',
       icon: <Broom size={18} color={T.DANGER} />,
       destructive: true,
       onPress: () => dismiss(onClear),
     },
     {
       key: 'delete',
-      label: 'Chat',
+      label: 'Delete Chat',
       icon: <Trash size={18} color={T.DANGER} />,
       destructive: true,
       onPress: () => dismiss(onDelete),
@@ -149,13 +161,21 @@ export function MsChatHeaderMenu({
 
   return (
     <Modal transparent visible animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable style={s.overlay} onPress={onClose}>
+      <View style={s.overlay}>
+        {/* Backdrop is a sibling of the menu — tapping it closes, but taps on the
+            menu itself never fall through to the backdrop. */}
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityLabel="Close menu"
+          accessibilityRole="button"
+        />
         <Animated.View
           style={[
             s.menu,
             {
               opacity: opacityAnim,
-              transform: [{ scale: scaleAnim }],
+              transform: [{ translateY: translateAnim }],
             },
           ]}
         >
@@ -179,7 +199,7 @@ export function MsChatHeaderMenu({
             );
           })}
         </Animated.View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
@@ -197,7 +217,6 @@ const s = StyleSheet.create({
     backgroundColor: T.SURFACE,
     borderRadius: 16,
     overflow: 'hidden',
-    transformOrigin: 'top right',
     ...T.SHADOWS.hard,
   },
   divider: {

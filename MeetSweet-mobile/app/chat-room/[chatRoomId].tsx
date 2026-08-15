@@ -26,7 +26,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   AppState,
@@ -130,6 +129,7 @@ import {
   clearRoomMedia,
 } from '@/services/chat-media';
 
+import { MsShimmer, MsShimmerChatList } from '@/components/MsShimmer';
 import { MsChatBubble } from '@/components/chat/MsChatBubble';
 import { MsChatInputBar } from '@/components/chat/MsChatInputBar';
 import { MsChatBackground } from '@/components/chat/MsChatBackground';
@@ -249,6 +249,20 @@ export default function ChatScreen() {
   const menuScaleAnim = useRef(new Animated.Value(0)).current;
   const menuOpacityAnim = useRef(new Animated.Value(0)).current;
 
+  // ── Message content fade-in — the chat skeleton is shown immediately, then the
+  // loaded messages fade into place for perceived responsiveness (no spinner).
+  const contentFade = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!loading) {
+      contentFade.setValue(0);
+      Animated.timing(contentFade, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [loading, contentFade]);
+
   // Ref to the Chat's FlatList so tapping a quoted reply can scroll to the
   // original message. The list is inverted (newest at bottom); scrollToMessage
   // (defined after the messages memo) maps message id → item index.
@@ -257,12 +271,6 @@ export default function ChatScreen() {
   const showMenu = useCallback((msg: MsMessage) => {
     setMenuMsg(msg);
     setMenuVisible(true);
-    menuScaleAnim.setValue(0.88);
-    menuOpacityAnim.setValue(0);
-    Animated.parallel([
-      Animated.timing(menuOpacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
-      Animated.timing(menuScaleAnim, { toValue: 1, duration: 200, easing: Easing.out(Easing.back(1.3)), useNativeDriver: true }),
-    ]).start();
   }, []);
 
   const hideMenu = useCallback(() => {
@@ -275,6 +283,26 @@ export default function ChatScreen() {
   // ── Sheets / modals ──────────────────────────────────────────────────────────
   const [menuMsg, setMenuMsg] = useState<MsMessage | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // Start the context-menu entrance AFTER the Modal mounts so the scale/fade
+  // animation is visible in full (starting it before mount made the menu appear
+  // already partway through its animation).
+  useEffect(() => {
+    if (menuVisible) {
+      menuScaleAnim.setValue(0.88);
+      menuOpacityAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(menuOpacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(menuScaleAnim, {
+          toValue: 1,
+          duration: 200,
+          easing: Easing.out(Easing.back(1.3)),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuVisible]);
   const [showAttach, setShowAttach] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
@@ -1636,14 +1664,6 @@ export default function ChatScreen() {
   );
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <View style={[styles.fill, styles.center, { backgroundColor: T.BG }]}>
-        <ActivityIndicator color={T.ACCENT} size="large" />
-      </View>
-    );
-  }
-
   return (
     <View style={[styles.fill, { backgroundColor: T.BG }]}>
       <MsChatBackground />
@@ -1677,35 +1697,48 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Chat search bar (slides in below header) ─────────────────────────── */}
-      <MsChatSearch
-        visible={showChatSearch}
-        messages={messagesWithReactions as any}
-        onClose={() => setShowChatSearch(false)}
-        onJump={(msgId) => scrollToMessage(String(msgId))}
-      />
-
-      {/* ── Empty-chat state — shown until the first message arrives ─────── */}
-      {!isBlocked && messagesWithReactions.length === 0 && (
-        <View pointerEvents="none" style={styles.emptyOverlay}>
-          <MsAvatar
-            size={72}
-            initials={(otherUser.name || 'U').substring(0, 2).toUpperCase()}
-            imageUri={otherUser.avatarUrl ?? undefined}
-          />
-          <Text style={styles.emptyTitle}>
-            {otherUser.name ? `${otherUser.name}` : 'New chat'}
-          </Text>
-          <Text style={styles.emptyHint}>
-            {otherUser.username
-              ? `Say hi to @${otherUser.username}`
-              : 'Send the first message to start the conversation'}
-          </Text>
+      {loading ? (
+        /* ── Skeleton: chat structure is shown immediately; messages fade in
+             once loaded instead of blocking the whole screen on a spinner. ── */
+        <View style={styles.chatSkeletonWrap}>
+          <MsShimmerChatList />
+          <View style={styles.skeletonInputRow}>
+            <MsShimmer width={36} height={36} borderRadius={18} />
+            <MsShimmer width="100%" height={40} borderRadius={20} style={styles.skeletonInputPill} />
+            <MsShimmer width={36} height={36} borderRadius={18} />
+          </View>
         </View>
-      )}
+      ) : (
+        <Animated.View style={[styles.fill, { opacity: contentFade }]}>
+          {/* ── Chat search bar (slides in below header) ─────────────────────── */}
+          <MsChatSearch
+            visible={showChatSearch}
+            messages={messagesWithReactions as any}
+            onClose={() => setShowChatSearch(false)}
+            onJump={(msgId) => scrollToMessage(String(msgId))}
+          />
 
-      {/* ── Chat Component ───────────────────────────────────────────────────── */}
-      <Chat<MsMessage>
+          {/* ── Empty-chat state — shown until the first message arrives ─────── */}
+          {!isBlocked && messagesWithReactions.length === 0 && (
+            <View pointerEvents="none" style={styles.emptyOverlay}>
+              <MsAvatar
+                size={72}
+                initials={(otherUser.name || 'U').substring(0, 2).toUpperCase()}
+                imageUri={otherUser.avatarUrl ?? undefined}
+              />
+              <Text style={styles.emptyTitle}>
+                {otherUser.name ? `${otherUser.name}` : 'New chat'}
+              </Text>
+              <Text style={styles.emptyHint}>
+                {otherUser.username
+                  ? `Say hi to @${otherUser.username}`
+                  : 'Send the first message to start the conversation'}
+              </Text>
+            </View>
+          )}
+
+          {/* ── Chat Component ───────────────────────────────────────────────── */}
+          <Chat<MsMessage>
         messages={messagesWithReactions}
         // The library's AnimatedList is a gesture-handler FlatList; cast to the
         // prop type so we can call scrollToIndex on the underlying list ref.
@@ -1799,6 +1832,8 @@ export default function ChatScreen() {
 
         messagesContainerStyle={styles.msgContainer}
       />
+        </Animated.View>
+      )}
 
       {/* ── Attachment sheet ─────────────────────────────────────────────────── */}
       {showAttach && (
@@ -2355,6 +2390,24 @@ const styles = StyleSheet.create({
   msgContainer: {
     backgroundColor: 'transparent',
     paddingHorizontal: 0,
+  },
+
+  // Chat loading skeleton — shown immediately while messages load, then the
+  // loaded conversation fades in over it.
+  chatSkeletonWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  skeletonInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+  },
+  skeletonInputPill: {
+    flex: 1,
   },
 
   // Empty-chat state — centered overlay above the chat background
