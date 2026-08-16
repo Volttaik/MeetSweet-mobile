@@ -1,45 +1,47 @@
-# [Project name]
+# MeetSweet
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+MeetSweet is an Expo/React Native social app for discovering creators, posts, albums, messaging, notifications, onboarding, and wallet features.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --dir MeetSweet-mobile install --frozen-lockfile` — install the mobile app dependencies
+- `pnpm --dir MeetSweet-mobile run dev` — start Metro for Expo Go on port 8081
+- Scan the Expo Go QR code or use the `exp://` URL printed by the workflow
+- `pnpm --dir MeetSweet-mobile run typecheck` — typecheck the mobile app
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Expo SDK 54, Expo Router, React Native 0.81, and TypeScript
+- pnpm workspace with a standalone `MeetSweet-mobile` package
+- Metro is proxied through `REPLIT_EXPO_DEV_DOMAIN` for Expo Go
+- The app API base is configured with `EXPO_PUBLIC_API_URL` when needed
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `MeetSweet-mobile/app/` — Expo Router screens
+- `MeetSweet-mobile/components/` — shared UI components
+- `MeetSweet-mobile/services/` — API and feature service modules
+- `MeetSweet-mobile/app.json` — Expo configuration
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Keep the imported mobile project structure and its standalone lockfile.
+- Use Expo Go-compatible modules rather than requiring a custom development build.
+- Use port 8081 for Metro so Replit's Expo proxy can forward the Expo Go manifest.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+MeetSweet provides a social creator experience with content discovery, creator tools, albums, direct chat, notifications, registration flows, and wallet/payout screens.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+No additional preferences recorded.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Start the `MeetSweet Expo` workflow instead of running Expo with a custom local port.
+- If dependencies are missing after import, reinstall with the mobile lockfile before restarting Metro.
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- The Replit workflow is defined in `.replit` and runs `pnpm --dir MeetSweet-mobile run dev`.

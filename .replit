@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-20", "web", "nix", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -30,6 +30,7 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --dir MeetSweet-mobile run dev"
+waitForPort = 8081
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -49,3 +50,7 @@ externalPort = 8080
 
 [[ports]]
 localPort = 8081
+externalPort = 8081
+
+[nix]
+channel = "stable-25_05"
