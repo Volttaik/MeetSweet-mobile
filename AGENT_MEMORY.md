@@ -223,6 +223,25 @@ are uncommitted in `.meetsweet-server` (pricing pass + this).
    whenever the short goes active (was flashing over the poster/first frame).
    The centre control only appears after the user taps the short.
 
+## Server repo push blocked — commit is backed up as a patch
+
+The `Volttaik/Meetsweet` server repo is NOT in this Freebuff workspace's
+credential scope (only `MeetSweet-mobile` is), so `git push` from
+`.meetsweet-server` returns `403 Permission denied to freebuff-web[bot]` even
+though the repo is readable. The pricing-pass commit is committed locally:
+
+- Commit `03851d7` — "Make creator pricing authoritative and default
+  subscription price explicit" (10 files, +105/−10). `git -C
+  .meetsweet-server status` shows `main...origin/main [ahead 1]`.
+- Full backup patch saved at the workspace root:
+  `0001-Make-creator-pricing-authoritative-and-default-subsc.patch`
+  (reapply with `git -C .meetsweet-server am
+  /home/daytona/codebase/0001-*.patch` after a fresh clone).
+
+To push: the user must connect `Volttaik/Meetsweet` in this Freebuff project
+so the workspace mints a credential scoped to it; then plain
+`git -C .meetsweet-server push origin main` works. Do NOT use a PAT.
+
 ## How to resume / verify
 
 ```bash

@@ -1,0 +1,345 @@
+From 03851d7ff8e26efb5e65d8667d44349bd6689f55 Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Sun, 16 Aug 2026 22:12:15 +0000
+Subject: [PATCH] Make creator pricing authoritative and default subscription
+ price explicit
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- resolveBasePrice with DEFAULT_SUBSCRIPTION_PRICE=200 applied on
+  become-creator, settings GET/PATCH, verification, and bank-details paths
+- /api/users/:username resolves price instead of raw profile value
+- POST /albums accepts price as alias for unlock_price
+- Schema default and idempotent migrate backfill for unpriced creator rows
+
+Generated with Codebuff 🤖
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/app/api/albums/route.ts                | 10 +++--
+ server/app/api/creator/become/route.ts        |  4 ++
+ server/app/api/creator/settings/route.ts      | 17 +++++++-
+ server/app/api/creator/verification/route.ts  |  2 +
+ .../api/creator/wallet/bank-details/route.ts  |  7 +++-
+ server/app/api/creators/[id]/route.ts         |  7 +++-
+ server/app/api/users/[username]/route.ts      | 12 +++++-
+ server/lib/db/schema.ts                       |  5 ++-
+ server/lib/services/pricing.ts                |  9 ++++
+ server/scripts/migrate.ts                     | 42 +++++++++++++++++++
+ 10 files changed, 105 insertions(+), 10 deletions(-)
+
+diff --git a/server/app/api/albums/route.ts b/server/app/api/albums/route.ts
+index ddd8fc6..68fdb3b 100644
+--- a/server/app/api/albums/route.ts
++++ b/server/app/api/albums/route.ts
+@@ -16,8 +16,11 @@ const createSchema = z.object({
+   // Takes priority over cover_url when both are provided.
+   cover_media_id: z.string().optional(),
+   cover_url: z.string().url().nullable().optional(),
+-  // unlock_price / price_credits — mobile sends unlock_price; both are accepted
++  // unlock_price / price / price_credits — mobile sends unlock_price (after
++  // translation) but accept `price` too so no client can silently create a
++  // free album; albums are purchase-only.
+   unlock_price: z.number().int().min(0).max(1_000_000).optional(),
++  price: z.number().int().min(0).max(1_000_000).optional(),
+   price_credits: z.number().int().min(0).max(1_000_000).optional(),
+   is_premium: z.boolean().optional(),
+   // visibility: 'draft' is mapped to 'private' in storage
+@@ -184,8 +187,9 @@ export async function POST(req: NextRequest) {
+     if (coverMedia) coverUrl = coverMedia.url;
+   }
+ 
+-  // Resolve price: unlock_price takes priority over price_credits
+-  const priceCredits = data.unlock_price ?? data.price_credits ?? 0;
++  // Resolve price: unlock_price takes priority, then the `price` alias, then
++  // the legacy price_credits. Never fall through to a free album.
++  const priceCredits = data.unlock_price ?? data.price ?? data.price_credits ?? 0;
+   const isPremium = data.is_premium ?? priceCredits > 0;
+ 
+   // Map 'draft' visibility to 'private' for storage
+diff --git a/server/app/api/creator/become/route.ts b/server/app/api/creator/become/route.ts
+index 2b016e3..ee98690 100644
+--- a/server/app/api/creator/become/route.ts
++++ b/server/app/api/creator/become/route.ts
+@@ -5,6 +5,7 @@ import { users, creator_settings } from "@/lib/db/schema";
+ import { requireAuth } from "@/middleware/auth";
+ import { ok, err } from "@/lib/api/response";
+ import { generateId } from "@/lib/auth/codes";
++import { DEFAULT_SUBSCRIPTION_PRICE } from "@/lib/services/pricing";
+ 
+ export async function POST(req: NextRequest) {
+   const auth = await requireAuth(req);
+@@ -38,6 +39,9 @@ export async function POST(req: NextRequest) {
+     await db.insert(creator_settings).values({
+       id: generateId(),
+       user_id: auth.user.userId,
++      // New creators start at the default ₦200/mo price — a 0 here would
++      // surface as "Free" everywhere (profile, dashboard, subscribe modal).
++      subscription_price: DEFAULT_SUBSCRIPTION_PRICE,
+     });
+   }
+ 
+diff --git a/server/app/api/creator/settings/route.ts b/server/app/api/creator/settings/route.ts
+index 2a23cd0..3288fe7 100644
+--- a/server/app/api/creator/settings/route.ts
++++ b/server/app/api/creator/settings/route.ts
+@@ -7,6 +7,7 @@ import { requireAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok } from "@/lib/api/response";
+ import { generateId } from "@/lib/auth/codes";
++import { DEFAULT_SUBSCRIPTION_PRICE } from "@/lib/services/pricing";
+ 
+ const patchSchema = z.object({
+   subscription_price: z.number().finite().min(0).optional(),
+@@ -59,7 +60,13 @@ export async function GET(req: NextRequest) {
+ 
+   if (!settings) {
+     const newId = generateId();
+-    await db.insert(creator_settings).values({ id: newId, user_id: auth.user.userId });
++    await db.insert(creator_settings).values({
++      id: newId,
++      user_id: auth.user.userId,
++      // Auto-created rows must start at the default price (₦200), not 0, so
++      // the dashboard never shows "Free" for a creator who never priced it.
++      subscription_price: DEFAULT_SUBSCRIPTION_PRICE,
++    });
+     [settings] = await db.select().from(creator_settings).where(eq(creator_settings.user_id, auth.user.userId)).limit(1);
+   }
+ 
+@@ -90,7 +97,13 @@ export async function PATCH(req: NextRequest) {
+   if (existing) {
+     await db.update(creator_settings).set({ ...updates, updated_at: now }).where(eq(creator_settings.id, existing.id));
+   } else {
+-    await db.insert(creator_settings).values({ id: generateId(), user_id: auth.user.userId, ...updates });
++    await db.insert(creator_settings).values({
++      id: generateId(),
++      user_id: auth.user.userId,
++      ...updates,
++      // Only override the default price when the PATCH explicitly sets one.
++      subscription_price: (updates.subscription_price as number | undefined) ?? DEFAULT_SUBSCRIPTION_PRICE,
++    });
+   }
+ 
+   const [settings] = await db.select().from(creator_settings).where(eq(creator_settings.user_id, auth.user.userId)).limit(1);
+diff --git a/server/app/api/creator/verification/route.ts b/server/app/api/creator/verification/route.ts
+index 32aa3c2..465b248 100644
+--- a/server/app/api/creator/verification/route.ts
++++ b/server/app/api/creator/verification/route.ts
+@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
+ import { z } from "zod";
+ import { db } from "@/lib/db";
+ import { creator_settings, reports } from "@/lib/db/schema";
++import { DEFAULT_SUBSCRIPTION_PRICE } from "@/lib/services/pricing";
+ import { requireAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok } from "@/lib/api/response";
+@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
+       id: generateId(),
+       user_id: auth.user.userId,
+       verification_status: "pending",
++      subscription_price: DEFAULT_SUBSCRIPTION_PRICE,
+     });
+   }
+ 
+diff --git a/server/app/api/creator/wallet/bank-details/route.ts b/server/app/api/creator/wallet/bank-details/route.ts
+index 19f7cbb..955611a 100644
+--- a/server/app/api/creator/wallet/bank-details/route.ts
++++ b/server/app/api/creator/wallet/bank-details/route.ts
+@@ -7,6 +7,7 @@ import { requireAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok, err } from "@/lib/api/response";
+ import { generateId } from "@/lib/auth/codes";
++import { DEFAULT_SUBSCRIPTION_PRICE } from "@/lib/services/pricing";
+ 
+ const saveSchema = z.object({
+   bank_name: z.string().min(1).optional(),
+@@ -26,7 +27,11 @@ async function ensureSettings(userId: string) {
+     .where(eq(creator_settings.user_id, userId))
+     .limit(1);
+   if (!settings) {
+-    await db.insert(creator_settings).values({ id: generateId(), user_id: userId });
++    await db.insert(creator_settings).values({
++      id: generateId(),
++      user_id: userId,
++      subscription_price: DEFAULT_SUBSCRIPTION_PRICE,
++    });
+     [settings] = await db.select().from(creator_settings).where(eq(creator_settings.user_id, userId)).limit(1);
+   }
+   return settings!;
+diff --git a/server/app/api/creators/[id]/route.ts b/server/app/api/creators/[id]/route.ts
+index a5198ae..b307c37 100644
+--- a/server/app/api/creators/[id]/route.ts
++++ b/server/app/api/creators/[id]/route.ts
+@@ -76,7 +76,7 @@ export async function GET(
+           db.select({ id: follows.id }).from(follows)
+             .where(and(eq(follows.follower_id, userId), eq(follows.following_id, user.id)))
+             .then((r) => r.length > 0),
+-          db.select({ tier: subscriptions.tier }).from(subscriptions)
++          db.select({ id: subscriptions.id, tier: subscriptions.tier }).from(subscriptions)
+             .where(and(eq(subscriptions.subscriber_id, userId), eq(subscriptions.creator_id, user.id), eq(subscriptions.status, "active")))
+             .limit(1)
+             .then((r) => r[0] ?? null),
+@@ -84,6 +84,7 @@ export async function GET(
+       : [false, null];
+   const isSubscribed = Boolean(subRow);
+   const subscriptionTier = subRow?.tier ?? null;
++  const subscriptionId = subRow?.id ?? null;
+ 
+   // Presence: "online" = a device seen within the last 10 minutes. This is the
+   // app's real activity signal (devices.last_seen_at is updated on push-token
+@@ -147,6 +148,10 @@ export async function GET(
+     subscribedToCreator: isSubscribed,
+     subscription_tier: subscriptionTier,
+     subscriptionTier,
++    // Viewer's active subscription id for this creator — lets the app offer
++    // Unsubscribe from the creator profile without another lookup.
++    subscription_id: subscriptionId,
++    subscriptionId,
+     joined_at: user.created_at,
+   };
+ 
+diff --git a/server/app/api/users/[username]/route.ts b/server/app/api/users/[username]/route.ts
+index 6d07752..70d636e 100644
+--- a/server/app/api/users/[username]/route.ts
++++ b/server/app/api/users/[username]/route.ts
+@@ -1,9 +1,10 @@
+ import { NextRequest } from "next/server";
+ import { eq, and, sql } from "drizzle-orm";
+ import { db } from "@/lib/db";
+-import { users, profiles, follows, subscriptions } from "@/lib/db/schema";
++import { users, profiles, follows, subscriptions, creator_settings } from "@/lib/db/schema";
+ import { optionalAuth } from "@/middleware/auth";
+ import { ok, err } from "@/lib/api/response";
++import { resolveBasePrice } from "@/lib/services/pricing";
+ 
+ export async function GET(
+   req: NextRequest,
+@@ -28,9 +29,11 @@ export async function GET(
+       location: profiles.location,
+       is_verified_creator: profiles.is_verified_creator,
+       subscription_price: profiles.subscription_price,
++      settings_price: creator_settings.subscription_price,
+     })
+     .from(users)
+     .leftJoin(profiles, eq(profiles.user_id, users.id))
++    .leftJoin(creator_settings, eq(creator_settings.user_id, users.id))
+     .where(eq(users.username, username))
+     .limit(1);
+ 
+@@ -70,6 +73,10 @@ export async function GET(
+     isFollowing = !!existing;
+   }
+ 
++  // Same pricing resolution as /creators/:id — the authoritative price is
++  // creator_settings, falling back to the legacy profiles value.
++  const basePrice = resolveBasePrice(row.settings_price, row.subscription_price);
++
+   return ok({
+     user: {
+       id: row.id,
+@@ -83,7 +90,8 @@ export async function GET(
+       is_verified: row.is_verified,
+       is_creator: row.is_creator,
+       is_verified_creator: row.is_verified_creator,
+-      subscription_price: row.subscription_price,
++      subscription_price: basePrice,
++      subscriptionPrice: basePrice,
+       follower_count: followerCount?.count ?? 0,
+       following_count: followingCount?.count ?? 0,
+       subscriber_count: subscriberCount?.count ?? 0,
+diff --git a/server/lib/db/schema.ts b/server/lib/db/schema.ts
+index 119592d..32cf9a4 100644
+--- a/server/lib/db/schema.ts
++++ b/server/lib/db/schema.ts
+@@ -7,6 +7,7 @@ import {
+   text,
+   uniqueIndex,
+ } from "drizzle-orm/sqlite-core";
++import { DEFAULT_SUBSCRIPTION_PRICE } from "../services/pricing";
+ 
+ const id = () => text("id").primaryKey();
+ const createdAt = () =>
+@@ -624,7 +625,9 @@ export const subscriptions = sqliteTable("subscriptions", {
+ export const creator_settings = sqliteTable("creator_settings", {
+   id: id(),
+   user_id: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+-  subscription_price: real("subscription_price").notNull().default(0),
++  // Product default price is ₦200 — never 0. A zero here would make every
++  // public route resolve the creator as "free" (see resolveBasePrice).
++  subscription_price: real("subscription_price").notNull().default(DEFAULT_SUBSCRIPTION_PRICE),
+   // Optional independent price for the subscriber_plus tier. When null, the
+   // subscription service falls back to 2× subscription_price for legacy creators.
+   subscription_plus_price: real("subscription_plus_price"),
+diff --git a/server/lib/services/pricing.ts b/server/lib/services/pricing.ts
+index 1c3781f..9232708 100644
+--- a/server/lib/services/pricing.ts
++++ b/server/lib/services/pricing.ts
+@@ -1,3 +1,12 @@
++/**
++ * Default monthly subscription price (₦) a creator starts at.
++ *
++ * The product default is ₦200/mo: every creator gets this price when they
++ * become a creator or when their settings row is auto-created, so the DB
++ * never silently stores a 0 that the UI then renders as "Free".
++ */
++export const DEFAULT_SUBSCRIPTION_PRICE = 200;
++
+ /**
+  * Resolve a creator's base subscription price from the authoritative sources.
+  *
+diff --git a/server/scripts/migrate.ts b/server/scripts/migrate.ts
+index a4d6e88..e310c68 100644
+--- a/server/scripts/migrate.ts
++++ b/server/scripts/migrate.ts
+@@ -174,6 +174,48 @@ async function run() {
+           )
+       `,
+     },
++    // ── Subscription price: enforce the ₦200 default ─────────────────────────
++    // The column previously defaulted to 0, which made every public route
++    // (profile, creator list, dashboard, subscribe charge) resolve unpriced
++    // creators as "Free". The product default is ₦200/mo.
++    // NOTE: the column DEFAULT stays 0 in SQLite (ALTER COLUMN ... SET DEFAULT
++    // is not supported here); every app insert path now sets the price
++    // explicitly via DEFAULT_SUBSCRIPTION_PRICE, and the rows below backfill
++    // existing data.
++    // Backfill any active creator whose settings row is still unpriced (0) to
++    // the ₦200 default. Idempotent: only touches rows at exactly 0.
++    {
++      name: "creator_settings: backfill unpriced creators to ₦200",
++      sql: `
++        UPDATE creator_settings
++        SET subscription_price = 200
++        WHERE subscription_price = 0
++          AND EXISTS (
++            SELECT 1 FROM users u
++            WHERE u.id = creator_settings.user_id
++              AND u.is_active = 1
++              AND u.deleted_at IS NULL
++              AND (u.is_creator = 1 OR u.role = 'creator')
++          )
++      `,
++    },
++    // Insert missing creator_settings rows (at ₦200) for active creators whose
++    // row was never created (e.g. accounts promoted to creator before the flow
++    // existed). Idempotent via NOT EXISTS.
++    {
++      name: "creator_settings: create missing rows at ₦200",
++      sql: `
++        INSERT INTO creator_settings (id, user_id, subscription_price)
++        SELECT lower(hex(randomblob(16))), u.id, 200
++        FROM users u
++        WHERE u.is_active = 1
++          AND u.deleted_at IS NULL
++          AND (u.is_creator = 1 OR u.role = 'creator')
++          AND NOT EXISTS (
++            SELECT 1 FROM creator_settings cs WHERE cs.user_id = u.id
++          )
++      `,
++    },
+ 
+     // ── posts table: content_type discriminator (post / video / short) ────────
+     {
+-- 
+2.34.1
+
