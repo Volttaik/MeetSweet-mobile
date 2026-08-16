@@ -14,26 +14,37 @@ interface MsShimmerProps {
   height?: number;
   borderRadius?: number;
   style?: ViewStyle;
+  /** Softer, slower, dimmer sweep — for dense skeletons (chat) where the
+   *  default band can feel harsh and too bright. Does not affect default
+   *  callers, so it stays backward-compatible. */
+  subtle?: boolean;
 }
 
-export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style }: MsShimmerProps) {
+const GRADIENT_DEFAULT = ['transparent', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.13)', 'rgba(255,255,255,0.07)', 'transparent'];
+const GRADIENT_SUBTLE  = ['transparent', 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.03)', 'transparent'];
+
+export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style, subtle = false }: MsShimmerProps) {
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const loop = Animated.loop(
       Animated.timing(anim, {
         toValue: 1,
-        duration: 1100,
+        duration: subtle ? 1500 : 1100,
         useNativeDriver: true,
       }),
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [subtle]);
 
   const translateX = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH * 1.5],
+    // Subtle: a shorter, gentler sweep (no full-screen travel) so dense chat
+    // rows don't feel like they're sliding around.
+    outputRange: subtle
+      ? [-SCREEN_WIDTH * 0.6, SCREEN_WIDTH * 1.1]
+      : [-SCREEN_WIDTH, SCREEN_WIDTH * 1.5],
   });
 
   return (
@@ -50,7 +61,7 @@ export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style
         ]}
       >
         <LinearGradient
-          colors={['transparent', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.13)', 'rgba(255,255,255,0.07)', 'transparent']}
+          colors={(subtle ? GRADIENT_SUBTLE : GRADIENT_DEFAULT) as any}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={{ width: SCREEN_WIDTH, height: '100%' }}
@@ -177,13 +188,17 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 
 // ─── Chat message skeleton ─────────────────────────────────────────────────────
 // Mirrors the real chat layout: a date chip, then alternating incoming (avatar +
-// bubble) and outgoing (bubble, right-aligned) messages. Uses the SAME bubble
+// bubble) and outgoing (bubble, right-aligned) messages. Bubbles use the SAME
 // colours as MsTextBubble (#1C1C23 incoming, #28282F outgoing) and the real
-// 8px-radius tail-corner shape. Widths are deterministic (no Math.random) so the
-// skeleton never flickers between renders.
+// 8px-radius tail-corner shape, with muted "text line" bars inside so the
+// skeleton reads as a conversation already forming — not generic solid blocks.
+// Widths are deterministic (no Math.random) so the skeleton never flickers.
 
 const CHAT_BUBBLE_COLOR_OWN   = '#28282F'; // outgoing  (MsTextBubble BG_OWN)
 const CHAT_BUBBLE_COLOR_OTHER = '#1C1C23'; // incoming  (MsTextBubble BG_OTHER)
+// Muted text-line bars — a touch lighter than the bubble so the subtle sweep
+// reads as text filling in, without a harsh bright band.
+const CHAT_TEXT_LINE = 'rgba(255,255,255,0.10)';
 // Deterministic bubble widths, cycled per row.
 const CHAT_BUBBLE_WIDTHS = [176, 214, 132, 198, 240, 150, 186, 224, 140, 208];
 
@@ -197,20 +212,32 @@ export function MsShimmerChatMessage({
   lines?: 1 | 2;
 }) {
   const bubbleW = width ?? (own ? 180 : 220);
-  const bubbleH = lines === 2 ? 50 : 34;
   const bubbleColor = own ? CHAT_BUBBLE_COLOR_OWN : CHAT_BUBBLE_COLOR_OTHER;
   const tailRadius = own
     ? { borderBottomRightRadius: 3 }
     : { borderBottomLeftRadius: 3 };
+  // Bubble has 10px horizontal padding (like MsTextBubble); text lines fill a
+  // natural portion of the remaining width, the second line shorter.
+  const lineW = bubbleW - 20;
   return (
     <View style={[shimStyles.chatMsg, own ? shimStyles.chatMsgOwn : shimStyles.chatMsgOther]}>
-      {!own && <MsShimmer width={26} height={26} borderRadius={13} />}
-      <MsShimmer
-        width={bubbleW}
-        height={bubbleH}
-        borderRadius={8}
-        style={{ backgroundColor: bubbleColor, ...tailRadius }}
-      />
+      {!own && <MsShimmer width={28} height={28} borderRadius={14} subtle />}
+      <View style={[shimStyles.chatBubble, { width: bubbleW, backgroundColor: bubbleColor, ...tailRadius }]}>
+        <MsShimmer
+          width={Math.round(lineW * 0.86)}
+          height={8}
+          borderRadius={4}
+          subtle
+          style={{ backgroundColor: CHAT_TEXT_LINE }}
+        />
+        <MsShimmer
+          width={lines === 2 ? Math.round(lineW * 0.58) : Math.round(lineW * 0.86)}
+          height={8}
+          borderRadius={4}
+          subtle
+          style={{ backgroundColor: CHAT_TEXT_LINE, marginTop: 5 }}
+        />
+      </View>
     </View>
   );
 }
@@ -231,7 +258,7 @@ export function MsShimmerChatList({ count = 8 }: { count?: number }) {
     <View style={shimStyles.chatList}>
       {/* Date separator chip */}
       <View style={shimStyles.chatDateChip}>
-        <MsShimmer width={104} height={16} borderRadius={8} />
+        <MsShimmer width={104} height={16} borderRadius={8} subtle />
       </View>
       {Array.from({ length: count }).map((_, i) => {
         const r = rhythm[i % rhythm.length];
@@ -493,15 +520,24 @@ const shimStyles = StyleSheet.create({
   chatMsgOther: {
     justifyContent: 'flex-start',
   },
+  // Static bubble shell — real MsTextBubble padding so the skeleton rows land
+  // at the same height/position as real messages (no layout jump on load).
+  chatBubble: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingTop: 7,
+    paddingBottom: 8,
+    overflow: 'hidden',
+  },
   chatList: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 12,
+    paddingVertical: 8,
+    gap: 6,
   },
   chatDateChip: {
     alignItems: 'center',
-    paddingTop: 6,
-    paddingBottom: 2,
+    paddingTop: 4,
+    paddingBottom: 6,
   },
   searchRow: {
     flexDirection: 'row',

@@ -61,7 +61,7 @@ export function normalizeNotification(raw: any): Notification {
   const actorId = actorRaw?.id || actorRaw?.user_id || raw.actor_id || raw.actorId || raw.sender_id || data.actor_id || data.actorId;
   const actorName = actorRaw?.name || actorRaw?.full_name || actorRaw?.display_name || actorRaw?.username || raw.actor_name || data.actor_name || 'MeetSweet User';
   const actorUsername = actorRaw?.username || raw.actor_username || data.actor_username || 'user';
-  const actorAvatar = actorRaw?.avatarUrl || actorRaw?.avatar_url || actorRaw?.profile_picture_url || raw.avatar_url || data.avatar_url || null;
+  const actorAvatar = actorRaw?.avatarUrl || actorRaw?.avatar_url || actorRaw?.profile_picture_url || raw.avatar_url || data.avatar_url || data.actor_avatar || null;
 
   const actor: NotificationActor | undefined = actorId
     ? {

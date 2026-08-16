@@ -28,6 +28,12 @@ export interface Creator {
   avatarUrl?: string | null;
   /** Banner / cover image URL — first post thumbnail for this creator */
   bannerUrl?: string | null;
+  /** Whether the current viewer actively subscribes to this creator. */
+  subscribedToCreator?: boolean;
+  /** The viewer's active subscription tier (null when not subscribed). */
+  subscriptionTier?: 'subscriber' | 'subscriber_plus' | null;
+  /** Base subscription price in Naira (₦) per month. */
+  subscriptionPrice?: number;
 }
 
 export interface ContentPreview {

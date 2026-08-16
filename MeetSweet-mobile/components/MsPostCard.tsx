@@ -14,7 +14,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play, Images } from 'phosphor-react-native';
+import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play, Images, LockSimple } from 'phosphor-react-native';
 import { MsTierBadge } from '@/components/MsTierBadge';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
@@ -225,6 +225,14 @@ interface MsPostCardProps {
    * Omit to derive from post.tier.
    */
   tier?: ContentTier;
+  /**
+   * Force the card into a locked state (subscriber-gated content). When true,
+   * media is replaced by a lock overlay + subscribe CTA. Defaults to deriving
+   * from post.isLocked / post.is_locked.
+   */
+  locked?: boolean;
+  /** Called when the user taps the locked content's subscribe CTA. */
+  onSubscribe?: () => void;
 }
 
 export function MsPostCard({
@@ -240,6 +248,8 @@ export function MsPostCard({
   doubleTapToOpen = false,
   videoPreviewActive = true,
   tier,
+  locked,
+  onSubscribe,
 }: MsPostCardProps) {
   const [liked, setLiked] = useState(post.likedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
@@ -255,6 +265,7 @@ export function MsPostCard({
   const userId = user?.id ?? '';
 
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
+  const isLocked = Boolean(locked ?? post.isLocked ?? post.is_locked);
 
   const handleLike = async () => {
     if (liking) return;
@@ -555,11 +566,36 @@ export function MsPostCard({
         </TouchableOpacity>
       )}
 
+      {/* Locked media — subscriber-gated content shows a lock state with a
+          subscribe CTA instead of the media itself. */}
+      {isLocked && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onSubscribe ?? onMediaPress ?? onPress}
+          onLongPress={openSheet}
+          delayLongPress={400}
+          accessibilityLabel={post.tier === 'subscriber_plus' ? 'Subscriber+ locked content' : 'Subscriber locked content'}
+        >
+          <View style={styles.lockedMedia}>
+            <View style={styles.lockedIcon}>
+              <LockSimple size={20} color={T.TEXT_2} weight="bold" />
+            </View>
+            <Text style={styles.lockedTitle}>
+              {post.tier === 'subscriber_plus' ? 'Subscriber+ only' : 'Subscribers only'}
+            </Text>
+            <Text style={styles.lockedSub}>Subscribe to unlock this content</Text>
+            <View style={styles.lockedCta}>
+              <Text style={styles.lockedCtaLabel}>Subscribe</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* Media — image
           feedMode: single tap = nothing, double-tap = open Full View.
           Other screens: single tap = open Full View, double-tap = like.
       */}
-      {post.mediaUrl && post.mediaType === 'image' && post.contentType !== 'album' && (
+      {!isLocked && post.mediaUrl && post.mediaType === 'image' && post.contentType !== 'album' && (
         <ScalePressable
           onPress={doubleTapToOpen ? undefined : (onMediaPress ?? onPress)}
           onLongPress={openSheet}
@@ -587,9 +623,9 @@ export function MsPostCard({
           Note: we render the card even when mediaUrl is null (Explore preview objects
           may only carry thumbnailUrl), because the card taps navigate to /videos/:id.
       */}
-      {post.mediaType === 'video' && (
+      {!isLocked && post.mediaType === 'video' && (
         <TouchableOpacity
-          activeOpacity={1}
+          activeOpacity={0.9}
           onPress={onMediaPress ?? onPress}
           onLongPress={openSheet}
           delayLongPress={400}
@@ -733,6 +769,38 @@ const styles = StyleSheet.create({
   },
 
   media: { width: '100%', aspectRatio: 1, backgroundColor: T.SURFACE },
+
+  lockedMedia: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#1A1A1F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: T.RADIUS.xl,
+    overflow: 'hidden',
+  },
+  lockedIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  lockedTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14 },
+  lockedSub: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
+  lockedCta: {
+    marginTop: 8,
+    paddingHorizontal: 20,
+    height: 34,
+    borderRadius: T.RADIUS.pill,
+    backgroundColor: T.TEXT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedCtaLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 12 },
 
   videoPlaceholder: {
     width: '100%',

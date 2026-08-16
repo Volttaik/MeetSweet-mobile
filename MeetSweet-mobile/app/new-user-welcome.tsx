@@ -52,10 +52,10 @@ export default function NewUserWelcomeScreen() {
         name: c.name || c.username || 'Creator',
         handle: c.username ? `@${c.username}` : '@creator',
         bio: c.bio || undefined,
-        category: c.role === 'creator' ? 'CREATOR' : undefined,
+        category: c.category ?? undefined,
         subscriberCount: c.subscriberCount ? `${c.subscriberCount}` : undefined,
-        subscriptionPrice: 200, // Standard subscriber tier price
-        isOnline: false,
+        subscriptionPrice: c.subscriptionPrice,
+        isOnline: c.isOnline,
         isVerified: c.isVerified,
         avatarUrl: c.avatarUrl,
       }));
@@ -80,7 +80,7 @@ export default function NewUserWelcomeScreen() {
 
   // 2. Handle Subscribe action using real wallet & subscription system
   const handleSubscribe = async (creator: MsCreatorCardData) => {
-    const price = creator.subscriptionPrice ?? 200;
+    const price = creator.subscriptionPrice ?? 0;
     
     // Check wallet balance
     if (balance < price) {

@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import {
   ChatCircle,
-  CheckCircle,
+  SealCheck,
   Heart,
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -131,7 +131,7 @@ export function ExploreImageCard({
                 {card.creatorName}
               </Text>
               {card.creatorIsVerified && (
-                <CheckCircle size={13} color="rgba(255,255,255,0.85)" weight="fill" />
+                <SealCheck size={13} color={T.TEXT} weight="fill" />
               )}
             </View>
           </TouchableOpacity>

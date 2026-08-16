@@ -237,14 +237,14 @@ export async function checkCommentRoomChanges(
 
 /**
  * Set whether comments are enabled for a post (post owner only).
- * PUT /api/posts/:postId/comments-enabled  { enabled }
+ * PUT /api/posts/:postId  { enabled }
  * The Comment Room is NOT deleted when disabled — it stays associated so it
  * can be re-enabled later. Backend MUST enforce the flag on submission.
  */
 export async function setCommentsEnabled(postId: string, enabled: boolean): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/posts/${encodeURIComponent(postId)}/comments-enabled`, {
+  await apiFetch(`/posts/${encodeURIComponent(postId)}`, {
     method: 'PUT',
     headers: authHeader(token),
     body: JSON.stringify({ enabled }),

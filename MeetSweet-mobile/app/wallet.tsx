@@ -67,6 +67,21 @@ function formatTime(iso: string): string {
   });
 }
 
+// Transaction types that represent money IN (credits) vs money OUT (debits).
+// Creator earning types (subscription_earn / album_unlock_earn) are credits too,
+// otherwise a creator's wallet would show their earnings as a debit.
+const INCOMING_TYPES = new Set(['credit', 'subscription_earn', 'album_unlock_earn']);
+function isIncoming(type: string): boolean {
+  return INCOMING_TYPES.has(type);
+}
+
+function statusLabel(status: string): string {
+  if (status === 'success' || status === 'completed') return 'Completed';
+  if (status === 'failed' || status === 'reversed') return 'Failed';
+  if (status === 'processing') return 'Processing';
+  return 'Pending';
+}
+
 // ─── Quick-amount chip ────────────────────────────────────────────────────────
 
 function AmountChip({
@@ -388,20 +403,28 @@ export default function WalletScreen() {
   const [balance, setBalance]             = useState<number | null>(null);
   const [transactions, setTransactions]   = useState<Transaction[]>([]);
   const [loadingWallet, setLoadingWallet] = useState(true);
+  const [walletError, setWalletError]     = useState(false);
   const [initiating, setInitiating]       = useState(false);
   const [depositResult, setDepositResult] = useState<DepositInitResult | null>(null);
   const [verifyState, setVerifyState]     = useState<VerifyState>('idle');
   const [addedAmount, setAddedAmount]     = useState(0);
   const [newBalance, setNewBalance]       = useState(0);
 
-  useEffect(() => {
+  const loadWallet = () => {
+    setLoadingWallet(true);
+    setWalletError(false);
     getWallet()
       .then(({ balance: b, transactions: t }) => {
         setBalance(b);
         setTransactions(t);
       })
-      .catch(() => {})
+      .catch(() => setWalletError(true))
       .finally(() => setLoadingWallet(false));
+  };
+
+  useEffect(() => {
+    loadWallet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const effectiveAmount = isCustom
@@ -514,6 +537,8 @@ export default function WalletScreen() {
             <Text style={styles.balanceLabel}>WALLET BALANCE</Text>
             {loadingWallet ? (
               <MsShimmer width="55%" height={42} borderRadius={8} style={{ marginTop: 4 }} />
+            ) : walletError ? (
+              <Text style={styles.balance}>—</Text>
             ) : (
               <Text style={styles.balance}>{formatNaira(balance ?? 0)}</Text>
             )}
@@ -524,7 +549,16 @@ export default function WalletScreen() {
           {!loadingWallet && (
             <>
               <Text style={styles.sectionTitle}>Transaction History</Text>
-              {transactions.length === 0 ? (
+              {walletError ? (
+                <View style={styles.transactions}>
+                  <MsEmptyState
+                    title="Couldn't load wallet"
+                    message="Check your connection and try again."
+                    actionLabel="Retry"
+                    onAction={loadWallet}
+                  />
+                </View>
+              ) : transactions.length === 0 ? (
                 <View style={styles.transactions}>
                   <MsEmptyState
                     title="No transactions yet"
@@ -544,15 +578,15 @@ export default function WalletScreen() {
                       <View style={styles.txRight}>
                         <Text style={[
                           styles.txAmount,
-                          tx.type === 'credit' ? styles.txCredit : styles.txDebit,
+                          isIncoming(tx.type) ? styles.txCredit : styles.txDebit,
                         ]}>
-                          {tx.type === 'credit' ? '+' : '-'}{formatNaira(tx.amount)}
+                          {isIncoming(tx.type) ? '+' : '-'}{formatNaira(tx.amount)}
                         </Text>
                         <Text style={[
                           styles.txStatus,
-                          tx.status === 'success' ? styles.txStatusSuccess : tx.status === 'failed' ? styles.txStatusFailed : styles.txStatusPending,
+                          tx.status === 'success' || tx.status === 'completed' ? styles.txStatusSuccess : tx.status === 'failed' || tx.status === 'reversed' ? styles.txStatusFailed : styles.txStatusPending,
                         ]}>
-                          {tx.status === 'success' ? 'Completed' : tx.status === 'failed' ? 'Failed' : 'Pending'}
+                          {statusLabel(tx.status)}
                         </Text>
                       </View>
                     </View>

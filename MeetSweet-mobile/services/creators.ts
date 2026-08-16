@@ -2,7 +2,8 @@
  * Creators Service — Public profile data and creator lists.
  */
 import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from './api';
+import { apiFetch, authFetch } from './api';
+import { getAccessToken } from '@/lib/session-storage';
 import { normalizeUser, User } from './users';
 import { normalizeAlbum, AlbumCardData } from './albums';
 import { Post, normalizePost } from './posts';
@@ -35,6 +36,20 @@ export interface CreatorProfileFull {
   whoCanMessage: 'everyone' | 'subscribers' | 'none';
   subscriptionPrice: number;
   subscriptionPlusPrice: number;
+  category: string | null;
+  isOnline: boolean;
+}
+
+/**
+ * Authenticated-aware fetch for creator endpoints. The server keys
+ * `subscribed_to_creator` / `subscription_tier` / `is_locked` off the
+ * Authorization header, so an unauthenticated profile/content request would
+ * always report "not subscribed" and lock every subscriber-gated item even for
+ * a logged-in subscriber. Include the token whenever a session exists.
+ */
+async function creatorFetch<T>(path: string): Promise<T> {
+  const token = await getAccessToken();
+  return token ? authFetch<T>(path, token) : apiFetch<T>(path);
 }
 
 export async function getCreatorProfile(username: string): Promise<{
@@ -42,7 +57,7 @@ export async function getCreatorProfile(username: string): Promise<{
   posts: Post[];
   albums: AlbumCardData[];
 }> {
-  const resp = await apiFetch<any>(`/creators/${encodeURIComponent(username)}`).catch(() => ({}));
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(username)}`).catch(() => ({}));
   const creator = normalizeUser(resp.creator || resp.user || { username });
   const posts = resp.posts || [];
   const rawAlbums = resp.albums || [];
@@ -57,8 +72,14 @@ export async function getCreators(): Promise<User[]> {
 }
 
 export async function getCreatorById(usernameOrId: string): Promise<CreatorProfileFull> {
-  const resp = await apiFetch<any>(`/creators/${encodeURIComponent(usernameOrId)}`).catch(() => ({}));
-  const rawUser = resp.creator || resp.user || resp;
+  // Do NOT swallow failures with `{}` — a failed/404 lookup would otherwise
+  // produce a fake "Creator" profile (name placeholder, 0 price, 0 subscribers)
+  // and mask the real error. Throw so the screen can show a proper error state.
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(usernameOrId)}`);
+  const rawUser = resp?.creator || resp?.user || resp;
+  if (!rawUser || typeof rawUser !== 'object' || (!rawUser.id && !rawUser.username)) {
+    throw new Error('Creator not found');
+  }
   const user = normalizeUser(rawUser);
   return {
     userId: rawUser.id || user.id || usernameOrId,
@@ -86,29 +107,31 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
     whoCanMessage: (rawUser.who_can_message as 'everyone' | 'subscribers' | 'none') ?? 'everyone',
     subscriptionPrice: Number(rawUser.subscription_price ?? rawUser.subscriptionPrice ?? 0),
     subscriptionPlusPrice: Number(rawUser.subscription_plus_price ?? rawUser.subscriptionPlusPrice ?? 0),
+    category: rawUser.category ? String(rawUser.category) : null,
+    isOnline: Boolean(rawUser.is_online ?? rawUser.isOnline ?? false),
   };
 }
 
 export async function getCreatorContentPosts(creatorId: string): Promise<{ posts: Post[] }> {
-  const resp = await apiFetch<any>(`/creators/${encodeURIComponent(creatorId)}/posts`).catch(() => []);
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/posts`).catch(() => []);
   const list = Array.isArray(resp) ? resp : resp.posts || [];
   return { posts: list.map(normalizePost) };
 }
 
 export async function getCreatorContentVideos(creatorId: string): Promise<Post[]> {
-  const resp = await apiFetch<any>(`/creators/${encodeURIComponent(creatorId)}/videos`).catch(() => []);
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/videos`).catch(() => []);
   const list = Array.isArray(resp) ? resp : resp.videos || [];
   return list.map(normalizePost);
 }
 
 export async function getCreatorContentShorts(creatorId: string): Promise<Post[]> {
-  const resp = await apiFetch<any>(`/creators/${encodeURIComponent(creatorId)}/shorts`).catch(() => []);
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/shorts`).catch(() => []);
   const list = Array.isArray(resp) ? resp : resp.shorts || [];
   return list.map(normalizePost);
 }
 
 export async function getCreatorContentAlbums(creatorId: string): Promise<AlbumCardData[]> {
-  const resp = await apiFetch<any>(`/albums?creator_id=${encodeURIComponent(creatorId)}`).catch(() => []);
+  const resp = await creatorFetch<any>(`/albums?creator_id=${encodeURIComponent(creatorId)}`).catch(() => []);
   const list = Array.isArray(resp) ? resp : resp.albums || [];
   return list.map(normalizeAlbum);
 }

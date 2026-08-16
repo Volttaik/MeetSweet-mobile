@@ -182,6 +182,8 @@ export function MsVideoPlayer({
   const positionRef     = useRef(0);
   const durationRef     = useRef(0);
   const seekWidthRef    = useRef(0);
+  const seekTrackXRef   = useRef(0);
+  const scrubbingRef    = useRef(false);
   const lastTapRef      = useRef({ time: 0, x: 0 });
   const tapTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,6 +196,8 @@ export function MsVideoPlayer({
   const fsPositionRef   = useRef(0);
   const fsDurationRef   = useRef(0);
   const fsWidthRef      = useRef(0);
+  const fsTrackXRef     = useRef(0);
+  const fsScrubbingRef  = useRef(false);
   const fsTapTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsHideTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsPlayingRef    = useRef(false);
@@ -673,10 +677,15 @@ export function MsVideoPlayer({
       // Track position / duration
       const dur = status.durationMillis ?? 0;
       const pos = status.positionMillis ?? 0;
-      positionRef.current = pos;
       durationRef.current = dur;
-      if (dur > 0) { setProgress(pos / dur); setDurationMs(dur); }
-      setPositionMs(pos);
+      if (dur > 0) setDurationMs(dur);
+      // While the user drags the seek bar, don't let the player's own position
+      // fight the scrub — otherwise the thumb snaps back mid-drag.
+      if (!scrubbingRef.current) {
+        positionRef.current = pos;
+        if (dur > 0) setProgress(pos / dur);
+        setPositionMs(pos);
+      }
 
       // Premium gate
       if (isPremium && !premiumFiredRef.current && pos >= 3000) {
@@ -730,10 +739,13 @@ export function MsVideoPlayer({
 
     const dur = status.durationMillis ?? 0;
     const pos = status.positionMillis ?? 0;
-    fsPositionRef.current = pos;
     fsDurationRef.current = dur;
-    if (dur > 0) { setFsProgress(pos / dur); setFsDurationMs(dur); }
-    setFsPositionMs(pos);
+    if (dur > 0) setFsDurationMs(dur);
+    if (!fsScrubbingRef.current) {
+      fsPositionRef.current = pos;
+      if (dur > 0) setFsProgress(pos / dur);
+      setFsPositionMs(pos);
+    }
   }, []);
 
   // ── Aspect ratio from video ────────────────────────────────────────────────
@@ -747,62 +759,110 @@ export function MsVideoPlayer({
   );
 
   // ── Seek bar PanResponder (inline, standard only) ─────────────────────────
+  // Maps the touch's absolute X (gestureState.moveX) against the measured track
+  // origin so taps and drags correspond 1:1 to the track — independent of where
+  // inside the bar the gesture began. The seek is applied on release; while
+  // dragging, the player's own position updates are suppressed (scrubbingRef)
+  // so the thumb stays glued to the finger instead of snapping back.
   const seekPanResponder = useMemo(
-    () =>
-      PanResponder.create({
+    () => {
+      const ratioFor = (absX: number) => {
+        const w = seekWidthRef.current;
+        if (w <= 0) return 0;
+        return Math.max(0, Math.min(1, (absX - seekTrackXRef.current) / w));
+      };
+      return PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder:  () => true,
-        onPanResponderGrant: (e) => {
+        onPanResponderGrant: (_e, g) => {
           showControls();
-          const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / seekWidthRef.current));
+          scrubbingRef.current = true;
+          const r = ratioFor(g.moveX);
           const t = r * durationRef.current;
-          videoRef.current?.setPositionAsync(t).catch(() => {});
           positionRef.current = t;
           setProgress(r); setPositionMs(t);
         },
-        onPanResponderMove: (e) => {
-          showControls();
-          const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / seekWidthRef.current));
-          setProgress(r);
-        },
-        onPanResponderRelease: (e) => {
-          const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / seekWidthRef.current));
+        onPanResponderMove: (_e, g) => {
+          const r = ratioFor(g.moveX);
           const t = r * durationRef.current;
-          videoRef.current?.setPositionAsync(t).catch(() => {});
           positionRef.current = t;
           setProgress(r); setPositionMs(t);
         },
-      }),
+        onPanResponderRelease: async (_e, g) => {
+          const r = ratioFor(g.moveX);
+          // Guard against a not-yet-known duration (0), which would otherwise
+          // seek to the start and make the thumb snap back to zero.
+          const t = durationRef.current > 0
+            ? r * durationRef.current
+            : positionRef.current;
+          positionRef.current = t;
+          setProgress(r); setPositionMs(t);
+          // Keep scrubbing=true while the async seek is in flight so the
+          // player's own onPlaybackStatusUpdate ticks (which still carry the
+          // OLD position until the seek lands) can't overwrite the thumb.
+          try {
+            await videoRef.current?.setPositionAsync(t);
+          } catch {
+            // seek failed — fall through and resume normal position tracking
+          } finally {
+            scrubbingRef.current = false;
+            showControls();
+          }
+        },
+        onPanResponderTerminate: () => {
+          scrubbingRef.current = false;
+        },
+      });
+    },
     [showControls],
   );
 
-  // Fullscreen seek bar PanResponder
+  // Fullscreen seek bar PanResponder (same accurate absolute-X mapping)
   const fsSeekPanResponder = useMemo(
-    () =>
-      PanResponder.create({
+    () => {
+      const ratioFor = (absX: number) => {
+        const w = fsWidthRef.current;
+        if (w <= 0) return 0;
+        return Math.max(0, Math.min(1, (absX - fsTrackXRef.current) / w));
+      };
+      return PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder:  () => true,
-        onPanResponderGrant: (e) => {
+        onPanResponderGrant: (_e, g) => {
           showFsControls();
-          const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / fsWidthRef.current));
+          fsScrubbingRef.current = true;
+          const r = ratioFor(g.moveX);
           const t = r * fsDurationRef.current;
-          fsVideoRef.current?.setPositionAsync(t).catch(() => {});
           fsPositionRef.current = t;
           setFsProgress(r); setFsPositionMs(t);
         },
-        onPanResponderMove: (e) => {
-          showFsControls();
-          const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / fsWidthRef.current));
-          setFsProgress(r);
-        },
-        onPanResponderRelease: (e) => {
-          const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / fsWidthRef.current));
+        onPanResponderMove: (_e, g) => {
+          const r = ratioFor(g.moveX);
           const t = r * fsDurationRef.current;
-          fsVideoRef.current?.setPositionAsync(t).catch(() => {});
           fsPositionRef.current = t;
           setFsProgress(r); setFsPositionMs(t);
         },
-      }),
+        onPanResponderRelease: async (_e, g) => {
+          const r = ratioFor(g.moveX);
+          const t = fsDurationRef.current > 0
+            ? r * fsDurationRef.current
+            : fsPositionRef.current;
+          fsPositionRef.current = t;
+          setFsProgress(r); setFsPositionMs(t);
+          try {
+            await fsVideoRef.current?.setPositionAsync(t);
+          } catch {
+            // seek failed — fall through and resume normal position tracking
+          } finally {
+            fsScrubbingRef.current = false;
+            showFsControls();
+          }
+        },
+        onPanResponderTerminate: () => {
+          fsScrubbingRef.current = false;
+        },
+      });
+    },
     [showFsControls],
   );
 
@@ -1001,7 +1061,7 @@ export function MsVideoPlayer({
               positionMs={positionMs}
               durationMs={durationMs}
               panResponder={seekPanResponder}
-              onWidthMeasured={(w) => { seekWidthRef.current = w; }}
+              onTrackMeasured={(w, x) => { seekWidthRef.current = w; seekTrackXRef.current = x; }}
               onFullscreen={openFullscreen}
               showFullscreen={!fillContainer}
               hasBackground={fillContainer}
@@ -1073,7 +1133,7 @@ export function MsVideoPlayer({
           onTogglePlay={toggleFsPlayback}
           ctrlStyle={fsCtrlStyle}
           seekPanResponder={fsSeekPanResponder}
-          onSeekBarWidth={(w) => { fsWidthRef.current = w; }}
+          onSeekBarWidth={(w, x) => { fsWidthRef.current = w; fsTrackXRef.current = x; }}
           onOrientPickerChange={(open) => {
             // Suspend the auto-hide timer while orientation picker is open
             // so controls don't disappear beneath the modal menu.
@@ -1101,7 +1161,7 @@ interface SeekBarProps {
   positionMs: number;
   durationMs: number;
   panResponder: ReturnType<typeof PanResponder.create>;
-  onWidthMeasured: (w: number) => void;
+  onTrackMeasured: (width: number, pageX: number) => void;
   onFullscreen?: () => void;
   showFullscreen?: boolean;
   onExitFullscreen?: () => void;
@@ -1113,19 +1173,23 @@ function SeekBar({
   positionMs,
   durationMs,
   panResponder,
-  onWidthMeasured,
+  onTrackMeasured,
   onFullscreen,
   showFullscreen = false,
   onExitFullscreen,
   hasBackground = true,
 }: SeekBarProps) {
+  const trackRef = useRef<View>(null);
   const pct = `${Math.min(100, Math.max(0, progress * 100))}%` as any;
   return (
     <View style={[sb.bar, !hasBackground && sb.barNoBackground]}>
       <Text style={sb.time}>{fmtTime(positionMs)}</Text>
       <View
+        ref={trackRef}
         style={sb.track}
-        onLayout={(e) => onWidthMeasured(e.nativeEvent.layout.width)}
+        onLayout={() => {
+          trackRef.current?.measureInWindow((x, _y, w) => onTrackMeasured(w, x));
+        }}
         {...panResponder.panHandlers}
       >
         <View style={[sb.fill, { width: pct }]} />
@@ -1220,7 +1284,7 @@ interface FullscreenModalProps {
   onTogglePlay: () => void;
   ctrlStyle: object;
   seekPanResponder: ReturnType<typeof PanResponder.create>;
-  onSeekBarWidth: (w: number) => void;
+  onSeekBarWidth: (width: number, pageX: number) => void;
   /** Called when orientation picker opens (true) or closes (false). */
   onOrientPickerChange: (open: boolean) => void;
 }
@@ -1441,7 +1505,7 @@ function FullscreenModal({
               positionMs={positionMs}
               durationMs={durationMs}
               panResponder={seekPanResponder}
-              onWidthMeasured={onSeekBarWidth}
+              onTrackMeasured={onSeekBarWidth}
               onExitFullscreen={onClose}
             />
           </View>

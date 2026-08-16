@@ -249,26 +249,28 @@ export async function getVideoRecommendations(videoId?: string): Promise<LongFor
  * Backend: GET /api/posts — same endpoint as videos (no server-side distinction).
  */
 export async function getShortsFeed(cursor?: string | null): Promise<ContentPage<Short>> {
-  // Send content_type=short to the backend so it can filter server-side; the client
-  // filter below still guards against any non-short items slipping through.
-  const base = cursor
-    ? `?content_type=short&cursor=${encodeURIComponent(cursor)}&limit=20`
-    : '?content_type=short&limit=20';
-  const raw = await apiFetch<{ posts: unknown[]; next_cursor?: string | null }>(
-    `/posts${base}`,
-    { headers: await authHeaders() },
-  );
-  const posts = Array.isArray(raw?.posts) ? raw.posts : [];
-  // Only include posts where the backend explicitly tagged content_type === 'short'.
-  // isVideoPost() alone would pull in long-form video posts as well.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const shortPosts = posts.filter((p: any) => p.content_type === 'short' && isVideoPost(p));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const nextCursor = raw?.next_cursor ?? (posts.length >= 20 ? (posts[posts.length - 1] as any)?.created_at ?? null : null);
+  // The dedicated /shorts/feed endpoint returns ONLY published, public,
+  // content_type='short' posts with their primary video media already
+  // resolved server-side. Querying it directly (instead of filtering the
+  // generic /posts endpoint with a content_type + media-type heuristic)
+  // guarantees no short is dropped by a client-side mismatch.
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=20` : '?limit=20';
+  const raw = await apiFetch<{
+    shorts?: unknown[];
+    items?: unknown[];
+    next_cursor?: string | null;
+    nextCursor?: string | null;
+  }>(`/shorts/feed${qs}`, { headers: await authHeaders() });
+  const list = Array.isArray(raw?.shorts)
+    ? raw.shorts
+    : Array.isArray(raw?.items)
+      ? raw.items
+      : [];
+  const nextCursor = raw?.next_cursor ?? raw?.nextCursor ?? null;
   return {
-    items: shortPosts.map(shortFrom),
+    items: list.map(shortFrom),
     nextCursor,
-    hasMore: Boolean(nextCursor) || posts.length >= 20,
+    hasMore: Boolean(nextCursor) || list.length >= 20,
   };
 }
 
@@ -323,54 +325,6 @@ export async function trackShortView(id: string, _watchDurationSecs: number): Pr
   } catch {
     // View tracking is best-effort; never throw
   }
-}
-
-// ─── Comments (routed through posts API) ─────────────────────────────────────
-
-export async function getContentComments(_kind: ContentKind, id: string): Promise<ContentComment[]> {
-  const raw = await apiFetch<{ comments?: unknown[] }>(
-    `/posts/${encodeURIComponent(id)}/comments`,
-    { headers: await authHeaders() },
-  );
-  const list = Array.isArray(raw?.comments) ? raw.comments : [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return list.map((item: any, index: number) => ({
-    id: item.id ?? `comment-${index}`,
-    body: item.body ?? '',
-    createdAt: item.created_at ?? '',
-    likeCount: numberFrom(item.like_count),
-    author: {
-      id: item.author_id ?? item.author?.id ?? '',
-      name: item.author_display_name ?? item.author?.name ?? item.author_username ?? '',
-      username: item.author_username ?? item.author?.username ?? '',
-      avatarUrl: item.author_avatar ?? item.author?.avatar_url ?? null,
-      isVerified: false,
-    },
-  }));
-}
-
-export async function addContentComment(
-  _kind: ContentKind,
-  id: string,
-  body: string,
-): Promise<ContentComment> {
-  const headers = await authHeaders();
-  const raw = await apiFetch<{ comment?: { id: string }; id?: string }>(
-    `/posts/${encodeURIComponent(id)}/comments`,
-    {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ body }),
-    },
-  );
-  const commentId = raw?.comment?.id ?? raw?.id ?? '';
-  return {
-    id: commentId,
-    body,
-    createdAt: new Date().toISOString(),
-    likeCount: 0,
-    author: { id: '', name: '', username: '', avatarUrl: null, isVerified: false },
-  };
 }
 
 // ─── React Query hooks ────────────────────────────────────────────────────────

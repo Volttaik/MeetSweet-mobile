@@ -1,47 +1,120 @@
 /**
- * useNetwork — lightweight network connectivity hook.
+ * useNetwork — connectivity state hook.
  *
- * Works without @react-native-community/netinfo by using periodic
- * lightweight fetch probes and tracking API error patterns.
+ * Tracks a single shared source of truth across the app with four states:
+ *   online       — reachable, normal latency
+ *   slow         — reachable but degraded (high probe latency)
+ *   reconnecting — healthy probe received after a sustained outage
+ *   offline      — genuinely disconnected for ~1 minute (not a momentary blip)
+ *
+ * Behaviour rules (grounded in real probe results, not arbitrary timers):
+ *   • A single failed probe/request is tolerated — it does NOT flip to offline.
+ *   • "offline" only appears after ~60s of continuous failure.
+ *   • High-latency-but-successful probes report "slow".
+ *   • Returning from offline passes through a brief "reconnecting" state.
  *
  * Usage:
- *   const { isOnline } = useNetwork();
- *   reportNetworkError();   // call from API error handlers
- *   reportNetworkSuccess(); // call after a successful API call
+ *   const { isOnline, isSlow, isOffline, isReconnecting, status } = useNetwork();
+ *   reportNetworkError();    // call from API error handlers (network-level)
+ *   reportNetworkSuccess();  // call after a successful API call
+ *
+ * Works without @react-native-community/netinfo using lightweight probes.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
-// ─── Singleton state so all hooks share one source of truth ──────────────────
+export type NetworkStatus = 'online' | 'slow' | 'reconnecting' | 'offline';
 
-type Listener = (online: boolean) => void;
-let _isOnline = true;
+export interface NetworkState {
+  /** Reachable (online, slow, or reconnecting). False only when offline. */
+  isOnline: boolean;
+  isSlow: boolean;
+  isOffline: boolean;
+  isReconnecting: boolean;
+  status: NetworkStatus;
+}
+
+type Listener = (s: NetworkState) => void;
+
+// ─── Thresholds ──────────────────────────────────────────────────────────────
+
+/** Probe latency at/above this is treated as "slow internet". */
+const SLOW_LATENCY_MS = 2500;
+/** Sustained failure window before the app reports "offline" (~1 minute). */
+const OFFLINE_GRACE_MS = 60_000;
+
+const PROBE_INTERVALS: Record<NetworkStatus, number> = {
+  online: 30_000,
+  slow: 15_000,
+  reconnecting: 4_000,
+  offline: 5_000,
+};
+
+// ─── Singleton state (one source of truth for every consumer) ────────────────
+
+let _status: NetworkStatus = 'online';
+let _lastFailureAt = 0; // epoch ms of the first consecutive failure (0 = healthy)
+
 const _listeners = new Set<Listener>();
 
-function setOnlineState(online: boolean) {
-  if (online === _isOnline) return;
-  _isOnline = online;
-  _listeners.forEach((fn) => fn(online));
+function currentState(): NetworkState {
+  return {
+    isOnline: _status !== 'offline',
+    isSlow: _status === 'slow',
+    isOffline: _status === 'offline',
+    isReconnecting: _status === 'reconnecting',
+    status: _status,
+  };
 }
 
-/** Call after a successful API response to mark network as available. */
+function emit() {
+  const s = currentState();
+  _listeners.forEach((fn) => fn(s));
+}
+
+/** Feed one probe/request result into the shared state machine. */
+function applyProbeResult(online: boolean, latencyMs = 0) {
+  const now = Date.now();
+  if (online) {
+    _lastFailureAt = 0;
+    if (latencyMs >= SLOW_LATENCY_MS) {
+      _status = 'slow';
+    } else if (_status === 'offline') {
+      // First healthy probe after an outage → transitional state.
+      _status = 'reconnecting';
+    } else if (_status === 'reconnecting') {
+      _status = 'online';
+    } else if (_status === 'slow') {
+      _status = 'online';
+    } else {
+      _status = 'online';
+    }
+  } else if (now - (_lastFailureAt || now) >= OFFLINE_GRACE_MS) {
+    // A momentary interruption is tolerated; only a sustained outage flips us
+    // to offline.
+    _status = 'offline';
+  } else if (_lastFailureAt === 0) {
+    _lastFailureAt = now;
+  }
+  emit();
+}
+
+/** Call after a successful API response to mark the network as available. */
 export function reportNetworkSuccess() {
-  setOnlineState(true);
+  applyProbeResult(true, 0);
 }
 
-/** Call when a network-level error occurs (TypeError: Network request failed). */
+/** Call when a network-level error occurs (e.g. "Network request failed"). */
 export function reportNetworkError() {
-  setOnlineState(false);
+  applyProbeResult(false, 0);
 }
 
-// ─── Probe URL — small static endpoint ───────────────────────────────────────
+// ─── Probe ────────────────────────────────────────────────────────────────────
 
-const PROBE_INTERVAL_ONLINE  = 30_000; // 30 s when online
-const PROBE_INTERVAL_OFFLINE =  5_000; //  5 s when offline (faster recovery)
-
-async function probeConnectivity(): Promise<boolean> {
-  if (Platform.OS === 'web') return true; // browser handles this
+async function probeConnectivity(): Promise<{ online: boolean; latency: number }> {
+  if (Platform.OS === 'web') return { online: true, latency: 0 }; // browser handles this
+  const started = Date.now();
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
@@ -51,9 +124,9 @@ async function probeConnectivity(): Promise<boolean> {
       cache: 'no-store',
     });
     clearTimeout(timeout);
-    return true;
+    return { online: true, latency: Date.now() - started };
   } catch {
-    // Try a more reliable probe as fallback
+    // Fall back to a more reliable, purpose-agnostic probe.
     try {
       const controller2 = new AbortController();
       const timeout2 = setTimeout(() => controller2.abort(), 4000);
@@ -64,9 +137,9 @@ async function probeConnectivity(): Promise<boolean> {
         cache: 'no-store',
       });
       clearTimeout(timeout2);
-      return true;
+      return { online: true, latency: Date.now() - started };
     } catch {
-      return false;
+      return { online: false, latency: 0 };
     }
   }
 }
@@ -77,38 +150,36 @@ let _probeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleProbe() {
   if (_probeTimer) clearTimeout(_probeTimer);
-  const delay = _isOnline ? PROBE_INTERVAL_ONLINE : PROBE_INTERVAL_OFFLINE;
+  const delay = PROBE_INTERVALS[_status];
   _probeTimer = setTimeout(async () => {
-    const online = await probeConnectivity();
-    setOnlineState(online);
+    const { online, latency } = await probeConnectivity();
+    applyProbeResult(online, latency);
     scheduleProbe();
   }, delay);
 }
 
-// Start probing immediately when module loads
+// Start probing when the module loads.
 if (Platform.OS !== 'web') {
-  probeConnectivity().then((online) => {
-    setOnlineState(online);
+  probeConnectivity().then(({ online, latency }) => {
+    applyProbeResult(online, latency);
     scheduleProbe();
   });
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useNetwork(): { isOnline: boolean } {
-  const [isOnline, setIsOnline] = useState(_isOnline);
-  const savedHandler = useRef<Listener | undefined>(undefined);
+export function useNetwork(): NetworkState {
+  const [state, setState] = useState<NetworkState>(currentState());
 
   useEffect(() => {
-    const handler: Listener = (online) => setIsOnline(online);
-    savedHandler.current = handler;
+    const handler: Listener = (s) => setState(s);
     _listeners.add(handler);
 
-    // Re-probe when app comes to foreground
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        probeConnectivity().then((online) => {
-          setOnlineState(online);
+    // Re-probe immediately when the app returns to the foreground.
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        probeConnectivity().then(({ online, latency }) => {
+          applyProbeResult(online, latency);
           scheduleProbe();
         });
       }
@@ -120,5 +191,5 @@ export function useNetwork(): { isOnline: boolean } {
     };
   }, []);
 
-  return { isOnline };
+  return state;
 }

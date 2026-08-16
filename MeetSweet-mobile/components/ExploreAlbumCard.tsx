@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native';
 import {
-  CheckCircle,
+  SealCheck,
   Heart,
   Images,
   Lock,
@@ -175,7 +175,7 @@ export function ExploreAlbumCard({
                     {album.creatorName}
                   </Text>
                   {album.creatorIsVerified && (
-                    <CheckCircle size={13} color="rgba(255,255,255,0.85)" weight="fill" />
+                    <SealCheck size={13} color={T.TEXT} weight="fill" />
                   )}
                 </View>
               </TouchableOpacity>

@@ -34,6 +34,7 @@ import {
   ArrowLeft,
   Bookmark,
   ChatCircle,
+  SealCheck,
   Heart,
   ShareNetwork,
   UserPlus,
@@ -255,10 +256,12 @@ export default function ContentDetailScreen() {
             imageUri={post.author.avatarUrl ?? undefined}
           />
           <View style={styles.creatorCopy}>
-            <Text style={styles.creatorName}>
-              {post.author.name || post.author.username}
-              {post.author.isVerified ? '  ✓' : ''}
-            </Text>
+            <View style={styles.creatorNameRow}>
+              <Text style={styles.creatorName} numberOfLines={1}>
+                {post.author.name || post.author.username}
+              </Text>
+              {post.author.isVerified && <SealCheck size={14} color={T.TEXT} weight="fill" />}
+            </View>
             <Text style={styles.creatorHandle}>@{post.author.username}</Text>
           </View>
         </Pressable>
@@ -433,7 +436,8 @@ const styles = StyleSheet.create({
   },
   creatorPress: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   creatorCopy: { flex: 1 },
-  creatorName: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13 },
+  creatorNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  creatorName: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13, flexShrink: 1 },
   creatorHandle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 2 },
   subscribe: {
     flexDirection: 'row', gap: 5, alignItems: 'center',

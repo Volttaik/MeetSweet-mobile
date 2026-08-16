@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, Play, Sparkle, Users } from 'phosphor-react-native';
+import { SealCheck, Play, Sparkle, Users } from 'phosphor-react-native';
 import type { ContentPreview, Creator, TrendingCollection } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -52,7 +52,7 @@ export function MsCreatorIdentity({
           <Text style={identityStyles.name} numberOfLines={1}>
             {creator.name}
           </Text>
-          {creator.isVerified && <Check size={13} color={T.TEXT} weight="fill" />}
+          {creator.isVerified && <SealCheck size={13} color={T.TEXT} weight="fill" />}
         </View>
         <Text style={identityStyles.handle} numberOfLines={1}>
           {creator.handle}
@@ -77,11 +77,17 @@ export function MsFeaturedCreatorCard({
   onPress,
   onLongPress,
   onAvatarPress,
+  onSubscribe,
+  isSubscribed = false,
+  subscribing = false,
 }: {
   creator: Creator;
   onPress: () => void;
   onLongPress: () => void;
   onAvatarPress?: () => void;
+  onSubscribe?: () => void;
+  isSubscribed?: boolean;
+  subscribing?: boolean;
 }) {
   return (
     <Pressable
@@ -132,7 +138,7 @@ export function MsFeaturedCreatorCard({
           <Text style={featuredStyles.name} numberOfLines={1}>
             {creator.name}
           </Text>
-          {creator.isVerified && <Check size={14} color={T.TEXT} weight="fill" />}
+          {creator.isVerified && <SealCheck size={14} color={T.TEXT} weight="fill" />}
         </View>
         <Text style={featuredStyles.handle}>
           {creator.handle} · {creator.category}
@@ -149,9 +155,18 @@ export function MsFeaturedCreatorCard({
         </View>
       </View>
 
-      <View style={featuredStyles.subscribeBtn}>
-        <Text style={featuredStyles.subscribeBtnLabel}>Subscribe</Text>
-      </View>
+      <Pressable
+        style={[featuredStyles.subscribeBtn, isSubscribed && featuredStyles.subscribeBtnSubscribed]}
+        onPress={onSubscribe}
+        disabled={subscribing || !onSubscribe}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={isSubscribed ? `Subscribed to ${creator.name}` : `Subscribe to ${creator.name}`}
+      >
+        <Text style={[featuredStyles.subscribeBtnLabel, isSubscribed && { color: T.TEXT_2 }]}>
+          {isSubscribed ? 'Subscribed' : 'Subscribe'}
+        </Text>
+      </Pressable>
     </Pressable>
   );
 }
@@ -163,11 +178,17 @@ export function MsRecommendedCreatorRow({
   onPress,
   onLongPress,
   onAvatarPress,
+  onSubscribe,
+  isSubscribed = false,
+  subscribing = false,
 }: {
   creator: Creator;
   onPress: () => void;
   onLongPress: () => void;
   onAvatarPress?: () => void;
+  onSubscribe?: () => void;
+  isSubscribed?: boolean;
+  subscribing?: boolean;
 }) {
   return (
     <Pressable
@@ -192,7 +213,7 @@ export function MsRecommendedCreatorRow({
           <Text style={recommendedStyles.name} numberOfLines={1}>
             {creator.name}
           </Text>
-          {creator.isVerified && <Check size={12} color={T.TEXT} weight="fill" />}
+          {creator.isVerified && <SealCheck size={12} color={T.TEXT} weight="fill" />}
         </View>
         <Text style={recommendedStyles.handle} numberOfLines={1}>
           {creator.handle}
@@ -204,9 +225,18 @@ export function MsRecommendedCreatorRow({
         <Text style={recommendedStyles.subscriberCount}>{fmtSubscribers(creator.subscriberCount ?? 0)} subscribers</Text>
       </View>
 
-      <View style={recommendedStyles.subscribeButton}>
-        <Text style={recommendedStyles.subscribeLabel}>Subscribe</Text>
-      </View>
+      <Pressable
+        style={[recommendedStyles.subscribeButton, isSubscribed && recommendedStyles.subscribeButtonSubscribed]}
+        onPress={onSubscribe}
+        disabled={subscribing || !onSubscribe}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={isSubscribed ? `Subscribed to ${creator.name}` : `Subscribe to ${creator.name}`}
+      >
+        <Text style={[recommendedStyles.subscribeLabel, isSubscribed && { color: T.TEXT_2 }]}>
+          {isSubscribed ? 'Subscribed' : 'Subscribe'}
+        </Text>
+      </Pressable>
     </Pressable>
   );
 }
@@ -396,6 +426,7 @@ const featuredStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   subscribeBtnLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.BG },
+  subscribeBtnSubscribed: { backgroundColor: T.SURFACE_2 },
 });
 
 const recommendedStyles = StyleSheet.create({
@@ -423,6 +454,7 @@ const recommendedStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   subscribeLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
+  subscribeButtonSubscribed: { backgroundColor: T.SURFACE_2 },
 });
 
 const previewStyles = StyleSheet.create({

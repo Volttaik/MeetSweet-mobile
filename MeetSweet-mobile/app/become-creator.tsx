@@ -12,6 +12,7 @@ import {
   ChatCircle,
   CurrencyDollar,
   Sparkle,
+  Star,
   DeviceMobile,
   Lock,
   Users,
@@ -70,7 +71,9 @@ export default function BecomeCreatorScreen() {
       >
         {/* Hero */}
         <View style={styles.hero}>
-          <Text style={styles.heroIcon}>✦</Text>
+          <View style={styles.heroIconWrap}>
+            <Sparkle size={40} color={T.ACCENT} weight="fill" />
+          </View>
           <Text style={styles.heroTitle}>Become a Creator</Text>
           <Text style={styles.heroSubtitle}>
             Turn your passion into income. Join thousands of creators already
@@ -91,7 +94,10 @@ export default function BecomeCreatorScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>4.9★</Text>
+            <View style={styles.statValueRow}>
+              <Text style={styles.statValue}>4.9</Text>
+              <Star size={13} color="#FFB800" weight="fill" />
+            </View>
             <Text style={styles.statLabel}>Creator Rating</Text>
           </View>
         </View>
@@ -160,10 +166,16 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     gap: 12,
   },
-  heroIcon: {
-    fontSize: 52,
-    lineHeight: 60,
-    marginBottom: 4,
+  heroIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(196,90,114,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,90,114,0.22)',
+    marginBottom: 6,
   },
   heroTitle: {
     fontSize: 28,
@@ -193,6 +205,7 @@ const styles = StyleSheet.create({
   },
   statItem: { flex: 1, alignItems: 'center' },
   statValue: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
+  statValueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   statLabel: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
   statDivider: { width: 1, height: 32, backgroundColor: T.BORDER_2 },
 

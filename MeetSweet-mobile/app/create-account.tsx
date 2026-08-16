@@ -21,7 +21,7 @@ type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken';
 async function checkUsernameAvailability(username: string): Promise<boolean> {
   try {
     const data = await apiFetch<{ available: boolean }>(
-      `/auth/check-username?username=${encodeURIComponent(username)}`,
+      `/users/check-username?username=${encodeURIComponent(username)}`,
     );
     return data.available;
   } catch {

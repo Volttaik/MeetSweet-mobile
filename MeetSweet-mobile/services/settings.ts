@@ -51,21 +51,9 @@ async function authedRequest<T>(
 }
 
 export async function getPrivacySettings(): Promise<PrivacySettings> {
-  try {
-    return await authedRequest<PrivacySettings>('/users/me/privacy');
-  } catch {
-    return {
-      private_account: false,
-      online_status: true,
-      read_receipts: true,
-      typing_indicator: true,
-      allow_dms: true,
-      allow_mentions: true,
-      allow_tags: true,
-      profile_visibility: 'everyone',
-      message_perm: 'everyone',
-    };
-  }
+  // Errors propagate so the settings screen can fall back to the user's last
+  // saved local prefs instead of silently resetting to defaults.
+  return authedRequest<PrivacySettings>('/users/me/privacy');
 }
 
 export async function updatePrivacySettings(patch: Partial<PrivacySettings>): Promise<PrivacySettings> {
@@ -76,18 +64,9 @@ export async function updatePrivacySettings(patch: Partial<PrivacySettings>): Pr
 }
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
-  try {
-    return await authedRequest<NotificationSettings>('/users/me/notifications');
-  } catch {
-    return {
-      notif_messages: true,
-      notif_comments: true,
-      notif_likes: true,
-      notif_mentions: true,
-      notif_marketing: false,
-      push_notifications: true,
-    };
-  }
+  // Errors propagate so the settings screen can fall back to the user's last
+  // saved local prefs instead of silently resetting to defaults.
+  return authedRequest<NotificationSettings>('/users/me/notifications');
 }
 
 export async function updateNotificationSettings(
@@ -100,19 +79,9 @@ export async function updateNotificationSettings(
 }
 
 export async function getSettings(): Promise<UserAppSettings> {
-  try {
-    return await authedRequest<UserAppSettings>('/users/me/settings');
-  } catch {
-    return {
-      push_notifications: true,
-      autoplay_media: true,
-      data_saver: false,
-      high_quality_media: true,
-      sensitive_content: false,
-      language: 'English',
-      theme: 'dark',
-    };
-  }
+  // Errors propagate so the settings screen can fall back to the user's last
+  // saved local prefs instead of silently resetting to defaults.
+  return authedRequest<UserAppSettings>('/users/me/settings');
 }
 
 export async function updateSettings(patch: Partial<UserAppSettings>): Promise<UserAppSettings> {

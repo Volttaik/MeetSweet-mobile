@@ -21,6 +21,7 @@ import {
   ChatText,
   CurrencyNgn,
   GearSix,
+  Star,
   Users,
   Wallet,
   type Icon,
@@ -197,10 +198,12 @@ function SettingsRow({
   label,
   value,
   onPress,
+  icon: RowIcon,
 }: {
   label: string;
   value?: string;
   onPress?: () => void;
+  icon?: Icon;
 }) {
   return (
     <TouchableOpacity
@@ -208,7 +211,10 @@ function SettingsRow({
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={styles.settingsRowLabel}>{label}</Text>
+      <View style={styles.settingsRowLabelWrap}>
+        {RowIcon ? <RowIcon size={16} color={T.TEXT_2} /> : null}
+        <Text style={styles.settingsRowLabel}>{label}</Text>
+      </View>
       <View style={styles.settingsRowRight}>
         {value ? <Text style={styles.settingsRowValue}>{value}</Text> : null}
         <CaretRight size={13} color={T.TEXT_3} />
@@ -259,8 +265,8 @@ export default function CreatorDashboardScreen() {
 
   // ── Local settings state ────────
   const [subsEnabled, setSubsEnabled] = useState(true);
-  const [subscriberPrice, setSubscriberPrice] = useState(200);
-  const [subscriberPlusPrice, setSubscriberPlusPrice] = useState(500);
+  const [subscriberPrice, setSubscriberPrice] = useState(0);
+  const [subscriberPlusPrice, setSubscriberPlusPrice] = useState(0);
   const [editingPrice, setEditingPrice] = useState<'subscriber' | 'subscriber_plus' | null>(null);
   const [priceDraft, setPriceDraft] = useState('');
   const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
@@ -329,12 +335,8 @@ export default function CreatorDashboardScreen() {
         setWhoCanComment(settings.who_can_comment ?? (settings.allow_comments === false ? 'none' : 'everyone'));
         setWhoCanSee(settings.who_can_see ?? 'subscribers');
         setSubsEnabled(settings.subscriptions_enabled ?? true);
-        setSubscriberPrice(settings.subscription_price && settings.subscription_price > 0 ? settings.subscription_price : 200);
-        setSubscriberPlusPrice(
-          settings.subscription_plus_price && settings.subscription_plus_price > 0
-            ? settings.subscription_plus_price
-            : 500,
-        );
+        setSubscriberPrice(settings.subscription_price ?? 0);
+        setSubscriberPlusPrice(settings.subscription_plus_price ?? 0);
       }
       setError('');
     } catch (e) {
@@ -585,7 +587,10 @@ export default function CreatorDashboardScreen() {
             {/* Subscriber plan */}
             {editingPrice === 'subscriber' ? (
               <View style={styles.priceEditor}>
-                <Text style={styles.priceEditorLabel}>👥 Subscriber price</Text>
+                <View style={styles.priceEditorLabelRow}>
+                  <Users size={15} color={T.TEXT_2} />
+                  <Text style={styles.priceEditorLabel}>Subscriber price</Text>
+                </View>
                 <View style={styles.priceEditorControls}>
                   <Text style={styles.nairaPrefix}>₦</Text>
                   <TextInput
@@ -606,8 +611,9 @@ export default function CreatorDashboardScreen() {
               </View>
             ) : (
               <SettingsRow
-                label="👥 Subscriber price"
-                value={`${formatNaira(subscriberPrice)}/mo`}
+                label="Subscriber price"
+                icon={Users}
+                value={subscriberPrice > 0 ? `${formatNaira(subscriberPrice)}/mo` : 'Not set'}
                 onPress={() => beginPriceEdit('subscriber')}
               />
             )}
@@ -615,7 +621,10 @@ export default function CreatorDashboardScreen() {
             {/* Subscriber+ plan */}
             {editingPrice === 'subscriber_plus' ? (
               <View style={styles.priceEditor}>
-                <Text style={styles.priceEditorLabel}>⭐ Subscriber+ price</Text>
+                <View style={styles.priceEditorLabelRow}>
+                  <Star size={15} color="#E8A020" weight="fill" />
+                  <Text style={styles.priceEditorLabel}>Subscriber+ price</Text>
+                </View>
                 <View style={styles.priceEditorControls}>
                   <Text style={styles.nairaPrefix}>₦</Text>
                   <TextInput
@@ -636,8 +645,9 @@ export default function CreatorDashboardScreen() {
               </View>
             ) : (
               <SettingsRow
-                label="⭐ Subscriber+ price"
-                value={`${formatNaira(subscriberPlusPrice)}/mo`}
+                label="Subscriber+ price"
+                icon={Star}
+                value={subscriberPlusPrice > 0 ? `${formatNaira(subscriberPlusPrice)}/mo` : 'Not set'}
                 onPress={() => beginPriceEdit('subscriber_plus')}
               />
             )}
@@ -1005,6 +1015,12 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
   },
+  settingsRowLabelWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   settingsRowRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1029,6 +1045,11 @@ const styles = StyleSheet.create({
     color: T.TEXT_2,
     fontFamily: T.FONT.regular,
     fontSize: 13,
+  },
+  priceEditorLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
   },
   priceEditorControls: {
     flexDirection: 'row',

@@ -656,7 +656,12 @@ function EmailModal({
     if (!email.includes('@')) { toast.error('Enter a valid email address'); return; }
     setSaving(true);
     try {
-      await updateMe({ email: email.trim().toLowerCase() });
+      const updated = await updateMe({ email: email.trim().toLowerCase() });
+      // The backend has no email-change flow yet — PATCH /users/me ignores `email`,
+      // so detect a no-op instead of claiming success.
+      if (updated.user.email !== email.trim().toLowerCase()) {
+        throw new Error('Email change is not available yet');
+      }
       await refreshUser();
       toast.success('Email updated successfully');
       onClose();
@@ -1599,7 +1604,7 @@ export default function SettingsScreen() {
       getNotificationSettings(),
       getSettings(),
       loadPref(CONTENT_KEY, CONTENT_DEFAULTS, userId),
-    ]).then(([privResult, notifResult, settingsResult, contentResult]) => {
+    ]).then(async ([privResult, notifResult, settingsResult, contentResult]) => {
       if (privResult.status === 'fulfilled') {
         const p = privResult.value;
         setPrivacy({
@@ -1613,7 +1618,7 @@ export default function SettingsScreen() {
           tagPerm: p.allow_tags ?? PRIVACY_DEFAULTS.tagPerm,
         });
       } else {
-        loadPref(PRIVACY_KEY, PRIVACY_DEFAULTS, userId).then(setPrivacy);
+        setPrivacy(await loadPref(PRIVACY_KEY, PRIVACY_DEFAULTS, userId));
       }
 
       const notifBase: NotifPrefs = { ...NOTIF_DEFAULTS };
@@ -1624,6 +1629,8 @@ export default function SettingsScreen() {
         notifBase.likes = n.notif_likes ?? NOTIF_DEFAULTS.likes;
         notifBase.mentions = n.notif_mentions ?? NOTIF_DEFAULTS.mentions;
         notifBase.marketing = n.notif_marketing ?? NOTIF_DEFAULTS.marketing;
+      } else {
+        Object.assign(notifBase, await loadPref(NOTIF_KEY, NOTIF_DEFAULTS, userId));
       }
       if (settingsResult.status === 'fulfilled') {
         const s = settingsResult.value;
@@ -1780,7 +1787,8 @@ export default function SettingsScreen() {
 
   const handleSaveProfile = async (fields: { name: string; bio: string }) => {
     try {
-      const updated = await updateMe({ name: fields.name, bio: fields.bio || null });
+      // The server PATCH /users/me expects `full_name` (not `name`).
+      const updated = await updateMe({ full_name: fields.name, bio: fields.bio || null });
       updateUser(updated.user);
     } catch (e: unknown) {
       throw e;

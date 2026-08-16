@@ -227,8 +227,11 @@ export async function getCachedMessages(chatRoomId: string): Promise<RoomMessage
   const sqliteDb = await getDb();
   if (sqliteDb) {
     try {
+      // Newest-first so the cached snapshot matches the in-memory order the
+      // chat screen expects (index 0 = newest). ASC here showed messages
+      // reversed (oldest at the bottom) on the first paint.
       const rows = await sqliteDb.getAllAsync<{ data: string }>(
-        'SELECT data FROM messages WHERE chat_room_id = ? ORDER BY created_at ASC LIMIT 200',
+        'SELECT data FROM messages WHERE chat_room_id = ? ORDER BY created_at DESC LIMIT 200',
         [chatRoomId],
       );
       return rows.map((r) => JSON.parse(r.data) as RoomMessage);

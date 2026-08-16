@@ -118,7 +118,10 @@ export default function CompleteRegistrationScreen() {
             </View>
           </View>
 
-          <Text style={styles.title}>Looking Good! 🎉</Text>
+          <View style={styles.titleRow}>
+            <Ionicons name="sparkles" size={20} color="#E8A020" />
+            <Text style={styles.title}>Looking Good!</Text>
+          </View>
           <Text style={styles.subtitle}>
             Review your details before completing your account.
           </Text>
@@ -244,6 +247,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     textAlign: 'center',
     marginBottom: 6,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   subtitle: {
     fontSize: 14,

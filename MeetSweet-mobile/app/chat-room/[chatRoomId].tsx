@@ -61,6 +61,8 @@ import {
 
 import {
   ArrowLeft,
+  Check,
+  Checks,
   DotsThreeVertical,
   Info,
   PencilSimple,
@@ -69,6 +71,7 @@ import {
   ArrowBendUpLeft,
   DownloadSimple,
   UserMinus,
+  X,
 } from 'phosphor-react-native';
 import { MsChatHeaderMenu } from '@/components/chat/MsChatHeaderMenu';
 import { MsChatSearch }     from '@/components/chat/MsChatSearch';
@@ -178,6 +181,17 @@ function finalizeTemp(confirmed: MsMessage, tempId: string): MsMessage {
     pending: false,
     sent: true,
   };
+}
+
+/**
+ * Chronological comparator — newest first (index 0 = newest). The Chat list is
+ * inverted, so the data array must be sorted descending by createdAt or the
+ * bubbles render in the wrong order.
+ */
+function byNewestFirst(a: MsMessage, b: MsMessage): number {
+  const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
+  const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
+  return tb - ta;
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -502,7 +516,9 @@ export default function ChatScreen() {
     try {
       const cached = await getCachedMessages(chatRoomId);
       if (cached.length && !before) {
-        setMessages(cached.map((m) => toMsMessage(m, user?.id ?? '')));
+        setMessages(
+          cached.map((m) => toMsMessage(m, user?.id ?? '')).sort(byNewestFirst),
+        );
         setLoading(false);
       }
       const result = await getRoomMessages(chatRoomId, before ? { before } : undefined);
@@ -513,7 +529,8 @@ export default function ChatScreen() {
       );
       const msgs = result.messages
         .filter((m: RoomMessage) => !removedIds.has(m.id))
-        .map((m: RoomMessage) => toMsMessage(m, user?.id ?? ''));
+        .map((m: RoomMessage) => toMsMessage(m, user?.id ?? ''))
+        .sort(byNewestFirst);
       if (before) {
         setMessages((prev) => (Chat.prepend as any)(prev, msgs));
         await cacheMessages(chatRoomId, result.messages).catch(() => {});
@@ -572,7 +589,10 @@ export default function ChatScreen() {
       updated = updated.map((m) => {
         const freshMsg = incomingMap.get(realMessageId(m));
         if (freshMsg) {
-          incomingMap.delete(String(m._id));
+          // Delete by the SAME key the map was built with (real message id).
+          // Deleting by m._id misses confirmed optimistic messages (whose _id
+          // is still the temp id), leaving a duplicate in the list.
+          incomingMap.delete(realMessageId(m));
           return {
             ...m,
             ...freshMsg,
@@ -585,8 +605,10 @@ export default function ChatScreen() {
         return m;
       });
 
-      // 3. Prepend any newly arrived messages
-      const newOnes = Array.from(incomingMap.values());
+      // 3. Prepend any newly arrived messages, newest first. The changes
+      //    endpoint returns them oldest-first (ASC), so they must be re-sorted
+      //    or the inverted list shows them reversed.
+      const newOnes = Array.from(incomingMap.values()).sort(byNewestFirst);
       if (newOnes.length > 0) {
         updated = [...newOnes, ...updated];
       }
@@ -1703,11 +1725,11 @@ export default function ChatScreen() {
         <View style={styles.chatSkeletonWrap}>
           <MsShimmerChatList />
           <View style={styles.skeletonInputRow}>
-            <MsShimmer width={40} height={40} borderRadius={20} />
-            <MsShimmer width={40} height={48} borderRadius={24} style={styles.skeletonInputPill} />
-            <MsShimmer width={40} height={40} borderRadius={20} />
-            <MsShimmer width={40} height={40} borderRadius={20} />
-            <MsShimmer width={48} height={48} borderRadius={24} style={styles.skeletonSendBtn} />
+            <MsShimmer width={40} height={40} borderRadius={20} subtle />
+            <MsShimmer width={40} height={48} borderRadius={24} subtle style={styles.skeletonInputPill} />
+            <MsShimmer width={40} height={40} borderRadius={20} subtle />
+            <MsShimmer width={40} height={40} borderRadius={20} subtle />
+            <MsShimmer width={48} height={48} borderRadius={24} subtle style={styles.skeletonSendBtn} />
           </View>
         </View>
       ) : (
@@ -1872,7 +1894,7 @@ export default function ChatScreen() {
             hitSlop={12}
           >
             <View style={styles.imgPreviewCloseBtn}>
-              <Text style={styles.imgPreviewCloseX}>✕</Text>
+              <X size={18} color="#fff" weight="bold" />
             </View>
           </TouchableOpacity>
 
@@ -2028,11 +2050,19 @@ export default function ChatScreen() {
             )}
             <View style={styles.msgInfoRow}>
               <Text style={styles.msgInfoLabel}>Delivered</Text>
-              <Text style={styles.msgInfoValue}>{infoMsg?.sent ? '✓' : 'Pending'}</Text>
+              {infoMsg?.sent ? (
+                <Check size={15} color={T.SUCCESS} weight="bold" />
+              ) : (
+                <Text style={styles.msgInfoValue}>Pending</Text>
+              )}
             </View>
             <View style={styles.msgInfoRow}>
               <Text style={styles.msgInfoLabel}>Read</Text>
-              <Text style={styles.msgInfoValue}>{infoMsg?.received ? '✓✓' : '—'}</Text>
+              {infoMsg?.received ? (
+                <Checks size={15} color={T.SUCCESS} weight="bold" />
+              ) : (
+                <Text style={styles.msgInfoValue}>—</Text>
+              )}
             </View>
             {infoMsg?.msMediaType && (
               <View style={styles.msgInfoRow}>
@@ -2134,7 +2164,7 @@ export default function ChatScreen() {
         <View style={styles.fullscreenBg}>
           <View style={[styles.fsvHeader, { paddingTop: 48 }]}>
             <TouchableOpacity style={styles.fsvBtn} onPress={() => setFullscreenVideoUri(null)}>
-              <Text style={styles.fullscreenCloseText}>✕</Text>
+              <X size={18} color="#fff" weight="bold" />
             </TouchableOpacity>
             {!fullscreenVideoIsOwn && fullscreenVideoUri ? (
               <TouchableOpacity
@@ -2288,7 +2318,7 @@ function FullscreenImageViewer({ uri, onClose, isOwn }: { uri: string; onClose: 
         {/* Header bar — close + share */}
         <View style={[styles.fsvHeader, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity style={styles.fsvBtn} onPress={onClose} accessibilityLabel="Close image viewer">
-            <Text style={styles.fullscreenCloseText}>✕</Text>
+            <X size={18} color="#fff" weight="bold" />
           </TouchableOpacity>
           {!isOwn && (
             <TouchableOpacity style={styles.fsvBtn} onPress={handleShare} accessibilityLabel="Save image">
@@ -2498,7 +2528,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  imgPreviewCloseX: { color: '#fff', fontSize: 18, fontFamily: T.FONT.regular },
   imgPreviewImg: {
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height * 0.75,
@@ -2557,18 +2586,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fullscreenClose: {
-    position: 'absolute',
-    right: 18,
-    zIndex: 10,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fullscreenCloseText: { color: '#fff', fontSize: 18 },
   fullscreenImg: {
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height * 0.82,

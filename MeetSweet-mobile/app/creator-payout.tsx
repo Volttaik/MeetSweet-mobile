@@ -47,14 +47,18 @@ import { T } from '@/constants/theme';
 import { toast } from '@/components/MsToast';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
+import { MsEmptyState } from '@/components/MsEmptyState';
 import {
-  NIGERIAN_BANKS,
   type BankDetails,
+  type BankOption,
   type WithdrawalRecord,
   getCreatorBalance,
   getBankDetails,
+  getBanks,
+  resolveAccountName,
   saveBankDetails,
   requestWithdrawal,
+  finalizeWithdrawal,
   getWithdrawalHistory,
 } from '@/services/wallet';
 
@@ -152,6 +156,10 @@ function BankDetailsSheet({
   const [bankName, setBankName]           = useState(initial?.bankName ?? '');
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? '');
   const [accountName, setAccountName]     = useState(initial?.accountName ?? '');
+  const [bankCode, setBankCode]           = useState(initial?.bankCode ?? '');
+  const [banks, setBanks]                 = useState<BankOption[]>([]);
+  const [banksLoading, setBanksLoading]   = useState(false);
+  const [resolvingName, setResolvingName] = useState(false);
   const [showBanks, setShowBanks]         = useState(false);
   const [saving, setSaving]               = useState(false);
 
@@ -160,11 +168,31 @@ function BankDetailsSheet({
       setBankName(initial?.bankName ?? '');
       setAccountNumber(initial?.accountNumber ?? '');
       setAccountName(initial?.accountName ?? '');
+      setBankCode(initial?.bankCode ?? '');
+      // Authoritative bank list from Paystack — never a hardcoded list.
+      setBanksLoading(true);
+      getBanks()
+        .then(setBanks)
+        .catch(() => setBanks([]))
+        .finally(() => setBanksLoading(false));
     }
   }, [visible, initial]);
 
+  // Auto-resolve the account-holder name from Paystack once both the account
+  // number and bank are known, so a withdrawal never trusts a typed name.
+  useEffect(() => {
+    if (!visible || accountNumber.length !== 10 || !bankCode) return;
+    let cancelled = false;
+    setResolvingName(true);
+    resolveAccountName(accountNumber, bankCode)
+      .then((name) => { if (!cancelled && name) setAccountName(name); })
+      .catch(() => { if (!cancelled) setAccountName(''); })
+      .finally(() => { if (!cancelled) setResolvingName(false); });
+    return () => { cancelled = true; };
+  }, [visible, accountNumber, bankCode]);
+
   const handleSave = async () => {
-    if (!bankName || !accountNumber || !accountName) {
+    if (!bankName || !accountNumber || !accountName || !bankCode) {
       toast.error('Please fill all bank details');
       return;
     }
@@ -174,8 +202,8 @@ function BankDetailsSheet({
     }
     setSaving(true);
     try {
-      await saveBankDetails({ bankName, accountNumber, accountName });
-      onSave({ bankName, accountNumber, accountName });
+      await saveBankDetails({ bankName, accountNumber, accountName, bankCode });
+      onSave({ bankName, accountNumber, accountName, bankCode });
       toast.success('Bank details saved!');
     } catch {
       toast.error('Could not save bank details');
@@ -225,17 +253,25 @@ function BankDetailsSheet({
             />
           </View>
 
-          {/* Account name */}
+          {/* Account name — auto-resolved from Paystack */}
           <View style={bankS.field}>
             <Text style={bankS.fieldLabel}>Account Name</Text>
             <TextInput
               style={bankS.input}
               value={accountName}
               onChangeText={setAccountName}
-              placeholder="Full name on account"
+              placeholder={resolvingName ? 'Resolving account name…' : 'Account name'}
               placeholderTextColor={T.TEXT_3}
               autoCapitalize="words"
+              editable={!resolvingName}
             />
+            {resolvingName ? (
+              <Text style={bankS.resolveHint}>Verifying with your bank…</Text>
+            ) : accountName ? (
+              <Text style={[bankS.resolveHint, { color: T.SUCCESS }]}>Account name verified</Text>
+            ) : accountNumber.length === 10 && bankCode ? (
+              <Text style={[bankS.resolveHint, { color: T.ERROR }]}>Could not verify account — check the number</Text>
+            ) : null}
           </View>
 
           <TouchableOpacity
@@ -255,20 +291,23 @@ function BankDetailsSheet({
               <View style={bankS.bankList}>
                 <Text style={bankS.bankListTitle}>Select Bank</Text>
                 <ScrollView showsVerticalScrollIndicator={false}>
-                  {NIGERIAN_BANKS.map((b) => {
-                    const name = typeof b === 'string' ? b : b.name;
-                    return (
+                  {banksLoading ? (
+                    <View style={bankS.bankLoading}><ActivityIndicator color={T.TEXT_2} /></View>
+                  ) : banks.length === 0 ? (
+                    <Text style={bankS.bankEmpty}>Could not load banks — check your connection and try again.</Text>
+                  ) : (
+                    banks.map((b) => (
                       <TouchableOpacity
-                        key={name}
+                        key={b.code}
                         style={bankS.bankRow}
-                        onPress={() => { setBankName(name); setShowBanks(false); }}
+                        onPress={() => { setBankName(b.name); setBankCode(b.code); setShowBanks(false); }}
                         activeOpacity={0.7}
                       >
-                        <Text style={bankS.bankName}>{name}</Text>
-                        {bankName === name && <Check size={15} color={T.TEXT} weight="bold" />}
+                        <Text style={bankS.bankName}>{b.name}</Text>
+                        {bankName === b.name && <Check size={15} color={T.TEXT} weight="bold" />}
                       </TouchableOpacity>
-                    );
-                  })}
+                    ))
+                  )}
                 </ScrollView>
               </View>
             </Pressable>
@@ -326,6 +365,9 @@ const bankS = StyleSheet.create({
   bankListTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16, marginBottom: 16 },
   bankRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: T.BORDER },
   bankName: { color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14 },
+  bankLoading: { paddingVertical: 24, alignItems: 'center' },
+  bankEmpty: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13, textAlign: 'center', paddingVertical: 24, lineHeight: 20 },
+  resolveHint: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 6 },
 });
 
 // ─── Withdrawal amount sheet ───────────────────────────────────────────────────
@@ -476,11 +518,16 @@ export default function CreatorPayoutScreen() {
   const [withdrawals, setWithdrawals]     = useState<WithdrawalRecord[]>([]);
   const [loading, setLoading]             = useState(true);
   const [refreshing, setRefreshing]       = useState(false);
+  const [error, setError]                 = useState(false);
   const [bankDetails, setBankDetails]     = useState<BankDetails | null>(null);
   const [showBankSheet, setShowBankSheet] = useState(false);
   const [showWithdrawAmt, setShowWithdrawAmt] = useState(false);
   const [withdrawing, setWithdrawing]     = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState<number | null>(null);
+  const [pendingTransferCode, setPendingTransferCode] = useState<string | null>(null);
+  const [showOtpSheet, setShowOtpSheet] = useState(false);
+  const [otpValue, setOtpValue] = useState('');
+  const [finalizing, setFinalizing] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -494,7 +541,9 @@ export default function CreatorPayoutScreen() {
       setAvailable(balData.availableForWithdrawal);
       setWithdrawals(histData.withdrawals);
       if (bankData) setBankDetails(bankData);
+      setError(false);
     } catch {
+      setError(true);
       toast.error('Could not load payout data');
     } finally {
       setLoading(false);
@@ -519,8 +568,15 @@ export default function CreatorPayoutScreen() {
     try {
       const res = await requestWithdrawal(amount, bankDetails);
       if (res.success) {
-        toast.success('Withdrawal request submitted!');
-        load(true);
+        if (res.otpRequired && res.transferCode) {
+          // Paystack requires an OTP to finalize the transfer.
+          setPendingTransferCode(res.transferCode);
+          setOtpValue('');
+          setShowOtpSheet(true);
+        } else {
+          toast.success('Withdrawal request submitted!');
+          load(true);
+        }
       } else {
         toast.error('Could not process withdrawal. Try again.');
       }
@@ -528,6 +584,26 @@ export default function CreatorPayoutScreen() {
       toast.error('Withdrawal failed. Please try again.');
     } finally {
       setWithdrawing(false);
+    }
+  };
+
+  const doFinalize = async () => {
+    if (!pendingTransferCode || otpValue.length < 4) return;
+    setFinalizing(true);
+    try {
+      const res = await finalizeWithdrawal(pendingTransferCode, otpValue);
+      if (res.success) {
+        toast.success('Withdrawal confirmed!');
+        setShowOtpSheet(false);
+        setPendingTransferCode(null);
+        load(true);
+      } else {
+        toast.error('Could not confirm withdrawal. Try again.');
+      }
+    } catch {
+      toast.error('Confirmation failed. Please try again.');
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -549,6 +625,16 @@ export default function CreatorPayoutScreen() {
         <View style={{ width: 38 }} />
       </View>
 
+      {error && !loading ? (
+        <View style={{ flex: 1, paddingHorizontal: 20 }}>
+          <MsEmptyState
+            title="Couldn't load payouts"
+            message="Check your connection and try again."
+            actionLabel="Retry"
+            onAction={() => load()}
+          />
+        </View>
+      ) : (
       <FlatList
         data={withdrawals}
         keyExtractor={(item) => item.id}
@@ -652,6 +738,7 @@ export default function CreatorPayoutScreen() {
         renderItem={({ item }) => <WithdrawalRow item={item} />}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
+      )}
 
       {/* Bank details sheet */}
       <BankDetailsSheet
@@ -681,6 +768,44 @@ export default function CreatorPayoutScreen() {
         onConfirm={doWithdraw}
         onCancel={() => setConfirmWithdraw(null)}
       />
+
+      {/* Paystack OTP sheet (transfer requires finalizing) */}
+      <Modal visible={showOtpSheet} animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowOtpSheet(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
+        >
+          <View style={[amtS.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={amtS.handle} />
+            <View style={amtS.titleRow}>
+              <Text style={amtS.title}>Confirm Transfer</Text>
+              <TouchableOpacity onPress={() => setShowOtpSheet(false)} hitSlop={12}>
+                <X size={18} color={T.TEXT_2} />
+              </TouchableOpacity>
+            </View>
+            <Text style={amtS.availLabel}>
+              Enter the one-time password (OTP) emailed to you by Paystack to complete this transfer.
+            </Text>
+            <TextInput
+              style={[amtS.amountInput, { fontSize: 26, letterSpacing: 6, textAlign: 'center' }]}
+              value={otpValue}
+              onChangeText={(t) => setOtpValue(t.replace(/[^0-9]/g, '').slice(0, 6))}
+              placeholder="••••••"
+              placeholderTextColor={T.TEXT_3}
+              keyboardType="number-pad"
+              autoFocus
+            />
+            <TouchableOpacity
+              style={[amtS.withdrawBtn, (!otpValue || finalizing) && amtS.withdrawBtnDisabled]}
+              onPress={() => { if (otpValue && !finalizing) doFinalize(); }}
+              disabled={!otpValue || finalizing}
+              activeOpacity={0.85}
+            >
+              {finalizing ? <ActivityIndicator color={T.BG} size="small" /> : <Text style={amtS.withdrawLabel}>Confirm & Send</Text>}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }

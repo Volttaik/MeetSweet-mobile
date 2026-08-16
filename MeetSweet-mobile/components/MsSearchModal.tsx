@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -114,6 +115,16 @@ const TRENDING_TOPICS = [
 
 export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
   const insets = useSafeAreaInsets();
+  // Inside a `statusBarTranslucent` full-screen Modal the safe-area top inset
+  // can report 0 on Android (the modal draws under the translucent status bar
+  // but the root SafeAreaProvider still reports the main window). Fall back to
+  // the platform status-bar height so the search field is never hidden.
+  const topInset =
+    insets.top > 0
+      ? insets.top
+      : Platform.OS === 'android'
+        ? StatusBar.currentHeight ?? 24
+        : 0;
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -267,7 +278,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <Animated.View style={[styles.bg, { paddingTop: insets.top, opacity: fadeAnim }]}>
+      <Animated.View style={[styles.bg, { paddingTop: topInset, opacity: fadeAnim }]}>
         {/* Search bar */}
         <View style={styles.bar}>
           <View style={styles.inputWrap}>
@@ -367,6 +378,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
           <FlatList
             data={searching ? ([] as ResultItem[]) : results}
             keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingTop: 6, paddingBottom: insets.bottom + 40 }}
             ListHeaderComponent={searching ? (
               <View>

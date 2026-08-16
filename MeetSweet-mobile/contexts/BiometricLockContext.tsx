@@ -94,6 +94,9 @@ export function BiometricLockProvider({ children }: { children: React.ReactNode 
   const [locked, setLocked] = useState(false);
   const enabledRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState ?? 'active');
+  // Tracks a REAL backgrounding so we only re-arm after leaving the app,
+  // never on transient `inactive` transitions (see the AppState effect below).
+  const wentToBackgroundRef = useRef(false);
 
   // Arm the lock when a session exists and biometric protection is on.
   useEffect(() => {
@@ -114,16 +117,26 @@ export function BiometricLockProvider({ children }: { children: React.ReactNode 
     };
   }, [isAuthenticated]);
 
-  // Re-arm whenever the app returns from the background.
+  // Re-arm only after the app genuinely went to the background. The OS
+  // biometric prompt (Face ID / fingerprint) takes the app through an
+  // `inactive` state of its own, so treating `inactive → active` as "came
+  // back" re-locks the app immediately after a successful unlock and loops
+  // the prompt. Tracking `background` avoids that.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      const prev = appStateRef.current;
-      appStateRef.current = next;
-      const cameToForeground =
-        (prev === 'background' || prev === 'inactive') && next === 'active';
-      if (cameToForeground && enabledRef.current && isAuthenticated) {
+      if (next === 'background') {
+        wentToBackgroundRef.current = true;
+      }
+      if (
+        next === 'active' &&
+        wentToBackgroundRef.current &&
+        enabledRef.current &&
+        isAuthenticated
+      ) {
+        wentToBackgroundRef.current = false;
         setLocked(true);
       }
+      appStateRef.current = next;
     });
     return () => sub.remove();
   }, [isAuthenticated]);

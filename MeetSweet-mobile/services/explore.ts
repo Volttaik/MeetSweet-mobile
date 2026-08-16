@@ -81,10 +81,20 @@ function creatorFromExplore(raw: any): Creator {
     isVerified: Boolean(
       raw.is_verified ?? raw.isVerified ?? raw.is_verified_creator ?? false,
     ),
-    isOnline: false, // presence is not implemented server-side
+    isOnline: Boolean(raw.is_online ?? raw.isOnline ?? false),
     gradient: toneForId(raw.id ?? raw.username ?? ''),
     avatarUrl: raw.avatar_url ?? raw.avatarUrl ?? null,
     bannerUrl: raw.banner_url ?? raw.bannerUrl ?? null,
+    // Viewer's subscription state + price, when the backend provides them.
+    subscribedToCreator: Boolean(
+      raw.subscribed_to_creator ?? raw.subscribedToCreator ?? false,
+    ),
+    subscriptionTier:
+      (raw.subscription_tier ?? raw.subscriptionTier ?? null) as
+        | 'subscriber'
+        | 'subscriber_plus'
+        | null,
+    subscriptionPrice: numberFrom(raw.subscription_price ?? raw.subscriptionPrice),
   };
 }
 

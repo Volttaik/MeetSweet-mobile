@@ -17,7 +17,7 @@ import {
   View,
 } from 'react-native';
 import {
-  Check,
+  SealCheck,
   Images,
   Star,
   Users,
@@ -120,7 +120,7 @@ export function ExploreCreatorCard({
               {creator.name}
             </Text>
             {creator.isVerified && (
-              <Check size={14} color={T.TEXT} weight="fill" />
+              <SealCheck size={14} color={T.TEXT} weight="fill" />
             )}
           </View>
 

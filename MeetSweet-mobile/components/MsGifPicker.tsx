@@ -19,7 +19,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MagnifyingGlass, X } from 'phosphor-react-native';
+import { FilmStrip, MagnifyingGlass, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
 const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
@@ -166,7 +166,7 @@ export function MsGifPicker({ visible, onClose, onSelect }: Props) {
         {/* Content */}
         {!API_KEY ? (
           <View style={s.emptyWrap}>
-            <Text style={s.emptyIcon}>🎬</Text>
+            <FilmStrip size={36} color={T.TEXT_3} />
             <Text style={s.emptyTitle}>GIF Search Unavailable</Text>
             <Text style={s.emptyMsg}>
               Add EXPO_PUBLIC_GIPHY_API_KEY to your environment to enable GIF search.

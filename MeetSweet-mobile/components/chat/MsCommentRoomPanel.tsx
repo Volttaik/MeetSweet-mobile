@@ -45,7 +45,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowBendUpLeft, ChatCircle, Heart, SlidersHorizontal, Trash } from 'phosphor-react-native';
+import { ArrowBendUpLeft, ChatCircle, Heart, PaperPlaneRight, SlidersHorizontal, Trash, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { CommentShimmerSkeleton } from '@/components/MsCommentsSheet';
@@ -535,7 +535,7 @@ export function MsCommentRoomPanel({
           <View style={styles.panelHeaderRight}>
             {!roomEnabled && <Text style={styles.panelOff}>Off</Text>}
             <TouchableOpacity style={styles.closeBtn} onPress={closePanel} hitSlop={8} activeOpacity={0.7}>
-              <Text style={styles.closeBtnText}>✕</Text>
+              <X size={16} color={T.TEXT_2} weight="bold" />
             </TouchableOpacity>
           </View>
         </View>
@@ -604,7 +604,7 @@ export function MsCommentRoomPanel({
                 Replying to @{replyingTo.author.username || replyingTo.author.name}
               </Text>
               <Pressable onPress={() => setReplyingTo(null)} hitSlop={8}>
-                <Text style={styles.replyBarX}>✕</Text>
+                <X size={14} color={T.TEXT_2} weight="bold" />
               </Pressable>
             </View>
           )}
@@ -638,7 +638,7 @@ export function MsCommentRoomPanel({
                 {sending ? (
                   <ActivityIndicator size={12} color="#fff" />
                 ) : (
-                  <Text style={styles.sendBtnText}>↑</Text>
+                  <PaperPlaneRight size={15} color="#fff" weight="fill" />
                 )}
               </TouchableOpacity>
             </View>

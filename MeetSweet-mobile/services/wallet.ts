@@ -6,28 +6,18 @@ import { authFetch } from './api';
 
 export const WALLET_QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000];
 
-export const NIGERIAN_BANKS = [
-  { name: 'Access Bank', code: '044' },
-  { name: 'First Bank of Nigeria', code: '011' },
-  { name: 'Guaranty Trust Bank (GTBank)', code: '058' },
-  { name: 'Zenith Bank', code: '057' },
-  { name: 'United Bank for Africa (UBA)', code: '033' },
-  { name: 'Kuda Bank', code: '50211' },
-  { name: 'OPay', code: '999992' },
-  { name: 'PalmPay', code: '999991' },
-  { name: 'Fidelity Bank', code: '070' },
-  { name: 'Stanbic IBTC Bank', code: '221' },
-  { name: 'Sterling Bank', code: '232' },
-  { name: 'Wema Bank (ALAT)', code: '035' },
-  { name: 'Moniepoint Microfinance Bank', code: '50515' },
-];
+/** A supported bank, sourced from Paystack (server-authoritative). */
+export interface BankOption {
+  name: string;
+  code: string;
+}
 
 export interface Transaction {
   id: string;
   type: 'deposit' | 'withdrawal' | 'tip' | 'subscription' | 'purchase' | 'credit' | 'debit';
   amount: number;
   description: string;
-  status: 'completed' | 'pending' | 'failed' | 'success';
+  status: 'completed' | 'pending' | 'failed' | 'success' | 'processing' | 'reversed';
   createdAt: string;
 }
 
@@ -87,26 +77,24 @@ async function authedRequest<T>(
 // ─── Consumer Wallet Endpoints ────────────────────────────────────────────────
 
 export async function getWallet(): Promise<{ balance: number; currency: string; transactions: Transaction[] }> {
-  try {
-    const data = await authedRequest<any>('/wallet');
-    const balance = data?.balance ?? data?.wallet?.balance ?? 0;
-    const currency = data?.currency ?? 'NGN';
-    const rawTx = data?.transactions ?? data?.history ?? [];
-    const transactions: Transaction[] = Array.isArray(rawTx)
-      ? rawTx.map((t: any) => ({
-          id: t.id ?? String(Math.random()),
-          type: t.type ?? 'deposit',
-          amount: Number(t.amount ?? 0),
-          description: t.description ?? t.note ?? 'Wallet transaction',
-          status: t.status ?? 'completed',
-          createdAt: t.createdAt ?? t.created_at ?? new Date().toISOString(),
-        }))
-      : [];
+  // Errors propagate so the wallet screen can show a real error state instead
+  // of a fabricated ₦0 balance on a network failure.
+  const data = await authedRequest<any>('/wallet');
+  const balance = data?.balance ?? data?.wallet?.balance ?? 0;
+  const currency = data?.currency ?? 'NGN';
+  const rawTx = data?.transactions ?? data?.history ?? [];
+  const transactions: Transaction[] = Array.isArray(rawTx)
+    ? rawTx.map((t: any) => ({
+        id: t.id ?? String(Math.random()),
+        type: t.type ?? 'deposit',
+        amount: Number(t.amount ?? 0),
+        description: t.description ?? t.note ?? 'Wallet transaction',
+        status: t.status ?? 'completed',
+        createdAt: t.createdAt ?? t.created_at ?? new Date().toISOString(),
+      }))
+    : [];
 
-    return { balance, currency, transactions };
-  } catch {
-    return { balance: 0, currency: 'NGN', transactions: [] };
-  }
+  return { balance, currency, transactions };
 }
 
 export async function initiateWalletDeposit(amount: number): Promise<DepositInitResult> {
@@ -150,20 +138,42 @@ export async function verifyWalletDeposit(transactionId: string): Promise<{ succ
 // ─── Creator Payout Endpoints ─────────────────────────────────────────────────
 
 export async function getCreatorBalance(): Promise<CreatorBalance> {
-  try {
-    const data = await authedRequest<any>('/creator/wallet/balance');
-    const balance = Number(data?.balance ?? 0);
-    const pending_balance = Number(data?.pending_balance ?? data?.pendingBalance ?? 0);
-    const availableForWithdrawal = Number(data?.availableForWithdrawal ?? data?.available_balance ?? balance);
-    return {
-      balance,
-      currency: data?.currency ?? 'NGN',
-      pending_balance,
-      availableForWithdrawal,
-    };
-  } catch {
-    return { balance: 0, currency: 'NGN', pending_balance: 0, availableForWithdrawal: 0 };
-  }
+  // Errors propagate so the payout screen can show a real error state instead
+  // of a fabricated ₦0 balance on a network failure.
+  const data = await authedRequest<any>('/creator/wallet/balance');
+  const balance = Number(data?.balance ?? 0);
+  const pending_balance = Number(data?.pending_balance ?? data?.pendingBalance ?? 0);
+  const availableForWithdrawal = Number(
+    data?.availableForWithdrawal ?? data?.available_for_withdrawal ?? data?.available_balance ?? balance,
+  );
+  return {
+    balance,
+    currency: data?.currency ?? 'NGN',
+    pending_balance,
+    availableForWithdrawal,
+  };
+}
+
+/** Fetch the authoritative Nigerian bank list from Paystack (via the backend). */
+export async function getBanks(): Promise<BankOption[]> {
+  const data = await authedRequest<any>('/payments/banks');
+  const list = Array.isArray(data?.banks) ? data.banks : [];
+  return list
+    .map((b: any) => ({
+      name: b.name ?? b.bank_name ?? '',
+      code: String(b.code ?? b.bank_code ?? ''),
+    }))
+    .filter((b: BankOption) => b.name && b.code);
+}
+
+/** Resolve the real account-holder name via Paystack (via the backend). */
+export async function resolveAccountName(
+  accountNumber: string,
+  bankCode: string,
+): Promise<string> {
+  const qs = `account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`;
+  const data = await authedRequest<any>(`/payments/resolve-account?${qs}`);
+  return data?.accountName ?? data?.account_name ?? '';
 }
 
 export async function getBankDetails(): Promise<BankDetails | null> {
@@ -207,10 +217,23 @@ export async function saveBankDetails(details: BankDetails): Promise<{ success: 
   return { success: true };
 }
 
+export interface WithdrawalRequestResult {
+  success: boolean;
+  id: string;
+  amount: number;
+  status: string;
+  /** Paystack transfer code — present when the transfer was initiated. */
+  transferCode?: string;
+  /** True when the transfer needs finalizing with a Paystack OTP. */
+  otpRequired: boolean;
+}
+
 export async function requestWithdrawal(
   amount: number,
   bankDetails?: BankDetails,
-): Promise<{ success: boolean; id: string; amount: number; status: string }> {
+): Promise<WithdrawalRequestResult> {
+  // Bank details are resolved server-side from the saved bank details; the
+  // client copy is sent only for convenience and ignored by the server.
   const payload = {
     amount,
     ...(bankDetails ? {
@@ -229,23 +252,38 @@ export async function requestWithdrawal(
     id: resp.id ?? `wd_${Date.now()}`,
     amount: resp.amount ?? amount,
     status: resp.status ?? 'pending',
+    transferCode: resp.transfer_code ?? resp.transferCode,
+    otpRequired: Boolean(resp.otp_required ?? false),
+  };
+}
+
+/** Finalize an OTP-required Paystack transfer. */
+export async function finalizeWithdrawal(
+  transferCode: string,
+  otp: string,
+): Promise<{ success: boolean; status: string }> {
+  const resp = await authedRequest<any>('/creator/wallet/withdraw/finalize', {
+    method: 'POST',
+    body: JSON.stringify({ transfer_code: transferCode, otp }),
+  });
+  return {
+    success: Boolean(resp.success ?? false),
+    status: resp.status ?? 'processing',
   };
 }
 
 export async function getWithdrawalHistory(): Promise<{ withdrawals: WithdrawalRecord[] }> {
-  try {
-    const data = await authedRequest<any>('/creator/wallet/withdrawals');
-    const list = Array.isArray(data) ? data : data?.withdrawals ?? [];
-    const withdrawals: WithdrawalRecord[] = list.map((w: any) => ({
-      id: w.id ?? String(Math.random()),
-      amount: Number(w.amount ?? 0),
-      status: w.status ?? 'pending',
-      createdAt: w.createdAt ?? w.created_at ?? new Date().toISOString(),
-      bankName: w.bankName ?? w.bank_name ?? 'Bank',
-      accountNumber: w.accountNumber ?? w.account_number ?? '••••',
-    }));
-    return { withdrawals };
-  } catch {
-    return { withdrawals: [] };
-  }
+  // Errors propagate so the payout screen can show a real error state instead
+  // of an empty history on a network failure.
+  const data = await authedRequest<any>('/creator/wallet/withdrawals');
+  const list = Array.isArray(data) ? data : data?.withdrawals ?? [];
+  const withdrawals: WithdrawalRecord[] = list.map((w: any) => ({
+    id: w.id ?? String(Math.random()),
+    amount: Number(w.amount ?? 0),
+    status: w.status ?? 'pending',
+    createdAt: w.createdAt ?? w.created_at ?? new Date().toISOString(),
+    bankName: w.bankName ?? w.bank_name ?? 'Bank',
+    accountNumber: w.accountNumber ?? w.account_number ?? '••••',
+  }));
+  return { withdrawals };
 }

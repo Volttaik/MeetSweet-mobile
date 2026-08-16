@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Users } from 'phosphor-react-native';
+import { Users, SealCheck } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 
@@ -56,9 +56,12 @@ export function MsCreatorCard({
           showOnline={creator.isOnline}
           imageUri={creator.avatarUrl ?? undefined}
         />
-        <Text style={styles.compactName} numberOfLines={1}>
-          {creator.name.split(' ')[0]}
-        </Text>
+        <View style={styles.compactNameRow}>
+          <Text style={styles.compactName} numberOfLines={1}>
+            {creator.name.split(' ')[0]}
+          </Text>
+          {creator.isVerified && <SealCheck size={12} color={T.TEXT} weight="fill" />}
+        </View>
         <Text style={styles.compactHandle} numberOfLines={1}>{creator.handle}</Text>
       </TouchableOpacity>
     );
@@ -84,8 +87,11 @@ export function MsCreatorCard({
         </View>
       ) : null}
 
-      {/* Name + handle */}
-      <Text style={styles.featuredName} numberOfLines={1}>{creator.name}</Text>
+      {/* Name + verified checkmark + handle */}
+      <View style={styles.featuredNameRow}>
+        <Text style={styles.featuredName} numberOfLines={1}>{creator.name}</Text>
+        {creator.isVerified && <SealCheck size={14} color={T.TEXT} weight="fill" />}
+      </View>
       <Text style={styles.featuredHandle} numberOfLines={1}>{creator.handle}</Text>
       {creator.bio ? (
         <Text style={styles.featuredBio} numberOfLines={2}>{creator.bio}</Text>
@@ -129,6 +135,14 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
     textAlign: 'center',
+    flexShrink: 1,
+  },
+  compactNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    maxWidth: 76,
+    justifyContent: 'center',
   },
   compactHandle: {
     fontSize: 10,
@@ -177,6 +191,12 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
     marginTop: 2,
+    flexShrink: 1,
+  },
+  featuredNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   featuredHandle: {
     fontSize: 11,

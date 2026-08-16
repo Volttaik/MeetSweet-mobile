@@ -17,10 +17,8 @@ import {
   Alert,
   Animated,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   PanResponder,
-  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -29,11 +27,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowBendUpLeft,
   ChatCircle,
   Heart,
+  PaperPlaneRight,
   Pencil,
   Trash,
   X,
@@ -186,8 +186,16 @@ export function useComments(postId: string) {
           return;
         }
         setCommentRoomId(roomId);
-        const roomResult = await getCommentRoom(roomId);
-        setCommentsEnabled(roomResult.commentsEnabled);
+        // Room metadata is optional — comments are fetched from the room
+        // directly. A metadata failure must NOT block the comment list (it
+        // would otherwise surface a spurious "Could not load comments" when
+        // only the metadata endpoint is unavailable).
+        try {
+          const roomResult = await getCommentRoom(roomId);
+          setCommentsEnabled(roomResult.commentsEnabled);
+        } catch {
+          setCommentsEnabled(true);
+        }
       }
       const res = await getRoomComments(roomId, {});
       const localComments = res.comments.map(toLocalComment);
@@ -663,7 +671,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
       <View style={sheetStyles.overlay}>
         <Pressable style={sheetStyles.backdrop} onPress={onClose} />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="padding"
           style={sheetStyles.sheetContainer}
         >
           <Animated.View style={{ flex: 1, transform: [{ translateY: dragY }] }}>
@@ -812,7 +820,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   {sending ? (
                     <ActivityIndicator size={12} color="#FFFFFF" />
                   ) : (
-                    <Text style={sheetStyles.sendArrow}>↑</Text>
+                    <PaperPlaneRight size={16} color="#FFFFFF" weight="fill" />
                   )}
                 </TouchableOpacity>
               </View>

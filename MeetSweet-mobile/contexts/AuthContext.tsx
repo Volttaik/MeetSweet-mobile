@@ -35,6 +35,10 @@ export interface User {
   subscriberCount: number;
   subscribingCount: number;
   postCount: number;
+  subscriptionPrice: number;
+  subscriptionPlusPrice: number;
+  category: string | null;
+  isOnline: boolean;
   createdAt: string;
 }
 
@@ -99,6 +103,10 @@ export function normalizeUser(raw: any): User {
       subscriberCount: 0,
       subscribingCount: 0,
       postCount: 0,
+      subscriptionPrice: 0,
+      subscriptionPlusPrice: 0,
+      category: null,
+      isOnline: false,
       createdAt: new Date().toISOString(),
     };
   }
@@ -121,6 +129,10 @@ export function normalizeUser(raw: any): User {
     subscriberCount: Number(raw.subscriber_count ?? raw.subscriberCount ?? raw.subscribers_count ?? raw.subscribersCount ?? 0),
     subscribingCount: Number(raw.subscription_count ?? raw.subscriptionCount ?? raw.subscribing_count ?? raw.subscribingCount ?? raw.following_count ?? raw.followingCount ?? 0),
     postCount: Number(raw.post_count ?? raw.postCount ?? raw.posts_count ?? raw.postsCount ?? 0),
+    subscriptionPrice: Number(raw.subscription_price ?? raw.subscriptionPrice ?? 0),
+    subscriptionPlusPrice: Number(raw.subscription_plus_price ?? raw.subscriptionPlusPrice ?? 0),
+    category: raw.category ? String(raw.category) : null,
+    isOnline: Boolean(raw.is_online ?? raw.isOnline ?? false),
     createdAt: String(raw.created_at ?? raw.createdAt ?? new Date().toISOString()),
   };
 }

@@ -434,7 +434,7 @@ export default function VideoWatchScreen() {
                   {post.author.name || post.author.username}
                 </Text>
                 {post.author.isVerified && (
-                  <SealCheck size={14} color={T.ACCENT} weight="fill" />
+                  <SealCheck size={14} color={T.TEXT} weight="fill" />
                 )}
               </View>
               <Text style={styles.creatorHandle}>@{post.author.username}</Text>

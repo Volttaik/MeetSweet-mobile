@@ -19,7 +19,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowUp, ArrowLeft, ChatCircle, CheckCircle, Heart, ShareNetwork, Users } from 'phosphor-react-native';
+import { ArrowUp, ArrowLeft, ChatCircle, SealCheck, Heart, ShareNetwork, Users } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAvatar } from '@/components/MsAvatar';
 import { CommentsModal } from '@/components/MsCommentsSheet';
@@ -424,7 +424,7 @@ function ShortPage({
         >
           <MsAvatar size={38} initials={item.creator.name.slice(0, 2).toUpperCase()} imageUri={item.creator.avatarUrl ?? undefined} />
           <Text style={styles.creatorName}>{item.creator.name}</Text>
-          {item.creator.isVerified ? <CheckCircle size={15} color="#fff" weight="fill" /> : null}
+          {item.creator.isVerified ? <SealCheck size={15} color="#fff" weight="fill" /> : null}
           <PressScale style={styles.subscribe} onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}>
             <Users size={12} color={T.BG} />
             <Text style={styles.subscribeText}>Subscribe</Text>

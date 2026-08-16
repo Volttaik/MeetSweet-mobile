@@ -54,10 +54,10 @@ function DiscoveryState() {
         name: c.name || c.username || 'Creator',
         handle: c.username ? `@${c.username}` : '@creator',
         bio: c.bio || undefined,
-        category: c.role === 'creator' ? 'CREATOR' : undefined,
+        category: c.category ?? undefined,
         subscriberCount: c.subscriberCount ? `${c.subscriberCount}` : undefined,
-        subscriptionPrice: 200,
-        isOnline: false,
+        subscriptionPrice: c.subscriptionPrice,
+        isOnline: c.isOnline,
         isVerified: c.isVerified,
         avatarUrl: c.avatarUrl,
       }));

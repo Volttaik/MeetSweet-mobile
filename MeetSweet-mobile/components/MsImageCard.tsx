@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Check, Heart } from 'phosphor-react-native';
+import { SealCheck, Heart } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsTierBadge } from '@/components/MsTierBadge';
@@ -120,7 +120,7 @@ export function MsImageCard({
                 {card.creatorName}
               </Text>
               {card.creatorIsVerified && (
-                <Check size={10} color="rgba(255,255,255,0.75)" weight="fill" />
+                <SealCheck size={10} color="rgba(255,255,255,0.75)" weight="fill" />
               )}
             </View>
           </TouchableOpacity>

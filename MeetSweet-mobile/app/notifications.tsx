@@ -72,6 +72,23 @@ function initials(name: string): string {
     .join('');
 }
 
+function notificationMessage(n: Notification): string {
+  if (n.body && n.body.trim().length > 0) return n.body.trim();
+  const fallback: Record<string, string> = {
+    like: 'liked your post',
+    comment: 'commented on your post',
+    reply: 'replied to your comment',
+    follow: 'started following you',
+    subscribe: 'just subscribed to you',
+    new_post: 'posted something new',
+    mention: 'mentioned you',
+    message: 'sent you a message',
+    payment: 'sent you a payment',
+    withdrawal: 'updated your withdrawal',
+  };
+  return fallback[n.type] ?? 'sent you a notification';
+}
+
 // ─── Notification row ─────────────────────────────────────────────────────────
 
 function NotifRow({
@@ -101,10 +118,7 @@ function NotifRow({
       <View style={styles.notifContent}>
         <Text style={styles.notifBody} numberOfLines={2}>
           <Text style={styles.notifActor}>{actorName} </Text>
-          {item.body
-            .replace(/^.*?sent you|^.*?liked|^.*?subscribed|^.*?commented/, (m) =>
-              m.split(/\s/).slice(1).join(' '),
-            )}
+          {notificationMessage(item)}
         </Text>
         <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
       </View>

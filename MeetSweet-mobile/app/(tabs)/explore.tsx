@@ -36,6 +36,7 @@ import {
 import { useLocalAlbumCatalog } from '@/services/albums';
 import type { AlbumCardData } from '@/services/albums';
 import { blockUser } from '@/services/users';
+import { subscribe } from '@/services/subscriptions';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
@@ -43,6 +44,7 @@ import {
   MsRecommendedCreatorRow,
 } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
+import { toast } from '@/components/MsToast';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
@@ -237,6 +239,12 @@ export default function ExploreScreen() {
 
   const [menuCreator, setMenuCreator] = useState<Creator | null>(null);
 
+  // Subscription state — server-confirmed. `subscribedIds` reflects creators the
+  // user subscribed to during THIS session; `creator.subscribedToCreator` is the
+  // authoritative state returned by /explore on load/refetch.
+  const [subscribedIds, setSubscribedIds] = useState<Set<string>>(new Set());
+  const [subscribingId, setSubscribingId] = useState<string | null>(null);
+
   // ── Data hooks ───────────────────────────────────────────────────────────────
   const catalogQuery = useLocalExploreCatalog();
   const feedQuery    = useExploreFeed();
@@ -363,6 +371,38 @@ export default function ExploreScreen() {
 
   // ── Actions ────────────────────────────────────────────────────────────────────
   const openCreator = (creator: Creator) => navToCreatorId(creator.id, creator.handle);
+
+  // Subscribe from the Creators section. State is ONLY updated after the server
+  // confirms the subscription (subscribe() returns the authoritative tier +
+  // subscriber count) — never optimistically.
+  const handleSubscribe = useCallback(
+    async (creator: Creator) => {
+      if (subscribingId) return;
+      setSubscribingId(creator.id);
+      try {
+        await subscribe(creator.id, 'subscriber');
+        setSubscribedIds((prev) => {
+          const next = new Set(prev);
+          next.add(creator.id);
+          return next;
+        });
+        toast.success(`Subscribed to ${creator.name}!`);
+        // Re-fetch authoritative catalog state so the subscriber count and
+        // subscribed flag stay correct when the user returns later.
+        catalogQuery.refetch();
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        toast.error(
+          code === 'INSUFFICIENT_BALANCE'
+            ? 'Insufficient wallet balance. Top up to subscribe.'
+            : (err as Error).message || 'Could not subscribe. Please try again.',
+        );
+      } finally {
+        setSubscribingId(null);
+      }
+    },
+    [subscribingId, catalogQuery],
+  );
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -742,6 +782,9 @@ export default function ExploreScreen() {
                       onPress={() => openCreator(creator)}
                       onLongPress={() => setMenuCreator(creator)}
                       onAvatarPress={() => openCreator(creator)}
+                      onSubscribe={() => handleSubscribe(creator)}
+                      isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
+                      subscribing={subscribingId === creator.id}
                     />
                   ))}
                 </ScrollView>
@@ -791,6 +834,9 @@ export default function ExploreScreen() {
                       onPress={() => openCreator(creator)}
                       onLongPress={() => setMenuCreator(creator)}
                       onAvatarPress={() => openCreator(creator)}
+                      onSubscribe={() => handleSubscribe(creator)}
+                      isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
+                      subscribing={subscribingId === creator.id}
                     />
                   ))}
                 </View>
@@ -883,6 +929,9 @@ export default function ExploreScreen() {
                       onPress={() => openCreator(creator)}
                       onLongPress={() => setMenuCreator(creator)}
                       onAvatarPress={() => openCreator(creator)}
+                      onSubscribe={() => handleSubscribe(creator)}
+                      isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
+                      subscribing={subscribingId === creator.id}
                     />
                   ))}
                 </View>

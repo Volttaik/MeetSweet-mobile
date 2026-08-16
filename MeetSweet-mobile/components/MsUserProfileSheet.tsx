@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowRight, CheckCircle, X } from 'phosphor-react-native';
+import { ArrowRight, SealCheck, X } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -90,7 +90,7 @@ export function MsUserProfileSheet({
         <View style={s.nameRow}>
           <Text style={s.displayName}>{user.name}</Text>
           {user.isVerified && (
-            <CheckCircle size={18} color={T.ACCENT} weight="fill" />
+            <SealCheck size={16} color={T.TEXT} weight="fill" />
           )}
         </View>
         <Text style={s.usernameText}>@{user.username}</Text>

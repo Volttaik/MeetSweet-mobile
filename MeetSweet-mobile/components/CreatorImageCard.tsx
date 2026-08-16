@@ -19,7 +19,7 @@ import {
   View,
 } from 'react-native';
 import {
-  CheckCircle,
+  SealCheck,
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -109,7 +109,7 @@ export function CreatorImageCard({
             showOnline={card.creatorIsOnline}
           />
           {card.creatorIsVerified && (
-            <CheckCircle size={11} color="rgba(255,255,255,0.8)" weight="fill" />
+            <SealCheck size={11} color={T.TEXT} weight="fill" />
           )}
         </TouchableOpacity>
 

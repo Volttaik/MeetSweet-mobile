@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   CaretRight,
   Check,
+  SealCheck,
   ChatCircle,
   Lock,
   Sparkle,
@@ -31,7 +32,7 @@ import {
 import { blockUser, reportUser, searchUsers } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
-import { getOrCreateChatRoom } from '@/services/room-service';
+import { getOrCreateChatRoom, getChatRoomList, type ChatRoom } from '@/services/room-service';
 import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
@@ -50,6 +51,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { Post } from '@/services/posts';
 import type { AlbumCardData } from '@/services/albums';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
+import { toast } from '@/components/MsToast';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
@@ -515,8 +517,9 @@ export default function CreatorProfileScreen() {
     if (!creatorId || !currentUser) return;
     getCreatorMessagingSettings(creatorId)
       .then((s) => {
+        // Only messaging policy comes from this endpoint. Subscription state is
+        // authoritative from applyProfile (getCreatorById, now authenticated).
         setWhoCanMessage(s.who_can_message);
-        setIsSubscribed(s.subscribed);
       })
       .catch(() => {});
   }, [creatorFullProfile?.userId, currentUser?.id]);
@@ -549,6 +552,22 @@ export default function CreatorProfileScreen() {
     setSheetOpen(true);
   };
 
+  // Open a piece of content. Locked (subscriber-gated) content routes to the
+  // subscribe sheet instead of the detail screen so the user can unlock it.
+  const openPost = (post: Post) => {
+    if (post.isLocked || post.is_locked) {
+      handleSubscribePress();
+      return;
+    }
+    if (post.contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: post.id } });
+    } else if (post.contentType === 'video') {
+      router.push(`/videos/${post.id}`);
+    } else {
+      router.push(`/post/${post.id}`);
+    }
+  };
+
   // Handle message button based on messaging restrictions
   const handleMessagePress = async () => {
     // Can't message
@@ -570,11 +589,11 @@ export default function CreatorProfileScreen() {
       return;
     }
 
-    // Full-screen creation loader covers the entire flow: resolve user →
-    // subscription check → backend room create → navigate. The frontend never
-    // generates the chatRoomId; the backend returns it.
+    // Resolve user → subscription check → find-or-create room → navigate.
+    // The "Creating chatroom…" loader is shown ONLY when a room is genuinely
+    // created; existing rooms open directly. The frontend never generates the
+    // chatRoomId; the backend returns it.
     setLoadingMessaging(true);
-    setCreatingRoom(true);
     try {
       const creatorUsername = (
         realProfile?.username ??
@@ -603,7 +622,6 @@ export default function CreatorProfileScreen() {
       // point obey the same policy as search and the backend.
       const access = await getCreatorMessagingSettings(creatorUserId);
       setWhoCanMessage(access.who_can_message);
-      setIsSubscribed(access.subscribed);
       if (!access.can_message) {
         // Subscription required (or messaging disabled) — do NOT create a room.
         // Route the user to the creator profile's subscribe sheet instead.
@@ -623,28 +641,40 @@ export default function CreatorProfileScreen() {
         return;
       }
 
-      // Idempotent open: if a room for this peer already exists (cached from a
-      // previous message), open it directly — never pretend to create a new
-      // chatroom when one already exists. Only fall through to the backend
-      // create/find path when no cached room matches.
-      const cachedRooms = await getCachedChatRooms().catch(() => []);
-      const existingRoom = cachedRooms.find((r) =>
-        r.chatRoomId &&
+      // Idempotent open — find any EXISTING room before ever creating one, so
+      // the user never sees "Creating chatroom…" for a room that already
+      // exists. Check the local cache first, then the canonical server list.
+      const matchesPeer = (r: ChatRoom) =>
+        Boolean(r.chatRoomId) &&
         ((r.otherUser?.id && r.otherUser.id === creatorUserId) ||
-          (r.participants ?? []).some((p) => p.id === creatorUserId)),
-      );
-      if (existingRoom?.chatRoomId) {
-        setCreatingRoom(false);
+          r.participants.some((p) => p.id === creatorUserId));
+
+      const cachedRooms = await getCachedChatRooms().catch(() => []);
+      const cachedMatch = cachedRooms.find(matchesPeer);
+      if (cachedMatch?.chatRoomId) {
         router.push({
           pathname: '/chat-room/[chatRoomId]',
-          params: { chatRoomId: existingRoom.chatRoomId },
+          params: { chatRoomId: cachedMatch.chatRoomId },
         });
         return;
       }
 
-      // No cached room — ask the backend to find-or-create the Chat Room. The
-      // backend deduplicates (one room per pair), so re-opening is idempotent.
+      const serverRooms = await getChatRoomList('all').catch(() => ({ chatRooms: [] }));
+      const serverMatch = serverRooms.chatRooms.find(matchesPeer);
+      if (serverMatch?.chatRoomId) {
+        await cacheChatRooms(serverRooms.chatRooms).catch(() => {});
+        router.push({
+          pathname: '/chat-room/[chatRoomId]',
+          params: { chatRoomId: serverMatch.chatRoomId },
+        });
+        return;
+      }
+
+      // Genuinely no room exists — create one. Only now show the full-screen
+      // creation loader, since this is the only path that actually creates.
+      setCreatingRoom(true);
       const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
+      setCreatingRoom(false);
       await cacheChatRooms([chatRoom]).catch(() => {});
       router.push({
         pathname: '/chat-room/[chatRoomId]',
@@ -666,6 +696,7 @@ export default function CreatorProfileScreen() {
     name: string; username: string; bio?: string | null;
     avatarUrl?: string | null; bannerUrl?: string | null;
     subscriberCount?: number; isVerified?: boolean;
+    category?: string | null; isOnline?: boolean;
   } | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [creatorPosts, setCreatorPosts] = useState<Post[]>([]);
@@ -691,6 +722,8 @@ export default function CreatorProfileScreen() {
       bannerUrl:       profile.bannerUrl,
       subscriberCount: profile.subscriberCount,
       isVerified:      profile.isVerified,
+      category:        profile.category,
+      isOnline:        profile.isOnline,
     });
   }, []);
 
@@ -749,10 +782,10 @@ export default function CreatorProfileScreen() {
       handle:          resolvedHandle,
       initials:        resolvedInitials,
       bio:             resolvedBio,
-      category:        '',
+      category:        profile.category ?? '',
       subscriberCount: resolvedSubscriberCount,
       isVerified:      resolvedIsVerified,
-      isOnline:        false,
+      isOnline:        profile.isOnline ?? false,
       gradient:        'violet',
       avatarUrl:       profile.avatarUrl,
       bannerUrl:       profile.bannerUrl,
@@ -874,7 +907,7 @@ export default function CreatorProfileScreen() {
           </View>
           <View style={styles.nameRow}>
             <Text style={styles.name}>{creator.name}</Text>
-            {creator.isVerified && <Check size={16} color={T.ACCENT} />}
+            {creator.isVerified && <SealCheck size={16} color={T.TEXT} weight="fill" />}
           </View>
           <Text style={styles.handle}>
             {creator.handle}
@@ -906,30 +939,53 @@ export default function CreatorProfileScreen() {
             </View>
           </View>
 
-          {/* Subscribe button — reflects the authoritative server state so a
-              subscribed user never sees a contradictory "Subscribe" CTA. */}
-          <TouchableOpacity
-            style={[
-              styles.subscribeButton,
-              isSubscribed && styles.subscribeButtonSubscribed,
-            ]}
-            onPress={handleSubscribePress}
-            activeOpacity={0.85}
-          >
-            {isSubscribed ? (
-              <>
-                <Check size={16} color={T.TEXT_2} weight="bold" />
-                <Text style={styles.subscribeBtnLabelSubscribed}>
-                  {currentTier === 'subscriber_plus' ? 'Subscriber+' : 'Subscribed'}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Lock size={16} color={T.BG} />
-                <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
-              </>
+          {/* Subscribe button — reflects the authoritative server state: price
+              when unsubscribed, current state + Upgrade when a base subscriber,
+              and the highest tier with no upgrade when Subscriber+. */}
+          <View style={styles.subscribeRow}>
+            <TouchableOpacity
+              style={[
+                styles.subscribeButton,
+                isSubscribed && styles.subscribeButtonSubscribed,
+                currentTier === 'subscriber_plus' && styles.subscribeButtonPlus,
+              ]}
+              onPress={handleSubscribePress}
+              activeOpacity={0.85}
+            >
+              {currentTier === 'subscriber_plus' ? (
+                <>
+                  <Star size={16} color="#E8A020" weight="fill" />
+                  <Text style={styles.subscribeBtnLabelPlus}>Subscriber+</Text>
+                </>
+              ) : isSubscribed ? (
+                <>
+                  <Check size={16} color={T.TEXT_2} weight="bold" />
+                  <Text style={styles.subscribeBtnLabelSubscribed}>Subscribed</Text>
+                </>
+              ) : (
+                <>
+                  <Lock size={16} color={T.BG} />
+                  <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
+                  {(creatorFullProfile?.subscriptionPrice ?? 0) > 0 && (
+                    <Text style={styles.subscribeBtnPrice}>
+                      · ₦{(creatorFullProfile?.subscriptionPrice ?? 0).toLocaleString()}/mo
+                    </Text>
+                  )}
+                </>
+              )}
+            </TouchableOpacity>
+
+            {isSubscribed && currentTier === 'subscriber' && (
+              <TouchableOpacity
+                style={styles.upgradeButton}
+                onPress={handleSubscribePress}
+                activeOpacity={0.85}
+              >
+                <Star size={16} color="#E8A020" weight="fill" />
+                <Text style={styles.upgradeBtnLabel}>Upgrade</Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </View>
 
           {/* Message button - shown when viewing another user's profile and not own profile */}
           {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
@@ -964,49 +1020,29 @@ export default function CreatorProfileScreen() {
           )}
         </View>
 
-        {/* ── Subscription wall — non-subscribers see a CTA instead of tabs ── */}
-        {!isSubscribed && currentUser && currentUser.username !== (realProfile?.username ?? id) && (
-          <View style={styles.subWall}>
-            <Lock size={28} color={T.ACCENT} />
-            <Text style={styles.subWallTitle}>Subscribe to see {creator.name}'s content</Text>
-            <Text style={styles.subWallBody}>
-              Subscribe to unlock their full feed — posts, videos, shorts, and subscriber-only content.
-            </Text>
+        {/* ── Tabs — always visible; each item is gated individually ── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScroll}
+          style={styles.tabs}
+        >
+          {TABS.map((tab) => (
             <TouchableOpacity
-              style={styles.subWallBtn}
-              onPress={handleSubscribePress}
-              activeOpacity={0.85}
+              key={tab.key}
+              style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+              onPress={() => setActiveTab(tab.key)}
+              activeOpacity={0.7}
             >
-              <Text style={styles.subWallBtnLabel}>Subscribe</Text>
+              <Text style={[styles.tabLabel, activeTab === tab.key && styles.tabLabelActive]}>
+                {tab.label}
+              </Text>
             </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ── Tabs (only shown when subscribed or own profile) ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabsScroll}
-            style={styles.tabs}
-          >
-            {TABS.map((tab) => (
-              <TouchableOpacity
-                key={tab.key}
-                style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-                onPress={() => setActiveTab(tab.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabLabel, activeTab === tab.key && styles.tabLabelActive]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
+          ))}
+        </ScrollView>
 
         {/* ── Posts tab ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'posts' && (
+        {activeTab === 'posts' && (
           <View style={styles.tabContent}>
             {postsLoading ? (
               <View style={styles.dropsGrid}>
@@ -1019,15 +1055,8 @@ export default function CreatorProfileScreen() {
                     key={post.id}
                     post={post}
                     onAuthorPress={() => undefined}
-                    onPress={() => {
-                      if (post.contentType === 'short') {
-                        router.push({ pathname: '/shorts', params: { startId: post.id } });
-                      } else if (post.contentType === 'video') {
-                        router.push(`/videos/${post.id}`);
-                      } else {
-                        router.push(`/post/${post.id}`);
-                      }
-                    }}
+                    onSubscribe={handleSubscribePress}
+                    onPress={() => openPost(post)}
                   />
                 ))}
               </View>
@@ -1038,7 +1067,7 @@ export default function CreatorProfileScreen() {
         )}
 
         {/* ── Videos tab ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'videos' && (
+        {activeTab === 'videos' && (
           <View style={styles.tabContent}>
             {videosLoading ? (
               <View style={styles.dropsGrid}><MsPostSkeleton /><MsPostSkeleton /></View>
@@ -1049,7 +1078,8 @@ export default function CreatorProfileScreen() {
                     key={v.id}
                     post={v}
                     onAuthorPress={() => undefined}
-                    onPress={() => router.push(`/videos/${v.id}`)}
+                    onSubscribe={handleSubscribePress}
+                    onPress={() => openPost(v)}
                   />
                 ))}
               </View>
@@ -1060,7 +1090,7 @@ export default function CreatorProfileScreen() {
         )}
 
         {/* ── Shorts tab ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'shorts' && (
+        {activeTab === 'shorts' && (
           <View style={styles.tabContent}>
             {shortsLoading ? (
               <View style={styles.dropsGrid}><MsPostSkeleton /><MsPostSkeleton /></View>
@@ -1071,7 +1101,8 @@ export default function CreatorProfileScreen() {
                     key={s.id}
                     post={s}
                     onAuthorPress={() => undefined}
-                    onPress={() => router.push({ pathname: '/shorts', params: { startId: s.id } })}
+                    onSubscribe={handleSubscribePress}
+                    onPress={() => openPost(s)}
                   />
                 ))}
               </View>
@@ -1082,7 +1113,7 @@ export default function CreatorProfileScreen() {
         )}
 
         {/* ── Albums tab ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'albums' && (
+        {activeTab === 'albums' && (
           <View style={styles.tabContent}>
             {albumsLoading ? (
               <View style={styles.dropsGrid}><MsPostSkeleton /><MsPostSkeleton /></View>
@@ -1104,7 +1135,7 @@ export default function CreatorProfileScreen() {
         )}
 
         {/* ── Reviews tab ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'reviews' && (
+        {activeTab === 'reviews' && (
           <View style={styles.tabContent}>
             {reviewsQuery.isLoading ? (
               <View style={styles.reviewLoading}><Spinner color="default" size="sm" /></View>
@@ -1128,7 +1159,7 @@ export default function CreatorProfileScreen() {
         )}
 
         {/* ── About tab ── */}
-        {(isSubscribed || !currentUser || currentUser.username === (realProfile?.username ?? id)) && activeTab === 'about' && (
+        {activeTab === 'about' && (
           <View style={styles.tabContent}>
             <View style={styles.aboutCard}>
               <Users size={18} color={T.TEXT_2} />
@@ -1162,7 +1193,14 @@ export default function CreatorProfileScreen() {
               )}
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Verified</Text>
-                <Text style={styles.infoValue}>{creator.isVerified ? '✓ Verified creator' : 'Not verified'}</Text>
+                {creator.isVerified ? (
+                  <View style={styles.verifiedValueRow}>
+                    <SealCheck size={14} color={T.ACCENT} weight="fill" />
+                    <Text style={styles.infoValue}>Verified creator</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.infoValue}>Not verified</Text>
+                )}
               </View>
             </View>
           </View>
@@ -1197,9 +1235,10 @@ export default function CreatorProfileScreen() {
             }
 
             setSheetOpen(false);
-            Alert.alert(
-              plan === 'subscriber_plus' ? 'Upgraded to Subscriber+!' : 'Subscribed!',
-              `You now have access to ${creator.name}'s content.`,
+            toast.success(
+              plan === 'subscriber_plus'
+                ? `Upgraded to Subscriber+ — you now have access to ${creator.name}'s content.`
+                : `Subscribed to ${creator.name}!`,
             );
 
             // Re-fetch the authoritative profile so subscription state, counts,
@@ -1221,8 +1260,8 @@ export default function CreatorProfileScreen() {
             const msg =
               (err as { message?: string; code?: string }).code === 'INSUFFICIENT_BALANCE'
                 ? 'Insufficient wallet balance. Top up to subscribe.'
-                : ((err as Error).message ?? 'Please try again.');
-            Alert.alert('Subscription failed', msg);
+                : ((err as Error).message ?? 'Subscription failed. Please try again.');
+            toast.error(msg);
           } finally {
             setSubscribing(false);
           }
@@ -1250,7 +1289,10 @@ export default function CreatorProfileScreen() {
             onPress: async () => {
               setMoreSheetOpen(false);
               try {
-                const shareLink = await createShareLink('creator', creator.id);
+                const shareLink = await createShareLink(
+                  'creator',
+                  creatorFullProfile?.userId ?? creator.id,
+                );
                 const url = shareLink.url || `https://meetsweet.space/${creator.handle}`;
                 await Share.share({
                   title: creator.name,
@@ -1387,18 +1429,49 @@ const styles = StyleSheet.create({
   },
   metricDivider: { width: 1, height: 24, backgroundColor: T.BORDER_2 },
 
+  subscribeRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
   subscribeButton: {
-    width: '100%', marginTop: 10, height: 52,
-    borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    flex: 1,
+    height: 52,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   subscribeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
+  subscribeBtnPrice: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.BG },
   subscribeButtonSubscribed: {
     backgroundColor: T.SURFACE,
     borderWidth: 1,
     borderColor: T.BORDER,
   },
   subscribeBtnLabelSubscribed: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT_2 },
+  subscribeButtonPlus: {
+    backgroundColor: 'rgba(232,160,32,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,160,32,0.45)',
+  },
+  subscribeBtnLabelPlus: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#E8A020' },
+  upgradeButton: {
+    height: 52,
+    paddingHorizontal: 20,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: 'rgba(232,160,32,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,160,32,0.45)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  upgradeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#E8A020' },
 
   // Message button
   messageButton: {
@@ -1481,48 +1554,10 @@ const styles = StyleSheet.create({
   infoDivider: { height: 1, backgroundColor: T.BORDER, marginHorizontal: 16 },
   infoLabel: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2 },
   infoValue: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
+  verifiedValueRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   onlineDot: { width: 8, height: 8, borderRadius: 4 },
 
   // Drops tab — vertical list of full-width content cards
   dropsGrid: { gap: 16 },
-
-  // Subscription wall
-  subWall: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 36,
-    marginTop: 16,
-    gap: 10,
-  },
-  subWallTitle: {
-    fontSize: 18,
-    fontFamily: T.FONT.bold,
-    color: T.TEXT,
-    textAlign: 'center',
-    letterSpacing: -0.3,
-    marginTop: 6,
-  },
-  subWallBody: {
-    fontSize: 13,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_2,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 4,
-  },
-  subWallBtn: {
-    width: '100%',
-    height: 52,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.ACCENT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-  },
-  subWallBtnLabel: {
-    fontSize: 15,
-    fontFamily: T.FONT.semibold,
-    color: T.BG,
-  },
 });

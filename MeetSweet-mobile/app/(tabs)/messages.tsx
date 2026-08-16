@@ -13,7 +13,17 @@ import {
 import { Spinner } from 'heroui-native';
 import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PencilSimple, Plus, MagnifyingGlass, X } from 'phosphor-react-native';
+import {
+  PencilSimple,
+  Plus,
+  MagnifyingGlass,
+  X,
+  Image,
+  VideoCamera,
+  Microphone,
+  Paperclip,
+  type Icon,
+} from 'phosphor-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -67,6 +77,20 @@ function initials(name: string): string {
     .join('');
 }
 
+/**
+ * Deterministic chat-room ordering — newest activity first, with a stable
+ * tie-break on chatRoomId so the list NEVER rearranges between cache, API,
+ * and poll refreshes. Every code path that sets `chatRooms` MUST use this.
+ */
+function sortRooms(rooms: ChatRoom[]): ChatRoom[] {
+  return [...rooms].sort((a, b) => {
+    const ta = new Date(a.lastMessageAt ?? a.createdAt).getTime();
+    const tb = new Date(b.lastMessageAt ?? b.createdAt).getTime();
+    if (tb !== ta) return tb - ta;
+    return a.chatRoomId < b.chatRoomId ? -1 : a.chatRoomId > b.chatRoomId ? 1 : 0;
+  });
+}
+
 // ─── Chat Room row ────────────────────────────────────────────────────────────
 
 function ChatRoomRow({
@@ -85,15 +109,21 @@ function ChatRoomRow({
   const suppressTapRef = useRef(false);
   const avatarUrl = item.otherUser?.avatarUrl as string | undefined;
 
-  // Contextual preview label per feature doc §1.2 (media messages show icons
-  // + labels: 📷 Photo, 🎥 Video, 🎤 Voice message, 📎 Document).
+  // Contextual preview label per feature doc §1.2 (media messages show vector
+  // icons + labels: Photo, Video, Voice message, Document).
   const previewLabel = (() => {
-    if (item.lastMessageMediaType === 'image') return '📷 Photo';
-    if (item.lastMessageMediaType === 'video') return '🎥 Video';
-    if (item.lastMessageMediaType === 'audio') return '🎤 Voice message';
-    if (item.lastMessageMediaType === 'document') return '📎 Document';
+    if (item.lastMessageMediaType === 'image') return 'Photo';
+    if (item.lastMessageMediaType === 'video') return 'Video';
+    if (item.lastMessageMediaType === 'audio') return 'Voice message';
+    if (item.lastMessageMediaType === 'document') return 'Document';
     return item.lastMessageBody ?? 'Say hello';
   })();
+  const PreviewIcon: Icon | null =
+    item.lastMessageMediaType === 'image' ? Image :
+    item.lastMessageMediaType === 'video' ? VideoCamera :
+    item.lastMessageMediaType === 'audio' ? Microphone :
+    item.lastMessageMediaType === 'document' ? Paperclip : null;
+  const showMediaIcon = PreviewIcon !== null && !item.lastMessageBody;
 
   const isOwnLast = !!item.lastMessageSenderId && item.lastMessageSenderId === currentUserId;
   const previewText = item.lastMessageBody
@@ -130,12 +160,17 @@ function ChatRoomRow({
         <Text style={[styles.convoName, isUnread && styles.bold]} numberOfLines={1}>
           {item.otherUser.name}
         </Text>
-        <Text
-          style={[styles.convoMsg, isUnread && styles.convoMsgUnread]}
-          numberOfLines={1}
-        >
-          {previewText}
-        </Text>
+        <View style={styles.convoMsgRow}>
+          {showMediaIcon && PreviewIcon ? (
+            <PreviewIcon size={13} color={T.TEXT_2} />
+          ) : null}
+          <Text
+            style={[styles.convoMsg, isUnread && styles.convoMsgUnread]}
+            numberOfLines={1}
+          >
+            {previewText}
+          </Text>
+        </View>
       </View>
       <View style={styles.convoRight}>
         <Text style={styles.convoTime}>{formatTime(item.lastMessageAt)}</Text>
@@ -333,7 +368,7 @@ export default function MessagesScreen() {
       if (!showRefresh && activeTab === 'All') {
         const cached = await getCachedChatRooms();
         if (cached.length > 0) {
-          setChatRooms(cached);
+          setChatRooms(sortRooms(cached));
           setLoading(false);
         }
       }
@@ -342,7 +377,7 @@ export default function MessagesScreen() {
       try {
         const tab = activeTab === 'Archived' ? 'archived' : 'all';
         const data = await getChatRoomList(tab);
-        setChatRooms(data.chatRooms);
+        setChatRooms(sortRooms(data.chatRooms));
         reportNetworkSuccess();
         // Cache room list (only for 'all' tab)
         if (activeTab === 'All') {
@@ -394,9 +429,7 @@ export default function MessagesScreen() {
           setChatRooms((prev) => {
             const map = new Map(prev.map((r) => [r.chatRoomId, r]));
             for (const room of data.chatRooms) map.set(room.chatRoomId, room);
-            return Array.from(map.values()).sort(
-              (a, b) => new Date(b.lastMessageAt ?? b.createdAt).getTime() - new Date(a.lastMessageAt ?? a.createdAt).getTime(),
-            );
+            return sortRooms(Array.from(map.values()));
           });
           cacheChatRooms(data.chatRooms).catch(() => {});
         })
@@ -638,7 +671,8 @@ const styles = StyleSheet.create({
   convoContent: { flex: 1, gap: 3 },
   convoName: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
   bold: { fontFamily: T.FONT.semibold },
-  convoMsg: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2 },
+  convoMsg: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, flexShrink: 1 },
+  convoMsgRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   convoMsgUnread: { color: T.TEXT, fontFamily: T.FONT.medium },
   convoRight: { alignItems: 'flex-end', gap: 4 },
   convoTime: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3 },

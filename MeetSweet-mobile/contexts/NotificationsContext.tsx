@@ -116,7 +116,7 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
 
 // ─── Route notification tap to the right screen ──────────────────────────────
 
-function handleNotificationTap(notification: Notifications.Notification, isUserAction = false) {
+function handleNotificationTap(notification: Notifications.Notification) {
   const data = (notification.request.content.data ?? {}) as Record<string, string>;
 
   const type = data.type ?? '';
@@ -179,10 +179,9 @@ function handleNotificationTap(notification: Notifications.Notification, isUserA
     return;
   }
 
-  // ONLY navigate to /notifications if this was an explicit user tap action on a tray notification
-  if (isUserAction) {
-    router.push('/notifications');
-  }
+  // Never auto-open the notifications list. Every known push type routes to its
+  // specific screen above; if the payload is unrecognized we do nothing rather
+  // than hijacking the user into the generic list screen.
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -227,21 +226,29 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
   }, [isAuthenticated]);
 
-  // ── Push-token registration (runs silently on session start or user change) ──────────────────────
+  // ── 1. Request permission + obtain the token ONCE at launch ──────────────────────────────────────
+  // The system prompt must appear on first install (not delayed until login),
+  // so this runs independently of the auth state.
   useEffect(() => {
-    if (!isAuthenticated || !user?.id) return;
+    let cancelled = false;
+    registerPushToken().then(({ token, status }) => {
+      if (cancelled) return;
+      setPermissionStatus(status);
+      if (token) setPushToken(token);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── 2. Register the token with the backend once a session exists ─────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id || !pushToken) return;
     if (lastRegisteredUser.current === user.id) return;
 
     lastRegisteredUser.current = user.id;
-
-    registerPushToken().then(({ token, status }) => {
-      setPermissionStatus(status);
-      if (token) {
-        setPushToken(token);
-        registerPushTokenToBackend(token, Platform.OS);
-      }
-    });
-  }, [isAuthenticated, user?.id]);
+    registerPushTokenToBackend(pushToken, Platform.OS);
+  }, [isAuthenticated, user?.id, pushToken]);
 
   // ── Polling ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -288,7 +295,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
           AsyncStorage.setItem(LAST_HANDLED_NOTIF_KEY, id).catch(() => {});
         }
 
-        handleNotificationTap(response.notification, true);
+        handleNotificationTap(response.notification);
+        // Consume the response so a later cold start never re-fires it.
+        Notifications.clearLastNotificationResponseAsync().catch(() => {});
       },
     );
 
@@ -309,14 +318,23 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         if (!response) return;
 
         const id = response.notification.request.identifier;
-        if (!id || id === storedLastId || lastHandledResponseId.current === id) return;
+        const alreadyHandled = id
+          ? id === storedLastId || lastHandledResponseId.current === id
+          : false;
+
+        // Consume the stored response on every launch so it can never re-fire
+        // on a later cold start (the "notification screen opens after a while"
+        // bug). Clear before deciding whether to route.
+        await Notifications.clearLastNotificationResponseAsync().catch(() => {});
+
+        if (alreadyHandled || !id) return;
 
         lastHandledResponseId.current = id;
         await AsyncStorage.setItem(LAST_HANDLED_NOTIF_KEY, id);
 
         // Only handle if action was default tap AND has target payload data
         if (response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
-          handleNotificationTap(response.notification, false);
+          handleNotificationTap(response.notification);
         }
       } catch {
         // Non-fatal

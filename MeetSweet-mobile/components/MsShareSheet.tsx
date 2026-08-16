@@ -3,11 +3,11 @@ import { ActivityIndicator, Modal, Pressable, Share, StyleSheet, Text, View } fr
 import * as Clipboard from 'expo-clipboard';
 import { Copy, ShareNetwork, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
-import { createShareLink, type ShareableContent } from '@/services/sharing';
+import { createShareLink } from '@/services/sharing';
 
 interface Props {
   visible: boolean;
-  contentType: ShareableContent | string;
+  contentType: string;
   contentId: string;
   title?: string;
   onClose: () => void;
@@ -31,7 +31,7 @@ export function MsShareSheet({ visible, contentType, contentId, title = 'Share',
     setLoading(true);
     setMessage('');
     try {
-      const typeStr = typeof contentType === 'object' ? contentType.type : String(contentType);
+      const typeStr = String(contentType);
       const result = await createShareLink(typeStr, contentId);
       if (!result.url) throw new Error('The share link was not returned.');
       setLink(result.url);
