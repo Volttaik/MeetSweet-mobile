@@ -33,6 +33,9 @@ export interface CreatorProfileFull {
   subscribedToCreator: boolean;
   /** The viewer's active subscription tier (null when not subscribed). */
   subscriptionTier?: 'subscriber' | 'subscriber_plus' | null;
+  /** The viewer's active subscription id for this creator (null when not
+   *  subscribed) — used to offer Unsubscribe from the profile. */
+  subscriptionId?: string | null;
   whoCanMessage: 'everyone' | 'subscribers' | 'none';
   subscriptionPrice: number;
   subscriptionPlusPrice: number;
@@ -104,6 +107,7 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
         | 'subscriber'
         | 'subscriber_plus'
         | null,
+    subscriptionId: rawUser.subscription_id ?? rawUser.subscriptionId ?? null,
     whoCanMessage: (rawUser.who_can_message as 'everyone' | 'subscribers' | 'none') ?? 'everyone',
     subscriptionPrice: Number(rawUser.subscription_price ?? rawUser.subscriptionPrice ?? 0),
     subscriptionPlusPrice: Number(rawUser.subscription_plus_price ?? rawUser.subscriptionPlusPrice ?? 0),

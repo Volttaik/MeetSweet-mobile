@@ -190,15 +190,13 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 // Mirrors the real chat layout: a date chip, then alternating incoming (avatar +
 // bubble) and outgoing (bubble, right-aligned) messages. Bubbles use the SAME
 // colours as MsTextBubble (#1C1C23 incoming, #28282F outgoing) and the real
-// 8px-radius tail-corner shape, with muted "text line" bars inside so the
-// skeleton reads as a conversation already forming — not generic solid blocks.
-// Widths are deterministic (no Math.random) so the skeleton never flickers.
+// 8px-radius tail-corner shape. The bubble is ONE clean shimmer block — no fake
+// white text lines inside — so the skeleton reads as loading message bubbles,
+// matching the notification shimmer's visual language. Widths are deterministic
+// (no Math.random) so the skeleton never flickers.
 
 const CHAT_BUBBLE_COLOR_OWN   = '#28282F'; // outgoing  (MsTextBubble BG_OWN)
 const CHAT_BUBBLE_COLOR_OTHER = '#1C1C23'; // incoming  (MsTextBubble BG_OTHER)
-// Muted text-line bars — a touch lighter than the bubble so the subtle sweep
-// reads as text filling in, without a harsh bright band.
-const CHAT_TEXT_LINE = 'rgba(255,255,255,0.10)';
 // Deterministic bubble widths, cycled per row.
 const CHAT_BUBBLE_WIDTHS = [176, 214, 132, 198, 240, 150, 186, 224, 140, 208];
 
@@ -216,26 +214,21 @@ export function MsShimmerChatMessage({
   const tailRadius = own
     ? { borderBottomRightRadius: 3 }
     : { borderBottomLeftRadius: 3 };
-  // Bubble has 10px horizontal padding (like MsTextBubble); text lines fill a
-  // natural portion of the remaining width, the second line shorter.
+  // Bubble has 10px horizontal padding (like MsTextBubble); the shimmer fill
+  // spans the full inner width and holds the same total height as the real
+  // text (one or two 8px lines + 5px gap) so rows land at identical heights.
   const lineW = bubbleW - 20;
+  const fillH = lines === 2 ? 21 : 8;
   return (
     <View style={[shimStyles.chatMsg, own ? shimStyles.chatMsgOwn : shimStyles.chatMsgOther]}>
       {!own && <MsShimmer width={28} height={28} borderRadius={14} subtle />}
       <View style={[shimStyles.chatBubble, { width: bubbleW, backgroundColor: bubbleColor, ...tailRadius }]}>
         <MsShimmer
-          width={Math.round(lineW * 0.86)}
-          height={8}
+          width={lineW}
+          height={fillH}
           borderRadius={4}
           subtle
-          style={{ backgroundColor: CHAT_TEXT_LINE }}
-        />
-        <MsShimmer
-          width={lines === 2 ? Math.round(lineW * 0.58) : Math.round(lineW * 0.86)}
-          height={8}
-          borderRadius={4}
-          subtle
-          style={{ backgroundColor: CHAT_TEXT_LINE, marginTop: 5 }}
+          style={{ backgroundColor: bubbleColor }}
         />
       </View>
     </View>

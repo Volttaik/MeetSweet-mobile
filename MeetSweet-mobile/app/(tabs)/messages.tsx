@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   Modal,
   Alert,
@@ -356,6 +357,20 @@ export default function MessagesScreen() {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // ── List shimmer — crossfades into the real conversation list instead of
+  // hard-cutting, so the chat list transition is stable (no flash/rearrange).
+  const listShimmerOpacity = useRef(new Animated.Value(1)).current;
+  const [listShimmerVisible, setListShimmerVisible] = useState(true);
+  useEffect(() => {
+    if (!loading) {
+      Animated.timing(listShimmerOpacity, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }).start(() => setListShimmerVisible(false));
+    }
+  }, [loading, listShimmerOpacity]);
   const [showNewMsg, setShowNewMsg] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [menuRoom, setMenuRoom] = useState<ChatRoom | null>(null);
@@ -543,21 +558,9 @@ export default function MessagesScreen() {
         })}
       </View>
 
-      {/* Content */}
-      {loading && chatRooms.length === 0 ? (
-        <View style={{ paddingTop: 4 }}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
-              <MsShimmer width={48} height={48} borderRadius={24} />
-              <View style={{ flex: 1, gap: 7 }}>
-                <MsShimmer width="55%" height={13} />
-                <MsShimmer width="70%" height={11} />
-              </View>
-              <MsShimmer width={32} height={10} />
-            </View>
-          ))}
-        </View>
-      ) : (
+      {/* Content — the list is ALWAYS mounted; the shimmer sits on top and
+          crossfades out when loading completes (no hard cut / flash). */}
+      <View style={{ flex: 1 }}>
         <FlatList
           data={filtered}
           keyExtractor={(item) => item.chatRoomId}
@@ -595,7 +598,25 @@ export default function MessagesScreen() {
             />
           }
         />
-      )}
+
+        {listShimmerVisible && (
+          <Animated.View
+            pointerEvents={loading ? 'auto' : 'none'}
+            style={[styles.listShimmerOverlay, { opacity: listShimmerOpacity }]}
+          >
+            {[0, 1, 2, 3, 4].map((i) => (
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
+                <MsShimmer width={48} height={48} borderRadius={24} />
+                <View style={{ flex: 1, gap: 7 }}>
+                  <MsShimmer width="55%" height={13} />
+                  <MsShimmer width="70%" height={11} />
+                </View>
+                <MsShimmer width={32} height={10} />
+              </View>
+            ))}
+          </Animated.View>
+        )}
+      </View>
 
       {/* FAB */}
       <TouchableOpacity
@@ -667,6 +688,16 @@ const styles = StyleSheet.create({
   tabChipLabel: { fontFamily: T.FONT.medium, fontSize: 13, color: T.TEXT_2 },
   tabChipLabelActive: { color: T.BG },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Opaque shimmer overlay that crossfades into the conversation list.
+  listShimmerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: T.BG,
+    paddingTop: 4,
+  },
   convoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -724,7 +755,15 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.full,
     gap: 8,
   },
-  modalSearchInput: { flex: 1, color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 14 },
+  modalSearchInput: {
+    flex: 1,
+    color: T.TEXT,
+    fontFamily: T.FONT.regular,
+    fontSize: 14,
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   modalHint: {
     textAlign: 'center',
     color: T.TEXT_3,

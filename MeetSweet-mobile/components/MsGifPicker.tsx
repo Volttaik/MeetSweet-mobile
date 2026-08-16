@@ -277,6 +277,10 @@ const s = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT,
     height: '100%',
+    // Vertically centre the caret + text inside the search pill on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   grid: { paddingHorizontal: 2, paddingBottom: 16, gap: 4 },
   gifCell: {

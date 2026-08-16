@@ -28,7 +28,6 @@ import {
   VideoCamera,
   X,
   TextT,
-  Images,
 } from 'phosphor-react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsTierBadge } from '@/components/MsTierBadge';
@@ -49,7 +48,9 @@ type ContentType = 'post' | 'album' | 'video' | 'shorts';
 import { TIERS, TIER_ORDER, type ContentTier } from '@/constants/tiers';
 
 // Tier options shown in the create-post picker (Free → Subscriber → Subscriber+).
-// Shorts are always Free — the picker is hidden for that content type.
+// Shorts and Albums are excluded: Shorts are always free, and Albums are
+// purchase-only (priced via the dedicated create-album flow), so the picker is
+// hidden for both content types.
 const TIER_OPTIONS = TIER_ORDER.map((t) => ({ value: t, ...TIERS[t] }));
 
 // Content type definitions for the type picker carousel
@@ -67,13 +68,9 @@ const CONTENT_TYPES: {
     description: 'Text + images\nShows in Home feed',
     accentColor: '#C45A72',
   },
-  {
-    type: 'album',
-    label: 'Album',
-    icon: <Images size={28} color="#fff" weight="bold" />,
-    description: 'Gallery of photos/videos\nShows in Home feed',
-    accentColor: '#7C5CCA',
-  },
+  // Albums are deliberately NOT offered here — they are purchase-only content
+  // created through the dedicated album flow (/create-album) which requires a
+  // price. A tier picker here would violate the purchase-only rule.
   {
     type: 'video',
     label: 'Video',
@@ -163,7 +160,7 @@ export default function CreatePostScreen() {
     },
     {
       title: 'Set Visibility',
-      subtitle: 'Choose Free (everyone), Subscriber only, or Subscriber+ for each post.',
+      subtitle: 'Posts and Videos can be Free, Subscriber, or Subscriber+. Shorts are public and Albums are purchase-only.',
       icon: 'shield',
       buttonLabel: 'Start Creating',
       imageSource: require('../assets/onboarding/post-visibility.jpg'),
@@ -178,7 +175,6 @@ export default function CreatePostScreen() {
     // If type param was passed (e.g. from profile tab)
     if (params.type === 'video')  { setContentType('video');  }
     if (params.type === 'shorts') { setContentType('shorts'); }
-    if (params.type === 'album')  { setContentType('album');  }
 
     // ── Restore draft ────────────────────────────────────────────────────────
     AsyncStorage.getItem(DRAFT_KEY).then((raw) => {
@@ -193,7 +189,15 @@ export default function CreatePostScreen() {
           else if (rawTier === 'subscriber') setTier('subscriber');
           else setTier('free');
         }
-        if (draft.contentType && !params.type) setContentType(draft.contentType);
+        // Albums are created through the dedicated /create-album flow, so
+        // only post/video/shorts can be restored here (a stale album draft
+        // from before that change falls back to the default content type).
+        if (
+          (draft.contentType === 'post' || draft.contentType === 'video' || draft.contentType === 'shorts') &&
+          !params.type
+        ) {
+          setContentType(draft.contentType);
+        }
         if (draft.videoTitle)                  setVideoTitle(draft.videoTitle);
         if (draft.mediaUri)                    setMediaUri(draft.mediaUri);
         if (draft.mediaType)                   setMediaType(draft.mediaType);
@@ -608,13 +612,14 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Tier preview */}
+          {/* Visibility summary — Shorts have no tier, show Public instead */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Visibility</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <MsTierBadge tier={contentType === 'shorts' ? 'free' : tier} size="sm" />
-              {contentType === 'shorts' && (
-                <Text style={styles.previewCaption}>Shorts are always free</Text>
+              {contentType === 'shorts' ? (
+                <Text style={styles.previewCaption}>Public · available to everyone</Text>
+              ) : (
+                <MsTierBadge tier={tier} size="sm" />
               )}
             </View>
           </View>
@@ -658,7 +663,9 @@ export default function CreatePostScreen() {
 
   // ─── Onboard step (main form) ─────────────────────────────────────────────
 
-  const selectedCt = CONTENT_TYPES.find((c) => c.type === contentType)!;
+  // Albums are only created via /create-album, so they never appear here;
+  // fall back to 'post' defensively (e.g. a stale draft before the change).
+  const selectedCt = CONTENT_TYPES.find((c) => c.type === contentType) ?? CONTENT_TYPES[0];
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -792,8 +799,9 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Visibility picker — hidden for Shorts (always free) */}
-          {contentType !== 'shorts' && (
+          {/* Visibility picker — hidden for Shorts (always free) and Albums
+              (purchase-only via the album flow) */}
+          {contentType !== 'shorts' && contentType !== 'album' && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Visibility</Text>
               <View style={styles.visibilityRow}>
@@ -1075,6 +1083,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+    // Vertically centre the text inside the 48px field on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   captionInput: {
     height: 120,

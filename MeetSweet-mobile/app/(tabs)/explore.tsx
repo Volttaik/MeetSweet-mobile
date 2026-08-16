@@ -44,8 +44,8 @@ import {
   MsRecommendedCreatorRow,
 } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
-import { toast } from '@/components/MsToast';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
+import { MsFeedbackModal } from '@/components/MsFeedbackModal';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
@@ -357,6 +357,11 @@ export default function ExploreScreen() {
 
   // ── Auth ─────────────────────────────────────────────────────────────────────
   const { user: currentUser } = useAuth();
+  const [feedback, setFeedback] = useState<{
+    variant: 'success' | 'error' | 'info';
+    title: string;
+    message?: string;
+  } | null>(null);
 
   /** Navigate to a creator page — but redirect to own profile if it's the current user */
   const navToCreatorId = useCallback((creatorId: string, creatorHandle?: string) => {
@@ -378,6 +383,15 @@ export default function ExploreScreen() {
   const handleSubscribe = useCallback(
     async (creator: Creator) => {
       if (subscribingId) return;
+      // Already subscribed — route to the creator profile so the user can
+      // manage (upgrade / unsubscribe) instead of re-triggering a subscribe
+      // call from the feed.
+      const alreadySubscribed =
+        Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id);
+      if (alreadySubscribed) {
+        navToCreatorId(creator.id, creator.handle);
+        return;
+      }
       setSubscribingId(creator.id);
       try {
         await subscribe(creator.id, 'subscriber');
@@ -386,22 +400,29 @@ export default function ExploreScreen() {
           next.add(creator.id);
           return next;
         });
-        toast.success(`Subscribed to ${creator.name}!`);
+        setFeedback({
+          variant: 'success',
+          title: 'Subscribed',
+          message: `You are now subscribed to ${creator.name}.`,
+        });
         // Re-fetch authoritative catalog state so the subscriber count and
         // subscribed flag stay correct when the user returns later.
         catalogQuery.refetch();
       } catch (err) {
         const code = (err as { code?: string }).code;
-        toast.error(
-          code === 'INSUFFICIENT_BALANCE'
-            ? 'Insufficient wallet balance. Top up to subscribe.'
-            : (err as Error).message || 'Could not subscribe. Please try again.',
-        );
+        setFeedback({
+          variant: 'error',
+          title: 'Could not subscribe',
+          message:
+            code === 'INSUFFICIENT_BALANCE'
+              ? 'Insufficient wallet balance. Top up to subscribe.'
+              : (err as Error).message || 'Could not subscribe. Please try again.',
+        });
       } finally {
         setSubscribingId(null);
       }
     },
-    [subscribingId, catalogQuery],
+    [subscribingId, catalogQuery, subscribedIds, navToCreatorId],
   );
 
   const refresh = useCallback(async () => {
@@ -958,6 +979,15 @@ export default function ExploreScreen() {
         onClose={() => setMenuCreator(null)}
       />
 
+      {/* Subscription feedback (styled modal) */}
+      <MsFeedbackModal
+        visible={Boolean(feedback)}
+        variant={feedback?.variant ?? 'info'}
+        title={feedback?.title ?? ''}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
+      />
+
     </MsAmbientBackground>
   );
 }
@@ -972,14 +1002,14 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    minHeight: 72,
+    minHeight: 52,
     paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  eyebrow: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1.5 },
-  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 28, letterSpacing: -0.8, marginTop: 2 },
+  eyebrow: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 1.3 },
+  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 21, letterSpacing: -0.6, marginTop: 1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconButton: {
     width: 38,
@@ -1030,6 +1060,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     height: 44,
     paddingHorizontal: 0,
+    // Vertically centre the caret + text inside the 44px search field on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   clearSearch: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 22, lineHeight: 22 },
 

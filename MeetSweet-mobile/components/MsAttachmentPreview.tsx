@@ -603,6 +603,9 @@ const s = StyleSheet.create({
     minHeight: 44,
     paddingVertical: 12,
     lineHeight: 22,
+    // Kill Android's extra internal font padding so the glyphs line up with
+    // the fixed lineHeight (keeps multiline captions from sitting low).
+    includeFontPadding: false,
   },
 
   // ── Paid content ──

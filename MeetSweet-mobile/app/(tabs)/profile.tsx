@@ -1343,6 +1343,10 @@ const epm = StyleSheet.create({
     fontSize: 15,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+    // Vertically centre the text inside the 48px field on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   bioInput: { height: 100, paddingTop: 12, textAlignVertical: 'top' },
   hint: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, textAlign: 'right' },

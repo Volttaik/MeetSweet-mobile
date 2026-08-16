@@ -5,7 +5,10 @@
   "main": "expo-router/entry",
   "scripts": {
     "dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN ./node_modules/.bin/expo start --localhost --port ${PORT:-8081}",
+    "dev:web": "expo start --web --port ${PORT:-8081}",
+    "dev:expo-go": "NODE_OPTIONS=--max-old-space-size=1280 expo start --tunnel --port ${PORT:-8081} --max-workers 1",
     "build": "node scripts/build.js",
+    "build:web": "expo export --platform web --output-dir dist",
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

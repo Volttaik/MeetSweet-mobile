@@ -127,6 +127,14 @@ const styles = StyleSheet.create({
     color: T.TEXT,
     fontSize: 14,
     fontFamily: T.FONT.regular,
+    // Mobile vertical-centering: Android TextInput adds its own internal
+    // top/bottom padding, and the glyph baseline varies per font — without
+    // these the text sits visibly off-centre inside the fixed-height row and
+    // the cursor is offset from the text. includeFontPadding:false + zero
+    // vertical padding let the row's alignItems:center do the centering.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     // Remove any browser default outline on web
     ...(Platform.OS === 'web'
       ? { outlineStyle: 'none' as never, outlineWidth: 0 }

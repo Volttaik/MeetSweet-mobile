@@ -184,6 +184,13 @@ export function MsVideoPlayer({
   const seekWidthRef    = useRef(0);
   const seekTrackXRef   = useRef(0);
   const scrubbingRef    = useRef(false);
+  // Monotonic gesture id — guards against a STALE async seek-release from a
+  // previous drag clearing `scrubbingRef` while a NEWER drag is already in
+  // flight. Without it, the older release's `finally` unlocks position
+  // tracking mid-gesture, and the next playback-status tick (which still
+  // reports the OLD position until the seek lands) snaps the thumb back — the
+  // "seek, then interact again → tracker jumps toward the beginning" bug.
+  const scrubGenRef     = useRef(0);
   const lastTapRef      = useRef({ time: 0, x: 0 });
   const tapTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -198,6 +205,7 @@ export function MsVideoPlayer({
   const fsWidthRef      = useRef(0);
   const fsTrackXRef     = useRef(0);
   const fsScrubbingRef  = useRef(false);
+  const fsScrubGenRef   = useRef(0);
   const fsTapTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsHideTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsPlayingRef    = useRef(false);
@@ -364,6 +372,10 @@ export function MsVideoPlayer({
   }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Shorts: respond to active prop ────────────────────────────────────────
+  // The centre play/pause icon is HIDDEN until the user interacts with the
+  // short (handleShortsPress / toggleShortsPlayback reveal it). An inactive or
+  // not-yet-playing short must NOT force it visible — that was the play button
+  // flashing over the poster/first frame while loading or during swipes.
   useEffect(() => {
     if (!isShorts) return;
     if (active && !premiumGateRef.current) {
@@ -373,7 +385,6 @@ export function MsVideoPlayer({
     } else {
       videoRef.current?.pauseAsync().catch(() => {});
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      shortsIconOpacity.value = withTiming(1, { duration: 180 });
     }
   }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -776,6 +787,7 @@ export function MsVideoPlayer({
         onMoveShouldSetPanResponder:  () => true,
         onPanResponderGrant: (_e, g) => {
           showControls();
+          scrubGenRef.current += 1;
           scrubbingRef.current = true;
           const r = ratioFor(g.moveX);
           const t = r * durationRef.current;
@@ -789,6 +801,7 @@ export function MsVideoPlayer({
           setProgress(r); setPositionMs(t);
         },
         onPanResponderRelease: async (_e, g) => {
+          const gen = scrubGenRef.current;
           const r = ratioFor(g.moveX);
           // Guard against a not-yet-known duration (0), which would otherwise
           // seek to the start and make the thumb snap back to zero.
@@ -805,11 +818,19 @@ export function MsVideoPlayer({
           } catch {
             // seek failed — fall through and resume normal position tracking
           } finally {
-            scrubbingRef.current = false;
-            showControls();
+            // Only unlock position tracking if this is still the LATEST
+            // gesture — a newer drag may have started while the seek was in
+            // flight, and its release owns the lock now.
+            if (gen === scrubGenRef.current) {
+              scrubbingRef.current = false;
+              showControls();
+            }
           }
         },
         onPanResponderTerminate: () => {
+          // The system took the gesture away; a subsequent grant (if any)
+          // re-acquires the lock, so clearing here is always safe.
+          scrubGenRef.current += 1;
           scrubbingRef.current = false;
         },
       });
@@ -830,6 +851,7 @@ export function MsVideoPlayer({
         onMoveShouldSetPanResponder:  () => true,
         onPanResponderGrant: (_e, g) => {
           showFsControls();
+          fsScrubGenRef.current += 1;
           fsScrubbingRef.current = true;
           const r = ratioFor(g.moveX);
           const t = r * fsDurationRef.current;
@@ -843,6 +865,7 @@ export function MsVideoPlayer({
           setFsProgress(r); setFsPositionMs(t);
         },
         onPanResponderRelease: async (_e, g) => {
+          const gen = fsScrubGenRef.current;
           const r = ratioFor(g.moveX);
           const t = fsDurationRef.current > 0
             ? r * fsDurationRef.current
@@ -854,11 +877,14 @@ export function MsVideoPlayer({
           } catch {
             // seek failed — fall through and resume normal position tracking
           } finally {
-            fsScrubbingRef.current = false;
-            showFsControls();
+            if (gen === fsScrubGenRef.current) {
+              fsScrubbingRef.current = false;
+              showFsControls();
+            }
           }
         },
         onPanResponderTerminate: () => {
+          fsScrubGenRef.current += 1;
           fsScrubbingRef.current = false;
         },
       });

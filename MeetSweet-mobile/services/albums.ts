@@ -146,6 +146,12 @@ interface RawAlbum {
   gradient?: string;
   is_unlocked_by_me?: boolean;
   isUnlockedByMe?: boolean;
+  // The server reports the viewer's access state as `unlocked`/`is_unlocked`
+  // (true for the owner, free albums, and purchased albums). The client must
+  // honour that signal — dropping it made owned/purchased albums render as
+  // locked (purchase CTA shown to the creator / buyer on every open).
+  unlocked?: boolean;
+  is_unlocked?: boolean;
   creator?: RawAlbumCreator;
   creator_id?: string;
   creator_username?: string;
@@ -222,7 +228,11 @@ export function normalizeAlbumCard(raw: RawAlbum): AlbumCardData {
     requiresPurchase: raw.is_premium ?? raw.isPremium ?? price > 0,
     price,
     gradient: raw.gradient ?? defaultGradient(raw.id),
-    isUnlockedByMe: raw.is_unlocked_by_me ?? raw.isUnlockedByMe ?? false,
+    // Server-authoritative access: owned albums and paid albums the viewer has
+    // unlocked come back as `unlocked`/`is_unlocked` — never default to false.
+    isUnlockedByMe:
+      raw.is_unlocked_by_me ?? raw.isUnlockedByMe ??
+      raw.is_unlocked ?? raw.unlocked ?? false,
     creatorId,
     creatorName,
     creatorHandle: creatorUsername ? `@${creatorUsername}` : '',
@@ -298,10 +308,18 @@ export async function getAlbum(id: string): Promise<Album> {
 export async function createAlbum(data: CreateAlbumData): Promise<{ id: string }> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not authenticated');
+  const body: Record<string, unknown> = { ...data };
+  // The backend stores the price as unlock_price — send it under that name so
+  // a purchase-only album is never created free (a stray `price` field would
+  // be stripped by the API schema).
+  if (body.price !== undefined) {
+    body.unlock_price = body.price;
+    delete body.price;
+  }
   return apiFetch<{ id: string }>('/albums', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(body),
   });
 }
 
@@ -331,20 +349,40 @@ export async function deleteAlbum(id: string): Promise<void> {
   });
 }
 
+export interface PurchaseAlbumResult {
+  /** True only when the backend confirmed the unlock was recorded (paid
+   *  transaction committed, or the album was already unlocked / free / owned). */
+  purchased: boolean;
+  /** True when no NEW transaction was charged — the album was already
+   *  unlocked (owner, free, or a prior purchase). The UI must not report a
+   *  fresh "Purchase completed" for these. */
+  alreadyUnlocked: boolean;
+}
+
 /**
  * Purchase an album from the user's wallet balance.
  * Backend deducts the album price and marks the album as purchased for the current user.
  * Spec: POST /api/albums/:id/purchase
+ *
+ * Success is ONLY reported when the server confirms the unlock inside its
+ * atomic transaction (debit + credit + album_unlocks row). A failed balance
+ * check throws ApiError(402, 'Insufficient wallet balance') and never resolves.
  */
-export async function purchaseAlbum(id: string): Promise<{ purchased: boolean }> {
+export async function purchaseAlbum(id: string): Promise<PurchaseAlbumResult> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not authenticated');
-  const raw = await apiFetch<{ unlocked?: boolean; purchased?: boolean }>(`/albums/${encodeURIComponent(id)}/purchase`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  // The backend returns { unlocked: true } on success; never assume success.
-  return { purchased: Boolean(raw?.unlocked ?? raw?.purchased ?? false) };
+  const raw = await apiFetch<{ unlocked?: boolean; purchased?: boolean; already_unlocked?: boolean }>(
+    `/albums/${encodeURIComponent(id)}/purchase`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  const unlocked = Boolean(raw?.unlocked ?? raw?.purchased ?? false);
+  return {
+    purchased: unlocked,
+    alreadyUnlocked: Boolean(raw?.already_unlocked ?? false),
+  };
 }
 
 /**

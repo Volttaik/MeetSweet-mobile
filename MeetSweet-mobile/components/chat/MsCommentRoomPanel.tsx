@@ -794,6 +794,8 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     fontSize: 13,
     paddingVertical: 6,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   sendBtn: {
     width: 28,

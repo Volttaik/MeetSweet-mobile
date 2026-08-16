@@ -64,6 +64,165 @@ Original 12-area bug-fix pass, then a 3-hour audit pass. Both repos pass
    (`#1C1C23` incoming, `#28282F` outgoing), and the chat-room skeleton input bar
    mirrors the real composer (sticker / pill / attach / camera / accent send).
 
+## Task pass: input alignment, video seek, chat glitches, chat loading
+
+Focused bug-fix pass (no backend changes). All of it is uncommitted in the working tree.
+
+1. **Input/keyboard alignment (Android)** — root cause: TextInput's internal font
+   padding + baseline variance push text/caret off-centre in fixed-height rows.
+   Shared fix: `paddingVertical: 0`, `includeFontPadding: false`,
+   `textAlignVertical: 'center'` on the style of every single-line input:
+   `MsInput` (shared), `MsSearchModal`, `OTPInput`, `MsChatSearch`, GIF search,
+   sticker search, comment input (`MsCommentRoomPanel`), explore search,
+   profile edit name, auth/register/settings fields, create-album title + price,
+   create-post title, wallet custom amount, creator-dashboard/payout inputs,
+   messages modal search, comments-sheet input. Multiline inputs only got
+   `includeFontPadding: false` (caption inputs) — never `textAlignVertical: center`.
+2. **Video seek tracker** — seek-bar was snapping back to the beginning on the
+   SECOND interaction because a stale async seek-release from drag #1 cleared
+   `scrubbingRef` while drag #2 was in flight, and the next status tick (old
+   position) snapped the thumb. Fixed with a monotonic gesture generation
+   counter (`scrubGenRef` / `fsScrubGenRef`): release only unlocks position
+   tracking if it's still the latest gesture; terminate bumps the gen. Both
+   inline and fullscreen seekers.
+3. **Chat glitches** — chat screen: `Chat` component is now ALWAYS mounted
+   (header/input/controls never unmount/remount while messages load).
+   Conversations list (`messages.tsx`): FlatList is always mounted; the loading
+   shimmer is an absolute overlay that crossfades out (no hard cut).
+4. **Chat loading architecture** — ONLY the message area shows the shimmer.
+   IMPORTANT BUGFIX vs earlier draft: the shimmer overlay is `position:absolute`
+   full-screen with opaque `T.BG` — it must start BELOW the header
+   (`top: insets.top + 58`) or it paints over the back button/avatar/name.
+   The chat header + input bar render immediately; shimmer fades 240ms.
+
+Mobile typecheck passes: `cd MeetSweet-mobile && npx tsc -p tsconfig.json --noEmit`.
+NOTE: the file-tool `str_replace` cannot address `app/chat-room/[chatRoomId].tsx`
+(brackets are treated as a glob); use a python one-liner via terminal for that file.
+
+## Task pass: content pricing fixes (albums / shorts / subscription price)
+
+Focused pricing pass — no backend architecture changes. Both repos typecheck
+with `tsc --noEmit`. Changes are uncommitted in both working trees.
+
+1. **Albums are purchase-only**
+   - `MeetSweet-mobile/app/create-album.tsx`: removed the Visibility tier options
+     (Public/Subscribers/Draft) and the free/paid toggle — the creator sets a
+     price; albums are always `visibility: 'public'` + priced (validated ≥ ₦1).
+   - `MeetSweet-mobile/app/create-post.tsx`: removed the Album card from the
+     content-type picker (albums only via `/create-album`) and hid the tier
+     picker for the `album` type too.
+   - `MeetSweet-mobile/services/albums.ts` `createAlbum()` now sends
+     `unlock_price` — the backend only accepted `unlock_price`/`price_credits`,
+     so the old `price` field was silently stripped (zod) and every album
+     published FREE. Backend `POST /albums` now also accepts `price` as an alias.
+2. **Shorts** — the tier picker was already hidden for shorts; the preview now
+   shows "Public" instead of a Free tier badge. No tier selection anywhere in
+   shorts creation.
+3. **Creator subscription price showing ₦0** — root cause was the DATA, not the
+   UI: the 3 active creators (durk, iamdublin, ifeoma) had no priced
+   `creator_settings` row (missing or 0; devatron's ₦200 row belongs to a
+   soft-deleted account). `resolveBasePrice()` faithfully returned 0.
+   - Live DB backfilled: all active creators now have
+     `creator_settings.subscription_price = 200`. Verified live:
+     `GET https://meetsweet.space/api/creators` returns 200 (plus 400).
+   - Server code: `lib/services/pricing.ts` now exports
+     `DEFAULT_SUBSCRIPTION_PRICE = 200`; become-creator, creator/settings GET
+     auto-create + PATCH insert, creator/verification, and wallet bank-details
+     insert paths all set it explicitly; schema default updated to 200 (SQLite
+     can't ALTER an existing column default, so the code paths carry it);
+     `scripts/migrate.ts` gained idempotent backfill entries for unpriced and
+     missing creator rows.
+   - `/api/users/:username` now resolves the price via `resolveBasePrice`
+     instead of returning the raw `profiles.subscription_price`.
+4. **Pricing UI follow-up (after subscription fix landed)** — verified the
+   full album flow end-to-end: create (`/create-album`, price-only) →
+   publish (always `public` + priced) → `app/album/[id].tsx` shows the price,
+   locks items, and unlocks via `purchaseAlbum` (backend deducts wallet and
+   marks purchased).
+   - `create-post.tsx` hardened: since the Album card was removed from the
+     content-type picker, a stale draft (`contentType: 'album'`) or
+     `?type=album` param could crash on `selectedCt` (undefined) — clamped the
+     draft restore to post/video/shorts, dropped the `?type=album` param, and
+     made `selectedCt` fall back to the post entry.
+   - Post-creation onboarding copy updated: no longer tells creators to pick
+     Free/Subscriber/Subscriber+ “for each post” — now says Shorts are public
+     and Albums are purchase-only.
+   - Confirmed no tier options remain anywhere in Short or Album creation UI
+     (only display badges in feeds). Mobile typecheck passes.
+
+## Fix: album/media upload "Missing 'file' field in form data"
+
+User reported this error when publishing an album (cover/media upload).
+Server (`/api/upload` alias of `server/app/api/media/upload/route.ts`) is
+correct and unchanged — it does `req.formData()` then `formData.get("file")`
+and requires the part to be a real file. Client was the problem:
+
+- `services/media.ts` appended the legacy React Native FormData file object
+  `{ uri, type, name }`. On Android (RN 0.81 / Expo SDK 54) that object can
+  silently drop the file part, so the server sees no `file` field. On the
+  web preview the browser FormData stringifies the object to "[object Object]"
+  — same server error.
+- Fix (rewrote `services/media.ts`):
+  - Native: `new File(uri)` from `expo-file-system` (a native Blob) appended
+    to FormData and sent with `expo/fetch`'s `fetch`. expo/fetch serializes
+    the File by reading its bytes (`entry.bytes()`), so the part is always
+    present. Works with file:// and content:// URIs. Guard: `file.size === 0`
+    throws a clear "could not be read" error (covers stale draft URIs).
+  - Web: resolve the picker's blob: URI via `fetch(uri).blob()` and append a
+    real Blob (with `mimeType` fallback when `blob.type` is empty).
+  - `expo/fetch` on web IS the browser fetch, so the web branch is safe.
+  - Kept the response contract (`{ id, url, media_type }`) and added a
+    401 token-refresh retry via a new `refreshAccessToken()` export in
+    `services/api.ts` (uploads now bypass `apiFetch`, which did refresh).
+- Why this works mechanically: Expo's runtime (`Expo.fx` → `winter/runtime`)
+  already patches the global FormData with `append(blob, filename)` support
+  and `entries()`; `expo/fetch`'s `convertFormDataAsync` uses `entries()` +
+  the part's `bytes()` for expo-file-system Files (RN's built-in fetch would
+  need a `uri` on the part, which the File spread doesn't guarantee).
+- Mobile typecheck passes (`cd MeetSweet-mobile && npx tsc -p tsconfig.json --noEmit`).
+
+## Task pass: final small fixes (chat shimmer / album purchase / ownership states / feedback modals / short play button)
+
+Focused pass over the previous UI work. Mobile + server both typecheck (`npx tsc
+--noEmit`). Mobile changes are uncommitted in the working tree; server changes
+are uncommitted in `.meetsweet-server` (pricing pass + this).
+
+1. **Chat shimmer (remove fake white text)** — `MsShimmerChatMessage` renders
+   ONE clean shimmer block per bubble (real bubble colours #1C1C23/#28282F,
+   tail corner, 10px padding, deterministic widths). No white text-line shapes
+   inside bubbles anymore. Chat room still uses `MsShimmerChatList` in the
+   message area only; header/composer render immediately.
+2. **Album purchase integrity** — server `POST /albums/:id/purchase` (aliases
+   `unlock/route.ts` POST) runs an atomic tx: wallet debit (guarded
+   `gte(balance, price)`), creator credit/create-wallet, two `transactions`
+   rows, `album_unlocks` insert. Owner / free / already-purchased short-circuit
+   with `{ unlocked: true, already_unlocked: true }` (no charge). Insufficient
+   balance → 402 `INSUFFICIENT_BALANCE`, tx rolls back, client shows the error
+   modal (never success). `loadAlbum` marks `unlocked` for owner, free albums,
+   and purchasers (items stay URL-nulled + `is_locked` otherwise). Client
+   `purchaseAlbum()` only reports `purchased` from the server response;
+   `app/album/[id].tsx` shows "Already unlocked" (info) vs "Album unlocked"
+   (success) accordingly and refreshes the query.
+3. **Ownership / subscription states** — `app/creator/[id].tsx`:
+   - Own profile → "You" badge; Subscribe + Message rows hidden
+     (`isOwnProfile = currentUser.id === creatorFullProfile.userId`).
+   - Base subscriber → "Subscribed" + separate Upgrade button.
+   - Subscriber+ → badge only, no Upgrade.
+   - SubscribeSheet shows Unsubscribe (with confirm dialog) for subscribers;
+     `cancelSubscription()` in `services/subscriptions.ts` posts
+     `/subscriptions/:id/cancel`, success only on `{ cancelled: true }`.
+   - Explore (`explore.tsx`): already-subscribed creators route to the profile
+     instead of re-subscribing; card shows "Subscribed" (no Subscribe/Upgrade).
+4. **Toasts → styled modals** — new `components/MsFeedbackModal.tsx` (center
+   card, success/error/info icons, haptics). Wired into: album purchase/unlock,
+   creator subscribe/upgrade/unsubscribe, explore subscribe, and
+   creator-dashboard price updates. Default toasts remain only for unrelated
+   minor flows (profile/photo/post edits, payouts, wallet validation) per the
+   "do not modify unrelated features" constraint.
+5. **Short play button** — `shortsIconOpacity` starts at 0 and is hidden again
+   whenever the short goes active (was flashing over the poster/first frame).
+   The centre control only appears after the user taps the short.
+
 ## How to resume / verify
 
 ```bash

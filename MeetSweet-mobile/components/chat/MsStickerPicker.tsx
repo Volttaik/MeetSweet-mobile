@@ -288,6 +288,10 @@ const s = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT,
     paddingLeft: 6,
+    // Vertically centre the caret + text inside the 32px search pill on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   tabBar: {
     flexGrow: 0,

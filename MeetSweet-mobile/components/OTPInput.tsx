@@ -270,6 +270,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     textAlign: 'center',
+    textAlignVertical: 'center',
     fontSize: 20,
     fontFamily: 'Poppins_700Bold',
     color: '#FFFFFF',

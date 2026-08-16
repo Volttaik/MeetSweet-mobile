@@ -132,7 +132,7 @@ import {
   clearRoomMedia,
 } from '@/services/chat-media';
 
-import { MsShimmer, MsShimmerChatList } from '@/components/MsShimmer';
+import { MsShimmerChatList } from '@/components/MsShimmer';
 import { MsChatBubble } from '@/components/chat/MsChatBubble';
 import { MsChatInputBar } from '@/components/chat/MsChatInputBar';
 import { MsChatBackground } from '@/components/chat/MsChatBackground';
@@ -263,19 +263,21 @@ export default function ChatScreen() {
   const menuScaleAnim = useRef(new Animated.Value(0)).current;
   const menuOpacityAnim = useRef(new Animated.Value(0)).current;
 
-  // ── Message content fade-in — the chat skeleton is shown immediately, then the
-  // loaded messages fade into place for perceived responsiveness (no spinner).
-  const contentFade = useRef(new Animated.Value(0)).current;
+  // ── Message-area shimmer — the chat UI (header, input bar, all controls)
+  // renders immediately; ONLY the conversation region shows a shimmer while
+  // messages load. When data arrives the shimmer fades out cleanly instead of
+  // unmounting with a hard cut.
+  const shimmerOpacity = useRef(new Animated.Value(1)).current;
+  const [shimmerVisible, setShimmerVisible] = useState(true);
   useEffect(() => {
     if (!loading) {
-      contentFade.setValue(0);
-      Animated.timing(contentFade, {
-        toValue: 1,
-        duration: 220,
+      Animated.timing(shimmerOpacity, {
+        toValue: 0,
+        duration: 240,
         useNativeDriver: true,
-      }).start();
+      }).start(() => setShimmerVisible(false));
     }
-  }, [loading, contentFade]);
+  }, [loading, shimmerOpacity]);
 
   // Ref to the Chat's FlatList so tapping a quoted reply can scroll to the
   // original message. The list is inverted (newest at bottom); scrollToMessage
@@ -1719,50 +1721,55 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
-      {loading ? (
-        /* ── Skeleton: chat structure is shown immediately; messages fade in
-             once loaded instead of blocking the whole screen on a spinner. ── */
-        <View style={styles.chatSkeletonWrap}>
-          <MsShimmerChatList />
-          <View style={styles.skeletonInputRow}>
-            <MsShimmer width={40} height={40} borderRadius={20} subtle />
-            <MsShimmer width={40} height={48} borderRadius={24} subtle style={styles.skeletonInputPill} />
-            <MsShimmer width={40} height={40} borderRadius={20} subtle />
-            <MsShimmer width={40} height={40} borderRadius={20} subtle />
-            <MsShimmer width={48} height={48} borderRadius={24} subtle style={styles.skeletonSendBtn} />
-          </View>
-        </View>
-      ) : (
-        <Animated.View style={[styles.fill, { opacity: contentFade }]}>
-          {/* ── Chat search bar (slides in below header) ─────────────────────── */}
-          <MsChatSearch
-            visible={showChatSearch}
-            messages={messagesWithReactions as any}
-            onClose={() => setShowChatSearch(false)}
-            onJump={(msgId) => scrollToMessage(String(msgId))}
+      {/* ── Chat search bar (slides in below header) ─────────────────────── */}
+      <MsChatSearch
+        visible={showChatSearch}
+        messages={messagesWithReactions as any}
+        onClose={() => setShowChatSearch(false)}
+        onJump={(msgId) => scrollToMessage(String(msgId))}
+      />
+
+      {/* ── Empty-chat state — shown once loading finishes with no messages ── */}
+      {!loading && !isBlocked && messagesWithReactions.length === 0 && (
+        <View pointerEvents="none" style={styles.emptyOverlay}>
+          <MsAvatar
+            size={72}
+            initials={(otherUser.name || 'U').substring(0, 2).toUpperCase()}
+            imageUri={otherUser.avatarUrl ?? undefined}
           />
+          <Text style={styles.emptyTitle}>
+            {otherUser.name ? `${otherUser.name}` : 'New chat'}
+          </Text>
+          <Text style={styles.emptyHint}>
+            {otherUser.username
+              ? `Say hi to @${otherUser.username}`
+              : 'Send the first message to start the conversation'}
+          </Text>
+        </View>
+      )}
 
-          {/* ── Empty-chat state — shown until the first message arrives ─────── */}
-          {!isBlocked && messagesWithReactions.length === 0 && (
-            <View pointerEvents="none" style={styles.emptyOverlay}>
-              <MsAvatar
-                size={72}
-                initials={(otherUser.name || 'U').substring(0, 2).toUpperCase()}
-                imageUri={otherUser.avatarUrl ?? undefined}
-              />
-              <Text style={styles.emptyTitle}>
-                {otherUser.name ? `${otherUser.name}` : 'New chat'}
-              </Text>
-              <Text style={styles.emptyHint}>
-                {otherUser.username
-                  ? `Say hi to @${otherUser.username}`
-                  : 'Send the first message to start the conversation'}
-              </Text>
-            </View>
-          )}
+      {/* ── Message-area shimmer — ONLY the conversation region loads. The
+           header, input bar, voice-note, attachment and all other controls
+           render immediately; this skeleton sits BEHIND the Chat component
+           (whose opaque input bar paints over its bottom edge), so only the
+           empty message list area shows the shimmer. It fades out cleanly
+           when the first messages arrive — no layout jump, no full-screen
+           spinner, no skeleton over buttons. ─────────────────────────────── */}
+      {shimmerVisible && (
+        <Animated.View
+          pointerEvents={loading ? 'auto' : 'none'}
+          style={[
+            styles.msgShimmerWrap,
+            { top: insets.top + 58, opacity: shimmerOpacity },
+          ]}
+        >
+          <MsShimmerChatList />
+        </Animated.View>
+      )}
 
-          {/* ── Chat Component ───────────────────────────────────────────────── */}
-          <Chat<MsMessage>
+      {/* ── Chat Component — always mounted: header/input/controls are UI,
+           not loading data; only the message list shows the skeleton above ── */}
+      <Chat<MsMessage>
         messages={messagesWithReactions}
         // The library's AnimatedList is a gesture-handler FlatList; cast to the
         // prop type so we can call scrollToIndex on the underlying list ref.
@@ -1856,8 +1863,6 @@ export default function ChatScreen() {
 
         messagesContainerStyle={styles.msgContainer}
       />
-        </Animated.View>
-      )}
 
       {/* ── Attachment sheet ─────────────────────────────────────────────────── */}
       {showAttach && (
@@ -2424,25 +2429,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
 
-  // Chat loading skeleton — shown immediately while messages load, then the
-  // loaded conversation fades in over it.
-  chatSkeletonWrap: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  skeletonInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
-  },
-  skeletonInputPill: {
-    flex: 1,
-  },
-  skeletonSendBtn: {
-    backgroundColor: T.ACCENT,
+  // Message-area shimmer — absolute overlay confined to the conversation
+  // region (below the header, above the input bar which paints over it).
+  // The chat UI renders immediately; only messages are loading.
+  msgShimmerWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: T.BG,
   },
 
   // Empty-chat state — centered overlay above the chat background

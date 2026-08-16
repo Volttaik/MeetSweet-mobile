@@ -30,6 +30,7 @@ import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsEmptyState } from '@/components/MsEmptyState';
+import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
 import {
   getCreatorDashboard,
   getCreatorSettings,
@@ -269,6 +270,11 @@ export default function CreatorDashboardScreen() {
   const [subscriberPlusPrice, setSubscriberPlusPrice] = useState(0);
   const [editingPrice, setEditingPrice] = useState<'subscriber' | 'subscriber_plus' | null>(null);
   const [priceDraft, setPriceDraft] = useState('');
+  const [feedback, setFeedback] = useState<{
+    variant: FeedbackVariant;
+    title: string;
+    message?: string;
+  } | null>(null);
   const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanComment, setWhoCanComment] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
@@ -367,8 +373,17 @@ export default function CreatorDashboardScreen() {
       if (plan === 'subscriber') setSubscriberPrice(next.subscription_price ?? price);
       else setSubscriberPlusPrice(next.subscription_plus_price ?? price);
       setEditingPrice(null);
+      setFeedback({
+        variant: 'success',
+        title: 'Price updated',
+        message: `Your ${plan === 'subscriber' ? 'Subscriber' : 'Subscriber+'} price is now ₦${price.toLocaleString()}/mo.`,
+      });
     } catch {
-      Alert.alert('Could not save price', 'Please try again.');
+      setFeedback({
+        variant: 'error',
+        title: 'Could not save price',
+        message: 'Please try again.',
+      });
     }
   };
 
@@ -763,6 +778,15 @@ export default function CreatorDashboardScreen() {
         screens={CREATOR_ONBOARDING}
         onComplete={handleOnboardingComplete}
       />
+
+      {/* Pricing feedback (styled modal) */}
+      <MsFeedbackModal
+        visible={Boolean(feedback)}
+        variant={feedback?.variant ?? 'info'}
+        title={feedback?.title ?? ''}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
+      />
     </View>
   );
 }
@@ -1070,6 +1094,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontFamily: T.FONT.medium,
     fontSize: 14,
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   priceSave: {
     backgroundColor: T.ACCENT,

@@ -3,8 +3,9 @@
  *
  * Steps: details → cover → content → preview → publishing → success
  *
- * The backend accepts POST /albums with:
- *   { title, description, visibility, price?, cover_media_id?, media_ids[] }
+ * Albums are purchase-only: the creator sets a price (no Free/Subscriber/
+ * Subscriber+ tiers). The backend accepts POST /albums with:
+ *   { title, description, visibility, price, cover_media_id?, media_ids[] }
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -25,7 +26,6 @@ import { router } from 'expo-router';
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   FilmStrip,
   Image as ImageIcon,
   Images,
@@ -52,12 +52,6 @@ type Step =
   | 'creating'
   | 'success';
 
-const VISIBILITY_OPTIONS = [
-  { value: 'public' as const,      label: 'Public',      description: 'Anyone can discover this album' },
-  { value: 'subscribers' as const, label: 'Subscribers', description: 'Subscribers only' },
-  { value: 'draft' as const,       label: 'Draft',       description: 'Only you can see it' },
-];
-
 interface MediaItem {
   uri: string;
   type: 'image' | 'video';
@@ -75,11 +69,10 @@ const ALBUM_DRAFT_KEY = 'ms_create_album_draft';
 export default function CreateAlbumScreen() {
   const insets = useSafeAreaInsets();
 
-  // Details fields
+  // Details fields — albums are purchase-only, so the creator always sets a
+  // price; there is no Free/Subscriber/Subscriber+ tier selection.
   const [title,               setTitle]               = useState('');
   const [description,         setDescription]         = useState('');
-  const [visibility,          setVisibility]          = useState<'public' | 'subscribers' | 'draft'>('public');
-  const [isPaid,              setIsPaid]              = useState(false);
   const [price,               setPrice]               = useState('500');
   const [categories,          setCategories]          = useState<Category[]>([]);
   const [selectedCategories,  setSelectedCategories]  = useState<string[]>([]);
@@ -113,8 +106,6 @@ export default function CreateAlbumScreen() {
         const draft = JSON.parse(raw);
         if (draft.title)               setTitle(draft.title);
         if (draft.description)         setDescription(draft.description);
-        if (draft.visibility)          setVisibility(draft.visibility);
-        if (typeof draft.isPaid === 'boolean') setIsPaid(draft.isPaid);
         if (draft.price)               setPrice(draft.price);
         if (draft.selectedCategories)  setSelectedCategories(draft.selectedCategories);
         if (draft.coverUri)            setCoverUri(draft.coverUri);
@@ -130,8 +121,6 @@ export default function CreateAlbumScreen() {
     const draft = {
       title,
       description,
-      visibility,
-      isPaid,
       price,
       selectedCategories,
       coverUri,
@@ -144,8 +133,6 @@ export default function CreateAlbumScreen() {
   }, [
     title,
     description,
-    visibility,
-    isPaid,
     price,
     selectedCategories,
     coverUri,
@@ -218,6 +205,16 @@ export default function CreateAlbumScreen() {
       return;
     }
 
+    const albumPrice = parseInt(price, 10) || 0;
+    if (albumPrice < 1) {
+      setError('Set an album price — albums are purchase-only.');
+      return;
+    }
+    if (albumPrice > 1_000_000) {
+      setError('Album price must be ₦1,000,000 or less.');
+      return;
+    }
+
     setError('');
     setPublishFailed(false);
     setStep('uploading');
@@ -249,12 +246,13 @@ export default function CreateAlbumScreen() {
       setUploadProgress(0.95);
       setStep('creating');
 
-      // 3. Create album
+      // 3. Create album — purchase-only: always public and always priced so
+      // members see the price and purchase to continue.
       await createAlbum({
         title:          title.trim(),
         description:    description.trim() || undefined,
-        visibility,
-        price:          isPaid ? (parseInt(price, 10) || 500) : undefined,
+        visibility:     'public',
+        price:          albumPrice,
         cover_media_id: uploadedCover.id,
         media_ids:      itemIds,
         categories:     selectedCategories,
@@ -326,20 +324,11 @@ export default function CreateAlbumScreen() {
             )}
           </View>
 
-          {/* Meta rows */}
-          <View style={styles.previewMeta}>
-            <Text style={styles.previewMetaLabel}>Visibility</Text>
-            <Text style={styles.previewMetaValue}>
-              {VISIBILITY_OPTIONS.find(o => o.value === visibility)?.label ?? 'Public'}
-            </Text>
+          {/* Purchase price — albums are purchase-only */}
+          <View style={styles.paidBadge}>
+            <LockSimple size={14} color={T.ACCENT} />
+            <Text style={styles.paidBadgeText}>Purchase-only · ₦{parseInt(price, 10).toLocaleString()} to unlock</Text>
           </View>
-
-          {isPaid && (
-            <View style={styles.paidBadge}>
-              <LockSimple size={14} color={T.ACCENT} />
-              <Text style={styles.paidBadgeText}>Paid album · ₦{parseInt(price, 10).toLocaleString()} to purchase</Text>
-            </View>
-          )}
 
           {/* Content grid preview */}
           {items.length > 0 && (
@@ -619,86 +608,28 @@ export default function CreateAlbumScreen() {
           </View>
         </View>
 
-        {/* ── Visibility ────────────────────────────────────────────────── */}
+        {/* ── Price (purchase-only) ──────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Visibility</Text>
-          <View style={styles.visibilityOptions}>
-            {VISIBILITY_OPTIONS.map((opt) => {
-              const isActive = opt.value === visibility && !isPaid;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.visibilityOption, isActive && styles.visibilityOptionActive]}
-                  onPress={() => { setVisibility(opt.value); setIsPaid(false); }}
-                  activeOpacity={0.75}
-                >
-                  <View style={styles.visibilityText}>
-                    <Text style={[styles.visibilityLabel, isActive && styles.visibilityLabelActive]}>
-                      {opt.label}
-                    </Text>
-                    <Text style={styles.visibilityDesc}>{opt.description}</Text>
-                  </View>
-                  {isActive && (
-                    <View style={styles.checkCircle}>
-                      <Check size={12} color={T.BG} weight="bold" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+          <Text style={styles.sectionTitle}>Price</Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Price (Naira ₦)</Text>
+            <View style={styles.priceInput}>
+              <TextInput
+                value={price}
+                onChangeText={(v) => setPrice(v.replace(/[^0-9]/g, ''))}
+                keyboardType="number-pad"
+                style={styles.priceField}
+                placeholderTextColor={T.TEXT_3}
+                selectionColor="#888"
+              />
+            </View>
           </View>
-        </View>
-
-        {/* ── Paid Album toggle ─────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Pricing</Text>
-          <TouchableOpacity
-            style={[styles.paidToggleRow, isPaid && styles.paidToggleRowActive]}
-            onPress={() => setIsPaid((v) => !v)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.paidToggleLeft}>
-              <View style={[styles.paidIconWrap, isPaid && styles.paidIconWrapActive]}>
-                <LockSimple size={16} color={isPaid ? T.BG : T.TEXT_2} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.paidToggleLabel, isPaid && styles.paidToggleLabelActive]}>
-                  Charge Naira to purchase
-                </Text>
-                <Text style={styles.paidToggleDesc}>
-                  Members pay from wallet to access this album
-                </Text>
-              </View>
-            </View>
-            <View style={[styles.toggle, isPaid && styles.toggleOn]}>
-              <View style={[styles.toggleThumb, isPaid && styles.toggleThumbOn]} />
-            </View>
-          </TouchableOpacity>
-
-          {isPaid && (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Price (Naira ₦)</Text>
-              <View style={styles.priceInput}>
-                <TextInput
-                  value={price}
-                  onChangeText={(v) => setPrice(v.replace(/[^0-9]/g, ''))}
-                  keyboardType="number-pad"
-                  style={styles.priceField}
-                  placeholderTextColor={T.TEXT_3}
-                  selectionColor="#888"
-                />
-              </View>
-            </View>
-          )}
-
-          {isPaid && (
-            <View style={styles.accessNote}>
-              <Star size={12} color={T.ACCENT} weight="fill" />
-              <Text style={styles.accessNoteText}>
-                Anyone can purchase this album directly from their wallet. Album purchases are independent from subscriptions.
-              </Text>
-            </View>
-          )}
+          <View style={styles.accessNote}>
+            <Star size={12} color={T.ACCENT} weight="fill" />
+            <Text style={styles.accessNoteText}>
+              Albums are purchase-only — members pay from their wallet to unlock this album. Set the price they'll pay to access it.
+            </Text>
+          </View>
         </View>
 
         {/* ── Categories ────────────────────────────────────────────────── */}
@@ -731,6 +662,11 @@ export default function CreateAlbumScreen() {
           onPress={() => {
             if (!title.trim()) {
               setError('Please enter a title for your album.');
+              return;
+            }
+            const nextPrice = parseInt(price, 10) || 0;
+            if (nextPrice < 1) {
+              setError('Set an album price — albums are purchase-only.');
               return;
             }
             setError('');
@@ -905,6 +841,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+    // Vertically centre the title inside the input wrap on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   inputCount: {
     fontSize: 11,
@@ -935,62 +875,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  // Visibility
-  visibilityOptions: { gap: 8 },
-  visibilityOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.SURFACE,
-    gap: 12,
-  },
-  visibilityOptionActive: { backgroundColor: T.ACCENT_LIGHT },
-  visibilityText: { flex: 1 },
-  visibilityLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
-  visibilityLabelActive: { color: T.TEXT },
-  visibilityDesc: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 1 },
-  checkCircle: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: T.ACCENT,
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  // Paid toggle
-  paidToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.SURFACE,
-    gap: 12,
-  },
-  paidToggleRowActive: { backgroundColor: T.ACCENT_LIGHT },
-  paidToggleLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  paidIconWrap: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: T.SURFACE_2,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  paidIconWrapActive: { backgroundColor: T.ACCENT },
-  paidToggleLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
-  paidToggleLabelActive: { color: T.TEXT },
-  paidToggleDesc: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
-  toggle: {
-    width: 44, height: 26, borderRadius: 13,
-    backgroundColor: T.SURFACE_2,
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  toggleOn: { backgroundColor: T.ACCENT },
-  toggleThumb: {
-    width: 20, height: 20, borderRadius: 10,
-    backgroundColor: T.TEXT_3,
-  },
-  toggleThumbOn: {
-    backgroundColor: T.BG,
-    alignSelf: 'flex-end',
-  },
+  // Price
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1008,6 +893,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT,
     textAlign: 'center',
+    // Vertically centre the digits inside the 36px price chip on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
 
   // Access note
@@ -1237,14 +1126,6 @@ const styles = StyleSheet.create({
     color: T.TEXT_2,
     lineHeight: 20,
   },
-  previewMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: 20,
-    paddingVertical: 12,
-  },
-  previewMetaLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  previewMetaValue: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
   paidBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginHorizontal: 20, marginBottom: 12,

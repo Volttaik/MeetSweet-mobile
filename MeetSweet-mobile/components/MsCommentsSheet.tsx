@@ -1056,6 +1056,8 @@ const sheetStyles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     fontSize: 13,
     paddingVertical: 8,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   sendBtn: {
     width: 32,

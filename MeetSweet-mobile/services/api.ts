@@ -45,6 +45,14 @@ export function setSessionExpiredHandler(fn: () => void): void {
   _onSessionExpired = fn;
 }
 
+/**
+ * Refresh the access token once (single-flight).
+ * Used by flows that bypass apiFetch (e.g. native file uploads via expo/fetch).
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  return _refreshOnce();
+}
+
 // ── Token refresh state ───────────────────────────────────────────────────────
 
 let _isRefreshing = false;

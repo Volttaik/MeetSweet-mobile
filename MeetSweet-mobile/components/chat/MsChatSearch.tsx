@@ -136,6 +136,9 @@ const s = StyleSheet.create({
     fontSize: 14,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   count: {
     fontSize: 11,

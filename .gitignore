@@ -41,6 +41,11 @@ testem.log
 .DS_Store
 Thumbs.db
 
+# Environment variables (secrets live in API Keys / freebuff-env managed files)
+.env
+.env.local
+.env.*.local
+
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
@@ -51,4 +56,7 @@ Thumbs.db
 # Antigravity & Agent
 .antigravity/
 .agents/
+
+# Separate server repo clone (Volttaik/Meetsweet) — never commit into mobile repo
+.meetsweet-server/
 

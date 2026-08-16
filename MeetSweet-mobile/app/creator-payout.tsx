@@ -344,6 +344,9 @@ const bankS = StyleSheet.create({
     color: T.TEXT,
     fontFamily: T.FONT.regular,
     fontSize: 14,
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   saveBtn: {
     height: 52,
@@ -485,6 +488,8 @@ const amtS = StyleSheet.create({
     fontSize: 40,
     letterSpacing: -1,
     paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   hint: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
   hintText: { fontFamily: T.FONT.regular, fontSize: 12 },

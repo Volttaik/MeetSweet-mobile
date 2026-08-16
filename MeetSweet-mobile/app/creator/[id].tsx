@@ -31,7 +31,7 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser, searchUsers } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
+import { subscribe, cancelSubscription, getCreatorMessagingSettings } from '@/services/subscriptions';
 import { getOrCreateChatRoom, getChatRoomList, type ChatRoom } from '@/services/room-service';
 import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
 import { getCachedCreatorProfile, cacheCreatorProfile } from '@/lib/posts-db';
@@ -52,8 +52,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { Post } from '@/services/posts';
 import type { AlbumCardData } from '@/services/albums';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
-import { toast } from '@/components/MsToast';
 import { MsAvatar } from '@/components/MsAvatar';
+import { MsConfirmDialog } from '@/components/MsConfirmDialog';
+import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsAlbumCard } from '@/components/MsAlbumCard';
@@ -202,8 +203,10 @@ function SubscribeSheet({
   isSubscribed = false,
   currentTier = null,
   subscribing = false,
+  unsubscribing = false,
   onConfirm,
   onWallet,
+  onUnsubscribe,
   onClose,
 }: {
   visible: boolean;
@@ -213,8 +216,10 @@ function SubscribeSheet({
   isSubscribed?: boolean;
   currentTier?: SubscribePlan | null;
   subscribing?: boolean;
+  unsubscribing?: boolean;
   onConfirm: (plan: SubscribePlan) => void;
   onWallet: () => void;
+  onUnsubscribe?: () => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -381,6 +386,19 @@ function SubscribeSheet({
             </TouchableOpacity>
           )}
 
+          {isSubscribed && onUnsubscribe ? (
+            <TouchableOpacity
+              style={shStyles.unsubscribeBtn}
+              onPress={onUnsubscribe}
+              disabled={subscribing || unsubscribing}
+              activeOpacity={0.7}
+            >
+              <Text style={shStyles.unsubscribeLabel}>
+                {unsubscribing ? 'Cancelling subscription…' : 'Unsubscribe'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
             <Text style={shStyles.cancelLabel}>Close</Text>
           </TouchableOpacity>
@@ -468,6 +486,17 @@ const shStyles = StyleSheet.create({
   primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#fff' },
   cancelBtn: { alignItems: 'center', paddingVertical: 6 },
   cancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_3 },
+  unsubscribeBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: T.BORDER,
+  },
+  unsubscribeLabel: {
+    fontSize: 14,
+    fontFamily: T.FONT.semibold,
+    color: T.DANGER,
+  },
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -490,6 +519,13 @@ export default function CreatorProfileScreen() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [currentTier, setCurrentTier] = useState<SubscribePlan | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+  const [unsubscribing, setUnsubscribing] = useState(false);
+  const [unsubscribeConfirm, setUnsubscribeConfirm] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    variant: FeedbackVariant;
+    title: string;
+    message?: string;
+  } | null>(null);
   const [loadingMessaging, setLoadingMessaging] = useState(false);
   // Full-screen Chat Room creation loader (subscription check + backend create).
   const [creatingRoom, setCreatingRoom] = useState(false);
@@ -707,6 +743,13 @@ export default function CreatorProfileScreen() {
   const creatorUUID = creatorFullProfile?.userId ?? id;
   const creatorLookup = id;
 
+  // Own profile: the creator screen is normally redirected to the personal
+  // profile tab when the viewer IS the creator, but guard explicitly so a
+  // UUID-based navigation never shows Subscribe/Message on your own profile.
+  const isOwnProfile = Boolean(
+    currentUser && creatorFullProfile && currentUser.id === creatorFullProfile.userId,
+  );
+
   // Apply a CreatorProfileFull response to all creator-profile state. Single
   // source of truth for mount / refresh / post-subscribe sync so the UI never
   // shows stale subscriber counts or subscription state.
@@ -727,6 +770,51 @@ export default function CreatorProfileScreen() {
       isOnline:        profile.isOnline,
     });
   }, []);
+
+  // Unsubscribe flow — success is only reported after the server confirms the
+  // subscription row was cancelled ({ cancelled: true }).
+  const handleUnsubscribe = useCallback(async () => {
+    const subId = creatorFullProfile?.subscriptionId;
+    if (!subId) {
+      setUnsubscribeConfirm(false);
+      setFeedback({
+        variant: 'error',
+        title: 'Could not unsubscribe',
+        message: 'No active subscription was found for this creator.',
+      });
+      return;
+    }
+    setUnsubscribeConfirm(false);
+    setUnsubscribing(true);
+    try {
+      const res = await cancelSubscription(subId);
+      if (!res.cancelled) throw new Error('Could not cancel the subscription.');
+      setIsSubscribed(false);
+      setCurrentTier(null);
+      setSheetOpen(false);
+      setFeedback({
+        variant: 'success',
+        title: 'Unsubscribed',
+        message: `You are no longer subscribed to ${creatorFullProfile?.name ?? 'this creator'}.`,
+      });
+      // Re-fetch the authoritative profile so subscription state + counts
+      // reflect the server everywhere.
+      getCreatorById(creatorLookup)
+        .then((profile: CreatorProfileFull) => {
+          applyProfile(profile);
+          cacheCreatorProfile(currentUser?.id ?? 'guest', creatorLookup, profile).catch(() => {});
+        })
+        .catch(() => {});
+    } catch (err) {
+      setFeedback({
+        variant: 'error',
+        title: 'Could not unsubscribe',
+        message: (err as Error).message ?? 'Please try again.',
+      });
+    } finally {
+      setUnsubscribing(false);
+    }
+  }, [creatorFullProfile, creatorLookup, currentUser?.id, applyProfile]);
 
   useEffect(() => {
     if (!id) return;
@@ -932,6 +1020,11 @@ export default function CreatorProfileScreen() {
           <View style={styles.nameRow}>
             <Text style={styles.name}>{creator.name}</Text>
             {creator.isVerified && <SealCheck size={16} color={T.TEXT} weight="fill" />}
+            {isOwnProfile && (
+              <View style={styles.youBadge}>
+                <Text style={styles.youBadgeText}>You</Text>
+              </View>
+            )}
           </View>
           <Text style={styles.handle}>
             {creator.handle}
@@ -965,7 +1058,9 @@ export default function CreatorProfileScreen() {
 
           {/* Subscribe button — reflects the authoritative server state: price
               when unsubscribed, current state + Upgrade when a base subscriber,
-              and the highest tier with no upgrade when Subscriber+. */}
+              and the highest tier with no upgrade when Subscriber+. Never shown
+              on your own profile. */}
+          {!isOwnProfile && (
           <View style={styles.subscribeRow}>
             <TouchableOpacity
               style={[
@@ -1010,9 +1105,10 @@ export default function CreatorProfileScreen() {
               </TouchableOpacity>
             )}
           </View>
+          )}
 
           {/* Message button - shown when viewing another user's profile and not own profile */}
-          {currentUser && currentUser.username !== (realProfile?.username ?? id) && (
+          {!isOwnProfile && currentUser && currentUser.username !== (realProfile?.username ?? id) && (
             <TouchableOpacity
               style={[
                 styles.messageButton,
@@ -1259,10 +1355,18 @@ export default function CreatorProfileScreen() {
             }
 
             setSheetOpen(false);
-            toast.success(
+            setFeedback(
               plan === 'subscriber_plus'
-                ? `Upgraded to Subscriber+ — you now have access to ${creator.name}'s content.`
-                : `Subscribed to ${creator.name}!`,
+                ? {
+                    variant: 'success',
+                    title: 'Upgraded to Subscriber+',
+                    message: `You now have access to ${creator.name}'s content.`,
+                  }
+                : {
+                    variant: 'success',
+                    title: 'Subscribed',
+                    message: `You are now subscribed to ${creator.name}.`,
+                  },
             );
 
             // Re-fetch the authoritative profile so subscription state, counts,
@@ -1285,17 +1389,43 @@ export default function CreatorProfileScreen() {
             setCreatorShorts([]);
             setCreatorAlbums([]);
           } catch (err) {
-            const msg =
-              (err as { message?: string; code?: string }).code === 'INSUFFICIENT_BALANCE'
-                ? 'Insufficient wallet balance. Top up to subscribe.'
-                : ((err as Error).message ?? 'Subscription failed. Please try again.');
-            toast.error(msg);
+            const code = (err as { code?: string }).code;
+            setFeedback({
+              variant: 'error',
+              title: 'Could not subscribe',
+              message:
+                code === 'INSUFFICIENT_BALANCE'
+                  ? 'Insufficient wallet balance. Top up to subscribe.'
+                  : ((err as Error).message ?? 'Subscription failed. Please try again.'),
+            });
           } finally {
             setSubscribing(false);
           }
         }}
         onWallet={() => { setSheetOpen(false); router.push('/wallet'); }}
+        onUnsubscribe={() => setUnsubscribeConfirm(true)}
+        unsubscribing={unsubscribing}
         onClose={() => setSheetOpen(false)}
+      />
+
+      {/* Unsubscribe confirmation */}
+      <MsConfirmDialog
+        visible={unsubscribeConfirm}
+        title="Unsubscribe?"
+        message={`You will lose access to ${creator.name}'s subscriber content and messaging.`}
+        confirmLabel={unsubscribing ? 'Cancelling…' : 'Unsubscribe'}
+        destructive
+        onConfirm={handleUnsubscribe}
+        onCancel={() => setUnsubscribeConfirm(false)}
+      />
+
+      {/* Subscription / pricing feedback (styled modal) */}
+      <MsFeedbackModal
+        visible={Boolean(feedback)}
+        variant={feedback?.variant ?? 'info'}
+        title={feedback?.title ?? ''}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
       />
 
       {/* More (sparkle) action sheet */}
@@ -1435,6 +1565,18 @@ const styles = StyleSheet.create({
   avatarWrap: { marginBottom: 14 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   name: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 24, letterSpacing: -0.6 },
+  youBadge: {
+    backgroundColor: 'rgba(196,90,114,0.16)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: T.RADIUS.full,
+  },
+  youBadgeText: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.bold,
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
   handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, marginTop: 4 },
 
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },

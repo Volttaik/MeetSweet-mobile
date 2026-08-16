@@ -8,7 +8,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   FlatList,
   Pressable,
@@ -20,6 +19,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Check,
@@ -39,6 +39,8 @@ import { T } from '@/constants/theme';
 import { useAlbum, purchaseAlbum } from '@/services/albums';
 import type { AlbumItem } from '@/services/albums';
 import { MsShareSheet } from '@/components/MsShareSheet';
+import { MsModal } from '@/components/MsModal';
+import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 3;
@@ -63,44 +65,80 @@ function tone(gradient: string) {
 export default function AlbumScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const [unlocking, setUnlocking] = useState(false);
   const [unlockedOverride, setUnlockedOverride] = useState<boolean | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    variant: FeedbackVariant;
+    title: string;
+    message?: string;
+    secondaryLabel?: string;
+    onSecondary?: () => void;
+  } | null>(null);
 
   const { data: album, isLoading, isError } = useAlbum(id ?? '');
 
-  // isUnlockedByMe from the backend is the source of truth; unlockedOverride
-  // reflects a successful unlock within the current session without a refetch.
+  // isUnlockedByMe from the backend is the source of truth (server marks owned
+  // albums and purchased albums as unlocked); unlockedOverride reflects a
+  // successful unlock within the current session without a refetch.
   const isUnlockedByMe = unlockedOverride ?? album?.isUnlockedByMe ?? false;
+
+  /** Run the actual purchase — success is only reported when the server's
+   *  atomic transaction committed. Never fabricate a success locally. */
+  const runPurchase = async () => {
+    if (!album) return;
+    setConfirmVisible(false);
+    setUnlocking(true);
+    try {
+      const res = await purchaseAlbum(album.id);
+      if (!res.purchased) {
+        throw new Error('Purchase could not be completed.');
+      }
+      setUnlockedOverride(true);
+      // Re-fetch so the server-authoritative unlock state replaces the cached
+      // "locked" snapshot (and stays correct on the next open).
+      queryClient.invalidateQueries({ queryKey: ['album', album.id] });
+      if (res.alreadyUnlocked) {
+        // Owner / free / previously purchased — no new transaction was charged,
+        // so this is NOT a fresh purchase success.
+        setFeedback({
+          variant: 'info',
+          title: 'Already unlocked',
+          message: `You already have full access to "${album.title}".`,
+        });
+      } else {
+        setFeedback({
+          variant: 'success',
+          title: 'Album unlocked',
+          message: `Purchase completed — you now have full access to "${album.title}".`,
+        });
+      }
+    } catch (err) {
+      const msg = (err as Error).message ?? 'Please try again.';
+      setFeedback({
+        variant: 'error',
+        title: 'Could not purchase',
+        message: msg,
+        ...((err as { code?: string }).code === 'INSUFFICIENT_BALANCE'
+          ? {
+              secondaryLabel: 'Top up wallet',
+              onSecondary: () => {
+                setFeedback(null);
+                router.push('/wallet');
+              },
+            }
+          : {}),
+      });
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const handleUnlock = () => {
     if (!album) return;
-    Alert.alert(
-      'Purchase Album',
-      `Purchase "${album.title}" for ₦${album.price?.toLocaleString()}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: `Purchase · ₦${album.price?.toLocaleString()}`,
-          style: 'default',
-          onPress: async () => {
-            setUnlocking(true);
-            try {
-              const res = await purchaseAlbum(album.id);
-              if (!res.purchased) {
-                throw new Error('Purchase could not be completed.');
-              }
-              setUnlockedOverride(true);
-              Alert.alert('Purchased!', `You now have full access to "${album.title}".`);
-            } catch (err) {
-              Alert.alert('Could not purchase', (err as Error).message ?? 'Please try again.');
-            } finally {
-              setUnlocking(false);
-            }
-          },
-        },
-      ],
-    );
+    setConfirmVisible(true);
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -364,6 +402,54 @@ export default function AlbumScreen() {
 
         <View style={styles.bottomSpace} />
       </ScrollView>
+
+      {/* ── Purchase confirmation (styled sheet) ── */}
+      <MsModal
+        visible={confirmVisible}
+        onClose={() => { if (!unlocking) setConfirmVisible(false); }}
+        title="Purchase album"
+        subtitle={`${album.title} · ₦${album.price?.toLocaleString()}`}
+        footer={
+          <View style={styles.confirmFooter}>
+            <TouchableOpacity
+              style={[styles.confirmCancel, unlocking && styles.confirmDisabled]}
+              onPress={() => setConfirmVisible(false)}
+              disabled={unlocking}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.confirmCancelLabel}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.confirmBuy, unlocking && styles.confirmDisabled]}
+              onPress={runPurchase}
+              disabled={unlocking}
+              activeOpacity={0.85}
+            >
+              {unlocking ? (
+                <ActivityIndicator size="small" color={T.BG} />
+              ) : (
+                <><Star size={14} color={T.BG} weight="fill" /><Text style={styles.confirmBuyLabel}>Purchase · ₦{album.price?.toLocaleString()}</Text></>
+              )}
+            </TouchableOpacity>
+          </View>
+        }
+      >
+        <Text style={styles.confirmCopy}>
+          The amount will be deducted from your wallet balance and the album will be unlocked permanently.
+        </Text>
+      </MsModal>
+
+      {/* ── Purchase / unlock feedback (styled modal) ── */}
+      <MsFeedbackModal
+        visible={Boolean(feedback)}
+        variant={feedback?.variant ?? 'info'}
+        title={feedback?.title ?? ''}
+        message={feedback?.message}
+        secondaryLabel={feedback?.secondaryLabel}
+        onSecondary={feedback?.onSecondary}
+        onClose={() => setFeedback(null)}
+      />
+
       <MsShareSheet
         visible={shareVisible}
         contentType="album"
@@ -657,4 +743,45 @@ const styles = StyleSheet.create({
   },
 
   bottomSpace: { height: 32 },
+
+  // Purchase confirmation sheet
+  confirmCopy: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  confirmFooter: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  confirmCancel: {
+    flex: 1,
+    height: 48,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCancelLabel: {
+    color: T.TEXT_2,
+    fontFamily: T.FONT.semibold,
+    fontSize: 14,
+  },
+  confirmBuy: {
+    flex: 1.4,
+    height: 48,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  confirmBuyLabel: {
+    color: T.BG,
+    fontFamily: T.FONT.bold,
+    fontSize: 14,
+  },
+  confirmDisabled: { opacity: 0.6 },
 });

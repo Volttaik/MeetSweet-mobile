@@ -349,6 +349,10 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     height: '100%',
     backgroundColor: 'transparent',
+    // Vertically centre the caret + text inside the input row on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     ...(Platform.OS === 'web'
       ? { outlineStyle: 'none' as never, outlineWidth: 0 }
       : {}),

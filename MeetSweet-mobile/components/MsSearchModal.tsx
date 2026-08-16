@@ -441,6 +441,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
+    // Vertically centre the caret + text inside the 36px pill on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     ...(Platform.OS === 'web'
       ? { outlineStyle: 'none' as never, outlineWidth: 0 }
       : {}),

@@ -788,6 +788,11 @@ const styles = StyleSheet.create({
   customInput: {
     flex: 1, height: 48, fontSize: 18,
     fontFamily: T.FONT.medium, color: T.TEXT,
+    // Keep the digits optically centred next to the ₦ sign on Android
+    // (TextInput's default internal padding otherwise pushes text down).
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
 
   infoRow: {

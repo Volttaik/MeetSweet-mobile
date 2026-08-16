@@ -30,6 +30,21 @@ export async function subscribe(
   });
 }
 
+/**
+ * Cancel an active subscription. Server flips the subscription to "cancelled"
+ * and returns { cancelled: true } only after the row was updated — an error
+ * throws and the client must NOT report success.
+ */
+export async function cancelSubscription(subscriptionId: string): Promise<{ cancelled: boolean }> {
+  const token = await getAccessToken();
+  if (!token) throw new Error('Not authenticated');
+  return authFetch<{ cancelled?: boolean }>(
+    `/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    token,
+    { method: 'POST' },
+  ).then((raw) => ({ cancelled: Boolean(raw?.cancelled ?? false) }));
+}
+
 export async function getCreatorMessagingSettings(creatorId: string): Promise<any> {
   const token = await getAccessToken();
   // Fallback shape must stay consistent with the real response so the
