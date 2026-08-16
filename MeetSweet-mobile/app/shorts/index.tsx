@@ -446,8 +446,8 @@ function ShortPage({
       <View style={[styles.actions, { paddingBottom: bottomInset + 20 }]}>
         <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
           <PressScale style={styles.actionCircleWrap} onPress={toggleLike} hitSlop={8} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
-            <Animated.View style={[styles.actionCircle, liked && styles.actionCircleActive, likeStyle]}>
-              <Heart size={20} color="#fff" weight={liked ? 'fill' : 'regular'} />
+            <Animated.View style={[styles.actionCircle, likeStyle]}>
+              <Heart size={20} color={liked ? T.ACCENT : '#fff'} weight={liked ? 'fill' : 'regular'} />
             </Animated.View>
           </PressScale>
           <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
@@ -524,10 +524,10 @@ const styles = StyleSheet.create({
   actions: { position: 'absolute', right: 14, bottom: 0, alignItems: 'center', gap: 18 },
   actionButton: { alignItems: 'center', gap: 4 },
   actionCircleWrap: { alignItems: 'center', justifyContent: 'center' },
+  // No glass container behind action icons — they sit directly on the video.
   actionCircle: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.42)', alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-  actionCircleActive: { backgroundColor: T.ACCENT },
   actionCount: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 },
 });

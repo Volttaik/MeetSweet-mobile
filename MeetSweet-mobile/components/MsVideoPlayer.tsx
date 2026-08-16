@@ -1007,7 +1007,7 @@ export function MsVideoPlayer({
       {isShorts && !premiumGated ? (
         <Animated.View style={[styles.iconWrap, styles.shortsIconLayer, shortsIconStyle]} pointerEvents="box-none">
           <PressScale
-            style={styles.iconCircle}
+            style={[styles.iconCircle, styles.shortsIconNoBg]}
             onPress={toggleShortsPlayback}
             hitSlop={16}
             accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
@@ -1635,6 +1635,11 @@ const styles = StyleSheet.create({
     width: 46, height: 46, borderRadius: 23,
     backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center', justifyContent: 'center',
+  },
+  // Shorts play/pause sits directly on the video (no glass disc), matching the
+  // side action icons. Standard mode keeps its subtle disc for legibility.
+  shortsIconNoBg: {
+    backgroundColor: 'transparent',
   },
 
   // Bottom bar wrapper

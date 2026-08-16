@@ -240,6 +240,68 @@ export async function getCachedUser(
   }
 }
 
+// ─── Creator profile cache (instant open → background revalidate) ─────────────
+
+const CREATOR_PROFILE_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
+
+/**
+ * Cache a creator's full profile (including viewer-specific subscription state)
+ * scoped to the viewer, so one user's cached profile can never leak to another.
+ * The screen always revalidates against the server on open; this cache only
+ * provides instant first paint and an offline fallback.
+ */
+export async function cacheCreatorProfile(
+  viewerUserId: string,
+  creatorId: string,
+  profile: unknown,
+): Promise<void> {
+  const key = metaKey(viewerUserId, `creator_profile_${creatorId}`);
+  const db = await getDb();
+  const now = Date.now();
+  if (db) {
+    try {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO cache_metadata (key, value, expires_at) VALUES (?, ?, ?)`,
+        [key, JSON.stringify(profile), now + CREATOR_PROFILE_TTL_MS],
+      );
+    } catch {}
+  } else {
+    await AsyncStorage.setItem(
+      `@ms_creator_profile_${key}`,
+      JSON.stringify({ profile, cachedAt: now }),
+    ).catch(() => {});
+  }
+}
+
+export async function getCachedCreatorProfile(
+  viewerUserId: string,
+  creatorId: string,
+): Promise<unknown | null> {
+  const key = metaKey(viewerUserId, `creator_profile_${creatorId}`);
+  const db = await getDb();
+  if (db) {
+    try {
+      const row = await db.getFirstAsync<{ value: string; expires_at: number }>(
+        `SELECT value, expires_at FROM cache_metadata WHERE key = ?`,
+        [key],
+      );
+      if (!row || Date.now() > row.expires_at) return null;
+      return JSON.parse(row.value);
+    } catch {
+      return null;
+    }
+  }
+  const raw = await AsyncStorage.getItem(`@ms_creator_profile_${key}`).catch(() => null);
+  if (!raw) return null;
+  try {
+    const { profile, cachedAt } = JSON.parse(raw) as { profile: unknown; cachedAt: number };
+    if (Date.now() - cachedAt > CREATOR_PROFILE_TTL_MS) return null;
+    return profile;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Chat Rooms cache (for messages list) ────────────────────────────────────
 
 const ROOM_LIST_TTL_MS = 60 * 60 * 1000; // 1 hour

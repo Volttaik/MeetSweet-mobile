@@ -34,6 +34,7 @@ import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, getCreatorMessagingSettings } from '@/services/subscriptions';
 import { getOrCreateChatRoom, getChatRoomList, type ChatRoom } from '@/services/room-service';
 import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
+import { getCachedCreatorProfile, cacheCreatorProfile } from '@/lib/posts-db';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
 import { useLocalExploreCatalog } from '@/services/explore';
@@ -729,12 +730,32 @@ export default function CreatorProfileScreen() {
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+
+    // 1. Paint the cached profile immediately for instant continuity, then
+    //    revalidate against the server so the server stays authoritative.
+    const viewerId = currentUser?.id ?? 'guest';
+    getCachedCreatorProfile(viewerId, creatorLookup)
+      .then((cached) => {
+        if (!cancelled && cached) {
+          applyProfile(cached as CreatorProfileFull);
+          setProfileLoading(false);
+        }
+      })
+      .catch(() => {});
+
     setProfileLoading(true);
     getCreatorById(creatorLookup)
-      .then((profile: CreatorProfileFull) => applyProfile(profile))
+      .then((profile: CreatorProfileFull) => {
+        if (cancelled) return;
+        applyProfile(profile);
+        cacheCreatorProfile(viewerId, creatorLookup, profile).catch(() => {});
+      })
       .catch(() => {})
-      .finally(() => setProfileLoading(false));
-  }, [id, creatorLookup, applyProfile]);
+      .finally(() => { if (!cancelled) setProfileLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [id, creatorLookup, applyProfile, currentUser?.id]);
 
   // Redirect to own profile immediately if slug matches username — no API wait needed
   useEffect(() => {
@@ -832,7 +853,10 @@ export default function CreatorProfileScreen() {
     try {
       await Promise.all([
         getCreatorById(creatorLookup)
-          .then((profile: CreatorProfileFull) => applyProfile(profile))
+          .then((profile: CreatorProfileFull) => {
+            applyProfile(profile);
+            cacheCreatorProfile(currentUser?.id ?? 'guest', creatorLookup, profile).catch(() => {});
+          })
           .catch(() => {}),
         getCreatorContentPosts(creatorUUID)
           .then(({ posts }: { posts: Post[] }) => setCreatorPosts(posts)).catch(() => {}),
@@ -1242,9 +1266,13 @@ export default function CreatorProfileScreen() {
             );
 
             // Re-fetch the authoritative profile so subscription state, counts,
-            // and unlocked content all reflect the server (persists across tabs).
+            // and unlocked content all reflect the server (persists across tabs),
+            // and update the cached profile so the next open is instant + correct.
             getCreatorById(creatorLookup)
-              .then((profile: CreatorProfileFull) => applyProfile(profile))
+              .then((profile: CreatorProfileFull) => {
+                applyProfile(profile);
+                cacheCreatorProfile(currentUser?.id ?? 'guest', creatorLookup, profile).catch(() => {});
+              })
               .catch(() => {});
 
             // Refresh the creator's content so subscriber-gated posts appear
