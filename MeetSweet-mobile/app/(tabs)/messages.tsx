@@ -395,8 +395,14 @@ export default function MessagesScreen() {
   );
 
   useEffect(() => {
-    setLoading(true);
-    setChatRooms([]);
+    // Never wipe already-available rooms — clearing the list on every tab
+    // switch is what caused the "show → disappear → loader → re-render" flash.
+    // `load()` paints the cached list immediately (All) then revalidates, so the
+    // existing conversations stay on screen instead of being torn down.
+    if (activeTab !== 'All') {
+      setChatRooms([]);
+      setLoading(true);
+    }
     load();
   }, [activeTab]);
 
