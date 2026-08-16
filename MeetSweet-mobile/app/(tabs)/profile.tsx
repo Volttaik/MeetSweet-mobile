@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { createShareLink } from '@/services/sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -151,7 +151,7 @@ function EditProfileModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <Pressable style={epm.overlay} onPress={onClose}>
           <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]} onPress={(e) => e.stopPropagation()}>
             <View style={epm.handle} />
@@ -227,7 +227,7 @@ function EditPostSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <Pressable style={epm.overlay} onPress={onClose}>
           <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]} onPress={(e) => e.stopPropagation()}>
             <View style={epm.handle} />

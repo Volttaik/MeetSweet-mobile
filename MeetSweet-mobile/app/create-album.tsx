@@ -36,6 +36,7 @@ import {
   X,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { uploadMedia } from '@/services/media';
 import { createAlbum } from '@/services/albums';
@@ -559,7 +560,7 @@ export default function CreateAlbumScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -685,7 +686,7 @@ export default function CreateAlbumScreen() {
         )}
 
         <View style={{ height: 40 }} />
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

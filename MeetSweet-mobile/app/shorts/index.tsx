@@ -327,6 +327,11 @@ function ShortPage({
 }) {
   const [liked,     setLiked]     = useState(item.likedByMe);
   const [likeCount, setLikeCount] = useState(item.likeCount);
+  // Live ownership: the authenticated user's id vs the short's creator id
+  // (server data). Own shorts never show a Subscribe pill.
+  const isOwnCreator = Boolean(
+    currentUser?.id && item.creator.id && currentUser.id === item.creator.id,
+  );
 
   const { hearts, spawnHeart } = useHeartBurst();
   const likeScale = useSharedValue(1);
@@ -425,10 +430,12 @@ function ShortPage({
           <MsAvatar size={38} initials={item.creator.name.slice(0, 2).toUpperCase()} imageUri={item.creator.avatarUrl ?? undefined} />
           <Text style={styles.creatorName}>{item.creator.name}</Text>
           {item.creator.isVerified ? <SealCheck size={15} color="#fff" weight="fill" /> : null}
-          <PressScale style={styles.subscribe} onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}>
-            <Users size={12} color={T.BG} />
-            <Text style={styles.subscribeText}>Subscribe</Text>
-          </PressScale>
+          {!isOwnCreator && (
+            <PressScale style={styles.subscribe} onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}>
+              <Users size={12} color={T.BG} />
+              <Text style={styles.subscribeText}>Subscribe</Text>
+            </PressScale>
+          )}
         </Pressable>
         {item.caption ? <Text style={styles.caption} numberOfLines={3}>{item.caption}</Text> : null}
         <Text style={styles.views}>{formatCount(item.viewCount)} views</Text>

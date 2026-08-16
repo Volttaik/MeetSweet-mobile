@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -695,7 +696,7 @@ export default function CreatePostScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollViewCompat showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.formContent}>
 
           {/* Video title (video type only) */}
@@ -897,7 +898,7 @@ export default function CreatePostScreen() {
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       {/* Media picker modal */}
       <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>

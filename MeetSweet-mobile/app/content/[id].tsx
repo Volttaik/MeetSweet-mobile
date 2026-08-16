@@ -68,6 +68,7 @@ export default function ContentDetailScreen() {
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
+  const [commentCount, setCommentCount] = useState(0);
   const [shareVisible, setShareVisible] = useState(false);
 
   // ── Comment state ──────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ export default function ContentDetailScreen() {
         setLiked(p.likedByMe);
         setBookmarked(p.bookmarkedByMe ?? false);
         setLikeCount(p.likeCount);
+        setCommentCount(p.commentCount ?? 0);
       })
       .catch(() => setPost(null))
       .finally(() => setLoadingPost(false));
@@ -138,7 +140,10 @@ export default function ContentDetailScreen() {
         avatarUrl: user?.avatarUrl ?? null,
       },
     };
+    // Optimistic: the comment and the post's comment count both update
+    // immediately, then reconcile with the server response.
     setComments((prev) => [optimistic, ...prev]);
+    setCommentCount((n) => n + 1);
     try {
       const res = await submitRoomComment(commentRoomId ?? '', body);
       setComments((prev) => prev.map((c) => c.id === tempId ? res.comment as unknown as Comment : c));
@@ -183,6 +188,7 @@ export default function ContentDetailScreen() {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
           setComments((prev) => prev.filter((c) => c.id !== commentId));
+          setCommentCount((n) => Math.max(0, n - 1));
           try { await deleteRoomComment(commentRoomId ?? '', commentId); }
           catch { /* comment was removed optimistically; silent fail is fine */ }
         },
@@ -265,13 +271,15 @@ export default function ContentDetailScreen() {
             <Text style={styles.creatorHandle}>@{post.author.username}</Text>
           </View>
         </Pressable>
-        <Pressable
-          style={styles.subscribe}
-          onPress={() => router.push(`/creator/${post.author.id}`)}
-        >
-          <UserPlus size={14} color={T.BG} />
-          <Text style={styles.subscribeText}>Subscribe</Text>
-        </Pressable>
+        {currentUserId !== post.author.id && (
+          <Pressable
+            style={styles.subscribe}
+            onPress={() => router.push(`/creator/${post.author.id}`)}
+          >
+            <UserPlus size={14} color={T.BG} />
+            <Text style={styles.subscribeText}>Subscribe</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Actions */}
@@ -282,7 +290,7 @@ export default function ContentDetailScreen() {
         </Pressable>
         <View style={styles.action}>
           <ChatCircle size={18} color={T.TEXT_2} />
-          <Text style={styles.actionText}>{formatCount(post.commentCount)}</Text>
+          <Text style={styles.actionText}>{formatCount(commentCount)}</Text>
         </View>
         <Pressable style={styles.action} onPress={toggleBookmark}>
           <Bookmark size={18} color={bookmarked ? T.ACCENT : T.TEXT_2} weight={bookmarked ? 'fill' : 'regular'} />

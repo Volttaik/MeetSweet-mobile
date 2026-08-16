@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   Alert,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -28,6 +27,7 @@ import {
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
@@ -422,7 +422,7 @@ export default function CreatorDashboardScreen() {
           />
         </View>
       ) : (
-        <ScrollView
+        <KeyboardAwareScrollViewCompat
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.TEXT} />
@@ -769,7 +769,7 @@ export default function CreatorDashboardScreen() {
             </View>
           </SettingsSection>
 
-        </ScrollView>
+        </KeyboardAwareScrollViewCompat>
       )}
 
       {/* Creator onboarding modal */}

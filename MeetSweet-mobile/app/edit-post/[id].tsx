@@ -7,10 +7,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,6 +17,7 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   ArrowLeft,
   Check,
@@ -133,10 +132,6 @@ export default function EditPostScreen() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         {/* ── Top bar ── */}
         <View style={styles.topBar}>
@@ -156,7 +151,7 @@ export default function EditPostScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
+        <KeyboardAwareScrollViewCompat
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 24, 40) }]}
           keyboardShouldPersistTaps="handled"
@@ -269,9 +264,8 @@ export default function EditPostScreen() {
               </>
             )}
           </TouchableOpacity>
-        </ScrollView>
+        </KeyboardAwareScrollViewCompat>
       </View>
-    </KeyboardAvoidingView>
   );
 }
 

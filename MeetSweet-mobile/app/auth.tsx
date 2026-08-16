@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -20,6 +18,7 @@ import { At, Eye, EyeSlash, Lock } from 'phosphor-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { T } from '@/constants/theme';
 import * as Haptics from 'expo-haptics';
 import { shouldShowOnboarding } from '@/services/onboarding';
@@ -118,23 +117,18 @@ export default function AuthScreen() {
 
   return (
     <MsScreenBackground>
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollViewCompat
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 32),
+            paddingBottom: insets.bottom + 48,
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={[
-            styles.scrollContent,
-            {
-              paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 32),
-              paddingBottom: insets.bottom + 48,
-            },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
           {/* Header */}
           <View style={styles.header}>
             <Image
@@ -273,8 +267,7 @@ export default function AuthScreen() {
               <Text style={styles.createLink}>Create Account</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollViewCompat>
     </MsScreenBackground>
   );
 }

@@ -27,7 +27,7 @@ const CONFIG: Record<BannerKind, { text: string; bg: string }> = {
     bg: '#1F6FEB',
   },
   offline: {
-    text: "You're offline — showing cached content",
+    text: "You're offline — check your connection",
     bg: '#C0392B',
   },
 };

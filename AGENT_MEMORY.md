@@ -242,6 +242,57 @@ To push: the user must connect `Volttaik/Meetsweet` in this Freebuff project
 so the workspace mints a credential scoped to it; then plain
 `git -C .meetsweet-server push origin main` works. Do NOT use a PAT.
 
+## Task pass: reactive inputs, media delivery, connection states, self-awareness, instant UI
+
+Mobile + server both typecheck (`npx tsc --noEmit`). Uncommitted in both trees.
+
+1. **Reactive keyboard** — root cause: `KeyboardAwareScrollViewCompat`
+   existed but NO screen used it (forms used plain ScrollView, so Android
+   keyboards covered fields). Swept the shared component onto every form
+   scroll: wallet (both panes), auth, register (key={step} remount replaces
+   scrollToTop), create-album details, creator-dashboard, edit-post,
+   create-post details. `KeyboardAwareScrollViewCompat` now defaults
+   `bottomOffset={12}`. Bottom-sheet modals with inputs (settings edit
+   sheets, profile edit modals, creator-payout bank/withdraw sheets) switched
+   from RN KeyboardAvoidingView (iOS-only padding) to
+   react-native-keyboard-controller's KeyboardAvoidingView with
+   `behavior="padding"` so Android sheets rise above the keyboard too
+   (precedent: MsCommentsSheet). Wallet preset chips compacted (auto-size to
+   label; no stretch, no minWidth).
+2. **Video delivery** — storage is Cloudflare R2; media is served directly
+   from the public bucket URL or presigned GETs (R2 handles Range requests
+   natively for seeking). Added `CacheControl: public,
+   max-age=31536000, immutable` on PutObject in `media/upload/route.ts`
+   (also covers `/api/upload` alias) — repeat views/seeks hit the R2 CDN
+   edge instead of origin. No transcoding/ABR: not practical on the current
+   infra (Vercel + R2, no ffmpeg); would need Mux/Cloudflare Stream.
+3. **Connection states** — `hooks/useNetwork.ts`: offline grace
+   `60s → 120s` (per task: ~2 min before "Disconnected"); "slow" now
+   requires 2 CONSECUTIVE slow probes (SLOW_STREAK_REQUIRED) so the banner
+   doesn't flicker on one blip. `MsOfflineBanner` copy no longer claims
+   "showing cached content".
+4. **Ownership (live server data)** — already live-data based everywhere;
+   filled the gaps: Shorts feed hides the Subscribe pill on your own shorts
+   (`isOwnCreator = currentUser.id === item.creator.id`); content/[id] hides
+   Subscribe on own posts. Creator profile "You" badge, album
+   `isUnlockedByMe` (owner = unlocked), post cards `isOwn` — all from server
+   + authenticated user, none from local cache.
+5. **Subscription staleness** — root cause: `GET /api/creators` catalog did
+   NOT compute the viewer's subscription state, so Explore re-showed
+   "Subscribe" after refresh/new session. Server catalog now takes
+   `optionalAuth` and returns `subscribed_to_creator`/`subscribedToCreator`
+   + `subscription_tier`/`subscriptionTier` per viewer (active subs only);
+   the existing client normalizer already reads those fields.
+6. **Instant UI** — already-optimistic: feed card likes, content/[id] likes
+   + comment submit (temp id), shorts likes, comment likes, album purchase
+   (unlock only after server confirm), subscribe (state applied on
+   response). Added the missing piece: content/[id] post comment COUNT now
+   increments optimistically on send and decrements on delete (was static
+   `post.commentCount`).
+7. **No new caching** — nothing added; fixed the banner copy that implied
+   cached content exists. The pre-existing SQLite posts feed cache
+   (lib/posts-db) is untouched (removing it is out of scope and risky).
+
 ## How to resume / verify
 
 ```bash

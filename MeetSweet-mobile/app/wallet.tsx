@@ -16,10 +16,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,6 +25,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   ArrowLeft,
   CheckCircle,
@@ -111,15 +109,15 @@ function AmountChip({
 
 const chipStyles = StyleSheet.create({
   chip: {
-    flex: 1,
-    paddingVertical: 12,
+    // Compact: size to the label, not stretched across the row.
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: T.RADIUS.lg,
     backgroundColor: T.SURFACE,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: T.BORDER,
-    minWidth: 80,
   },
   chipActive: {
     borderColor: T.TEXT,
@@ -185,7 +183,7 @@ function PaymentPendingView({
   };
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pendStyles.scroll}>
+    <KeyboardAwareScrollViewCompat showsVerticalScrollIndicator={false} contentContainerStyle={pendStyles.scroll}>
       <View style={pendStyles.iconWrap}>
         <Clock size={32} color={T.TEXT} weight="duotone" />
       </View>
@@ -275,7 +273,7 @@ function PaymentPendingView({
       <TouchableOpacity style={pendStyles.backBtn} onPress={onBack} activeOpacity={0.7}>
         <Text style={pendStyles.backLabel}>Back to wallet</Text>
       </TouchableOpacity>
-    </ScrollView>
+    </KeyboardAwareScrollViewCompat>
   );
 }
 
@@ -516,11 +514,7 @@ export default function WalletScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollViewCompat showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
           {/* Balance card */}
           <LinearGradient colors={['#251218', '#141014']} style={styles.balanceCard}>
@@ -663,8 +657,7 @@ export default function WalletScreen() {
 
           <Text style={styles.secureText}>Secure payment via Paystack bank transfer</Text>
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -23,6 +21,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   ArrowLeft,
   At,
@@ -573,7 +572,7 @@ export default function RegisterScreen() {
   const [registerError, setRegisterError] = useState('');
   // Surface email-in-use errors back to Step 1 for inline display
   const [emailError, setEmailError] = useState('');
-  const scrollRef = useRef<ScrollView>(null);
+
 
   const opacity = useSharedValue(1);
 
@@ -581,17 +580,15 @@ export default function RegisterScreen() {
   const [step2, setStep2] = useState<Step2Data>({ password: '', confirm: '' });
   const [step3, setStep3] = useState<Step3Data>({ bio: '', avatarUri: null });
 
-  const scrollToTop = useCallback(() => {
-    scrollRef.current?.scrollTo({ y: 0, animated: false });
-  }, []);
+  // Scroll resets to the top automatically on step change via key={step} on
+  // the keyboard-aware scroll view (remount starts at the top).
 
   // Fade-only transition — clean, no layout jank
   const transitionTo = useCallback((nextStep: StepNum) => {
     opacity.value = withTiming(0, { duration: 140, easing: Easing.in(Easing.quad) }, () => {
       runOnJS(setStep)(nextStep);
-      runOnJS(scrollToTop)();
     });
-  }, [opacity, scrollToTop]);
+  }, [opacity]);
 
   // After step changes, fade back in
   useEffect(() => {
@@ -672,9 +669,8 @@ export default function RegisterScreen() {
 
   return (
     <MsScreenBackground>
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        ref={scrollRef}
+      <KeyboardAwareScrollViewCompat
+        key={step}
         style={styles.flex}
         contentContainerStyle={[
           styles.scrollContent,
@@ -744,8 +740,7 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAwareScrollViewCompat>
     </MsScreenBackground>
   );
 }

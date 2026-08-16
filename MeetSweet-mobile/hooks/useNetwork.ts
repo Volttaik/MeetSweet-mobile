@@ -9,8 +9,10 @@
  *
  * Behaviour rules (grounded in real probe results, not arbitrary timers):
  *   • A single failed probe/request is tolerated — it does NOT flip to offline.
- *   • "offline" only appears after ~60s of continuous failure.
- *   • High-latency-but-successful probes report "slow".
+ *   • "offline" only appears after ~2 minutes of continuous failure.
+ *   • "slow" requires TWO consecutive high-latency probes — one slow sample
+ *     alone is treated as a blip, so the banner doesn't flicker.
+ *   • High-latency-but-successful probes report "slow" only once sustained.
  *   • Returning from offline passes through a brief "reconnecting" state.
  *
  * Usage:
@@ -41,8 +43,10 @@ type Listener = (s: NetworkState) => void;
 
 /** Probe latency at/above this is treated as "slow internet". */
 const SLOW_LATENCY_MS = 2500;
-/** Sustained failure window before the app reports "offline" (~1 minute). */
-const OFFLINE_GRACE_MS = 60_000;
+/** Consecutive slow probes required before reporting "slow". */
+const SLOW_STREAK_REQUIRED = 2;
+/** Sustained failure window before the app reports "offline" (~2 minutes). */
+const OFFLINE_GRACE_MS = 120_000;
 
 const PROBE_INTERVALS: Record<NetworkStatus, number> = {
   online: 30_000,
@@ -55,6 +59,7 @@ const PROBE_INTERVALS: Record<NetworkStatus, number> = {
 
 let _status: NetworkStatus = 'online';
 let _lastFailureAt = 0; // epoch ms of the first consecutive failure (0 = healthy)
+let _slowStreak = 0;    // consecutive slow probes (0 = last probe was fast)
 
 const _listeners = new Set<Listener>();
 
@@ -79,20 +84,24 @@ function applyProbeResult(online: boolean, latencyMs = 0) {
   if (online) {
     _lastFailureAt = 0;
     if (latencyMs >= SLOW_LATENCY_MS) {
-      _status = 'slow';
-    } else if (_status === 'offline') {
-      // First healthy probe after an outage → transitional state.
-      _status = 'reconnecting';
-    } else if (_status === 'reconnecting') {
-      _status = 'online';
-    } else if (_status === 'slow') {
-      _status = 'online';
+      // Only report "slow" after the quality has genuinely degraded — a single
+      // slow sample is a blip, not a state change.
+      _slowStreak += 1;
+      if (_slowStreak >= SLOW_STREAK_REQUIRED && _status !== 'offline') {
+        _status = 'slow';
+      }
     } else {
-      _status = 'online';
+      _slowStreak = 0;
+      if (_status === 'offline') {
+        // First healthy probe after an outage → transitional state.
+        _status = 'reconnecting';
+      } else if (_status === 'reconnecting' || _status === 'slow') {
+        _status = 'online';
+      }
     }
   } else if (now - (_lastFailureAt || now) >= OFFLINE_GRACE_MS) {
     // A momentary interruption is tolerated; only a sustained outage flips us
-    // to offline.
+    // to offline (~2 minutes of continuous failure).
     _status = 'offline';
   } else if (_lastFailureAt === 0) {
     _lastFailureAt = now;
