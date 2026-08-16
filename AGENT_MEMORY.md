@@ -293,6 +293,15 @@ Mobile + server both typecheck (`npx tsc --noEmit`). Uncommitted in both trees.
    cached content exists. The pre-existing SQLite posts feed cache
    (lib/posts-db) is untouched (removing it is out of scope and risky).
 
+## Server push STILL blocked (as of latest session)
+
+Workspace credential remains scoped to `MeetSweet-mobile` only — `git push` to
+`Volttaik/Meetsweet` still returns `403 denied to freebuff-web[bot]`. Local
+server commits ahead of origin: `03851d7` (pricing) + `ef1f983` (catalog
+subscription state + media CacheControl). Both backed up as patches at the
+workspace root (`0001-Make-creator-...patch`, `0001-Catalog-...patch`),
+committed into the mobile repo so they survive resets. Reapply with `git am`.
+
 ## How to resume / verify
 
 ```bash

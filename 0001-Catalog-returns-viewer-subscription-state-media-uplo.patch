@@ -1,0 +1,98 @@
+From ef1f9833f7b4ec20aeeff6b2d729e7e95f3030d4 Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Sun, 16 Aug 2026 22:53:41 +0000
+Subject: [PATCH] Catalog returns viewer subscription state; media uploads
+ cache immutably
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- GET /api/creators now resolves optional auth and returns
+  subscribed_to_creator + subscription_tier per viewer so Explore never
+  shows a stale Subscribe button after refresh
+- Media uploads set CacheControl public, max-age=31536000, immutable so
+  repeat video plays hit the R2 edge instead of origin
+
+Generated with Codebuff 🤖
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/app/api/creators/route.ts     | 32 ++++++++++++++++++++++++++++
+ server/app/api/media/upload/route.ts |  5 +++++
+ 2 files changed, 37 insertions(+)
+
+diff --git a/server/app/api/creators/route.ts b/server/app/api/creators/route.ts
+index e3235ab..4886de7 100644
+--- a/server/app/api/creators/route.ts
++++ b/server/app/api/creators/route.ts
+@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
+ import { eq, and, count, inArray, gte, isNull } from "drizzle-orm";
+ import { db } from "@/lib/db";
+ import { users, profiles, subscriptions, creator_settings, devices } from "@/lib/db/schema";
++import { optionalAuth } from "@/middleware/auth";
+ import { ok } from "@/lib/api/response";
+ import { resolveBasePrice } from "@/lib/services/pricing";
+ 
+@@ -70,6 +71,31 @@ export async function GET(req: NextRequest) {
+       : [];
+   const onlineSet = new Set(onlineRows.map((r) => r.user_id));
+ 
++  // Per-viewer subscription state — LIVE server data, so Explore never shows a
++  // stale "Subscribe" button for a user who already subscribed (even after a
++  // refresh or a new session). The client normalizer reads
++  // `subscribed_to_creator` / `subscription_tier` from this same response.
++  const viewer = (await optionalAuth(req))?.userId ?? null;
++  const viewerSubRows =
++    viewer && creatorIds.length > 0
++      ? await db
++          .select({
++            creator_id: subscriptions.creator_id,
++            tier: subscriptions.tier,
++          })
++          .from(subscriptions)
++          .where(
++            and(
++              eq(subscriptions.subscriber_id, viewer),
++              inArray(subscriptions.creator_id, creatorIds),
++              eq(subscriptions.status, "active"),
++            ),
++          )
++      : [];
++  const viewerSubMap = new Map(
++    viewerSubRows.map((r) => [r.creator_id, r.tier ?? "subscriber"]),
++  );
++
+   const creators = creatorRows.map((u) => {
+     // Same pricing resolution as GET /creators/[id] and the subscribe route, so
+     // the advertised price is always the same single source of truth.
+@@ -96,6 +122,12 @@ export async function GET(req: NextRequest) {
+       subscriptionPrice: basePrice,
+       subscription_plus_price: plusPrice,
+       subscriptionPlusPrice: plusPrice,
++      // Viewing user's own subscription state for this creator (undefined for
++      // anonymous visitors).
++      subscribed_to_creator: viewerSubMap.has(u.id),
++      subscribedToCreator: viewerSubMap.has(u.id),
++      subscription_tier: viewerSubMap.get(u.id) ?? null,
++      subscriptionTier: viewerSubMap.get(u.id) ?? null,
+     };
+   });
+ 
+diff --git a/server/app/api/media/upload/route.ts b/server/app/api/media/upload/route.ts
+index 3999f91..3666852 100644
+--- a/server/app/api/media/upload/route.ts
++++ b/server/app/api/media/upload/route.ts
+@@ -167,6 +167,11 @@ export async function POST(req: NextRequest) {
+         Body: Buffer.from(bytes),
+         ContentType: mimeType,
+         ContentLength: file.size,
++        // Media objects are immutable (UUID keys), so a long-lived cache is
++        // always safe. Repeat views (and repeat video seeks) are served from
++        // the R2 CDN edge instead of the origin — faster startup + less
++        // buffering without any transcode pipeline.
++        CacheControl: "public, max-age=31536000, immutable",
+       }),
+     );
+   } catch (e) {
+-- 
+2.34.1
+
