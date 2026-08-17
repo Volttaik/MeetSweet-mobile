@@ -1,0 +1,147 @@
+From 20cff0d2eb3919fc7f0626bbcfe55a5711a2c231 Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Mon, 17 Aug 2026 09:21:58 +0000
+Subject: [PATCH] Gate creator-profile content behind subscription and fix
+ migration runner
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Creator profiles are subscriber-gated server-side: GET /creators/:id now
+reports content_locked (false for the owner), and the posts/videos/shorts
+content endpoints return locked:true with no rows to unsubscribed non-owners
+(free content stays discoverable in Explore, not on the profile). Also split
+the post_views migration into single statements so the libsql migration
+runner can execute it.
+
+🤖 Generated with Codebuff
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/app/api/creators/[id]/posts/route.ts  |  7 +++++
+ server/app/api/creators/[id]/route.ts        |  7 +++++
+ server/app/api/creators/[id]/shorts/route.ts |  6 ++++
+ server/app/api/creators/[id]/videos/route.ts |  6 ++++
+ server/scripts/migrate.ts                    | 30 +++++++++++---------
+ 5 files changed, 43 insertions(+), 13 deletions(-)
+
+diff --git a/server/app/api/creators/[id]/posts/route.ts b/server/app/api/creators/[id]/posts/route.ts
+index 33a3a9b..97bb38d 100644
+--- a/server/app/api/creators/[id]/posts/route.ts
++++ b/server/app/api/creators/[id]/posts/route.ts
+@@ -32,6 +32,13 @@ export async function GET(
+   const subTier = subRow?.tier ?? null;
+   const isOwner = userId === creator.id;
+ 
++  // Creator-profile access model: content is subscriber-gated on the profile.
++  // An unsubscribed viewer gets no rows at all (free content stays discoverable
++  // in Explore, not on the profile); the owner always sees their own content.
++  if (!isOwner && !isSubscribed) {
++    return ok({ locked: true, posts: [] });
++  }
++
+   const rows = await db
+     .select({
+       id: posts.id,
+diff --git a/server/app/api/creators/[id]/route.ts b/server/app/api/creators/[id]/route.ts
+index b307c37..8aaef62 100644
+--- a/server/app/api/creators/[id]/route.ts
++++ b/server/app/api/creators/[id]/route.ts
+@@ -85,6 +85,7 @@ export async function GET(
+   const isSubscribed = Boolean(subRow);
+   const subscriptionTier = subRow?.tier ?? null;
+   const subscriptionId = subRow?.id ?? null;
++  const isOwner = Boolean(userId && userId === user.id);
+ 
+   // Presence: "online" = a device seen within the last 10 minutes. This is the
+   // app's real activity signal (devices.last_seen_at is updated on push-token
+@@ -146,6 +147,12 @@ export async function GET(
+     // Mobile normalizer reads raw.subscribed_to_creator
+     subscribed_to_creator: isSubscribed,
+     subscribedToCreator: isSubscribed,
++    // Creator-profile access model: the creator profile is subscriber-gated —
++    // an unsubscribed viewer must NOT see ANY of the creator's content there
++    // (free content remains discoverable in Explore, not on the profile). The
++    // owner always sees their own content.
++    content_locked: isOwner ? false : !isSubscribed,
++    contentLocked: isOwner ? false : !isSubscribed,
+     subscription_tier: subscriptionTier,
+     subscriptionTier,
+     // Viewer's active subscription id for this creator — lets the app offer
+diff --git a/server/app/api/creators/[id]/shorts/route.ts b/server/app/api/creators/[id]/shorts/route.ts
+index cd94291..c1a91f3 100644
+--- a/server/app/api/creators/[id]/shorts/route.ts
++++ b/server/app/api/creators/[id]/shorts/route.ts
+@@ -31,6 +31,12 @@ export async function GET(
+   const subTier = subscription?.tier ?? null;
+   const isOwner = userId === creator.id;
+ 
++  // Creator-profile access model: subscriber-gated on the profile — an
++  // unsubscribed viewer gets no rows; the owner always sees their own content.
++  if (!isOwner && !isSubscribed) {
++    return ok({ locked: true, shorts: [] });
++  }
++
+   const rows = await db
+     .select({
+       id: posts.id,
+diff --git a/server/app/api/creators/[id]/videos/route.ts b/server/app/api/creators/[id]/videos/route.ts
+index 803eb7f..bfadb1e 100644
+--- a/server/app/api/creators/[id]/videos/route.ts
++++ b/server/app/api/creators/[id]/videos/route.ts
+@@ -31,6 +31,12 @@ export async function GET(
+   const subTier = subscription?.tier ?? null;
+   const isOwner = userId === creator.id;
+ 
++  // Creator-profile access model: subscriber-gated on the profile — an
++  // unsubscribed viewer gets no rows; the owner always sees their own content.
++  if (!isOwner && !isSubscribed) {
++    return ok({ locked: true, videos: [] });
++  }
++
+   const rows = await db
+     .select({
+       id: posts.id,
+diff --git a/server/scripts/migrate.ts b/server/scripts/migrate.ts
+index 39e6504..5d7b77f 100644
+--- a/server/scripts/migrate.ts
++++ b/server/scripts/migrate.ts
+@@ -678,19 +678,23 @@ async function run() {
+     },
+     {
+       name: "create post_views table (authoritative per-account view dedupe)",
+-      sql: `
+-        CREATE TABLE IF NOT EXISTS post_views (
+-          id TEXT PRIMARY KEY,
+-          post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+-          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+-          watched_seconds REAL NOT NULL DEFAULT 0,
+-          counted INTEGER NOT NULL DEFAULT 0,
+-          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+-          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+-        );
+-        CREATE UNIQUE INDEX IF NOT EXISTS post_views_post_user_idx ON post_views(post_id, user_id);
+-        CREATE INDEX IF NOT EXISTS post_views_user_idx ON post_views(user_id);
+-      `,
++      sql: `CREATE TABLE IF NOT EXISTS post_views (
++        id TEXT PRIMARY KEY,
++        post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
++        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++        watched_seconds REAL NOT NULL DEFAULT 0,
++        counted INTEGER NOT NULL DEFAULT 0,
++        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
++        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++      )`,
++    },
++    {
++      name: "post_views: unique post+user index",
++      sql: `CREATE UNIQUE INDEX IF NOT EXISTS post_views_post_user_idx ON post_views(post_id, user_id)`,
++    },
++    {
++      name: "post_views: user index",
++      sql: `CREATE INDEX IF NOT EXISTS post_views_user_idx ON post_views(user_id)`,
+     },
+     // Legacy conversations/messages model — replaced by the chat_rooms model
+     // (chat_rooms / chat_room_members / chat_room_messages). The mobile app no
+-- 
+2.34.1
+
