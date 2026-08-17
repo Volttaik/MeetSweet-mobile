@@ -302,6 +302,34 @@ subscription state + media CacheControl). Both backed up as patches at the
 workspace root (`0001-Make-creator-...patch`, `0001-Catalog-...patch`),
 committed into the mobile repo so they survive resets. Reapply with `git am`.
 
+## 2026-08-17 — INSTALL-GUIDE IMAGES + /install-help PAGE (uncommitted)
+
+User asked for images teaching people how to install the Android APK (Play
+Protect / "App not installed" instructions). No AI image tool exists in this
+workspace, so the images are hand-authored branded vector illustrations
+(SVG) rasterized to PNG with sharp — crisp at any size, matching the site's
+dark + pink (#C45A72) theme.
+
+SERVER (in `.meetsweet-server`, uncommitted):
+- `server/public/install-help/step-{1..6}-*.svg` + `*.png` (1080) +
+  `*@2x.png` (2160):
+  1 download (Keep/Open), 2 install + Play Protect "Install anyway",
+  3 turn off Play Protect scanning, 4 allow unknown apps, 5 "App not
+  installed" checklist, 6 done/home screen.
+- `server/app/install-help/page.tsx` — step cards + FAQ + download CTA
+  (served at https://meetsweet.space/install-help).
+- `server/app/page.tsx` — download section now links to /install-help.
+
+MOBILE repo root (workspace root, uncommitted):
+- `scripts/render-install-images.mjs` + `scripts/fonts/` (DejaVu Sans ttf
+  + auto-generated fonts.conf) — re-renders PNGs: `node
+  scripts/render-install-images.mjs`. Fonts are needed because this
+  container has NO system fonts, so librsvg drops all text without them
+  (verified: 0 text px before, ~1.5k after).
+
+Server typecheck passes (`cd .meetsweet-server/server &&
+./node_modules/.bin/tsc --noEmit`). Not committed/pushed in either repo.
+
 ## How to resume / verify
 
 ```bash

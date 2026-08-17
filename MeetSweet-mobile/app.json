@@ -84,6 +84,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "090aba7a-c16d-418a-bb45-233314c467ff"
+      }
+    },
+    "owner": "prcon"
   }
 }
