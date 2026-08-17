@@ -231,6 +231,7 @@ export default function ContentDetailScreen() {
           videoId={post.id}
           uri={post.mediaUrl ?? null}
           posterUri={post.thumbnailUrl}
+          qualities={post.qualities}
           isPremium={isLocked}
           onPremiumRequired={() => router.push(`/creator/${post.author.id}` as any)}
           // Report watch time to the server (authoritative counting). The

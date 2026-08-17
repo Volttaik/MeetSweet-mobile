@@ -106,8 +106,11 @@ export default function ShortsScreen() {
   }, []);
 
   const handleOnboardingComplete = async () => {
-    await completeOnboarding('shorts_onboarded');
+    // Close FIRST so the modal can never linger as a touch-blocking overlay
+    // while the persistence write is in flight (Start Watching → immediate
+    // dismissal). The flag write is fire-and-forget afterwards.
     setShowOnboarding(false);
+    void completeOnboarding('shorts_onboarded');
   };
 
   // Shorts onboarding screens
@@ -277,7 +280,12 @@ export default function ShortsScreen() {
         viewabilityConfig={viewConfig.current}
         onViewableItemsChanged={onViewableItemsChanged}
         getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
-        removeClippedSubviews
+        // NOTE: removeClippedSubviews is intentionally OFF here. With expo-av
+        // Video inside a paged FlatList, clipping detaches the native video
+        // view while the JS ref still targets it — pausing/playing a detached
+        // instance crashes on Android (the Shorts pause crash). windowSize +
+        // maxToRenderPerBatch already cap how many pages are mounted.
+        removeClippedSubviews={false}
         windowSize={3}
         initialNumToRender={2}
         maxToRenderPerBatch={2}

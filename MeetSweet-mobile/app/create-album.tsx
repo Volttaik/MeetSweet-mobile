@@ -201,7 +201,9 @@ export default function CreateAlbumScreen() {
         name,
         width: asset.width ?? undefined,
         height: asset.height ?? undefined,
-        durationSecs: asset.duration ?? undefined,
+        // expo-image-picker reports `duration` in MILLISECONDS — the media
+        // record stores SECONDS (same conversion as create-post).
+        durationSecs: asset.duration ? Math.round(asset.duration / 1000) : undefined,
       };
     });
     setItems((prev) => {

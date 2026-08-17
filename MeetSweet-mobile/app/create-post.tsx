@@ -290,7 +290,11 @@ export default function CreatePostScreen() {
     setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
     setMediaAssetWidth(asset.width ?? undefined);
     setMediaAssetHeight(asset.height ?? undefined);
-    setMediaAssetDuration(asset.duration ?? undefined);
+    // expo-image-picker reports `duration` in MILLISECONDS. The media record
+    // (and every API response) stores SECONDS — converting here keeps feed
+    // badges and the player's duration display truthful (a 48s video used to
+    // show "13:15:35" because 47735ms was stored as 47735 seconds).
+    setMediaAssetDuration(asset.duration ? Math.round(asset.duration / 1000) : undefined);
 
     // Auto-generate thumbnail from the first frame for both long-form videos and Shorts.
     // The user can still tap the thumbnail to pick a custom one.
