@@ -463,3 +463,27 @@ SERVER (committed locally, NOT pushed — credential scope; patch backed up as
 - Posts feed rows now include subscribed_to_creator/subscribedToCreator.
 
 Polish: action-row touch targets (minHeight 34) on post cards.
+
+## 2026-08-17 — CREATOR ACCESS, HEADER, MEDIA & NAV FINAL PASS (pushed mobile, server committed+patch)
+
+MOBILE (pushed f8e585c, ca2ef24):
+- Creator profile subscriber-gated: server reports content_locked; when locked
+  the screen shows ONLY header/subscribers + Subscribe gate (no tabs, no content
+  counts, no content fetch); on server-confirmed subscribe the content section
+  fades in (Animated) and re-fetches. Owner/Subscriber+/base-tier states unchanged.
+- Creator Dashboard icon button added to Home top bar (isCreator-gated), using
+  new pushOnce()/replaceOnce() nav dedupe (lib/nav.ts) — no duplicate stacking.
+  Settings dashboard row also uses pushOnce.
+- Adaptive media: all video resizeMode now CONTAIN (shorts too — no cropping,
+  black letterbox); album fullscreen video preview uses fillContainer.
+- Verified already in place (no changes): native Slider seek (pink), deep links
+  (scheme+intent filters+associatedDomains+/s resolver+server web fallback),
+  server authz on locked media.
+
+SERVER (committed 20cff0d locally, NOT pushed — credential scope; patch backed up
+as 0001-Gate-creator-profile-content-behind-subscription-and-fi.patch):
+- GET /creators/:id adds content_locked (owner=false).
+- /creators/:id/posts|videos|shorts return { locked: true, <list>: [] } for
+  unsubscribed non-owners (creator profile fully gated; Explore unaffected).
+- scripts/migrate.ts: post_views migration split into single statements (libsql
+  rejects multi-statement strings) so the migration runner works.
