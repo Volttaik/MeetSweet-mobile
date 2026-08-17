@@ -587,6 +587,57 @@ keeps the screen below mounted). Fixed by hardening the helper:
   into unrelated screens. Fullscreen preview Modal keeps focus => stays covered.
 No call-site changes needed; server untouched.
 
+## 2026-08-17 — REGRESSION RECOVERY AUDIT (final targeted fixes, mobile PUSHED, server committed+patch)
+
+Reported regressions and their root causes (all verified in code, both repos
+`tsc --noEmit` clean):
+
+1. **Video duration "13h 45m" for a 48s video** — root cause was UPLOAD, not
+   the player: expo-image-picker reports `asset.duration` in MILLISECONDS but
+   create-post/create-album stored it into `media.duration_seconds` raw, so the
+   DB held 47735 "seconds". All mobile formatters (MsPostCard fmtDuration,
+   profile, videos list, explore, album grid, chat formatDuration) are
+   seconds-based and correct; the player timer reads engine `durationMillis`
+   (ms) directly. Fixed by converting ms→s at upload. Legacy rows already in
+   the DB are NOT fixed (needs a one-off Turso UPDATE if any remain).
+2. **Seek tracker broken** — the old custom tracker was already REPLACED by the
+   native `@react-native-community/slider` (commit 8529527) with drag-pinning
+   (`dragging`/`dragMs` state pins the thumb while dragging; on release the
+   seek lands and live ticks resume). Pink accent. No custom seek remains.
+3. **Quality selector "missing"** — selector exists in MsVideoPlayer (pushed
+   e5c968b) and shows only when the server offers >1 variant. Server exposes
+   `qualities` (3c9b4fd) — a single honest Auto entry since no transcoding
+   exists on Vercel+R2. Missing wiring: `app/content/[id].tsx` never passed
+   `post.qualities` to the player — fixed (pushed c8751ae). videos/[id], shorts
+   (MsShortsPlayer), album preview already passed it.
+4. **Short pause crash (Android)** — root cause: `removeClippedSubviews` on the
+   paged FlatList detaches the expo-av native Video view while the JS ref still
+   targets it; pausing/playing a detached instance crashes. Fixed by setting
+   `removeClippedSubviews={false}` (windowSize/maxToRenderPerBatch still cap
+   mounted pages).
+5. **Album creation "Creator account required"** — root cause: `POST /albums`
+   gates on `auth.user.role`, but that came from the JWT claim, which is stale
+   for users who became creators after login (15m access token). Fixed in
+   `server/middleware/auth.ts` (server commit 892de7c, NOT pushed): both
+   requireAuth/optionalAuth re-read the account's LIVE role from `users` on
+   every request. `/user/me` already returns the DB role so the app's creator
+   state was never the problem.
+6. **Shorts onboarding not dismissing** — `handleOnboardingComplete` awaited
+   AsyncStorage before closing; hardened to close the modal FIRST, then
+   fire-and-forget the flag write (pushed c8751ae).
+
+MOBILE PUSHED: c8751ae (4 files: content/[id], create-album, create-post,
+shorts/index). SERVER COMMITTED LOCALLY: 892de7c (3 files: posts/[id]/route,
+posts/route, middleware/auth) — push still 403 (credential scoped to
+MeetSweet-mobile only). Patch backup at workspace root:
+`0001-Authoritative-live-role-and-quality-wiring.patch`. The live Vercel app
+still runs the OLD auth middleware, so the album-creator fix only takes effect
+once this commit is pushed and redeployed.
+
+Why the user saw regressions: the APK + live server predate several fixes
+(quality wiring, live role, duration units). A fresh EAS build after these
+pushes should match the codebase.
+
 ## 2026-08-17 — RANKING + SEARCH OVERHAUL (server committed locally, patch backed up)
 
 CONTENT RANKING (replaces chronological ordering in ALL feeds):
