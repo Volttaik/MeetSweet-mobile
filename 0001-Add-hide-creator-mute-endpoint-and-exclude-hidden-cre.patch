@@ -1,0 +1,348 @@
+From 9f6a256cd643c1f722fa21a097afa2fbe68802c9 Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Mon, 17 Aug 2026 01:16:42 +0000
+Subject: [PATCH] Add hide-creator mute endpoint and exclude hidden
+ creators/posts from feeds
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- POST /users/:username/mute (idempotent) persists a viewer's hide-creator
+  preference in muted_users
+- Feeds (home, generic posts, videos, shorts, explore content + creator
+  catalog) exclude muted/blocked creators and hidden posts server-side so
+  Not Interested / Hide Creator / Block preferences stick across refreshes
+- Posts feed rows now return subscribed_to_creator so the client can gate
+  discovery actions for creators the viewer already subscribes to
+
+Generated with Codebuff 🤖
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/app/api/explore/route.ts               | 16 +++++-
+ server/app/api/posts/route.ts                 | 30 +++++++++--
+ server/app/api/shorts/feed/route.ts           |  7 ++-
+ server/app/api/users/[username]/mute/route.ts | 50 +++++++++++++++++++
+ server/app/api/videos/route.ts                |  7 ++-
+ server/lib/services/content.ts                | 32 ++++++++++++
+ 6 files changed, 132 insertions(+), 10 deletions(-)
+ create mode 100644 server/app/api/users/[username]/mute/route.ts
+
+diff --git a/server/app/api/explore/route.ts b/server/app/api/explore/route.ts
+index 5d61cf9..a00cad4 100644
+--- a/server/app/api/explore/route.ts
++++ b/server/app/api/explore/route.ts
+@@ -15,7 +15,7 @@ import {
+ } from "@/lib/db/schema";
+ import { optionalAuth } from "@/middleware/auth";
+ import { ok } from "@/lib/api/response";
+-import { buildVideoRow, buildShortRow, groupMediaByPost } from "@/lib/services/content";
++import { buildVideoRow, buildShortRow, getHiddenCreatorIds, groupMediaByPost } from "@/lib/services/content";
+ 
+ /**
+  * GET /api/explore
+@@ -43,6 +43,9 @@ export async function GET(req: NextRequest) {
+ 
+   const userId = await optionalAuth(req).then((a) => a?.userId ?? null);
+ 
++  // Hidden/blocked creators never appear in Explore (content or creator rows).
++  const hiddenCreatorIds = userId ? await getHiddenCreatorIds(userId) : [];
++
+   // ── Hidden posts: collect IDs the viewer has explicitly hidden ───────────
+   let hiddenPostIds: string[] = [];
+   if (userId) {
+@@ -96,6 +99,8 @@ export async function GET(req: NextRequest) {
+         inArray(posts.content_type, ["post", "video"]),
+         // Exclude posts the viewer has explicitly hidden
+         ...(hiddenPostIds.length > 0 ? [notInArray(posts.id, hiddenPostIds)] : []),
++        // Exclude content from hidden/blocked creators
++        ...(hiddenCreatorIds.length > 0 ? [notInArray(posts.creator_id, hiddenCreatorIds)] : []),
+       ),
+     )
+     // Three-level ordering for full determinism at every page boundary:
+@@ -271,7 +276,14 @@ export async function GET(req: NextRequest) {
+     })
+     .from(users)
+     .leftJoin(profiles, eq(profiles.user_id, users.id))
+-    .where(and(eq(users.is_creator, true), eq(users.is_active, true), isNull(users.deleted_at)))
++    .where(
++      and(
++        eq(users.is_creator, true),
++        eq(users.is_active, true),
++        isNull(users.deleted_at),
++        ...(hiddenCreatorIds.length > 0 ? [notInArray(users.id, hiddenCreatorIds)] : []),
++      ),
++    )
+     .limit(10)
+     .offset(offset);
+ 
+diff --git a/server/app/api/posts/route.ts b/server/app/api/posts/route.ts
+index 1786822..5a51698 100644
+--- a/server/app/api/posts/route.ts
++++ b/server/app/api/posts/route.ts
+@@ -1,5 +1,5 @@
+ import { NextRequest } from "next/server";
+-import { eq, and, desc, isNull, or, sql } from "drizzle-orm";
++import { eq, and, desc, isNull, notInArray, or, sql } from "drizzle-orm";
+ import { z } from "zod";
+ import { db } from "@/lib/db";
+ import { users, profiles, posts, media, post_likes, saved_posts, post_categories, subscriptions, comment_rooms } from "@/lib/db/schema";
+@@ -7,7 +7,7 @@ import { requireAuth, optionalAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok, err, created } from "@/lib/api/response";
+ import { generateId } from "@/lib/auth/codes";
+-import { canViewContent } from "@/lib/services/content";
++import { canViewContent, getHiddenCreatorIds, getHiddenPostIds } from "@/lib/services/content";
+ import { notifySubscribersOfNewPost } from "@/lib/services/push";
+ 
+ const createSchema = z.object({
+@@ -70,6 +70,7 @@ function postRow(
+   liked: boolean,
+   bookmarked: boolean,
+   isLocked: boolean,
++  subscribed = false,
+ ) {
+   return {
+     id: p.id,
+@@ -101,6 +102,10 @@ function postRow(
+     bookmarked_by_me: bookmarked,
+     is_locked: isLocked,
+     isLocked,
++    // Viewer's subscription state for this post's creator — the client uses it
++    // to gate discovery actions (no Hide/Not Interested for subscribed creators).
++    subscribed_to_creator: subscribed,
++    subscribedToCreator: subscribed,
+     media: isLocked ? [] : mediaItems.map(mediaShape),
+   };
+ }
+@@ -129,6 +134,17 @@ export async function GET(req: NextRequest) {
+   const authResult = await optionalAuth(req);
+   if (authResult?.userId) userId = authResult.userId;
+ 
++  // Hide-Creator / Not-Interested / Block exclusions — the viewer's muted +
++  // blocked creators and explicitly hidden posts stay out of every feed.
++  let hiddenCreatorIds: string[] = [];
++  let hiddenPostIds: string[] = [];
++  if (userId) {
++    [hiddenCreatorIds, hiddenPostIds] = await Promise.all([
++      getHiddenCreatorIds(userId),
++      getHiddenPostIds(userId),
++    ]);
++  }
++
+   if (bookmarked || feedMode === "home") {
+     if (!userId) {
+       const authReq = await requireAuth(req);
+@@ -199,6 +215,9 @@ export async function GET(req: NextRequest) {
+       contentTypeFilter
+         ? eq(posts.content_type, contentTypeFilter)
+         : sql`${posts.content_type} IN ('post', 'video', 'album')`,
++      // Hidden/blocked creators and hidden posts never appear in the home feed.
++      ...(hiddenCreatorIds.length > 0 ? [notInArray(posts.creator_id, hiddenCreatorIds)] : []),
++      ...(hiddenPostIds.length > 0 ? [notInArray(posts.id, hiddenPostIds)] : []),
+     );
+ 
+     if (cursor) {
+@@ -292,7 +311,7 @@ export async function GET(req: NextRequest) {
+       const isSubscribed = homeSubMap.has(p.creator_id as string);
+       const subTier = homeSubMap.get(p.creator_id as string) ?? null;
+       const isLocked = !canViewContent(p.visibility as string, p.tier as string | null, isSubscribed, subTier, isOwner);
+-      return postRow(p as Record<string, unknown>, homeMediaByPost[p.id] ?? [], homeLikedSet.has(p.id), homeSavedSet.has(p.id), isLocked);
++      return postRow(p as Record<string, unknown>, homeMediaByPost[p.id] ?? [], homeLikedSet.has(p.id), homeSavedSet.has(p.id), isLocked, isSubscribed);
+     });
+ 
+     const homeLastItem = homeItems[homeItems.length - 1];
+@@ -342,6 +361,9 @@ export async function GET(req: NextRequest) {
+     isNull(users.deleted_at),
+     eq(posts.status, "published"),
+     sql`${posts.visibility} != 'draft'`,
++    // Hidden/blocked creators and hidden posts never appear in generic feeds.
++    ...(hiddenCreatorIds.length > 0 ? [notInArray(posts.creator_id, hiddenCreatorIds)] : []),
++    ...(hiddenPostIds.length > 0 ? [notInArray(posts.id, hiddenPostIds)] : []),
+   );
+ 
+   // Apply content_type filter.
+@@ -458,7 +480,7 @@ export async function GET(req: NextRequest) {
+       subTier,
+       isOwner,
+     );
+-    return postRow(p as Record<string, unknown>, mediaByPost[p.id] ?? [], likedSet.has(p.id), savedSet.has(p.id), isLocked);
++    return postRow(p as Record<string, unknown>, mediaByPost[p.id] ?? [], likedSet.has(p.id), savedSet.has(p.id), isLocked, isSubscribed);
+   });
+ 
+   const lastItem = items[items.length - 1];
+diff --git a/server/app/api/shorts/feed/route.ts b/server/app/api/shorts/feed/route.ts
+index 52672a4..8e6ee73 100644
+--- a/server/app/api/shorts/feed/route.ts
++++ b/server/app/api/shorts/feed/route.ts
+@@ -1,16 +1,18 @@
+ import { NextRequest } from "next/server";
+-import { eq, and, desc, isNull, sql, exists } from "drizzle-orm";
++import { eq, and, desc, isNull, notInArray, sql, exists } from "drizzle-orm";
+ import { db } from "@/lib/db";
+ import { posts, media, users, profiles, post_likes, subscriptions } from "@/lib/db/schema";
+ import { optionalAuth } from "@/middleware/auth";
+ import { ok } from "@/lib/api/response";
+-import { buildShortRow, groupMediaByPost } from "@/lib/services/content";
++import { buildShortRow, getHiddenCreatorIds, groupMediaByPost } from "@/lib/services/content";
+ 
+ export async function GET(req: NextRequest) {
+   const params = req.nextUrl.searchParams;
+   const cursor = params.get("cursor");
+   const limit = Math.min(Math.max(1, Number(params.get("limit") ?? 20)), 50);
+   const userId = (await optionalAuth(req))?.userId ?? null;
++  // Hidden/blocked creators stay out of the shorts feed.
++  const hiddenCreatorIds = userId ? await getHiddenCreatorIds(userId) : [];
+ 
+   // A short without a playable video media row cannot be rendered, so only
+   // serve shorts that actually have one. This keeps the feed truthful — the
+@@ -31,6 +33,7 @@ export async function GET(req: NextRequest) {
+     eq(posts.content_type, "short"),
+     eq(posts.visibility, "public"),
+     hasVideoMedia,
++    ...(hiddenCreatorIds.length > 0 ? [notInArray(posts.creator_id, hiddenCreatorIds)] : []),
+     cursor ? sql`${posts.created_at} < ${cursor}` : undefined,
+   );
+ 
+diff --git a/server/app/api/users/[username]/mute/route.ts b/server/app/api/users/[username]/mute/route.ts
+new file mode 100644
+index 0000000..4cc193f
+--- /dev/null
++++ b/server/app/api/users/[username]/mute/route.ts
+@@ -0,0 +1,50 @@
++import { NextRequest } from "next/server";
++import { eq, and } from "drizzle-orm";
++import { db } from "@/lib/db";
++import { users, muted_users } from "@/lib/db/schema";
++import { requireAuth } from "@/middleware/auth";
++import { ok, err } from "@/lib/api/response";
++import { generateId } from "@/lib/auth/codes";
++
++/**
++ * POST /api/users/:username/mute — hide a creator from the viewer's feeds.
++ *
++ * Idempotent: inserting an existing (muter, muted) pair is a no-op. Feeds
++ * exclude muted creators server-side, so the preference persists across
++ * refreshes and new sessions.
++ */
++
++export async function POST(
++  req: NextRequest,
++  { params }: { params: Promise<{ username: string }> },
++) {
++  const auth = await requireAuth(req);
++  if ("response" in auth) return auth.response;
++
++  const { username } = await params;
++
++  const [target] = await db
++    .select({ id: users.id })
++    .from(users)
++    .where(eq(users.username, username))
++    .limit(1);
++
++  if (!target) return err("User not found", 404);
++  if (target.id === auth.user.userId) return err("You cannot hide yourself", 400);
++
++  const [existing] = await db
++    .select({ id: muted_users.id })
++    .from(muted_users)
++    .where(and(eq(muted_users.muter_id, auth.user.userId), eq(muted_users.muted_id, target.id)))
++    .limit(1);
++
++  if (!existing) {
++    await db.insert(muted_users).values({
++      id: generateId(),
++      muter_id: auth.user.userId,
++      muted_id: target.id,
++    });
++  }
++
++  return ok({ muted: true });
++}
+diff --git a/server/app/api/videos/route.ts b/server/app/api/videos/route.ts
+index 50bdef5..061a9b7 100644
+--- a/server/app/api/videos/route.ts
++++ b/server/app/api/videos/route.ts
+@@ -1,12 +1,12 @@
+ import { NextRequest } from "next/server";
+-import { eq, and, desc, isNull, sql } from "drizzle-orm";
++import { eq, and, desc, isNull, notInArray, sql } from "drizzle-orm";
+ import { z } from "zod";
+ import { db } from "@/lib/db";
+ import { posts, media, users, profiles, post_likes, subscriptions, post_categories } from "@/lib/db/schema";
+ import { optionalAuth, requireAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok, created } from "@/lib/api/response";
+-import { buildVideoRow, groupMediaByPost } from "@/lib/services/content";
++import { buildVideoRow, getHiddenCreatorIds, groupMediaByPost } from "@/lib/services/content";
+ import { generateId } from "@/lib/auth/codes";
+ 
+ const createSchema = z.object({
+@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
+   const cursor = params.get("cursor");
+   const limit = Math.min(Math.max(1, Number(params.get("limit") ?? 20)), 50);
+   const userId = (await optionalAuth(req))?.userId ?? null;
++  // Hidden/blocked creators stay out of the video feed.
++  const hiddenCreatorIds = userId ? await getHiddenCreatorIds(userId) : [];
+ 
+   // Include ALL published videos (public + subscriber-gated).
+   // is_locked is set per-item based on the viewer's subscriptions.
+@@ -55,6 +57,7 @@ export async function GET(req: NextRequest) {
+     eq(posts.status, "published"),
+     eq(posts.content_type, "video"),
+     sql`${posts.visibility} != 'draft'`,
++    ...(hiddenCreatorIds.length > 0 ? [notInArray(posts.creator_id, hiddenCreatorIds)] : []),
+     cursor ? sql`${posts.created_at} < ${cursor}` : undefined,
+   );
+ 
+diff --git a/server/lib/services/content.ts b/server/lib/services/content.ts
+index 0cee875..26bb664 100644
+--- a/server/lib/services/content.ts
++++ b/server/lib/services/content.ts
+@@ -1,4 +1,6 @@
+ import { and, eq, isNull, ne, or, type AnyColumn } from "drizzle-orm";
++import { db } from "@/lib/db";
++import { muted_users, blocked_users, hidden_posts } from "@/lib/db/schema";
+ 
+ /**
+  * Shared helpers for building video / short / comment response shapes.
+@@ -14,6 +16,36 @@ export type ContentTier = typeof TIER_ORDER[number];
+ export type SubscriptionTier = "subscriber" | "subscriber_plus";
+ 
+ /** Returns the numeric rank of a tier (higher = more access). -1 means no tier/unknown. */
++/**
++ * IDs of creators the viewer has muted or blocked — their content is excluded
++ * from every feed (Hide Creator / Block persist server-side).
++ */
++export async function getHiddenCreatorIds(userId: string): Promise<string[]> {
++  const [muted, blocked] = await Promise.all([
++    db
++      .select({ id: muted_users.muted_id })
++      .from(muted_users)
++      .where(eq(muted_users.muter_id, userId)),
++    db
++      .select({ id: blocked_users.blocked_id })
++      .from(blocked_users)
++      .where(eq(blocked_users.blocker_id, userId)),
++  ]);
++  return [...new Set([...muted.map((m) => m.id), ...blocked.map((b) => b.id)])];
++}
++
++/**
++ * IDs of posts the viewer has explicitly hidden (Not Interested) — excluded
++ * from feeds server-side so they don't reappear after a refresh.
++ */
++export async function getHiddenPostIds(userId: string): Promise<string[]> {
++  const rows = await db
++    .select({ id: hidden_posts.post_id })
++    .from(hidden_posts)
++    .where(eq(hidden_posts.user_id, userId));
++  return rows.map((r) => r.id);
++}
++
+ export function tierIndex(tier: string | null | undefined): number {
+   if (!tier) return -1;
+   return TIER_ORDER.indexOf(tier as ContentTier);
+-- 
+2.34.1
+

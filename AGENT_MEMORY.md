@@ -438,3 +438,28 @@ SECURITY AUDIT (all VERIFIED server-side, no gaps found):
   (already pushed ef1f983) — no public media proxy exists to leak.
 
 Both repos typecheck clean (tsc --noEmit). Not committed/pushed.
+
+## 2026-08-17 — LONG-PRESS ACTIONS + FINAL POLISH (uncommitted mobile, server committed)
+
+MOBILE FIXED (typecheck clean):
+- MsPostCard: "Not Interested" (hidePost -> hidden_posts) and "Hide Creator"
+  (hideCreator -> POST /users/:username/mute) were DEAD no-ops — now real,
+  persist server-side, drop the card/creator immediately via PostActionsContext
+  (hiddenIds + hiddenCreatorIds) and show styled MsFeedbackModal feedback.
+- Both actions are HIDDEN for creators the viewer already subscribes to
+  (subscribedToAuthor prop; Home feed always subscribed; Explore gates via
+  server flag + session set; creator profile uses its isSubscribed state).
+- Explore creator menu: fake "Mute" (Alert-only) replaced with real Hide
+  Creator; Subscribe hidden when already subscribed; Copy/Block feedback moved
+  to the styled modal. Featured/recommended + feed items filter hidden.
+- Home feed + Explore filter hiddenIds/hiddenCreatorIds in-session.
+
+SERVER (committed locally, NOT pushed — credential scope; patch backed up as
+0001-Add-hide-creator-mute-endpoint-and-exclude-hidden-cre.patch):
+- POST /users/:username/mute (idempotent) -> muted_users.
+- Posts home/generic + videos + shorts + explore content & creator catalog
+  exclude muted/blocked creators and hidden posts (getHiddenCreatorIds /
+  getHiddenPostIds helpers in services/content.ts).
+- Posts feed rows now include subscribed_to_creator/subscribedToCreator.
+
+Polish: action-row touch targets (minHeight 34) on post cards.
