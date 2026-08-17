@@ -540,3 +540,21 @@ return `qualities` (single {label:'Auto', url, height} entry today — honest,
 since no transcoding exists; [] when locked so no URL leaks). loadAlbum items
 also carry qualities + duration_secs. Future transcoding (api.video) populates
 more variants and the mobile selector lights up automatically.
+
+## 2026-08-17 — CAPTURE PROTECTION LEAK FIX (pushed)
+
+Reported: screenshot/screen-recording blocking active EVERYWHERE in the app.
+Root cause: FLAG_SECURE is applied to the activity window (whole app) and the
+original lib/screen-protection.ts had two leak vectors — (1) a failed
+allowScreenCaptureAsync (the module throws MissingActivity mid-navigation)
+left the flag set forever with no retry, and (2) protection stayed active
+while a protected screen was covered by another pushed screen (expo-router
+keeps the screen below mounted). Fixed by hardening the helper:
+- All prevent/allow calls serialized on a promise chain; failed calls revert
+  the state mirror so the next reconcile retries.
+- AppState foreground + no active protected screen => force allowScreenCapture
+  (clearFlags is a no-op when unset) — self-healing safety net.
+- useScreenProtection is now focus-aware (useFocusEffect): protection releases
+  the moment the protected screen blurs (push/back/tab), so it can never leak
+  into unrelated screens. Fullscreen preview Modal keeps focus => stays covered.
+No call-site changes needed; server untouched.
