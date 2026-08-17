@@ -558,3 +558,48 @@ keeps the screen below mounted). Fixed by hardening the helper:
   the moment the protected screen blurs (push/back/tab), so it can never leak
   into unrelated screens. Fullscreen preview Modal keeps focus => stays covered.
 No call-site changes needed; server untouched.
+
+## 2026-08-17 — RANKING + SEARCH OVERHAUL (server committed locally, patch backed up)
+
+CONTENT RANKING (replaces chronological ordering in ALL feeds):
+- feedRankScore(userId) in lib/services/content.ts — pure-SQLite blended score:
+  capped popularity (like/comment/save/share/view, 60-pt cap = log-like dampener
+  so old viral content can't dominate), engagement rate (interactions per view,
+  capped 100), freshness 1/(1+age_days)*5 (bounded new-content boost), 1.2
+  subscription boost (personalization), deterministic per-(user,post) jitter
+  [0,0.8] from posts.rowid+user-seed (exploration; pagination-stable per user).
+  Validated live against Turso (rowid/julianday/min/max/EXISTS all OK) and a
+  local scratch DB (dedup exclusion verified).
+- Wired into: /explore (page-based), /posts/feed (home), /posts generic,
+  /videos, /shorts/feed. Order: score DESC, published_at DESC, id DESC.
+  Ranked cursors: score__published_at__id (legacy cursors still accepted).
+- Creator diversity: applyCreatorDiversity() reorders each page (max 2
+  consecutive / 50% share per creator, deterministic) — one creator can't
+  monopolize a feed.
+- Feed dedup: feed_impressions table (user_id, post_id, seen_at, unique pair)
+  + recordFeedImpressions() on every feed response; getFeedDedupClause() excludes
+  posts seen within 24h UNLESS owned or subscribed-to-creator. Resilient
+  pre-migration: cached sqlite_master check (db.all) skips the clause when the
+  table doesn't exist, so feeds never 500 before the migration runs.
+- Engagement is authoritative (DB columns); views use the existing 60s/90%
+  server view rule — opening a video can't inflate ranking.
+
+SEARCH (/search rewritten, /users/search untouched):
+- Relevance tiers: exact > prefix > substring on username/title/caption/
+  display_name; creator+verified boosts for users; engagement (capped) +
+  freshness for content. Includes posts/videos/shorts + a new albums section.
+  Free/public only (no subscriber media leak), hidden/blocked creators +
+  Not-Interested excluded, pagination, empty q => empty results (200).
+- Indexes added via migrate.ts: users.username, users.full_name, posts.title,
+  posts.caption, albums.title (prefix LIKE can use them).
+
+MIGRATION REQUIRED: npx tsx scripts/migrate.ts (feed_impressions + indexes).
+Feeds keep working pre-migration (dedup guarded), ranking works regardless.
+
+MOBILE: no code changes needed — feeds already consume server order (no
+client-side .sort anywhere). NOTE: Explore's in-page search field is still a
+client-side filter over the loaded catalog page (not the whole DB); the
+server /search endpoint is production-ready for a dedicated search screen.
+APK: eas.json has a preview APK profile but the project isn't linked to EAS
+(no extra.eas.projectId) and eas-cli is not logged in here — build must run
+from the user's machine after `eas login` + `eas init`.
