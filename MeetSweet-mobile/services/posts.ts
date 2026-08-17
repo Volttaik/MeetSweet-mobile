@@ -252,6 +252,28 @@ export async function unbookmarkPost(id: string): Promise<void> {
   await authFetch<void>(`/posts/${id}/bookmark`, token, { method: 'DELETE' });
 }
 
+/**
+ * Hide a post (Not Interested) — persists server-side; the post is excluded
+ * from every feed for this account.
+ * Backend: POST /api/posts/:id/hide
+ */
+export async function hidePost(id: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await authFetch<void>(`/posts/${encodeURIComponent(id)}/hide`, token, { method: 'POST' });
+}
+
+/**
+ * Hide a creator (Hide Creator) — persists server-side via a mute record;
+ * all of the creator's content is excluded from feeds for this account.
+ * Backend: POST /api/users/:username/mute
+ */
+export async function hideCreator(username: string): Promise<void> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  await authFetch<void>(`/users/${encodeURIComponent(username.replace('@', ''))}/mute`, token, { method: 'POST' });
+}
+
 export async function reportPost(id: string, reason: string = 'general_inappropriate'): Promise<void> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');

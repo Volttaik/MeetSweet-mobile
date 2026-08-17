@@ -30,7 +30,10 @@ import {
   unbookmarkPost,
   deletePost,
   reportPost,
+  hidePost,
+  hideCreator,
 } from '@/services/posts';
+import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
 import { setCommentsEnabled } from '@/services/comment-room-service';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { MsShareSheet } from '@/components/MsShareSheet';
@@ -202,9 +205,17 @@ interface MsPostCardProps {
    */
   onCommentsPress?: () => void;
   onDeleted?: (id: string) => void;
+  /** Called after Hide Creator succeeds — lets the parent drop all cards. */
+  onCreatorHidden?: (creatorId: string) => void;
   currentUserId?: string;
   onEditPress?: (post: Post) => void;
   onAnalyticsPress?: (post: Post) => void;
+  /**
+   * True when the viewer is subscribed to this post's author. Discovery
+   * actions (Not Interested / Hide Creator) are then hidden to respect the
+   * subscription relationship.
+   */
+  subscribedToAuthor?: boolean;
   /**
    * Home-Feed mode: double-tap anywhere on the post opens Full View;
    * single tap on media does NOT navigate (play button still works inline).
@@ -242,9 +253,11 @@ export function MsPostCard({
   onAuthorPress,
   onCommentsPress,
   onDeleted,
+  onCreatorHidden,
   currentUserId,
   onEditPress,
   onAnalyticsPress,
+  subscribedToAuthor = false,
   doubleTapToOpen = false,
   videoPreviewActive = true,
   tier,
@@ -259,6 +272,11 @@ export function MsPostCard({
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    variant: FeedbackVariant;
+    title: string;
+    message?: string;
+  } | null>(null);
 
   const { user } = useAuth();
   const { isOnline } = useNetwork();
@@ -344,7 +362,7 @@ export function MsPostCard({
     }
   };
 
-  const { markDeleted } = usePostActions();
+  const { markDeleted, markHidden, markCreatorHidden } = usePostActions();
 
   const doDelete = () => {
     tapHeavy();
@@ -409,11 +427,48 @@ export function MsPostCard({
     { label: 'Delete Post', destructive: true, onPress: doDelete },
   ];
 
+  // Not Interested — persist server-side (excluded from every feed) + drop the
+  // post from the current list immediately.
+  const doNotInterested = () => {
+    setSheetVisible(false);
+    setFeedback({ variant: 'info', title: 'Noted', message: "We'll show you less of this content." });
+    hidePost(post.id)
+      .then(() => {
+        markHidden(post.id);
+        onDeleted?.(post.id);
+      })
+      .catch(() => setFeedback({ variant: 'error', title: 'Could not hide', message: 'Please try again.' }));
+  };
+
+  // Hide Creator — persist server-side (mute) + drop ALL of the creator's
+  // cards from the current list immediately.
+  const doHideCreator = () => {
+    setSheetVisible(false);
+    hideCreator(post.author.username)
+      .then(() => {
+        markCreatorHidden(post.author.id);
+        onCreatorHidden?.(post.author.id);
+        onDeleted?.(post.id);
+        setFeedback({
+          variant: 'success',
+          title: 'Creator hidden',
+          message: `${post.author.name}'s content will no longer appear in your feeds.`,
+        });
+      })
+      .catch(() => setFeedback({ variant: 'error', title: 'Could not hide creator', message: 'Please try again.' }));
+  };
+
   const guestActions: ActionItem[] = [
     { label: 'Save Post', onPress: () => handleBookmark() },
     { label: 'Share Post', onPress: () => setShareVisible(true) },
-    { label: 'Not Interested', onPress: () => {} },
-    { label: 'Hide Creator', onPress: () => {} },
+    // Discovery-only actions — never shown for creators the viewer already
+    // subscribes to.
+    ...(!subscribedToAuthor
+      ? [
+          { label: 'Not Interested', onPress: doNotInterested },
+          { label: 'Hide Creator', onPress: doHideCreator },
+        ]
+      : []),
     { label: 'Report', destructive: true, onPress: () => doReport('inappropriate') },
   ];
 
@@ -707,6 +762,15 @@ export function MsPostCard({
         title={post.caption || 'MeetSweet post'}
         onClose={() => setShareVisible(false)}
       />
+
+      {/* Styled action feedback (success / info / error) — never a toast */}
+      <MsFeedbackModal
+        visible={Boolean(feedback)}
+        variant={feedback?.variant ?? 'info'}
+        title={feedback?.title ?? ''}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
+      />
     </TouchableOpacity>
   );
 }
@@ -891,9 +955,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
     borderRadius: T.RADIUS.sm,
+    minHeight: 34,
   },
   actionCount: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   actionCountLiked: { color: '#EF4444' },

@@ -1177,6 +1177,16 @@ export default function CreatorProfileScreen() {
                     onAuthorPress={() => undefined}
                     onSubscribe={handleSubscribePress}
                     onPress={() => openPost(post)}
+                    // Discovery actions (Not Interested / Hide Creator) never
+                    // appear for creators the viewer already subscribes to.
+                    subscribedToAuthor={isSubscribed}
+                    onDeleted={(id) => setCreatorPosts((prev) => prev.filter((p) => p.id !== id))}
+                    onCreatorHidden={(creatorId) => {
+                      setCreatorPosts([]);
+                      setCreatorVideos([]);
+                      setCreatorShorts([]);
+                      router.back();
+                    }}
                   />
                 ))}
               </View>
@@ -1200,6 +1210,14 @@ export default function CreatorProfileScreen() {
                     onAuthorPress={() => undefined}
                     onSubscribe={handleSubscribePress}
                     onPress={() => openPost(v)}
+                    subscribedToAuthor={isSubscribed}
+                    onDeleted={(id) => setCreatorVideos((prev) => prev.filter((p) => p.id !== id))}
+                    onCreatorHidden={(creatorId) => {
+                      setCreatorPosts([]);
+                      setCreatorVideos([]);
+                      setCreatorShorts([]);
+                      router.back();
+                    }}
                   />
                 ))}
               </View>
@@ -1223,6 +1241,14 @@ export default function CreatorProfileScreen() {
                     onAuthorPress={() => undefined}
                     onSubscribe={handleSubscribePress}
                     onPress={() => openPost(s)}
+                    subscribedToAuthor={isSubscribed}
+                    onDeleted={(id) => setCreatorShorts((prev) => prev.filter((p) => p.id !== id))}
+                    onCreatorHidden={(creatorId) => {
+                      setCreatorPosts([]);
+                      setCreatorVideos([]);
+                      setCreatorShorts([]);
+                      router.back();
+                    }}
                   />
                 ))}
               </View>

@@ -155,7 +155,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { isOnline } = useNetwork();
-  const { deletedIds } = usePostActions();
+  const { deletedIds, hiddenIds, hiddenCreatorIds } = usePostActions();
   const { notifUnread } = useNotifications();
 
   const userId = user?.id ?? '';
@@ -373,7 +373,12 @@ export default function HomeScreen() {
         <DiscoveryState />
       ) : (
         <FlatList
-          data={posts.filter((p) => !deletedIds.includes(p.id))}
+          data={posts.filter(
+            (p) =>
+              !deletedIds.includes(p.id) &&
+              !hiddenIds.includes(p.id) &&
+              !hiddenCreatorIds.includes(p.author.id),
+          )}
           keyExtractor={(item) => item.id}
           viewabilityConfig={feedViewabilityConfig}
           onViewableItemsChanged={onFeedViewableItemsChanged}
@@ -417,6 +422,12 @@ export default function HomeScreen() {
               currentUserId={user?.id}
               onAuthorPress={() => router.push(`/creator/${item.author.id || item.author.username}`)}
               onDeleted={(id) => setPosts((prev) => prev.filter((p) => p.id !== id))}
+              onCreatorHidden={(creatorId) =>
+                setPosts((prev) => prev.filter((p) => p.author.id !== creatorId))
+              }
+              // Home feed = subscribed creators' content → discovery actions
+              // (Not Interested / Hide Creator) never apply here.
+              subscribedToAuthor
             />
           )}
           refreshControl={

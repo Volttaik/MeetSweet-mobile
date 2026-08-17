@@ -37,6 +37,8 @@ import { useLocalAlbumCatalog } from '@/services/albums';
 import type { AlbumCardData } from '@/services/albums';
 import { blockUser } from '@/services/users';
 import { subscribe } from '@/services/subscriptions';
+import { hideCreator } from '@/services/posts';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
@@ -238,6 +240,7 @@ export default function ExploreScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [menuCreator, setMenuCreator] = useState<Creator | null>(null);
+  const { hiddenIds, hiddenCreatorIds, markCreatorHidden } = usePostActions();
 
   // Subscription state — server-confirmed. `subscribedIds` reflects creators the
   // user subscribed to during THIS session; `creator.subscribedToCreator` is the
@@ -277,6 +280,14 @@ export default function ExploreScreen() {
     return allCreators.find((c) => c.id === id);
   }
 
+  // Live subscription state for a creator id (server flag OR this session's
+  // subscribe action) — used to gate discovery actions on cards.
+  const isSubscribedCreator = useCallback(
+    (id: string) =>
+      subscribedIds.has(id) || Boolean(allCreators.find((c) => c.id === id)?.subscribedToCreator),
+    [allCreators, subscribedIds],
+  );
+
   // ── Feed items — MsPostCard items (same as home feed) with album rows every 5 ─
   type FeedItem =
     | { type: 'post';      post: Post; id: string; contentType?: string | null }
@@ -289,6 +300,8 @@ export default function ExploreScreen() {
     for (const p of allPreviews) {
       const creator = findCreatorInFeed(p.creatorId);
       if (!creator) continue;
+      // Hidden posts (Not Interested) and hidden/blocked creators never render.
+      if (hiddenIds.includes(p.id) || hiddenCreatorIds.includes(p.creatorId)) continue;
 
       const titleSearch = `${p.title} ${creator.name} ${p.kind}`.toLowerCase();
       if (needle && !titleSearch.includes(needle)) continue;
@@ -318,7 +331,7 @@ export default function ExploreScreen() {
 
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allPreviews, allCreators, search, albumsQuery.data]);
+  }, [allPreviews, allCreators, search, albumsQuery.data, hiddenIds, hiddenCreatorIds]);
 
   // ── Catalog-mode data ─────────────────────────────────────────────────────────
   const catalogCreators       = catalog?.creators ?? [];
@@ -338,11 +351,11 @@ export default function ExploreScreen() {
 
   const featured = featuredCreatorIds
     .map((id) => catalogCreators.find((c) => c.id === id))
-    .filter(Boolean) as Creator[];
+    .filter((c): c is Creator => c !== undefined && !hiddenCreatorIds.includes(c.id));
 
   const recommended = recommendedCreatorIds
     .map((id) => catalogCreators.find((c) => c.id === id))
-    .filter(Boolean) as Creator[];
+    .filter((c): c is Creator => c !== undefined && !hiddenCreatorIds.includes(c.id));
 
   // ── Albums mode data ──────────────────────────────────────────────────────────
   const allAlbums = albumsQuery.data ?? [];
@@ -447,72 +460,82 @@ export default function ExploreScreen() {
     setSearch('');
   };
 
-  const creatorMenuActions = (creator: Creator): ActionItem[] => [
-    { label: 'View Profile',  onPress: () => openCreator(creator) },
-    { label: 'Subscribe',     onPress: () => navToCreatorId(creator.id, creator.handle) },
-    {
-      label: 'Copy Username',
-      onPress: async () => {
-        setMenuCreator(null);
-        await Clipboard.setStringAsync(creator.handle);
-        Alert.alert('Copied', `${creator.handle} copied to clipboard.`);
+  const creatorMenuActions = (creator: Creator): ActionItem[] => {
+    const isSubscribed = isSubscribedCreator(creator.id);
+    return [
+      { label: 'View Profile', onPress: () => openCreator(creator) },
+      // Subscribe only makes sense for creators the viewer is NOT subscribed to.
+      ...(!isSubscribed
+        ? [{ label: 'Subscribe', onPress: () => navToCreatorId(creator.id, creator.handle) }]
+        : []),
+      {
+        label: 'Copy Username',
+        onPress: async () => {
+          setMenuCreator(null);
+          await Clipboard.setStringAsync(creator.handle);
+          setFeedback({ variant: 'success', title: 'Copied', message: `${creator.handle} copied to clipboard.` });
+        },
       },
-    },
-    {
-      label: 'Share Profile',
-      onPress: async () => {
-        setMenuCreator(null);
-        try {
-          const { createShareLink } = await import('@/services/sharing');
-          const shareLink = await createShareLink('creator', creator.id);
-          const url = shareLink.url || `https://meetsweet.space/${creator.handle}`;
-          await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!\n${url}`, url });
-        } catch {
-          await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!` });
-        }
+      {
+        label: 'Share Profile',
+        onPress: async () => {
+          setMenuCreator(null);
+          try {
+            const { createShareLink } = await import('@/services/sharing');
+            const shareLink = await createShareLink('creator', creator.id);
+            const url = shareLink.url || `https://meetsweet.space/${creator.handle}`;
+            await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!\n${url}`, url });
+          } catch {
+            await Share.share({ title: creator.name, message: `Check out ${creator.name} ${creator.handle} on MeetSweet!` });
+          }
+        },
       },
-    },
-    {
-      label: 'Mute',
-      onPress: () => {
-        setMenuCreator(null);
-        Alert.alert(
-          'Mute Creator',
-          `Mute ${creator.name}? Their posts won't appear in your feed.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Mute', onPress: () => Alert.alert('Muted', `${creator.name} has been muted.`) },
-          ],
-        );
-      },
-    },
-    {
-      label: 'Block',
-      destructive: true,
-      onPress: () => {
-        setMenuCreator(null);
-        Alert.alert(
-          'Block Creator',
-          `Block ${creator.name}? You won't see their content anymore.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
+      // Hide Creator — a discovery action; NEVER offered for creators the
+      // viewer is already subscribed to. Persists server-side (mute) and drops
+      // the creator from every list immediately.
+      ...(!isSubscribed
+        ? [
             {
-              text: 'Block',
-              style: 'destructive',
-              onPress: async () => {
-                try {
-                  await blockUser(creator.handle.replace('@', ''));
-                  Alert.alert('Blocked', `${creator.name} has been blocked.`);
-                } catch {
-                  Alert.alert('Error', 'Could not block this user. Please try again.');
-                }
+              label: 'Hide Creator',
+              onPress: () => {
+                setMenuCreator(null);
+                hideCreator(creator.handle.replace('@', ''))
+                  .then(() => {
+                    markCreatorHidden(creator.id);
+                    setFeedback({
+                      variant: 'success',
+                      title: 'Creator hidden',
+                      message: `${creator.name}'s content will no longer appear in your feeds.`,
+                    });
+                  })
+                  .catch(() =>
+                    setFeedback({ variant: 'error', title: 'Could not hide creator', message: 'Please try again.' }),
+                  );
               },
             },
-          ],
-        );
+          ]
+        : []),
+      {
+        label: 'Block',
+        destructive: true,
+        onPress: () => {
+          setMenuCreator(null);
+          blockUser(creator.handle.replace('@', ''))
+            .then(() => {
+              markCreatorHidden(creator.id);
+              setFeedback({
+                variant: 'success',
+                title: 'Blocked',
+                message: `${creator.name} has been blocked.`,
+              });
+            })
+            .catch(() =>
+              setFeedback({ variant: 'error', title: 'Could not block', message: 'Please try again.' }),
+            );
+        },
       },
-    },
-  ];
+    ];
+  };
 
   const isLoading =
     viewMode === 'creators' ? catalogQuery.isLoading
@@ -621,6 +644,8 @@ export default function ExploreScreen() {
             onMediaPress={navToContent}
             onAuthorPress={() => navToCreatorId(item.post.author.id, item.post.author.username)}
             tier={item.post.tier as import('@/constants/tiers').ContentTier | undefined}
+            onCreatorHidden={(creatorId) => markCreatorHidden(creatorId)}
+            subscribedToAuthor={isSubscribedCreator(item.post.author.id)}
           />
         );
       }
