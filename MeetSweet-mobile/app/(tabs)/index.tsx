@@ -9,8 +9,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bell, Compass, MagnifyingGlass } from 'phosphor-react-native';
+import { Bell, Compass, MagnifyingGlass, MonitorPlay } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import { pushOnce } from '@/lib/nav';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsCreatorCard } from '@/components/MsCreatorCard';
@@ -351,6 +352,16 @@ export default function HomeScreen() {
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => setSearchVisible(true)}>
             <MagnifyingGlass size={20} color={T.TEXT} />
           </TouchableOpacity>
+          {user?.isCreator ? (
+            <TouchableOpacity
+              style={styles.iconBtn}
+              activeOpacity={0.7}
+              onPress={() => pushOnce('/creator-dashboard')}
+              accessibilityLabel="Creator Dashboard"
+            >
+              <MonitorPlay size={20} color={T.TEXT} />
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(tabs)/profile')}>
             <MsAvatar size={34} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
           </TouchableOpacity>

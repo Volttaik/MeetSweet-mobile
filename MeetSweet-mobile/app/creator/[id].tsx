@@ -1,6 +1,7 @@
 import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import {
   Alert,
+  Animated,
   Dimensions,
   Image,
   Modal,
@@ -750,6 +751,27 @@ export default function CreatorProfileScreen() {
     currentUser && creatorFullProfile && currentUser.id === creatorFullProfile.userId,
   );
 
+  // Creator-profile access model: the profile is subscriber-gated. When the
+  // server reports content_locked (viewer not subscribed and not the owner),
+  // NO content may be shown here — header/subscribe only. The owner and
+  // subscribed viewers get the full profile. Authoritative from the server.
+  const contentLocked = !isOwnProfile && Boolean(creatorFullProfile?.contentLocked);
+
+  // Fade the content section in when a subscription unlocks the profile.
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const prevLockedRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (prevLockedRef.current === null) {
+      prevLockedRef.current = contentLocked;
+      if (!contentLocked) contentOpacity.setValue(1);
+      return;
+    }
+    if (prevLockedRef.current && !contentLocked) {
+      Animated.timing(contentOpacity, { toValue: 1, duration: 450, useNativeDriver: true }).start();
+    }
+    prevLockedRef.current = contentLocked;
+  }, [contentLocked, contentOpacity]);
+
   // Apply a CreatorProfileFull response to all creator-profile state. Single
   // source of truth for mount / refresh / post-subscribe sync so the UI never
   // shows stale subscriber counts or subscription state.
@@ -861,15 +883,16 @@ export default function CreatorProfileScreen() {
     }
   }, [currentUser, realProfile]);
 
-  // Fetch posts for this creator
+  // Fetch posts for this creator. Locked profiles (unsubscribed viewer) never
+  // fetch content — the server would deny it anyway (locked: true).
   useEffect(() => {
-    if (!creatorUUID) return;
+    if (!creatorUUID || contentLocked) return;
     setPostsLoading(true);
     getCreatorContentPosts(creatorUUID)
       .then(({ posts }: { posts: Post[] }) => setCreatorPosts(posts))
       .catch(() => {})
       .finally(() => setPostsLoading(false));
-  }, [creatorUUID]);
+  }, [creatorUUID, contentLocked]);
 
   /**
    * Resolved creator profile data.
@@ -910,7 +933,7 @@ export default function CreatorProfileScreen() {
 
   // ── Lazy-load tab content ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!creatorUUID) return;
+    if (!creatorUUID || contentLocked) return;
     if (activeTab === 'videos' && creatorVideos.length === 0 && !videosLoading) {
       setVideosLoading(true);
       getCreatorContentVideos(creatorUUID)
@@ -933,7 +956,7 @@ export default function CreatorProfileScreen() {
         .finally(() => setAlbumsLoading(false));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, creatorUUID]);
+  }, [activeTab, creatorUUID, contentLocked]);
 
   // ── Refresh ───────────────────────────────────────────────────────────────────
   const refresh = async () => {
@@ -1043,17 +1066,23 @@ export default function CreatorProfileScreen() {
 
           {creator.bio ? <Text style={styles.bio}>{creator.bio}</Text> : null}
 
-          {/* Metrics */}
+          {/* Metrics — a locked (unsubscribed) profile shows subscriber
+              information only; content counts that imply browsing the
+              creator's posts stay hidden until subscription. */}
           <View style={styles.metrics}>
             <View>
               <Text style={styles.metricValue}>{fmtCount(creator.subscriberCount ?? 0) || '—'}</Text>
               <Text style={styles.metricLabel}>Subscribers</Text>
             </View>
-            <View style={styles.metricDivider} />
-            <View>
-              <Text style={styles.metricValue}>{creatorFullProfile?.postCount ?? creatorPosts.length}</Text>
-              <Text style={styles.metricLabel}>Drops</Text>
-            </View>
+            {!contentLocked && (
+              <>
+                <View style={styles.metricDivider} />
+                <View>
+                  <Text style={styles.metricValue}>{creatorFullProfile?.postCount ?? creatorPosts.length}</Text>
+                  <Text style={styles.metricLabel}>Drops</Text>
+                </View>
+              </>
+            )}
           </View>
 
           {/* Subscribe button — reflects the authoritative server state: price
@@ -1140,7 +1169,35 @@ export default function CreatorProfileScreen() {
           )}
         </View>
 
-        {/* ── Tabs — always visible; each item is gated individually ── */}
+        {/* ── Subscriber gate (unsubscribed viewer) ── */}
+        {contentLocked ? (
+          <View style={styles.lockPanel}>
+            <View style={styles.lockIcon}>
+              <Lock size={26} color={T.ACCENT} weight="fill" />
+            </View>
+            <Text style={styles.lockTitle}>Subscriber-only content</Text>
+            <Text style={styles.lockText}>
+              Subscribe to {creator.name} to unlock their posts, videos, shorts,
+              albums, and direct messaging.
+            </Text>
+            {(creatorFullProfile?.subscriptionPrice ?? 0) > 0 && (
+              <Text style={styles.lockPrice}>
+                From ₦{(creatorFullProfile?.subscriptionPrice ?? 0).toLocaleString()}/month
+              </Text>
+            )}
+            <TouchableOpacity
+              style={styles.lockBtn}
+              onPress={handleSubscribePress}
+              activeOpacity={0.85}
+            >
+              <Lock size={15} color={T.BG} weight="fill" />
+              <Text style={styles.lockBtnText}>Subscribe to unlock</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Animated.View style={{ opacity: contentOpacity }}>
+
+        {/* ── Tabs (visible after subscription / for the owner) ── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1353,6 +1410,8 @@ export default function CreatorProfileScreen() {
         )}
 
         <View style={{ height: 35 }} />
+          </Animated.View>
+        )}
       </ScrollView>
 
       {/* Subscribe sheet */}
@@ -1683,6 +1742,34 @@ const styles = StyleSheet.create({
   messageBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
   messageBtnLabelLocked: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT },
   messageBtnLabelDisabled: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT_3 },
+
+  // Subscriber gate (locked profile)
+  lockPanel: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 48,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  lockIcon: {
+    width: 68, height: 68, borderRadius: 34,
+    backgroundColor: 'rgba(196,90,114,0.12)',
+    borderWidth: 1, borderColor: 'rgba(196,90,114,0.3)',
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 6,
+  },
+  lockTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 19, letterSpacing: -0.4 },
+  lockText: {
+    color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 20,
+    textAlign: 'center', maxWidth: 300,
+  },
+  lockPrice: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 12 },
+  lockBtn: {
+    marginTop: 8, height: 50, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
+    paddingHorizontal: 30,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  lockBtnText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
 
   // Tabs — horizontal scroll to fit Posts/Videos/Shorts/Albums/Reviews/About
   tabs: {

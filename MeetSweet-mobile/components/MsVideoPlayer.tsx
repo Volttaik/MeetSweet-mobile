@@ -868,14 +868,16 @@ export function MsVideoPlayer({
             ref={videoRef}
             source={{ uri: playableUri }}
             style={StyleSheet.absoluteFill}
-            resizeMode={isShorts ? ResizeMode.COVER : ResizeMode.CONTAIN}
+            // Adaptive media: always CONTAIN so the full frame stays visible
+            // (no cropping); unused space shows the player's black background.
+            resizeMode={ResizeMode.CONTAIN}
             shouldPlay={isShorts ? Boolean(active) : (autoPlay || Boolean(active))}
             isLooping={isShorts ? true : isLooping}
             useNativeControls={false}
             progressUpdateIntervalMillis={250}
             posterSource={posterUri ? { uri: posterUri } : undefined}
             usePoster={Boolean(posterUri)}
-            posterStyle={{ resizeMode: isShorts ? 'cover' : 'contain' }}
+            posterStyle={{ resizeMode: 'contain' }}
             onPlaybackStatusUpdate={onPlaybackStatusUpdate}
             onReadyForDisplay={onReadyForDisplay}
             onError={() => { setError(true); setIsBuffering(false); onError?.(); }}

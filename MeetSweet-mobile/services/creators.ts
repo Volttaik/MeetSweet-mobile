@@ -41,6 +41,10 @@ export interface CreatorProfileFull {
   subscriptionPlusPrice: number;
   category: string | null;
   isOnline: boolean;
+  /** Creator-profile access model: when true, the viewer (not subscribed, not
+   *  the owner) must NOT see any of this creator's content on the profile.
+   *  Authoritative from the server — never derived from local state. */
+  contentLocked: boolean;
 }
 
 /**
@@ -113,25 +117,33 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
     subscriptionPlusPrice: Number(rawUser.subscription_plus_price ?? rawUser.subscriptionPlusPrice ?? 0),
     category: rawUser.category ? String(rawUser.category) : null,
     isOnline: Boolean(rawUser.is_online ?? rawUser.isOnline ?? false),
+    contentLocked: Boolean(rawUser.content_locked ?? rawUser.contentLocked ?? false),
   };
 }
 
+// The creator-profile content endpoints are subscriber-gated server-side: an
+// unsubscribed viewer receives { locked: true } with an empty list. Return an
+// empty list in that case (the screen renders its own lock gate), never a
+// partial/leaked payload.
+async function unlockedList(resp: any, key: 'posts' | 'videos' | 'shorts'): Promise<Post[]> {
+  if (!resp || resp.locked) return [];
+  const list = Array.isArray(resp) ? resp : resp[key] || [];
+  return list.map(normalizePost);
+}
+
 export async function getCreatorContentPosts(creatorId: string): Promise<{ posts: Post[] }> {
-  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/posts`).catch(() => []);
-  const list = Array.isArray(resp) ? resp : resp.posts || [];
-  return { posts: list.map(normalizePost) };
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/posts`).catch(() => ({}));
+  return { posts: await unlockedList(resp, 'posts') };
 }
 
 export async function getCreatorContentVideos(creatorId: string): Promise<Post[]> {
-  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/videos`).catch(() => []);
-  const list = Array.isArray(resp) ? resp : resp.videos || [];
-  return list.map(normalizePost);
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/videos`).catch(() => ({}));
+  return unlockedList(resp, 'videos');
 }
 
 export async function getCreatorContentShorts(creatorId: string): Promise<Post[]> {
-  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/shorts`).catch(() => []);
-  const list = Array.isArray(resp) ? resp : resp.shorts || [];
-  return list.map(normalizePost);
+  const resp = await creatorFetch<any>(`/creators/${encodeURIComponent(creatorId)}/shorts`).catch(() => ({}));
+  return unlockedList(resp, 'shorts');
 }
 
 export async function getCreatorContentAlbums(creatorId: string): Promise<AlbumCardData[]> {

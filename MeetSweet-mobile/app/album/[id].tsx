@@ -449,6 +449,7 @@ export default function AlbumScreen() {
             <MsVideoPlayer
               videoId={`album-item-${previewItem.id}`}
               uri={previewItem.mediaUrl ?? null}
+              fillContainer
             />
           ) : (
             <MsMediaLoader

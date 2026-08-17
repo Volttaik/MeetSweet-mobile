@@ -47,6 +47,7 @@ import {
   X,
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import { pushOnce } from '@/lib/nav';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -1865,7 +1866,7 @@ export default function SettingsScreen() {
           <Row
             label="Creator Dashboard"
             sub="Analytics, posts, and revenue"
-            onPress={() => router.push('/creator-dashboard')}
+            onPress={() => pushOnce('/creator-dashboard')}
           />
         </View>
 
