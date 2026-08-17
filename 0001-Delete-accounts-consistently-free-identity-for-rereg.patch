@@ -1,0 +1,272 @@
+From e4f821469ad8f3b2dc688a2d0a9291a46e5eb97b Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Sun, 16 Aug 2026 23:59:13 +0000
+Subject: [PATCH] Delete accounts consistently; free identity for
+ re-registration; auth rejects deleted users
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- DELETE /users/me now atomically cleans up the whole account: revokes
+  sessions/tokens, soft-deletes posts/albums/comments/replies, removes chat
+  membership + messages, cancels subscriptions both directions, clears
+  notifications/settings/wallet/social rows, and frees the email/username
+  (unique placeholders) so the same identity can register again.
+- Register: duplicate check ignores soft-deleted accounts.
+- Login: rejects deleted accounts.
+- requireAuth/optionalAuth: verify the account is still live in the DB so a
+  deleted account's access token stops working immediately (fail closed).
+
+🤖 Generated with Codebuff
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/app/api/auth/login/route.ts    |   3 +-
+ server/app/api/auth/register/route.ts |   8 +-
+ server/app/api/users/me/route.ts      | 112 +++++++++++++++++++++++---
+ server/middleware/auth.ts             |  32 +++++++-
+ 4 files changed, 141 insertions(+), 14 deletions(-)
+
+diff --git a/server/app/api/auth/login/route.ts b/server/app/api/auth/login/route.ts
+index d9b5643..2aface2 100644
+--- a/server/app/api/auth/login/route.ts
++++ b/server/app/api/auth/login/route.ts
+@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
+       is_active: users.is_active,
+       is_verified: users.is_verified,
+       totp_enabled: users.totp_enabled,
++      deleted_at: users.deleted_at,
+     })
+     .from(users)
+     .where(eq(users.email, email))
+@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
+     return unauthorized("Invalid email or password");
+   }
+ 
+-  if (!user.is_active) {
++  if (!user.is_active || user.deleted_at) {
+     return err("This account has been deactivated", 403);
+   }
+ 
+diff --git a/server/app/api/auth/register/route.ts b/server/app/api/auth/register/route.ts
+index a4a89f1..2939842 100644
+--- a/server/app/api/auth/register/route.ts
++++ b/server/app/api/auth/register/route.ts
+@@ -1,5 +1,5 @@
+ import { NextRequest } from "next/server";
+-import { eq, or } from "drizzle-orm";
++import { and, eq, isNull, or } from "drizzle-orm";
+ import { db } from "@/lib/db";
+ import { users, profiles, user_settings, verification_codes } from "@/lib/db/schema";
+ import { hashPassword } from "@/lib/auth/password";
+@@ -23,10 +23,14 @@ export async function POST(req: NextRequest) {
+   const { full_name, username, email, phone, password, bio, date_of_birth, dob, avatar_url } = parsed.data;
+ 
+   // ── Duplicate check ──────────────────────────────────────────────────────
++  // Soft-deleted accounts are EXCLUDED: once an account is deleted, its email
++  // and username are freed (the DELETE flow replaces them with per-account
++  // placeholders), so the same identity can register again. Only LIVE accounts
++  // block a re-registration.
+   const [existing] = await db
+     .select({ id: users.id, email: users.email, username: users.username })
+     .from(users)
+-    .where(or(eq(users.email, email), eq(users.username, username)))
++    .where(and(or(eq(users.email, email), eq(users.username, username)), isNull(users.deleted_at)))
+     .limit(1);
+ 
+   if (existing) {
+diff --git a/server/app/api/users/me/route.ts b/server/app/api/users/me/route.ts
+index b0d4248..c1b0fc1 100644
+--- a/server/app/api/users/me/route.ts
++++ b/server/app/api/users/me/route.ts
+@@ -1,8 +1,36 @@
+ import { NextRequest } from "next/server";
+-import { eq, and, isNull, sql } from "drizzle-orm";
++import { and, eq, isNull, or, sql } from "drizzle-orm";
+ import { z } from "zod";
+ import { db } from "@/lib/db";
+-import { users, profiles, follows, posts, subscriptions, refresh_tokens, creator_settings } from "@/lib/db/schema";
++import {
++  users,
++  profiles,
++  follows,
++  posts,
++  albums,
++  comments,
++  comment_replies,
++  comment_likes,
++  subscriptions,
++  refresh_tokens,
++  creator_settings,
++  sessions,
++  devices,
++  credential_grants,
++  verification_codes,
++  login_history,
++  chat_room_members,
++  chat_room_messages,
++  blocked_users,
++  muted_users,
++  post_likes,
++  saved_posts,
++  hidden_posts,
++  recent_searches,
++  notifications,
++  user_settings,
++  wallets,
++} from "@/lib/db/schema";
+ import { requireAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok, err } from "@/lib/api/response";
+@@ -223,17 +251,81 @@ export async function DELETE(req: NextRequest) {
+   const valid = await verifyPassword(user.password_hash, parsed.data.password);
+   if (!valid) return err("Password is incorrect", 400, "WRONG_PASSWORD");
+ 
++  const uid = user.id;
+   const now = new Date().toISOString();
+ 
+-  await db
+-    .update(refresh_tokens)
+-    .set({ revoked_at: now })
+-    .where(eq(refresh_tokens.user_id, auth.user.userId));
++  // One atomic transaction: deactivate + free the identity + remove every
++  // account-owned resource so nothing about the deleted account remains
++  // accessible through the application. `transactions` rows are intentionally
++  // kept (financial audit trail); the user row is deactivated/placeholder'd so
++  // no live account can reference them.
++  await db.transaction(async (tx) => {
++    // ── Sessions & tokens — immediate lockout ────────────────────────────
++    await tx.update(refresh_tokens).set({ revoked_at: now }).where(eq(refresh_tokens.user_id, uid));
++    await tx.delete(sessions).where(eq(sessions.user_id, uid));
++    await tx.delete(devices).where(eq(devices.user_id, uid));
++    await tx.delete(credential_grants).where(eq(credential_grants.user_id, uid));
++    await tx.delete(verification_codes).where(eq(verification_codes.user_id, uid));
++    await tx.delete(login_history).where(eq(login_history.user_id, uid));
+ 
+-  await db
+-    .update(users)
+-    .set({ deleted_at: now, is_active: false, updated_at: now })
+-    .where(eq(users.id, auth.user.userId));
++    // ── Account-owned content — soft-delete so it leaves every feed ──────
++    // Covers posts, videos, shorts (content_type on posts) and album rows.
++    await tx.update(posts)
++      .set({ deleted_at: now, updated_at: now })
++      .where(and(eq(posts.creator_id, uid), isNull(posts.deleted_at)));
++    await tx.update(albums)
++      .set({ deleted_at: now, updated_at: now })
++      .where(and(eq(albums.creator_id, uid), isNull(albums.deleted_at)));
++    await tx.update(comments)
++      .set({ deleted_at: now, updated_at: now })
++      .where(and(eq(comments.author_id, uid), isNull(comments.deleted_at)));
++    await tx.update(comment_replies)
++      .set({ deleted_at: now, updated_at: now })
++      .where(and(eq(comment_replies.author_id, uid), isNull(comment_replies.deleted_at)));
++    // Messaging: this account's messages are removed; the room container and
++    // the other participant's membership survive.
++    await tx.delete(chat_room_messages).where(eq(chat_room_messages.sender_id, uid));
++    await tx.delete(chat_room_members).where(eq(chat_room_members.user_id, uid));
++
++    // ── Social graph & preferences ───────────────────────────────────────
++    await tx.delete(follows).where(or(eq(follows.follower_id, uid), eq(follows.following_id, uid)));
++    await tx.delete(blocked_users).where(or(eq(blocked_users.blocker_id, uid), eq(blocked_users.blocked_id, uid)));
++    await tx.delete(muted_users).where(or(eq(muted_users.muter_id, uid), eq(muted_users.muted_id, uid)));
++    await tx.delete(post_likes).where(eq(post_likes.user_id, uid));
++    await tx.delete(comment_likes).where(eq(comment_likes.user_id, uid));
++    await tx.delete(saved_posts).where(eq(saved_posts.user_id, uid));
++    await tx.delete(hidden_posts).where(eq(hidden_posts.user_id, uid));
++    await tx.delete(recent_searches).where(eq(recent_searches.user_id, uid));
++
++    // ── Subscriptions — cancel both directions ───────────────────────────
++    // As a subscriber (to other creators) and as a creator (their subscribers).
++    await tx.update(subscriptions)
++      .set({ status: "cancelled", cancelled_at: now, updated_at: now })
++      .where(and(
++        or(eq(subscriptions.subscriber_id, uid), eq(subscriptions.creator_id, uid)),
++        or(eq(subscriptions.status, "active"), eq(subscriptions.status, "pending")),
++      ));
++
++    // ── Notifications / settings / wallet ────────────────────────────────
++    await tx.delete(notifications).where(eq(notifications.user_id, uid));
++    await tx.delete(user_settings).where(eq(user_settings.user_id, uid));
++    await tx.delete(wallets).where(eq(wallets.user_id, uid));
++
++    // ── Deactivate + free the identity for re-registration ───────────────
++    // email/username become unique placeholders so the ORIGINAL email and
++    // username are immediately reusable by a new registration (the register
++    // route ignores deleted accounts for its duplicate check).
++    await tx.update(users)
++      .set({
++        deleted_at: now,
++        is_active: false,
++        email: `deleted_${uid}@deleted.local`,
++        username: `deleted_${uid}`,
++        phone: null,
++        updated_at: now,
++      })
++      .where(eq(users.id, uid));
++  });
+ 
+   return ok({ deleted: true });
+ }
+diff --git a/server/middleware/auth.ts b/server/middleware/auth.ts
+index d6698eb..546bcdd 100644
+--- a/server/middleware/auth.ts
++++ b/server/middleware/auth.ts
+@@ -2,9 +2,34 @@ import { NextRequest } from "next/server";
+ import { verifyToken, type TokenPayload } from "@/lib/auth/jwt";
+ import { unauthorized } from "@/lib/api/response";
+ import { NextResponse } from "next/server";
++import { eq } from "drizzle-orm";
++import { db } from "@/lib/db";
++import { users } from "@/lib/db/schema";
+ 
+ export type AuthedRequest = NextRequest & { user: TokenPayload };
+ 
++/**
++ * Re-check the user's live account state. The JWT itself can outlive a
++ * deletion/deactivation by up to its expiry window, so every authed request
++ * verifies the account is still active and not soft-deleted. This is what
++ * makes a deleted account's data immediately inaccessible — the token stops
++ * working the moment the account is deleted.
++ */
++async function isAccountLive(userId: string): Promise<boolean> {
++  try {
++    const [row] = await db
++      .select({ is_active: users.is_active, deleted_at: users.deleted_at })
++      .from(users)
++      .where(eq(users.id, userId))
++      .limit(1);
++    if (!row) return false;
++    return row.is_active === true && row.deleted_at === null;
++  } catch {
++    // On DB errors, fail closed — never let an unverifiable account through.
++    return false;
++  }
++}
++
+ export async function requireAuth(
+   req: NextRequest
+ ): Promise<{ user: TokenPayload } | { response: NextResponse }> {
+@@ -16,6 +41,9 @@ export async function requireAuth(
+   const token = header.slice(7);
+   try {
+     const user = await verifyToken(token);
++    if (!(await isAccountLive(user.userId))) {
++      return { response: unauthorized("Account no longer active") };
++    }
+     return { user };
+   } catch {
+     return { response: unauthorized("Invalid or expired token") };
+@@ -28,7 +56,9 @@ export async function optionalAuth(
+   const header = req.headers.get("authorization");
+   if (!header?.startsWith("Bearer ")) return null;
+   try {
+-    return await verifyToken(header.slice(7));
++    const user = await verifyToken(header.slice(7));
++    if (!(await isAccountLive(user.userId))) return null;
++    return user;
+   } catch {
+     return null;
+   }
+-- 
+2.34.1
+

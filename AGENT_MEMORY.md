@@ -334,3 +334,107 @@ or regenerate. Do not commit raw secrets to the public repos.
   a `git filter-repo` history rewrite.
 - The mobile repo's `origin/main` local tracking ref can look stale because pushes
   were done by inline URL — fetch by URL to confirm true remote state.
+
+## 2026-08-16 — FINAL UI FIXES + BACKEND ISSUE AUDIT (completed)
+
+MOBILE FIXED (typecheck clean):
+- Vibration setting: lib/haptics.ts now gates every haptic call on a persisted
+  device pref (@ms_haptics_enabled); first-haptics prompt modal
+  (MsHapticsPrompt, mounted in app/_layout.tsx); Settings > General toggle.
+- Chat shimmer: MsShimmerChatList/Message now EXACTLY mirror the notification
+  shimmer loader (42px avatar, 12/10px lines, 7px gap, 16/10 row padding,
+  default 1100ms sweep), only adapted to chat bubbles (real bubble colours,
+  deterministic widths, no fake text).
+- Account isolation: @ms_blocked_ key now user-scoped
+  (@ms_blocked_<userId>_<username>) so Account B never inherits A's block
+  state. Chat cache clearing on logout/login/session-expiry already in place.
+- Comment sheet keyboard: composer gets guaranteed clearance above keyboard
+  (keyboardDidShow listener → 18px bottom padding) on top of the KAV lift.
+- Albums verified end-to-end (owner/purchaser unlocked, locked gate +
+  styled purchase sheet, success only on server confirm).
+
+BACKEND ISSUE (documented in BACKEND_ISSUES.md at repo root):
+- Server commits 03851d7 (pricing) + ef1f983 (catalog subscription state +
+  media cache) committed locally but NOT pushed (Freebuff credential scoped
+  to MeetSweet-mobile only) — live Vercel lacks them; see the report for the
+  full contract + patch backups.
+
+## 2026-08-17 — ALBUM, CHAT, COMMENTS & ACCOUNT CLEANUP (completed)
+
+MOBILE FIXED (typecheck clean):
+- Album preview: locked albums now show NO content preview — info + price +
+  Purchase only; item grid renders only after server-confirmed unlock.
+- Chat shimmer: static bubble blocks (real bubble colours), 42px avatar,
+  notification sizing; NO animated shimmer inside bubbles; list nudged lower.
+- Chat isolation: chat list (messages tab) and message text (chat room) no
+  longer paint from local cache — the server is the render source; cache is
+  only a mirror/media store. clearChatCache on logout/login stays.
+- Comment sheet: adaptive keyboard — sheet lifts by keyboard height (animated),
+  maxHeight capped so it never goes full-screen; input + comments stay visible;
+  sheet returns naturally on close.
+- Media cache: already expo-file-system based (services/chat-media.ts) —
+  images/video/audio persisted per room; voice notes persisted on send.
+- Deleted posts: removeCachedPost purges server-confirmed deletes from the
+  feed cache so they can't resurrect after restart.
+
+SERVER (committed locally e4f8214, NOT pushed — credential scope; patch backed
+up as 0001-Delete-accounts-consistently-free-identity-for-rereg.patch):
+- DELETE /users/me: atomic full cleanup (tokens, content soft-delete, chat
+  rows, subscriptions cancelled both ways, notifications/settings/wallet/social
+  rows, PII → unique placeholders) so the email/username can re-register.
+- Register: duplicate check ignores soft-deleted accounts.
+- Login: rejects deleted accounts.
+- requireAuth/optionalAuth: live account check (deleted token stops working
+  immediately; fail closed).
+
+## 2026-08-17 — ALBUM MULTI-MEDIA UPLOAD (completed, uncommitted)
+
+Root cause was NOT the upload pipeline (that was already multi-item and live:
+mobile uploads each item -> media_ids; server attaches -> album_items) — it was
+the DISPLAY path: album screen navigated to /content/[item.id] which fetches
+POSTS, but album item ids are media row ids -> 404 -> "Content unavailable".
+
+MOBILE:
+- app/album/[id].tsx: album items render directly from album.items (media
+  rows) in the grid; tapping opens a fullscreen modal (MsVideoPlayer /
+  MsMediaLoader) on the item's own mediaUrl/thumbnailUrl. No post lookup.
+- app/create-album.tsx: item picker now allowsMultipleSelection (up to the
+  20-item cap, respecting current count), every picked asset appended in
+  picker order -> sort_order matches; cover stays single image.
+
+SERVER (uncommitted):
+- server/app/api/albums/route.ts: media_ids validated to belong to the
+  uploader (inArray + uploader_id) and the create fails loudly if any id is
+  invalid/foreign instead of silently creating an empty album.
+
+Both repos typecheck clean (tsc --noEmit). Not committed/pushed yet.
+
+## 2026-08-17 — VIEW COUNT, MEDIA PERFORMANCE & SECURITY HARDENING (uncommitted)
+
+ONE VIEW PER ACCOUNT (server-authoritative):
+- New post_views table (unique post_id+user_id, accumulated watched_seconds,
+  counted flag) + migration entry in server/scripts/migrate.ts (replaces the
+  legacy drop). MUST RUN `npx tsx scripts/migrate.ts` (or drizzle push) before
+  views track on live.
+- New server/lib/services/views.ts recordView(): anonymous never counted; long
+  video threshold 60s; short (<60s) threshold = 90% watch-through (min 2s);
+  unknown-duration short fallback 5s; atomic accumulate+count exactly once.
+- Rewrote posts/videos/shorts [id]/view routes to delegate (body now accepts
+  watch_duration_secs delta + optional video_duration_secs; returns counted,
+  view_count, required_seconds). OLD BEHAVIOR was a blind +1 per request.
+- Mobile: MsVideoPlayer accumulates watch deltas (inline + fullscreen, flush
+  every ~4s + on pause/end/unmount; seek/loop-safe); shorts feed + content
+  detail report deltas via services/content.ts trackShortView/trackVideoView
+  and reflect the server's returned view_count.
+
+SECURITY AUDIT (all VERIFIED server-side, no gaps found):
+- Wallet/transactions/settings/payments: requireAuth + auth.user.userId scoped.
+- Chat rooms: listVisibleRoomIds(auth userId). Withdrawals: atomic conditional
+  debit. Subscriptions: transactional existing-active dedupe.
+- Locked/paid media: posts/[id] + buildVideoRow/buildShortRow null video_url
+  when locked; videos/[id]+shorts/[id] 403 TIER_REQUIRED; albums null locked
+  item URLs. Deleted resources excluded (deleted_at) everywhere.
+- Media delivery: R2 presigned GET (byte-range) + immutable CacheControl
+  (already pushed ef1f983) — no public media proxy exists to leak.
+
+Both repos typecheck clean (tsc --noEmit). Not committed/pushed.
