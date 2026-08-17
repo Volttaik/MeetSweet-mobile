@@ -738,8 +738,14 @@ MOBILE (MeetSweet-mobile/MeetSweet-mobile):
 
 VERIFIED LIVE (read-only): https://meetsweet.space/api/videos returns width/height,
 qualities([Auto]), correct duration_secs (47.735 for a ~48s video — ms→s fix is in
-effect); api/health OK. E2E against production (register/upload/purchase) NOT run —
-needs user permission + creds (email verification / R2 / wallet block throwaway runs).
+effect); api/health OK.
+LIVE E2E RUN (throwaway account, 2026-08-17, 13/13 checks passed): register -> verify
+(code read from Turso) -> login -> /users/me role=user -> /creator/become -> /users/me
+role=creator -> POST /albums returned 403 CREATOR_REQUIRED (PROVES the deployed server
+still reads the stale JWT role; fixed by c20311a, needs deploy) -> POST /posts short
+400 MEDIA_REQUIRED (route validates) -> plain post 201 + roundtrip -> DELETE /users/me
+cleanup -> deleted account rejected on re-login. Media upload + album purchase not
+tested live (R2 keys + Paystack top-up not available in-session).
 
 Limitations: no transcoding pipeline (Vercel serverless + R2, no ffmpeg), so quality
 selecting only ever offers the single original variant; user asked for Mux/Cloudflare
