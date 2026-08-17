@@ -59,6 +59,11 @@ interface MediaItem {
   mime: string;
   name: string;
   uploadedId?: string;
+  // Real asset dimensions/duration — sent with the upload so the media record
+  // carries the true aspect ratio + duration (instant player sizing).
+  width?: number;
+  height?: number;
+  durationSecs?: number;
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -189,7 +194,15 @@ export default function CreateAlbumScreen() {
       const mime = asset.mimeType ?? (effectiveType === 'image' ? 'image/jpeg' : 'video/mp4');
       const ext  = asset.fileName?.split('.').pop() ?? (effectiveType === 'image' ? 'jpg' : 'mp4');
       const name = asset.fileName ?? `media-${Date.now()}-${asset.uri.slice(-6)}.${ext}`;
-      return { uri: asset.uri, type: effectiveType, mime, name };
+      return {
+        uri: asset.uri,
+        type: effectiveType,
+        mime,
+        name,
+        width: asset.width ?? undefined,
+        height: asset.height ?? undefined,
+        durationSecs: asset.duration ?? undefined,
+      };
     });
     setItems((prev) => {
       const room = Math.max(0, 20 - prev.length);
@@ -249,9 +262,18 @@ export default function CreateAlbumScreen() {
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         setUploadLabel(`Uploading item ${i + 1} of ${items.length}…`);
-        const uploaded = await uploadMedia(item.uri, item.mime, item.name, (p) => {
-          setUploadProgress(0.3 + (i + p) / items.length * 0.6); // 30–90%
-        });
+        const uploaded = await uploadMedia(
+          item.uri,
+          item.mime,
+          item.name,
+          (p) => {
+            setUploadProgress(0.3 + (i + p) / items.length * 0.6); // 30–90%
+          },
+          // Pass dimensions/duration for videos (instant aspect ratio + seek range).
+          item.type === 'video'
+            ? { width: item.width, height: item.height, durationSecs: item.durationSecs }
+            : { width: item.width, height: item.height },
+        );
         if (uploaded.id) {
           itemIds.push(uploaded.id);
           setItems((prev) =>

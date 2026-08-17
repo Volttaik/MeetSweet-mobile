@@ -9,20 +9,55 @@ import { Platform } from 'react-native';
 import { File } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
 import { getAccessToken } from '@/lib/session-storage';
-import { ApiError, getApiBase, refreshAccessToken } from './api';
+import { ApiError, getApiBase, refreshAccessToken, apiFetch } from './api';
 
 const CLIENT_APP_ID = 'meetsweet-mobile';
+
+/**
+ * Optional media metadata captured at upload time (from the picker asset).
+ * Sent to the server so playback can size/seek correctly immediately instead
+ * of waiting for the first decoded frame. Best-effort — never blocks publish.
+ */
+export interface UploadMediaMeta {
+  width?: number;
+  height?: number;
+  durationSecs?: number;
+}
 
 export async function uploadMedia(
   uri: string,
   mimeType = 'image/jpeg',
   fileName = 'upload.jpg',
   onProgress?: (progress: number) => void,
+  meta?: UploadMediaMeta,
 ): Promise<{ id: string; url: string; media_type?: string }> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not authenticated');
 
-  return uploadOnce(uri, mimeType, fileName, token, onProgress);
+  const uploaded = await uploadOnce(uri, mimeType, fileName, token, onProgress, meta);
+
+  // Best-effort: attach width/height/duration to the media record so the API
+  // can return real aspect ratio + duration (instant sizing, no layout jump).
+  if (uploaded.id && (meta?.width || meta?.height || meta?.durationSecs)) {
+    try {
+      const patchToken = await getAccessToken();
+      if (patchToken) {
+        await apiFetch(`/media/${uploaded.id}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${patchToken}` },
+          body: JSON.stringify({
+            width: meta?.width ? Math.round(meta.width) : undefined,
+            height: meta?.height ? Math.round(meta.height) : undefined,
+            duration_seconds: meta?.durationSecs ? Math.round(meta.durationSecs) : undefined,
+          }),
+        });
+      }
+    } catch {
+      // Non-critical — playback still works, just with default sizing.
+    }
+  }
+
+  return uploaded;
 }
 
 async function uploadOnce(
@@ -31,6 +66,7 @@ async function uploadOnce(
   fileName: string,
   token: string,
   onProgress?: (progress: number) => void,
+  _meta?: UploadMediaMeta,
   _retried = false,
 ): Promise<{ id: string; url: string; media_type?: string }> {
   const formData = new FormData();
@@ -79,7 +115,7 @@ async function uploadOnce(
   if (resp.status === 401 && !_retried) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      return uploadOnce(uri, mimeType, fileName, newToken, onProgress, true);
+      return uploadOnce(uri, mimeType, fileName, newToken, onProgress, _meta, true);
     }
   }
 

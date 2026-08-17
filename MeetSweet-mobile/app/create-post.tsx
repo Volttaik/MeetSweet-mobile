@@ -111,6 +111,11 @@ export default function CreatePostScreen() {
   const [mediaType,  setMediaType]  = useState<'image' | 'video' | null>(null);
   const [mediaMime,  setMediaMime]  = useState('image/jpeg');
   const [mediaName,  setMediaName]  = useState('media.jpg');
+  // Real asset dimensions/duration (from the picker) — sent with the upload so
+  // the media record carries the true aspect ratio + duration.
+  const [mediaAssetWidth,   setMediaAssetWidth]   = useState<number | undefined>(undefined);
+  const [mediaAssetHeight,  setMediaAssetHeight]  = useState<number | undefined>(undefined);
+  const [mediaAssetDuration, setMediaAssetDuration] = useState<number | undefined>(undefined);
 
   // Thumbnail state (video only)
   const [thumbnailUri,      setThumbnailUri]      = useState<string | null>(null);
@@ -283,6 +288,9 @@ export default function CreatePostScreen() {
     setMediaType(type);
     setMediaMime(mime);
     setMediaName(asset.fileName ?? `media-${Date.now()}.${ext}`);
+    setMediaAssetWidth(asset.width ?? undefined);
+    setMediaAssetHeight(asset.height ?? undefined);
+    setMediaAssetDuration(asset.duration ?? undefined);
 
     // Auto-generate thumbnail from the first frame for both long-form videos and Shorts.
     // The user can still tap the thumbnail to pick a custom one.
@@ -367,9 +375,16 @@ export default function CreatePostScreen() {
       let thumbUrl: string | undefined;
 
       if (mediaUri && mediaType) {
+        // Pass the asset's real dimensions/duration so the media record (and
+        // every feed/detail response) carries the true aspect ratio + duration
+        // — the player sizes instantly instead of jumping after the first frame.
+        const assetMeta =
+          mediaType === 'video'
+            ? { width: mediaAssetWidth, height: mediaAssetHeight, durationSecs: mediaAssetDuration }
+            : undefined;
         const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
           setUploadProgress(thumbnailUri ? p * 0.9 : p);
-        });
+        }, assetMeta);
 
         if (thumbnailUri) {
           const uploadedThumb = await uploadMedia(thumbnailUri, thumbnailMime, thumbnailName, (p) => {
