@@ -11,7 +11,8 @@
  * Standard features:
  *   • Auto-hiding controls overlay (2.5 s after last interaction)
  *   • Centre play/pause/restart icon
- *   • Progress/seek bar with drag and tap support
+ *   • Native seek bar (platform Slider, pink brand accent) — reliable native
+ *     dragging/tapping with playback position always synchronized
  *   • Current time + total duration display
  *   • Fullscreen via built-in Modal (position preserved on open and close)
  *   • Double-tap LEFT = −10 s, double-tap RIGHT = +10 s (YouTube-style)
@@ -38,7 +39,6 @@ import React, {
 } from 'react';
 import {
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   StatusBar,
@@ -47,6 +47,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import Animated, {
   Easing,
   FadeIn,
@@ -120,7 +121,8 @@ export interface MsVideoPlayerProps {
   active?: boolean;
   /** Pre-buffer video stream in native memory for adjacent items (default false) */
   prebuffer?: boolean;
-  /** Shorts: called with seconds watched when the item goes inactive. */
+  /** Called with ADDITIONAL seconds watched since the last report (deltas —
+   *  the server accumulates them and counts a view once per account). */
   onViewProgress?: (seconds: number) => void;
   /** Shorts: fired when user double-taps the video (allows parent to toggle like). */
   onDoubleTap?: () => void;
@@ -181,31 +183,21 @@ export function MsVideoPlayer({
   const isPlayingRef    = useRef(false);
   const positionRef     = useRef(0);
   const durationRef     = useRef(0);
-  const seekWidthRef    = useRef(0);
-  const seekTrackXRef   = useRef(0);
-  const scrubbingRef    = useRef(false);
-  // Monotonic gesture id — guards against a STALE async seek-release from a
-  // previous drag clearing `scrubbingRef` while a NEWER drag is already in
-  // flight. Without it, the older release's `finally` unlocks position
-  // tracking mid-gesture, and the next playback-status tick (which still
-  // reports the OLD position until the seek lands) snaps the thumb back — the
-  // "seek, then interact again → tracker jumps toward the beginning" bug.
-  const scrubGenRef     = useRef(0);
   const lastTapRef      = useRef({ time: 0, x: 0 });
   const tapTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startedAtRef    = useRef<number | null>(null);
   const prevBufferingRef = useRef(true);   // tracks last known buffering state
   const videoEndedRef    = useRef(false);  // true when didJustFinish fired
+  // Watch-time accumulation (both inline + fullscreen players share one
+  // accumulator so time is never lost when toggling fullscreen). Deltas are
+  // flushed every ~4s of real playback and on pause/end/unmount.
+  const watchAccumRef    = useRef(0);
+  const watchLastPosRef  = useRef<number | null>(null);
 
   // Fullscreen refs
   const fsVideoRef      = useRef<Video>(null);
   const fsPositionRef   = useRef(0);
   const fsDurationRef   = useRef(0);
-  const fsWidthRef      = useRef(0);
-  const fsTrackXRef     = useRef(0);
-  const fsScrubbingRef  = useRef(false);
-  const fsScrubGenRef   = useRef(0);
   const fsTapTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsHideTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsPlayingRef    = useRef(false);
@@ -221,6 +213,12 @@ export function MsVideoPlayer({
   const [progress,      setProgress]      = useState(0);
   const [durationMs,    setDurationMs]    = useState(0);
   const [positionMs,    setPositionMs]    = useState(0);
+  // Native seek-bar drag state — while the user drags the Slider, its value
+  // comes from dragMs so the player's own position ticks can't snap the thumb
+  // back (the old custom tracker's jump/reset bug). On release the seek lands
+  // and dragMs clears, resuming live position tracking.
+  const [dragging,      setDragging]      = useState(false);
+  const [dragMs,        setDragMs]        = useState<number | null>(null);
   const [aspectRatio,   setAspectRatio]   = useState(initialAspectRatio ?? 16 / 9);
   const [fsVisible,     setFsVisible]     = useState(false);
   const [videoEnded,    setVideoEnded]    = useState(false);
@@ -228,7 +226,6 @@ export function MsVideoPlayer({
 
   // Fullscreen player state
   const [fsPlaying,    setFsPlaying]    = useState(false);
-  const [fsProgress,   setFsProgress]   = useState(0);
   const [fsDurationMs, setFsDurationMs] = useState(0);
   const [fsPositionMs, setFsPositionMs] = useState(0);
   const [fsBuffering,  setFsBuffering]  = useState(true);
@@ -388,24 +385,42 @@ export function MsVideoPlayer({
     }
   }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Shorts: view-progress tracking ────────────────────────────────────────
-  useEffect(() => {
-    if (!isShorts || !onViewProgress) return;
-    if (!active) {
-      if (startedAtRef.current !== null) {
-        onViewProgress((Date.now() - startedAtRef.current) / 1000);
-        startedAtRef.current = null;
-      }
-      return;
+  // ── View-progress tracking ────────────────────────────────────────────────
+  // Report accumulated watch time as a DELTA (not a cumulative total) — the
+  // server adds it to the account's running total and counts a view exactly
+  // once per account+content when the threshold is crossed.
+  const flushWatch = useCallback(() => {
+    if (watchAccumRef.current > 0 && onViewProgress) {
+      const seconds = watchAccumRef.current;
+      watchAccumRef.current = 0;
+      onViewProgress(seconds);
     }
-    startedAtRef.current = Date.now();
-    return () => {
-      if (startedAtRef.current !== null) {
-        onViewProgress((Date.now() - startedAtRef.current) / 1000);
-        startedAtRef.current = null;
+  }, [onViewProgress]);
+
+  const accumulateWatch = useCallback(
+    (posMs: number, playing: boolean, scrubbing: boolean) => {
+      if (!onViewProgress) return;
+      if (!playing || scrubbing) {
+        watchLastPosRef.current = null;
+        if (!playing) flushWatch();
+        return;
       }
-    };
-  }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
+      if (watchLastPosRef.current !== null) {
+        const delta = (posMs - watchLastPosRef.current) / 1000;
+        // Guard against seeks / loops / clock discontinuities: only count
+        // sane forward deltas, so scrubbing and rewinding can't inflate time.
+        if (delta > 0 && delta < 4) watchAccumRef.current += delta;
+      }
+      watchLastPosRef.current = posMs;
+      if (watchAccumRef.current >= 4) flushWatch();
+    },
+    [flushWatch, onViewProgress],
+  );
+
+  // Flush any pending watch time when the player unmounts.
+  useEffect(() => {
+    return () => flushWatch();
+  }, [flushWatch]);
 
   // ── Auto-play (standard) ──────────────────────────────────────────────────
   useEffect(() => {
@@ -596,7 +611,6 @@ export function MsVideoPlayer({
         : Math.min(fsDurationRef.current, fsPositionRef.current + SEEK_SECONDS * 1000);
       fsVideoRef.current?.setPositionAsync(target).catch(() => {});
       fsPositionRef.current = target;
-      if (fsDurationRef.current > 0) setFsProgress(target / fsDurationRef.current);
       setFsPositionMs(target);
       showFsControls();
       return;
@@ -690,13 +704,14 @@ export function MsVideoPlayer({
       const pos = status.positionMillis ?? 0;
       durationRef.current = dur;
       if (dur > 0) setDurationMs(dur);
-      // While the user drags the seek bar, don't let the player's own position
-      // fight the scrub — otherwise the thumb snaps back mid-drag.
-      if (!scrubbingRef.current) {
-        positionRef.current = pos;
-        if (dur > 0) setProgress(pos / dur);
-        setPositionMs(pos);
-      }
+      positionRef.current = pos;
+      if (dur > 0) setProgress(pos / dur);
+      setPositionMs(pos);
+
+      // Watch-time accumulation (runs for shorts and long-form alike).
+      // While the native Slider is dragged its value is pinned to dragMs, so
+      // these ticks can't snap the thumb back mid-drag.
+      accumulateWatch(pos, playing, false);
 
       // Premium gate
       if (isPremium && !premiumFiredRef.current && pos >= 3000) {
@@ -752,12 +767,12 @@ export function MsVideoPlayer({
     const pos = status.positionMillis ?? 0;
     fsDurationRef.current = dur;
     if (dur > 0) setFsDurationMs(dur);
-    if (!fsScrubbingRef.current) {
-      fsPositionRef.current = pos;
-      if (dur > 0) setFsProgress(pos / dur);
-      setFsPositionMs(pos);
-    }
-  }, []);
+    fsPositionRef.current = pos;
+    setFsPositionMs(pos);
+
+    // Share the accumulator with the inline player — fullscreen time counts.
+    accumulateWatch(pos, playing, false);
+  }, [accumulateWatch]);
 
   // ── Aspect ratio from video ────────────────────────────────────────────────
   const onReadyForDisplay = useCallback(
@@ -769,128 +784,27 @@ export function MsVideoPlayer({
     [initialAspectRatio],
   );
 
-  // ── Seek bar PanResponder (inline, standard only) ─────────────────────────
-  // Maps the touch's absolute X (gestureState.moveX) against the measured track
-  // origin so taps and drags correspond 1:1 to the track — independent of where
-  // inside the bar the gesture began. The seek is applied on release; while
-  // dragging, the player's own position updates are suppressed (scrubbingRef)
-  // so the thumb stays glued to the finger instead of snapping back.
-  const seekPanResponder = useMemo(
-    () => {
-      const ratioFor = (absX: number) => {
-        const w = seekWidthRef.current;
-        if (w <= 0) return 0;
-        return Math.max(0, Math.min(1, (absX - seekTrackXRef.current) / w));
-      };
-      return PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder:  () => true,
-        onPanResponderGrant: (_e, g) => {
-          showControls();
-          scrubGenRef.current += 1;
-          scrubbingRef.current = true;
-          const r = ratioFor(g.moveX);
-          const t = r * durationRef.current;
-          positionRef.current = t;
-          setProgress(r); setPositionMs(t);
-        },
-        onPanResponderMove: (_e, g) => {
-          const r = ratioFor(g.moveX);
-          const t = r * durationRef.current;
-          positionRef.current = t;
-          setProgress(r); setPositionMs(t);
-        },
-        onPanResponderRelease: async (_e, g) => {
-          const gen = scrubGenRef.current;
-          const r = ratioFor(g.moveX);
-          // Guard against a not-yet-known duration (0), which would otherwise
-          // seek to the start and make the thumb snap back to zero.
-          const t = durationRef.current > 0
-            ? r * durationRef.current
-            : positionRef.current;
-          positionRef.current = t;
-          setProgress(r); setPositionMs(t);
-          // Keep scrubbing=true while the async seek is in flight so the
-          // player's own onPlaybackStatusUpdate ticks (which still carry the
-          // OLD position until the seek lands) can't overwrite the thumb.
-          try {
-            await videoRef.current?.setPositionAsync(t);
-          } catch {
-            // seek failed — fall through and resume normal position tracking
-          } finally {
-            // Only unlock position tracking if this is still the LATEST
-            // gesture — a newer drag may have started while the seek was in
-            // flight, and its release owns the lock now.
-            if (gen === scrubGenRef.current) {
-              scrubbingRef.current = false;
-              showControls();
-            }
-          }
-        },
-        onPanResponderTerminate: () => {
-          // The system took the gesture away; a subsequent grant (if any)
-          // re-acquires the lock, so clearing here is always safe.
-          scrubGenRef.current += 1;
-          scrubbingRef.current = false;
-        },
-      });
-    },
-    [showControls],
-  );
+  // ── Seek (native Slider) ──────────────────────────────────────────────────
+  // The platform Slider drives all dragging/tapping (reliable native
+  // behaviour); these helpers just land the resulting position on the player
+  // and keep the time/progress state in sync. There is no custom drag
+  // geometry to conflict with playback ticks.
+  const seekTo = useCallback((ms: number) => {
+    const t = Math.max(0, Math.min(durationRef.current, ms));
+    positionRef.current = t;
+    if (durationRef.current > 0) setProgress(t / durationRef.current);
+    setPositionMs(t);
+    videoRef.current?.setPositionAsync(t).catch(() => {});
+    showControls();
+  }, [showControls]);
 
-  // Fullscreen seek bar PanResponder (same accurate absolute-X mapping)
-  const fsSeekPanResponder = useMemo(
-    () => {
-      const ratioFor = (absX: number) => {
-        const w = fsWidthRef.current;
-        if (w <= 0) return 0;
-        return Math.max(0, Math.min(1, (absX - fsTrackXRef.current) / w));
-      };
-      return PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder:  () => true,
-        onPanResponderGrant: (_e, g) => {
-          showFsControls();
-          fsScrubGenRef.current += 1;
-          fsScrubbingRef.current = true;
-          const r = ratioFor(g.moveX);
-          const t = r * fsDurationRef.current;
-          fsPositionRef.current = t;
-          setFsProgress(r); setFsPositionMs(t);
-        },
-        onPanResponderMove: (_e, g) => {
-          const r = ratioFor(g.moveX);
-          const t = r * fsDurationRef.current;
-          fsPositionRef.current = t;
-          setFsProgress(r); setFsPositionMs(t);
-        },
-        onPanResponderRelease: async (_e, g) => {
-          const gen = fsScrubGenRef.current;
-          const r = ratioFor(g.moveX);
-          const t = fsDurationRef.current > 0
-            ? r * fsDurationRef.current
-            : fsPositionRef.current;
-          fsPositionRef.current = t;
-          setFsProgress(r); setFsPositionMs(t);
-          try {
-            await fsVideoRef.current?.setPositionAsync(t);
-          } catch {
-            // seek failed — fall through and resume normal position tracking
-          } finally {
-            if (gen === fsScrubGenRef.current) {
-              fsScrubbingRef.current = false;
-              showFsControls();
-            }
-          }
-        },
-        onPanResponderTerminate: () => {
-          fsScrubGenRef.current += 1;
-          fsScrubbingRef.current = false;
-        },
-      });
-    },
-    [showFsControls],
-  );
+  const fsSeekTo = useCallback((ms: number) => {
+    const t = Math.max(0, Math.min(fsDurationRef.current, ms));
+    fsPositionRef.current = t;
+    setFsPositionMs(t);
+    fsVideoRef.current?.setPositionAsync(t).catch(() => {});
+    showFsControls();
+  }, [showFsControls]);
 
   // ── Fullscreen open / close ───────────────────────────────────────────────
   const openFullscreen = useCallback(() => {
@@ -900,7 +814,6 @@ export function MsVideoPlayer({
     fsEndedRef.current     = false;
     setFsBuffering(true);
     setFsVideoEnded(false);
-    setFsProgress(progress);
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     setFsVisible(true);
@@ -1083,11 +996,10 @@ export function MsVideoPlayer({
         {!isShorts ? (
           <Animated.View style={[styles.bottomBarWrap, bottomBarStyle]} pointerEvents="box-none">
             <SeekBar
-              progress={progress}
               positionMs={positionMs}
               durationMs={durationMs}
-              panResponder={seekPanResponder}
-              onTrackMeasured={(w, x) => { seekWidthRef.current = w; seekTrackXRef.current = x; }}
+              onSeek={seekTo}
+              onDragStart={showControls}
               onFullscreen={openFullscreen}
               showFullscreen={!fillContainer}
               hasBackground={fillContainer}
@@ -1149,7 +1061,6 @@ export function MsVideoPlayer({
           isPlaying={fsPlaying}
           isBuffering={fsBuffering}
           videoEnded={fsVideoEnded}
-          progress={fsProgress}
           positionMs={fsPositionMs}
           durationMs={fsDurationMs}
           onStatus={onFsStatus}
@@ -1158,8 +1069,8 @@ export function MsVideoPlayer({
           onPressIn={showFsControls}
           onTogglePlay={toggleFsPlayback}
           ctrlStyle={fsCtrlStyle}
-          seekPanResponder={fsSeekPanResponder}
-          onSeekBarWidth={(w, x) => { fsWidthRef.current = w; fsTrackXRef.current = x; }}
+          onSeekTo={fsSeekTo}
+          onDragStart={showFsControls}
           onOrientPickerChange={(open) => {
             // Suspend the auto-hide timer while orientation picker is open
             // so controls don't disappear beneath the modal menu.
@@ -1183,44 +1094,59 @@ export function MsVideoPlayer({
 // ─── SeekBar component ────────────────────────────────────────────────────────
 
 interface SeekBarProps {
-  progress: number;
   positionMs: number;
   durationMs: number;
-  panResponder: ReturnType<typeof PanResponder.create>;
-  onTrackMeasured: (width: number, pageX: number) => void;
+  onSeek: (ms: number) => void;
+  /** Called when the user starts dragging — keeps the controls visible. */
+  onDragStart?: () => void;
   onFullscreen?: () => void;
   showFullscreen?: boolean;
   onExitFullscreen?: () => void;
   hasBackground?: boolean;
 }
 
+/**
+ * Native seek tracker — the platform Slider (@react-native-community/slider)
+ * handles ALL dragging/tapping with its own reliable native behaviour. The
+ * only customisation is appearance: progress + thumb in the pink brand accent.
+ * While dragging, the Slider value is pinned to local drag state so the
+ * player's playback ticks can't snap the thumb back; on release the seek is
+ * applied and live position tracking resumes.
+ */
 function SeekBar({
-  progress,
   positionMs,
   durationMs,
-  panResponder,
-  onTrackMeasured,
+  onSeek,
+  onDragStart,
   onFullscreen,
   showFullscreen = false,
   onExitFullscreen,
   hasBackground = true,
 }: SeekBarProps) {
-  const trackRef = useRef<View>(null);
-  const pct = `${Math.min(100, Math.max(0, progress * 100))}%` as any;
+  const [dragging, setDragging] = useState(false);
+  const [dragMs,   setDragMs]   = useState<number | null>(null);
+  const value = dragging && dragMs !== null ? dragMs : positionMs;
   return (
     <View style={[sb.bar, !hasBackground && sb.barNoBackground]}>
-      <Text style={sb.time}>{fmtTime(positionMs)}</Text>
-      <View
-        ref={trackRef}
-        style={sb.track}
-        onLayout={() => {
-          trackRef.current?.measureInWindow((x, _y, w) => onTrackMeasured(w, x));
+      <Text style={sb.time}>{fmtTime(value)}</Text>
+      <Slider
+        style={sb.slider}
+        minimumValue={0}
+        maximumValue={Math.max(1, durationMs)}
+        value={value}
+        disabled={durationMs <= 0}
+        onSlidingStart={() => { onDragStart?.(); setDragging(true); setDragMs(positionMs); }}
+        onValueChange={(v) => setDragMs(v)}
+        onSlidingComplete={(v) => {
+          setDragging(false);
+          setDragMs(null);
+          onSeek(v);
         }}
-        {...panResponder.panHandlers}
-      >
-        <View style={[sb.fill, { width: pct }]} />
-        <View style={[sb.thumb, { left: pct }]} />
-      </View>
+        minimumTrackTintColor={T.ACCENT}
+        maximumTrackTintColor="rgba(255,255,255,0.28)"
+        thumbTintColor={T.ACCENT}
+        accessibilityLabel="Video seek bar"
+      />
       <Text style={sb.time}>{fmtTime(durationMs)}</Text>
       {showFullscreen && onFullscreen ? (
         <Pressable style={sb.fsBtn} onPress={onFullscreen} hitSlop={10} accessibilityLabel="Enter fullscreen">
@@ -1259,26 +1185,11 @@ const sb = StyleSheet.create({
     minWidth: 34,
     textAlign: 'center',
   },
-  track: {
+  slider: {
     flex: 1,
-    height: 28,
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  fill: {
-    height: 3,
-    backgroundColor: T.ACCENT,
-    borderRadius: 2,
-  },
-  thumb: {
-    position: 'absolute',
-    top: '50%',
-    marginTop: -5,
-    marginLeft: -5,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#fff',
+    height: 36,
+    // Slight negative margin lets the thumb reach the very ends of the track.
+    marginHorizontal: -6,
   },
   fsBtn: {
     width: 28,
@@ -1300,7 +1211,6 @@ interface FullscreenModalProps {
   isPlaying: boolean;
   isBuffering: boolean;
   videoEnded: boolean;
-  progress: number;
   positionMs: number;
   durationMs: number;
   onStatus: (s: AVPlaybackStatus) => void;
@@ -1309,8 +1219,8 @@ interface FullscreenModalProps {
   onPressIn: () => void;
   onTogglePlay: () => void;
   ctrlStyle: object;
-  seekPanResponder: ReturnType<typeof PanResponder.create>;
-  onSeekBarWidth: (width: number, pageX: number) => void;
+  onSeekTo: (ms: number) => void;
+  onDragStart: () => void;
   /** Called when orientation picker opens (true) or closes (false). */
   onOrientPickerChange: (open: boolean) => void;
 }
@@ -1325,7 +1235,6 @@ function FullscreenModal({
   isPlaying,
   isBuffering,
   videoEnded,
-  progress,
   positionMs,
   durationMs,
   onStatus,
@@ -1334,8 +1243,8 @@ function FullscreenModal({
   onPressIn,
   onTogglePlay,
   ctrlStyle,
-  seekPanResponder,
-  onSeekBarWidth,
+  onSeekTo,
+  onDragStart,
   onOrientPickerChange,
 }: FullscreenModalProps) {
   const { bottom: safeBottom } = useSafeAreaInsets();
@@ -1527,11 +1436,10 @@ function FullscreenModal({
             pointerEvents="box-none"
           >
             <SeekBar
-              progress={progress}
               positionMs={positionMs}
               durationMs={durationMs}
-              panResponder={seekPanResponder}
-              onTrackMeasured={onSeekBarWidth}
+              onSeek={onSeekTo}
+              onDragStart={onDragStart}
               onExitFullscreen={onClose}
             />
           </View>

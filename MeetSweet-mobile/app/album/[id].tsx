@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,8 +30,10 @@ import {
   Star,
   UserCircle,
   ShareNetwork,
+  X,
 } from 'phosphor-react-native';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -70,6 +73,9 @@ export default function AlbumScreen() {
   const [unlockedOverride, setUnlockedOverride] = useState<boolean | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
+  // Album items are media rows (not posts) — opening one shows a fullscreen
+  // preview of its own media instead of navigating to the post viewer.
+  const [previewItem, setPreviewItem] = useState<AlbumItem | null>(null);
   const [feedback, setFeedback] = useState<{
     variant: FeedbackVariant;
     title: string;
@@ -180,54 +186,38 @@ export default function AlbumScreen() {
     );
   }
 
+  // A locked album exposes NO content preview — only album info, price, and
+  // the Purchase option. The item grid (and every thumbnail) renders ONLY
+  // after the server confirms the unlock (isUnlockedByMe).
   const isLocked = album.requiresPurchase && !isUnlockedByMe;
-  const visibleItems = isLocked ? album.items.slice(0, 3) : album.items;
 
-  // ── Grid item renderer ───────────────────────────────────────────────────────
-  const renderItem = ({ item, index }: { item: AlbumItem; index: number }) => {
-    const isBlurred = isLocked && index >= 2;
-    return (
-      <Pressable
-        style={[styles.gridThumb, { backgroundColor: tone(album.gradient) }]}
-        onPress={() => {
-          if (isLocked) {
-            handleUnlock();
-          } else {
-            router.push(`/content/${item.id}`);
-          }
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={isLocked ? 'Locked item — unlock to view' : `View item`}
-      >
-        {item.thumbnailUrl ? (
-          <MsMediaLoader
-            uri={item.thumbnailUrl}
-            style={[StyleSheet.absoluteFill, isBlurred && styles.blurredThumb]}
-            resizeMode="cover"
-            accessibleLabel=""
-            errorMessage=""
-            fallback={null}
-          />
-        ) : null}
+  // ── Grid item renderer (unlocked albums only) ────────────────────────────────
+  const renderItem = ({ item }: { item: AlbumItem }) => (
+    <Pressable
+      style={[styles.gridThumb, { backgroundColor: tone(album.gradient) }]}
+      onPress={() => setPreviewItem(item)}
+      accessibilityRole="button"
+      accessibilityLabel="View item"
+    >
+      {item.thumbnailUrl ? (
+        <MsMediaLoader
+          uri={item.thumbnailUrl}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          accessibleLabel=""
+          errorMessage=""
+          fallback={null}
+        />
+      ) : null}
 
-        {/* Video indicator */}
-        {item.type === 'video' && !isBlurred && (
-          <View style={styles.playBadge}>
-            <Play size={10} color={T.TEXT} weight="fill" />
-          </View>
-        )}
-
-        {/* Lock overlay */}
-        {isBlurred && (
-          <View style={styles.thumbLock}>
-            <Lock size={14} color={T.TEXT} weight="bold" />
-          </View>
-        )}
-      </Pressable>
-    );
-  };
-
-  const lockedCount = Math.max(0, album.itemCount - 3);
+      {/* Video indicator */}
+      {item.type === 'video' && (
+        <View style={styles.playBadge}>
+          <Play size={10} color={T.TEXT} weight="fill" />
+        </View>
+      )}
+    </Pressable>
+  );
 
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
@@ -362,43 +352,22 @@ export default function AlbumScreen() {
           </View>
         )}
 
-        {/* ── Grid preview ────────────────────────────────────────────────────── */}
-        <View style={styles.gridSection}>
-          <View style={styles.gridHeader}>
-            <Text style={styles.gridTitle}>
-              {isLocked ? 'Preview' : `All ${album.itemCount} items`}
-            </Text>
-            {isLocked && (
-              <Text style={styles.gridSubtitle}>
-                {lockedCount} more locked
-              </Text>
-            )}
-          </View>
+        {/* ── Item grid — ONLY visible when unlocked (never before purchase) ── */}
+        {!isLocked && (
+          <View style={styles.gridSection}>
+            <View style={styles.gridHeader}>
+              <Text style={styles.gridTitle}>All {album.itemCount} items</Text>
+            </View>
 
-          <View style={styles.grid}>
-            {visibleItems.map((item, index) => (
-              <View key={item.id}>
-                {renderItem({ item, index })}
-              </View>
-            ))}
-
-            {/* Locked remainder cell */}
-            {isLocked && lockedCount > 0 && (
-              <Pressable
-                style={[styles.gridThumb, styles.lockedRemainderThumb, { backgroundColor: tone(album.gradient) }]}
-                onPress={handleUnlock}
-                accessibilityRole="button"
-                accessibilityLabel={`Unlock ${lockedCount} more items`}
-              >
-                <View style={styles.lockedRemainder}>
-                  <Lock size={18} color={T.TEXT} weight="bold" />
-                  <Text style={styles.lockedRemainderText}>+{lockedCount}</Text>
-                  <Text style={styles.lockedRemainderSub}>locked</Text>
+            <View style={styles.grid}>
+              {album.items.map((item) => (
+                <View key={item.id}>
+                  {renderItem({ item })}
                 </View>
-              </Pressable>
-            )}
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         <View style={styles.bottomSpace} />
       </ScrollView>
@@ -457,6 +426,42 @@ export default function AlbumScreen() {
         title={album.title}
         onClose={() => setShareVisible(false)}
       />
+
+      {/* ── Fullscreen item preview ───────────────────────────────────────── */}
+      <Modal
+        visible={!!previewItem}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewItem(null)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <Pressable
+            style={styles.previewClose}
+            onPress={() => setPreviewItem(null)}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Close preview"
+          >
+            <X size={22} color="#fff" weight="bold" />
+          </Pressable>
+          {previewItem?.type === 'video' ? (
+            <MsVideoPlayer
+              videoId={`album-item-${previewItem.id}`}
+              uri={previewItem.mediaUrl ?? null}
+            />
+          ) : (
+            <MsMediaLoader
+              uri={previewItem?.mediaUrl ?? previewItem?.thumbnailUrl ?? ''}
+              style={StyleSheet.absoluteFill}
+              resizeMode="contain"
+              accessibleLabel=""
+              errorMessage=""
+              fallback={null}
+            />
+          )}
+        </View>
+      </Modal>
     </MsAmbientBackground>
   );
 }
@@ -473,6 +478,19 @@ const styles = StyleSheet.create({
   },
   skeletonWrap: {
     paddingTop: 16,
+  },
+
+  previewClose: {
+    position: 'absolute',
+    top: 52,
+    right: 18,
+    zIndex: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Hero

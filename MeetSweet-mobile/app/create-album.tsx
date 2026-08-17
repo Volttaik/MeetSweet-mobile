@@ -159,30 +159,46 @@ export default function CreateAlbumScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes:       effectiveType === 'image' ? ['images'] : ['videos'],
-      allowsEditing:    effectiveType === 'image',
-      aspect:           effectiveType === 'image' ? [1, 1] : undefined,
+      allowsEditing:    effectiveType === 'image' && target === 'cover',
+      aspect:           effectiveType === 'image' && target === 'cover' ? [1, 1] : undefined,
       quality:          effectiveType === 'image' ? 0.85 : undefined,
       videoMaxDuration: 300,
+      // Album ITEMS support multi-select (up to the 20-item cap); the cover is
+      // always a single image. Every selected asset is appended in picker order
+      // and uploaded individually — the album is never limited to one file.
+      allowsMultipleSelection: target === 'item',
+      selectionLimit:          target === 'item' ? Math.max(1, 20 - items.length) : 1,
     });
 
-    if (result.canceled || !result.assets[0]) return;
-
-    const asset = result.assets[0];
-    const mime  = asset.mimeType ?? (effectiveType === 'image' ? 'image/jpeg' : 'video/mp4');
-    const ext   = asset.fileName?.split('.').pop() ?? (effectiveType === 'image' ? 'jpg' : 'mp4');
-    const name  = asset.fileName ?? `media-${Date.now()}.${ext}`;
+    if (result.canceled || result.assets.length === 0) return;
 
     if (target === 'cover') {
+      const asset = result.assets[0];
+      const mime  = asset.mimeType ?? 'image/jpeg';
+      const ext   = asset.fileName?.split('.').pop() ?? 'jpg';
+      const name  = asset.fileName ?? `media-${Date.now()}.${ext}`;
       setCoverUri(asset.uri);
       setCoverMime(mime);
       setCoverName(name);
-    } else {
-      if (items.length >= 20) {
-        Alert.alert('Album limit', 'Albums can contain up to 20 items.');
-        return;
-      }
-      setItems((prev) => [...prev, { uri: asset.uri, type: effectiveType, mime, name }]);
+      return;
     }
+
+    // Items — append EVERY selected asset, preserving the picker order so the
+    // server's sort_order matches what the creator sees.
+    const picked: MediaItem[] = result.assets.map((asset) => {
+      const mime = asset.mimeType ?? (effectiveType === 'image' ? 'image/jpeg' : 'video/mp4');
+      const ext  = asset.fileName?.split('.').pop() ?? (effectiveType === 'image' ? 'jpg' : 'mp4');
+      const name = asset.fileName ?? `media-${Date.now()}-${asset.uri.slice(-6)}.${ext}`;
+      return { uri: asset.uri, type: effectiveType, mime, name };
+    });
+    setItems((prev) => {
+      const room = Math.max(0, 20 - prev.length);
+      const next = picked.slice(0, room);
+      if (picked.length > room) {
+        Alert.alert('Album limit', `Albums can contain up to 20 items. ${next.length} added.`);
+      }
+      return [...prev, ...next];
+    });
   }, [items.length]);
 
   const removeItem = (idx: number) => {

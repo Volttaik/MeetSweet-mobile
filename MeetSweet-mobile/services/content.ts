@@ -312,19 +312,65 @@ export async function likeContent(
 }
 
 /**
- * Track a short view.
- * Backend: POST /api/posts/:id/view
+ * Server view-report response — the server is authoritative for counting.
  */
-export async function trackShortView(id: string, _watchDurationSecs: number): Promise<void> {
+export interface ViewReport {
+  /** True when THIS report crossed the threshold and the view was counted. */
+  counted: boolean;
+  /** Authoritative view count returned by the server. */
+  viewCount: number;
+  /** Seconds of watch time the account still needs before a view counts. */
+  requiredSeconds: number;
+}
+
+/**
+ * Report ADDITIONAL watched seconds for a post (video / short / post).
+ * Backend: POST /api/posts/:id/view (rule applied by content_type server-side).
+ *
+ * The client only reports time; the server accumulates, enforces the 60s (or
+ * 90%-of-short) threshold, dedupes per account, and returns the authoritative
+ * view count. Best-effort: never throws.
+ */
+export async function trackShortView(
+  id: string,
+  watchDurationSecs: number,
+  videoDurationSecs?: number,
+): Promise<ViewReport> {
   const headers = await authHeaders();
   try {
-    await apiFetch<unknown>(`/posts/${encodeURIComponent(id)}/view`, {
+    const raw = await apiFetch<{
+      counted?: boolean;
+      view_count?: number;
+      viewCount?: number;
+      required_seconds?: number;
+    }>(`/posts/${encodeURIComponent(id)}/view`, {
       method: 'POST',
       headers,
+      body: JSON.stringify({
+        watch_duration_secs: Math.max(0, Math.round(watchDurationSecs)),
+        ...(videoDurationSecs && videoDurationSecs > 0 ? { video_duration_secs: videoDurationSecs } : {}),
+      }),
     });
+    return {
+      counted: Boolean(raw?.counted),
+      viewCount: numberFrom(raw?.view_count ?? raw?.viewCount),
+      requiredSeconds: numberFrom(raw?.required_seconds),
+    };
   } catch {
     // View tracking is best-effort; never throw
+    return { counted: false, viewCount: 0, requiredSeconds: 0 };
   }
+}
+
+/**
+ * Long-form video alias — routes to the same authoritative endpoint.
+ */
+export function trackVideoView(
+  id: string,
+  watchDurationSecs: number,
+  videoDurationSecs?: number,
+): Promise<ViewReport> {
+  return trackShortView(id, watchDurationSecs, videoDurationSecs);
 }
 
 // ─── React Query hooks ────────────────────────────────────────────────────────

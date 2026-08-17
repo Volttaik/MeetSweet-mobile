@@ -40,6 +40,7 @@ import {
   UserPlus,
 } from 'phosphor-react-native';
 import { getPost, likePost, unlikePost, bookmarkPost, type Post } from '@/services/posts';
+import { trackVideoView } from '@/services/content';
 import {
   submitRoomComment,
   likeRoomComment,
@@ -232,6 +233,11 @@ export default function ContentDetailScreen() {
           posterUri={post.thumbnailUrl}
           isPremium={isLocked}
           onPremiumRequired={() => router.push(`/creator/${post.author.id}` as any)}
+          // Report watch time to the server (authoritative counting). The
+          // screen itself has no view counter; feeds refetch the live count.
+          onViewProgress={(seconds) => {
+            if (seconds > 0) trackVideoView(post.id, seconds, post.durationSecs ?? undefined).catch(() => {});
+          }}
         />
       ) : post.mediaUrl ? (
         <View style={styles.imageWrap}>

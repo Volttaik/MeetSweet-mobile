@@ -251,7 +251,21 @@ export default function ShortsScreen() {
             isLast={index === shorts.length - 1}
             onComment={() => setCommentsId(item.id)}
             onShare={() => setShareId(item.id)}
-            onViewProgress={(seconds) => { if (seconds > 0) trackShortView(item.id, seconds).catch(() => {}); }}
+            onViewProgress={(seconds) => {
+              if (seconds <= 0) return;
+              // Send ONLY the watched delta; the server accumulates it, applies
+              // the short threshold (90% watch-through), dedupes per account,
+              // and returns the authoritative count which we reflect in the UI.
+              trackShortView(item.id, seconds, item.durationSecs > 0 ? item.durationSecs : undefined)
+                .then((report) => {
+                  if (report.viewCount > 0) {
+                    setShorts((prev) =>
+                      prev.map((s) => (s.id === item.id ? { ...s, viewCount: report.viewCount } : s)),
+                    );
+                  }
+                })
+                .catch(() => {});
+            }}
           />
         )}
         pagingEnabled

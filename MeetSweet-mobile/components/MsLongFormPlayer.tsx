@@ -30,6 +30,8 @@ interface Props {
    * Pass `active={screenFocused}` via useFocusEffect to prevent background playback.
    */
   active?: boolean;
+  /** Called with ADDITIONAL seconds watched since the last report (deltas). */
+  onViewProgress?: (seconds: number) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -44,6 +46,7 @@ export function MsLongFormPlayer({
   initialAspectRatio,
   fillContainer     = false,
   active,
+  onViewProgress,
 }: Props) {
   return (
     <MsVideoPlayer
@@ -57,6 +60,7 @@ export function MsLongFormPlayer({
       fillContainer={fillContainer}
       active={active}
       mode="standard"
+      onViewProgress={onViewProgress}
     />
   );
 }
