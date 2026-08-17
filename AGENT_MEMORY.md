@@ -487,3 +487,29 @@ as 0001-Gate-creator-profile-content-behind-subscription-and-fi.patch):
   unsubscribed non-owners (creator profile fully gated; Explore unaffected).
 - scripts/migrate.ts: post_views migration split into single statements (libsql
   rejects multi-statement strings) so the migration runner works.
+
+## 2026-08-17 — MEDIA LOADING AUDIT + UPLOAD METADATA (pushed mobile c446c46, server committed 791c97a + patch)
+
+MEDIA PIPELINE AUDIT (findings):
+- Serving: direct from Cloudflare R2 (R2_PUBLIC_BASE_URL stable public URL,
+  UUID keys, CacheControl public,max-age=31536000,immutable at PUT) — NOT
+  proxied. Range requests supported natively (R2 + expo-av progressive).
+  Presigned URLs (7d) only used for credential downloads.
+- No transcoding/adaptive streaming exists (Vercel serverless, no FFmpeg).
+  Biggest remaining bottleneck: large originals (up to 500MB) + possible
+  moov-at-end MP4s = slower first frame on mobile. Recommended upgrade:
+  Cloudflare Stream or Mux (see report).
+- Thumbnails: create-post generates poster client-side via expo-video-thumbnails
+  and PATCHes media.thumbnail_url. Feed cards = static thumbs (no per-card
+  players); shorts prebuffer the adjacent item. Videos play only on the detail
+  screen (no feed player mounts).
+- View counting unchanged (post_views, 60s/90%-of-short, server-authoritative).
+
+CHANGES:
+- Mobile: uploadMedia() now accepts optional {width,height,durationSecs} and
+  best-effort PATCHes /media/:id after upload. create-post + create-album pass
+  the picked asset's real dimensions/duration. Result: media rows carry true
+  aspect ratio + duration -> player sizes instantly (no 16:9 layout jump),
+  seek bar knows duration immediately.
+- Server: buildVideoRow/buildShortRow now return width/height top-level + per
+  media item (posts/[id] + feeds already did). Locked-media handling unchanged.
