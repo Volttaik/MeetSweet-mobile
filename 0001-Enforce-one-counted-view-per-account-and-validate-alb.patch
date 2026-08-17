@@ -1,0 +1,533 @@
+From e91b9be6526ff3af92169dbee6da913e2078efb3 Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Mon, 17 Aug 2026 00:48:36 +0000
+Subject: [PATCH] Enforce one counted view per account and validate album media
+ ownership
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- New post_views table (unique post_id+user_id, accumulated watch time,
+  counted flag) with migration entry; view routes now delegate to recordView:
+  anonymous plays never count, long-form needs 60s, shorts need ~90%
+  watch-through, and each account counts at most one view per post
+- POST /albums validates media_ids belong to the uploader and fails loudly
+  instead of silently creating an album with no items
+
+Generated with Codebuff 🤖
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/app/api/albums/route.ts           |  61 ++++----
+ server/app/api/posts/[id]/view/route.ts  |  31 +++-
+ server/app/api/shorts/[id]/view/route.ts |  31 ++--
+ server/app/api/videos/[id]/view/route.ts |  25 +++-
+ server/lib/db/schema.ts                  |  24 ++++
+ server/lib/services/views.ts             | 176 +++++++++++++++++++++++
+ server/scripts/migrate.ts                |  24 +++-
+ 7 files changed, 323 insertions(+), 49 deletions(-)
+ create mode 100644 server/lib/services/views.ts
+
+diff --git a/server/app/api/albums/route.ts b/server/app/api/albums/route.ts
+index 68fdb3b..a6bdbea 100644
+--- a/server/app/api/albums/route.ts
++++ b/server/app/api/albums/route.ts
+@@ -210,39 +210,50 @@ export async function POST(req: NextRequest) {
+ 
+   // Add media items immediately if media_ids were provided
+   if (data.media_ids && data.media_ids.length > 0) {
++    // Only the uploader's OWN media rows are attachable — a stray id from
++    // another user (or a vanished upload) must never attach.
+     const mediaRows = await db
+       .select({ id: media.id, url: media.url, thumbnail_url: media.thumbnail_url })
+       .from(media)
+-      .where(inArray(media.id, data.media_ids));
+-
+-    if (mediaRows.length > 0) {
+-      // Insert in the order the mobile specified
+-      const orderedMedia = data.media_ids
+-        .map((id) => mediaRows.find((m) => m.id === id))
+-        .filter(Boolean) as typeof mediaRows;
+-
+-      await db.insert(album_items).values(
+-        orderedMedia.map((m, i) => ({
+-          id: generateId(),
+-          album_id: albumId,
+-          media_id: m.id,
+-          sort_order: i,
+-        })),
++      .where(and(inArray(media.id, data.media_ids), eq(media.uploader_id, auth.user.userId)));
++
++    // Hard requirement: EVERY requested item must exist in storage+DB. If any
++    // is missing the album is NOT created as a silent empty shell — fail
++    // loudly so the client re-uploads rather than shipping "Content unavailable".
++    if (mediaRows.length !== data.media_ids.length) {
++      return err(
++        `Only ${mediaRows.length} of ${data.media_ids.length} album items could be stored. Please re-upload and try again.`,
++        400,
++        "ALBUM_MEDIA_MISSING",
+       );
++    }
++
++    // Insert in the order the mobile specified
++    const orderedMedia = data.media_ids
++      .map((id) => mediaRows.find((m) => m.id === id))
++      .filter(Boolean) as typeof mediaRows;
+ 
+-      // Update item_count
++    await db.insert(album_items).values(
++      orderedMedia.map((m, i) => ({
++        id: generateId(),
++        album_id: albumId,
++        media_id: m.id,
++        sort_order: i,
++      })),
++    );
++
++    // Update item_count — exactly N for N stored items
++    await db
++      .update(albums)
++      .set({ item_count: orderedMedia.length })
++      .where(eq(albums.id, albumId));
++
++    // Set the first image as cover if no cover was supplied
++    if (!coverUrl && orderedMedia[0]) {
+       await db
+         .update(albums)
+-        .set({ item_count: orderedMedia.length })
++        .set({ cover_url: orderedMedia[0].thumbnail_url ?? orderedMedia[0].url })
+         .where(eq(albums.id, albumId));
+-
+-      // Set the first image as cover if no cover was supplied
+-      if (!coverUrl && orderedMedia[0]) {
+-        await db
+-          .update(albums)
+-          .set({ cover_url: orderedMedia[0].thumbnail_url ?? orderedMedia[0].url })
+-          .where(eq(albums.id, albumId));
+-      }
+     }
+   }
+ 
+diff --git a/server/app/api/posts/[id]/view/route.ts b/server/app/api/posts/[id]/view/route.ts
+index 95c65c5..912c7bc 100644
+--- a/server/app/api/posts/[id]/view/route.ts
++++ b/server/app/api/posts/[id]/view/route.ts
+@@ -1,11 +1,20 @@
+ import { NextRequest } from "next/server";
+-import { eq, sql } from "drizzle-orm";
++import { eq } from "drizzle-orm";
++import { z } from "zod";
+ import { db } from "@/lib/db";
+ import { posts } from "@/lib/db/schema";
++import { optionalAuth } from "@/middleware/auth";
++import { parseBody } from "@/lib/api/validate";
+ import { ok, err } from "@/lib/api/response";
++import { recordView } from "@/lib/services/views";
++
++const viewSchema = z.object({
++  watch_duration_secs: z.number().int().min(0).max(86400).optional(),
++  video_duration_secs: z.number().min(0).max(86400).optional(),
++});
+ 
+ export async function POST(
+-  _req: NextRequest,
++  req: NextRequest,
+   { params }: { params: Promise<{ id: string }> },
+ ) {
+   const { id } = await params;
+@@ -13,9 +22,19 @@ export async function POST(
+   const [post] = await db.select({ id: posts.id }).from(posts).where(eq(posts.id, id)).limit(1);
+   if (!post) return err("Post not found", 404);
+ 
+-  // `posts.view_count` is the single authoritative view counter (the legacy
+-  // post_views row table was write-only and never read).
+-  await db.update(posts).set({ view_count: sql`${posts.view_count} + 1` }).where(eq(posts.id, id));
++  const auth = await optionalAuth(req);
++  const parsed = await parseBody(req, viewSchema);
++  const watchSeconds = parsed.success ? (parsed.data.watch_duration_secs ?? 0) : 0;
++  const clientDuration = parsed.success ? (parsed.data.video_duration_secs ?? null) : null;
++
++  const result = await recordView(id, auth?.userId ?? null, watchSeconds, clientDuration);
++  if (!result) return err("Post not found", 404);
+ 
+-  return ok({ viewed: true });
++  return ok({
++    tracked: true,
++    counted: result.counted,
++    view_count: result.viewCount,
++    viewCount: result.viewCount,
++    required_seconds: result.requiredSeconds,
++  });
+ }
+diff --git a/server/app/api/shorts/[id]/view/route.ts b/server/app/api/shorts/[id]/view/route.ts
+index 90e30e2..50440a8 100644
+--- a/server/app/api/shorts/[id]/view/route.ts
++++ b/server/app/api/shorts/[id]/view/route.ts
+@@ -1,13 +1,17 @@
+ import { NextRequest } from "next/server";
+-import { eq, and, sql } from "drizzle-orm";
++import { eq, and } from "drizzle-orm";
+ import { z } from "zod";
+ import { db } from "@/lib/db";
+ import { posts } from "@/lib/db/schema";
++import { optionalAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok, err } from "@/lib/api/response";
++import { recordView } from "@/lib/services/views";
+ 
+ const viewSchema = z.object({
+-  watch_duration_secs: z.number().int().min(0).max(86400),
++  // ADDITIONAL seconds watched since the last report (deltas accumulate server-side).
++  watch_duration_secs: z.number().int().min(0).max(86400).optional(),
++  video_duration_secs: z.number().min(0).max(86400).optional(),
+ });
+ 
+ export async function POST(
+@@ -16,15 +20,26 @@ export async function POST(
+ ) {
+   const { id } = await params;
+ 
+-  const [post] = await db.select({ id: posts.id })
+-    .from(posts).where(and(eq(posts.id, id), eq(posts.content_type, "short"))).limit(1);
++  const [post] = await db
++    .select({ id: posts.id })
++    .from(posts)
++    .where(and(eq(posts.id, id), eq(posts.content_type, "short")))
++    .limit(1);
+   if (!post) return err("Short not found", 404);
+ 
++  const auth = await optionalAuth(req);
+   const parsed = await parseBody(req, viewSchema);
+-  // View tracking is best-effort — proceed even if body is malformed
+-  const duration = parsed.success ? parsed.data.watch_duration_secs : 0;
++  const watchSeconds = parsed.success ? (parsed.data.watch_duration_secs ?? 0) : 0;
++  const clientDuration = parsed.success ? (parsed.data.video_duration_secs ?? null) : null;
+ 
+-  await db.update(posts).set({ view_count: sql`${posts.view_count} + 1` }).where(eq(posts.id, id));
++  const result = await recordView(id, auth?.userId ?? null, watchSeconds, clientDuration);
++  if (!result) return err("Short not found", 404);
+ 
+-  return ok({ tracked: true, watch_duration_secs: duration });
++  return ok({
++    tracked: true,
++    counted: result.counted,
++    view_count: result.viewCount,
++    viewCount: result.viewCount,
++    required_seconds: result.requiredSeconds,
++  });
+ }
+diff --git a/server/app/api/videos/[id]/view/route.ts b/server/app/api/videos/[id]/view/route.ts
+index 808e591..9e097dc 100644
+--- a/server/app/api/videos/[id]/view/route.ts
++++ b/server/app/api/videos/[id]/view/route.ts
+@@ -1,13 +1,18 @@
+ import { NextRequest } from "next/server";
+-import { eq, and, sql } from "drizzle-orm";
++import { eq, and } from "drizzle-orm";
+ import { z } from "zod";
+ import { db } from "@/lib/db";
+ import { posts } from "@/lib/db/schema";
++import { optionalAuth } from "@/middleware/auth";
+ import { parseBody } from "@/lib/api/validate";
+ import { ok, err } from "@/lib/api/response";
++import { recordView } from "@/lib/services/views";
+ 
+ const viewSchema = z.object({
++  // ADDITIONAL seconds watched since the last report (deltas accumulate server-side).
+   watch_duration_secs: z.number().int().min(0).max(86400).optional(),
++  // Client-known media duration — hint only; the server prefers its own stored value.
++  video_duration_secs: z.number().min(0).max(86400).optional(),
+ });
+ 
+ export async function POST(
+@@ -23,13 +28,19 @@ export async function POST(
+     .limit(1);
+   if (!post) return err("Video not found", 404);
+ 
++  const auth = await optionalAuth(req);
+   const parsed = await parseBody(req, viewSchema);
+-  const duration = parsed.success ? (parsed.data.watch_duration_secs ?? 0) : 0;
++  const watchSeconds = parsed.success ? (parsed.data.watch_duration_secs ?? 0) : 0;
++  const clientDuration = parsed.success ? (parsed.data.video_duration_secs ?? null) : null;
+ 
+-  await db
+-    .update(posts)
+-    .set({ view_count: sql`${posts.view_count} + 1` })
+-    .where(eq(posts.id, id));
++  const result = await recordView(id, auth?.userId ?? null, watchSeconds, clientDuration);
++  if (!result) return err("Video not found", 404);
+ 
+-  return ok({ tracked: true, watch_duration_secs: duration });
++  return ok({
++    tracked: true,
++    counted: result.counted,
++    view_count: result.viewCount,
++    viewCount: result.viewCount,
++    required_seconds: result.requiredSeconds,
++  });
+ }
+diff --git a/server/lib/db/schema.ts b/server/lib/db/schema.ts
+index 32cf9a4..8ff7d6f 100644
+--- a/server/lib/db/schema.ts
++++ b/server/lib/db/schema.ts
+@@ -263,6 +263,30 @@ export const post_likes = sqliteTable("post_likes", {
+   created_at: createdAt(),
+ });
+ 
++export const post_views = sqliteTable(
++  "post_views",
++  {
++    id: id(),
++    post_id: text("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
++    // The authenticated account that watched the content. Anonymous plays are
++    // never counted — a view requires an account.
++    user_id: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
++    // Accumulated watch time (seconds) reported by the client. The server keeps
++    // the running total so replays and seeks contribute toward the threshold
++    // and the account+content relationship caps at exactly one counted view.
++    watched_seconds: real("watched_seconds").notNull().default(0),
++    // True once this account's view has been counted (posts.view_count + 1).
++    // Set exactly once inside the counting transaction — replays never recount.
++    counted: integer("counted", { mode: "boolean" }).notNull().default(false),
++    created_at: createdAt(),
++    updated_at: updatedAt(),
++  },
++  (table) => [
++    uniqueIndex("post_views_post_user_idx").on(table.post_id, table.user_id),
++    index("post_views_user_idx").on(table.user_id),
++  ],
++);
++
+ export const saved_posts = sqliteTable("saved_posts", {
+   id: id(),
+   user_id: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+diff --git a/server/lib/services/views.ts b/server/lib/services/views.ts
+new file mode 100644
+index 0000000..2138248
+--- /dev/null
++++ b/server/lib/services/views.ts
+@@ -0,0 +1,176 @@
++/**
++ * Authoritative view counting.
++ *
++ * Rules enforced here (never on the client):
++ * - Scrolling past / previewing a video does NOT count a view.
++ * - Views are per AUTHENTICATED ACCOUNT: anonymous plays are never counted.
++ * - Long-form video (>= 60s): the account must accumulate 60s of watch time.
++ * - Short video (< 60s): the account must watch ~90% of it (with a 2s floor)
++ *   so shorts can earn views without the 60s rule making them impossible.
++ * - ACCOUNT + VIDEO = at most ONE counted view. Replays never recount.
++ *
++ * The client only reports watched seconds (deltas); accumulation, threshold
++ * crossing and the view_count increment all happen server-side in a
++ * transaction, so the server remains the single source of truth.
++ */
++import { eq, and, sql } from "drizzle-orm";
++import { db } from "@/lib/db";
++import { posts, media, post_views } from "@/lib/db/schema";
++import { generateId } from "@/lib/auth/codes";
++
++const LONG_VIEW_THRESHOLD_SECS = 60;
++/** Fallback when a short's duration is unknown (e.g. legacy uploads). */
++const SHORT_UNKNOWN_DURATION_THRESHOLD_SECS = 5;
++
++export interface RecordViewResult {
++  /** True when THIS report crossed the threshold and the view was counted. */
++  counted: boolean;
++  /** Authoritative view count after this report (read from posts). */
++  viewCount: number;
++  /** Seconds of accumulated watch time this account needs to count. */
++  requiredSeconds: number;
++}
++
++/**
++ * Resolve the view threshold for a piece of content.
++ * duration >= 60s (or unknown long-form): 60s flat.
++ * duration < 60s (shorts): 90% of the duration, min 2s — a short must be
++ * essentially watched through to count, matching the existing short product
++ * (one full watch ≈ one view) without making views impossible.
++ */
++export function resolveViewThreshold(
++  contentType: string,
++  durationSeconds: number | null | undefined,
++): number {
++  const d = typeof durationSeconds === "number" && Number.isFinite(durationSeconds) && durationSeconds > 0
++    ? durationSeconds
++    : null;
++  if (d !== null) {
++    return d >= LONG_VIEW_THRESHOLD_SECS
++      ? LONG_VIEW_THRESHOLD_SECS
++      : Math.max(2, Math.round(d * 0.9));
++  }
++  return contentType === "short" ? SHORT_UNKNOWN_DURATION_THRESHOLD_SECS : LONG_VIEW_THRESHOLD_SECS;
++}
++
++/**
++ * Record a watch-time report for a post.
++ *
++ * @param postId        the post/video/short id
++ * @param userId        authenticated viewer id, or null for anonymous
++ * @param watchSeconds  ADDITIONAL seconds watched since the last report
++ * @param clientDurationSeconds  optional client-reported media duration — used
++ *                      only when the server has no duration stored for the post
++ */
++export async function recordView(
++  postId: string,
++  userId: string | null,
++  watchSeconds: number,
++  clientDurationSeconds?: number | null,
++): Promise<RecordViewResult | null> {
++  const [post] = await db
++    .select({
++      id: posts.id,
++      content_type: posts.content_type,
++      deleted_at: posts.deleted_at,
++      status: posts.status,
++    })
++    .from(posts)
++    .where(eq(posts.id, postId))
++    .limit(1);
++
++  // Deleted / draft / missing content never counts views.
++  if (!post || post.deleted_at !== null || post.status !== "published") {
++    return null;
++  }
++
++  // Anonymous plays are tracked as non-events — no row, no count.
++  if (!userId) {
++    const [row] = await db
++      .select({ view_count: posts.view_count })
++      .from(posts)
++      .where(eq(posts.id, postId))
++      .limit(1);
++    return { counted: false, viewCount: row?.view_count ?? 0, requiredSeconds: LONG_VIEW_THRESHOLD_SECS };
++  }
++
++  // Prefer the server's stored duration; the client value is only a hint.
++  const [mediaRow] = await db
++    .select({ duration_seconds: media.duration_seconds })
++    .from(media)
++    .where(and(eq(media.post_id, postId), eq(media.type, "video")))
++    .limit(1);
++  const durationSeconds =
++    mediaRow?.duration_seconds && mediaRow.duration_seconds > 0
++      ? mediaRow.duration_seconds
++      : (clientDurationSeconds ?? null);
++  const required = resolveViewThreshold(post.content_type, durationSeconds);
++  const delta = Math.max(0, Math.min(86400, Math.round(watchSeconds)));
++
++  if (delta <= 0) {
++    const [row] = await db
++      .select({ view_count: posts.view_count })
++      .from(posts)
++      .where(eq(posts.id, postId))
++      .limit(1);
++    return { counted: false, viewCount: row?.view_count ?? 0, requiredSeconds: required };
++  }
++
++  // Atomic accumulate + count. The unique (post_id, user_id) index means the
++  // account can only ever hold ONE row, and `counted` flips exactly once.
++  let countedThisReport = false;
++  await db.transaction(async (tx) => {
++    const [existing] = await tx
++      .select({
++        id: post_views.id,
++        watched_seconds: post_views.watched_seconds,
++        counted: post_views.counted,
++      })
++      .from(post_views)
++      .where(and(eq(post_views.post_id, postId), eq(post_views.user_id, userId)))
++      .limit(1);
++
++    const previous = existing?.watched_seconds ?? 0;
++    const wasCounted = existing?.counted ?? false;
++    const total = previous + delta;
++
++    if (existing) {
++      await tx
++        .update(post_views)
++        .set({ watched_seconds: total, updated_at: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` })
++        .where(eq(post_views.id, existing.id));
++    } else {
++      await tx.insert(post_views).values({
++        id: generateId(),
++        post_id: postId,
++        user_id: userId,
++        watched_seconds: total,
++        counted: false,
++      });
++    }
++
++    // Count exactly once — the first report that crosses the threshold.
++    if (!wasCounted && total >= required) {
++      countedThisReport = true;
++      await tx
++        .update(post_views)
++        .set({ counted: true, updated_at: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` })
++        .where(eq(post_views.post_id, postId));
++      await tx
++        .update(posts)
++        .set({ view_count: sql`${posts.view_count} + 1` })
++        .where(eq(posts.id, postId));
++    }
++  });
++
++  const [fresh] = await db
++    .select({ view_count: posts.view_count })
++    .from(posts)
++    .where(eq(posts.id, postId))
++    .limit(1);
++  return {
++    counted: countedThisReport,
++    viewCount: fresh?.view_count ?? 0,
++    requiredSeconds: required,
++  };
++}
+diff --git a/server/scripts/migrate.ts b/server/scripts/migrate.ts
+index e310c68..39e6504 100644
+--- a/server/scripts/migrate.ts
++++ b/server/scripts/migrate.ts
+@@ -660,20 +660,38 @@ async function run() {
+ 
+     // ── Drop dead analytics/legacy tables ────────────────────────────────────
+     // creator_statistics was never written (analytics now compute live from
+-    // posts/subscriptions/transactions). post_views was write-only (view_count
+-    // on posts is the authoritative counter). archives was never used.
++    // posts/subscriptions/transactions). archives was never used.
++    // post_views is dropped below and then recreated with the NEW authoritative
++    // schema (per-account dedupe + accumulated watch time) — the legacy
++    // write-only variant must be removed first so the fresh table is clean.
+     {
+       name: "drop creator_statistics table",
+       sql: `DROP TABLE IF EXISTS creator_statistics`,
+     },
+     {
+-      name: "drop post_views table",
++      name: "drop legacy post_views table",
+       sql: `DROP TABLE IF EXISTS post_views`,
+     },
+     {
+       name: "drop archives table",
+       sql: `DROP TABLE IF EXISTS archives`,
+     },
++    {
++      name: "create post_views table (authoritative per-account view dedupe)",
++      sql: `
++        CREATE TABLE IF NOT EXISTS post_views (
++          id TEXT PRIMARY KEY,
++          post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
++          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++          watched_seconds REAL NOT NULL DEFAULT 0,
++          counted INTEGER NOT NULL DEFAULT 0,
++          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
++          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
++        );
++        CREATE UNIQUE INDEX IF NOT EXISTS post_views_post_user_idx ON post_views(post_id, user_id);
++        CREATE INDEX IF NOT EXISTS post_views_user_idx ON post_views(user_id);
++      `,
++    },
+     // Legacy conversations/messages model — replaced by the chat_rooms model
+     // (chat_rooms / chat_room_members / chat_room_messages). The mobile app no
+     // longer calls /api/conversations or /api/messages.
+-- 
+2.34.1
+
