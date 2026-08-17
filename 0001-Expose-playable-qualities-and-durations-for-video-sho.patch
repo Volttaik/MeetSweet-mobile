@@ -1,0 +1,93 @@
+From 3c9b4fdedd69f135f11bcf9ef655f91dd7964664 Mon Sep 17 00:00:00 2001
+From: Easy Buy <122056680+Volttaik@users.noreply.github.com>
+Date: Mon, 17 Aug 2026 11:02:40 +0000
+Subject: [PATCH] Expose playable qualities and durations for video/short/album
+ rows
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+buildVideoRow/buildShortRow now return a server-authoritative `qualities`
+array (single Auto entry today since no transcoding pipeline exists; [] when
+locked so no media URL leaks) plus the existing duration metadata, and album
+items gain qualities + duration_secs. The mobile player renders a quality
+selector only when the server offers multiple variants.
+
+🤖 Generated with Codebuff
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ server/lib/services/albums.ts  |  4 ++++
+ server/lib/services/content.ts | 28 ++++++++++++++++++++++++++++
+ 2 files changed, 32 insertions(+)
+
+diff --git a/server/lib/services/albums.ts b/server/lib/services/albums.ts
+index dd2eeb4..6d62a22 100644
+--- a/server/lib/services/albums.ts
++++ b/server/lib/services/albums.ts
+@@ -80,6 +80,10 @@ export async function loadAlbum(albumId: string, userId?: string | null) {
+     width: unlocked ? item.width : null,
+     height: unlocked ? item.height : null,
+     duration_secs: unlocked ? item.duration_seconds : null,
++    // Server-authoritative playable qualities (single Auto entry today; the
++    // player shows a selector only when multiple variants exist). Nulled for
++    // locked items so no media URL leaks before purchase.
++    qualities: unlocked && item.url ? [{ label: "Auto", url: item.url, height: item.height ?? null }] : [],
+     is_locked: !unlocked,
+   }));
+ 
+diff --git a/server/lib/services/content.ts b/server/lib/services/content.ts
+index bef5d6c..1e57103 100644
+--- a/server/lib/services/content.ts
++++ b/server/lib/services/content.ts
+@@ -223,6 +223,28 @@ function buildCreator(row: PostRow) {
+   };
+ }
+ 
++/**
++ * Playable quality variants for a video, derived from server-side media
++ * metadata (the authoritative source — the client never invents qualities).
++ *
++ * Today the platform stores a single source file (no transcoding pipeline),
++ * so the list contains exactly one "Auto" entry pointing at the original;
++ * the player only shows a quality selector when a future transcoding
++ * pipeline provides more than one variant. Locked content returns [] so no
++ * media URL ever leaks to unauthorized callers.
++ */
++export function buildQualities(
++  primary: MediaRow | undefined,
++  isLocked: boolean,
++): Array<{ label: string; url: string; height: number | null }> {
++  if (!primary?.url || isLocked) return [];
++  return [{
++    label: "Auto",
++    url: primary.url,
++    height: primary.height ?? null,
++  }];
++}
++
+ export function buildVideoRow(
+   row: PostRow,
+   mediaRows: MediaRow[],
+@@ -284,6 +306,9 @@ export function buildVideoRow(
+     durationSecs: primary?.duration_seconds ?? 0,
+     width: mediaWidth,
+     height: mediaHeight,
++    // Server-authoritative playable qualities (single Auto entry today; the
++    // player shows a selector only when multiple variants exist).
++    qualities: buildQualities(primary, isLocked),
+     view_count: row.view_count,
+     viewCount: row.view_count,
+     like_count: row.like_count,
+@@ -372,6 +397,9 @@ export function buildShortRow(
+     durationSecs: primary?.duration_seconds ?? 0,
+     width: mediaWidth,
+     height: mediaHeight,
++    // Server-authoritative playable qualities (single Auto entry today; the
++    // player shows a selector only when multiple variants exist).
++    qualities: buildQualities(primary, isLocked),
+     view_count: row.view_count,
+     viewCount: row.view_count,
+     like_count: row.like_count,
+-- 
+2.34.1
+
