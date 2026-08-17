@@ -37,6 +37,9 @@ export interface LongFormVideo {
   description: string;
   videoUrl: string | null;
   thumbnailUrl: string | null;
+  /** Natural media dimensions (server metadata) — card thumbs keep the real ratio. */
+  width?: number;
+  height?: number;
   durationSecs: number;
   viewCount: number;
   likeCount: number;
@@ -122,6 +125,8 @@ function videoFrom(raw: any): LongFormVideo {
     description: raw.caption ?? raw.description ?? '',
     videoUrl,
     thumbnailUrl,
+    width: raw.width ?? media?.width ?? undefined,
+    height: raw.height ?? media?.height ?? undefined,
     durationSecs: numberFrom(media?.duration_secs ?? raw.duration_secs),
     viewCount: numberFrom(raw.view_count),
     likeCount: numberFrom(raw.like_count),

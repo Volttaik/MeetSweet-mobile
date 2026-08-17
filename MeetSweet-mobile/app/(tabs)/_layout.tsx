@@ -11,6 +11,7 @@ import { House, MagnifyingGlass, ChatCircle, User, FilmStrip, Images, VideoCamer
 import { T } from '@/constants/theme';
 import { tapLight, tapMedium } from '@/lib/haptics';
 import { useNotifications } from '@/contexts/NotificationsContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 const TAB_HEIGHT = 60;
 const INACTIVE_COLOR = '#777777';
@@ -118,6 +119,18 @@ function CreateActionSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  // Creator-only actions (albums, videos, shorts) route non-creators into
+  // the Become-a-Creator flow instead of a dead-end "Creator account
+  // required" error; the server stays the authority on who may create.
+  const openCreatorOnly = useCallback((push: () => void) => {
+    if (!user?.isCreator) {
+      router.push('/become-creator');
+      return;
+    }
+    push();
+  }, [user?.isCreator]);
   return (
     <Modal
       visible={visible}
@@ -148,7 +161,7 @@ function CreateActionSheet({
           <TouchableOpacity
             style={sheetStyles.option}
             activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => router.push('/create-album'), 150); }}
+            onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push('/create-album')), 150); }}
           >
             <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(124,92,202,0.14)' }]}>
               <Images size={22} color="#7C5CCA" />
@@ -162,7 +175,7 @@ function CreateActionSheet({
           <TouchableOpacity
             style={sheetStyles.option}
             activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'video' } }), 150); }}
+            onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push({ pathname: '/create-post', params: { type: 'video' } })), 150); }}
           >
             <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(37,99,235,0.14)' }]}>
               <MonitorPlay size={22} color="#2563EB" />
@@ -176,7 +189,7 @@ function CreateActionSheet({
           <TouchableOpacity
             style={sheetStyles.option}
             activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'shorts' } }), 150); }}
+            onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push({ pathname: '/create-post', params: { type: 'shorts' } })), 150); }}
           >
             <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(220,38,38,0.14)' }]}>
               <VideoCamera size={22} color="#DC2626" />

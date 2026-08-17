@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,6 +22,9 @@ import {
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
+import { becomeCreator } from '@/services/creator';
+import { useAuth } from '@/contexts/AuthContext';
+import { ApiError } from '@/services/api';
 
 const FEATURES: { Icon: React.ComponentType<{ size: number; color: string }>; title: string; desc: string }[] = [
   { Icon: Sparkle,         title: 'Exclusive Content',  desc: 'Share subscriber-only content with your paying fans' },
@@ -47,6 +51,32 @@ function FeatureCard({ Icon, title, desc }: { Icon: React.ComponentType<{ size: 
 
 export default function BecomeCreatorScreen() {
   const insets = useSafeAreaInsets();
+  const { refreshUser } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const [error,      setError]      = useState('');
+
+  const handleBecomeCreator = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await becomeCreator();
+      // Re-pull the account from the server so creator state (role/is_creator)
+      // is authoritative everywhere — the UI must never decide creator status
+      // on its own.
+      await refreshUser();
+      router.back();
+    } catch (e) {
+      setSubmitting(false);
+      // Already a creator (409) — the user is ahead of us; refresh and leave.
+      if (e instanceof ApiError && e.status === 409) {
+        try { await refreshUser(); } catch { /* keep screen state */ }
+        router.back();
+        return;
+      }
+      setError((e as Error).message ?? 'Could not activate your creator account. Please try again.');
+    }
+  };
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top + 8 }]}>
@@ -112,8 +142,18 @@ export default function BecomeCreatorScreen() {
 
         {/* CTAs */}
         <View style={styles.ctaSection}>
-          <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85}>
-            <Text style={styles.primaryBtnLabel}>Become a Creator</Text>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <TouchableOpacity
+            style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
+            activeOpacity={0.85}
+            onPress={handleBecomeCreator}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <ActivityIndicator size="small" color={T.BG} />
+            ) : (
+              <Text style={styles.primaryBtnLabel}>Become a Creator</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.secondaryBtn}
@@ -295,5 +335,15 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
     textAlign: 'center',
+  },
+  primaryBtnDisabled: {
+    opacity: 0.7,
+  },
+  errorText: {
+    fontSize: 12,
+    fontFamily: T.FONT.medium,
+    color: '#E5484D',
+    textAlign: 'center',
+    marginBottom: 4,
   },
 });

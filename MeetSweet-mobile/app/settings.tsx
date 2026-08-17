@@ -1864,9 +1864,9 @@ export default function SettingsScreen() {
           <Row label="Phone Number" sub={user?.phone ?? 'Not set'} onPress={() => setModal('phone')} />
           <Divider />
           <Row
-            label="Creator Dashboard"
-            sub="Analytics, posts, and revenue"
-            onPress={() => pushOnce('/creator-dashboard')}
+            label={user?.isCreator ? 'Creator Dashboard' : 'Become a Creator'}
+            sub={user?.isCreator ? 'Analytics, posts, and revenue' : 'Start earning with subscriptions and albums'}
+            onPress={() => pushOnce(user?.isCreator ? '/creator-dashboard' : '/become-creator')}
           />
         </View>
 

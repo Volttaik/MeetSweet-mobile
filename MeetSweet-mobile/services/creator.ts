@@ -58,6 +58,19 @@ export async function getCreatorDashboard(): Promise<CreatorDashboard> {
   return authedRequest<CreatorDashboard>('/creator/dashboard');
 }
 
+/**
+ * Promote the authenticated account to a creator (server-authoritative).
+ * The server flips users.is_creator/role and seeds creator_settings with the
+ * default subscription price. The caller should then refresh the auth user so
+ * the UI renders creator state from the server. Throws on failure (including
+ * 409 when the account is already a creator).
+ */
+export async function becomeCreator(): Promise<{ is_creator: boolean }> {
+  return authedRequest<{ is_creator: boolean }>('/creator/become', {
+    method: 'POST',
+  });
+}
+
 export async function getCreatorSettings(): Promise<CreatorSettings> {
   return authedRequest<CreatorSettings>('/creator/settings');
 }

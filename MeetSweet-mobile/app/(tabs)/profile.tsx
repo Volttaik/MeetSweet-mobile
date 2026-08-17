@@ -18,6 +18,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { createShareLink } from '@/services/sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  ArrowRight,
   Bookmark,
   Camera,
   ChatCircle,
@@ -26,6 +27,7 @@ import {
   Heart,
   Play,
   ShareNetwork,
+  Sparkle,
   X,
 } from 'phosphor-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -1076,6 +1078,25 @@ export default function ProfileScreen() {
           <StatItem label="Posts" value={formatCount(loadingPosts ? (user?.postCount ?? 0) : posts.length)} />
         </View>
 
+        {/* Become a Creator — shown only when the SERVER reports the account
+            is not a creator yet; taps route into the (previously dead) flow. */}
+        {user && !user.isCreator ? (
+          <TouchableOpacity
+            style={styles.becomeCreatorCard}
+            activeOpacity={0.85}
+            onPress={() => router.push('/become-creator')}
+          >
+            <View style={styles.becomeCreatorIcon}>
+              <Sparkle size={18} color={T.ACCENT} weight="fill" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.becomeCreatorTitle}>Become a Creator</Text>
+              <Text style={styles.becomeCreatorSub}>Earn from subscriptions, albums and exclusive content</Text>
+            </View>
+            <ArrowRight size={18} color={T.TEXT_3} />
+          </TouchableOpacity>
+        ) : null}
+
         {/* Content tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.contentTabsScroll} contentContainerStyle={styles.contentTabsRow}>
           {PROFILE_TABS.map((tab) => {
@@ -1260,6 +1281,30 @@ const styles = StyleSheet.create({
     borderBottomColor: T.BORDER,
   },
   statsDivider: { width: 1, height: 28, backgroundColor: T.BORDER_2 },
+
+  becomeCreatorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 6,
+    padding: 14,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER_2,
+  },
+  becomeCreatorIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: T.ACCENT_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  becomeCreatorTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  becomeCreatorSub:   { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
 
   contentTabsScroll: { borderBottomWidth: 1, borderBottomColor: T.BORDER },
   contentTabsRow:    { paddingHorizontal: 16 },

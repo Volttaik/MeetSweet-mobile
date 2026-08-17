@@ -36,6 +36,8 @@ import {
   X,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
+import { Sparkle } from 'phosphor-react-native';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { uploadMedia } from '@/services/media';
@@ -74,6 +76,7 @@ const ALBUM_DRAFT_KEY = 'ms_create_album_draft';
 
 export default function CreateAlbumScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
   // Details fields — albums are purchase-only, so the creator always sets a
   // price; there is no Free/Subscriber/Subscriber+ tier selection.
@@ -308,6 +311,36 @@ export default function CreateAlbumScreen() {
       setPublishFailed(true);
     }
   };
+
+  // ─── Creator gate ─────────────────────────────────────────────────────────
+  // Albums are creator-only. The SERVER is the authority (POST /albums still
+  // rejects non-creators), but a non-creator should be routed into the
+  // Become-a-Creator flow instead of hitting a dead-end 403 after filling
+  // the whole form.
+  if (user && !user.isCreator) {
+    return (
+      <View style={[styles.screen, styles.gateWrap, { paddingTop: insets.top + 40 }]}>
+        <View style={styles.gateIcon}>
+          <Sparkle size={30} color={T.ACCENT} weight="fill" />
+        </View>
+        <Text style={styles.gateTitle}>Creators only</Text>
+        <Text style={styles.gateBody}>
+          Albums are a creator feature — set a price and sell your collection
+          directly to fans.
+        </Text>
+        <TouchableOpacity
+          style={styles.gateCta}
+          activeOpacity={0.85}
+          onPress={() => router.push('/become-creator')}
+        >
+          <Text style={styles.gateCtaLabel}>Become a Creator</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7} style={styles.gateBack}>
+          <Text style={styles.gateBackLabel}>Not now</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   // ─── Publishing overlay (Create Chatroom-style loader) ─────────────────────
 
@@ -790,6 +823,35 @@ function MediaPickerModal({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.BG },
+
+  gateWrap: {
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    gap: 12,
+  },
+  gateIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: T.ACCENT_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  gateTitle: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, textAlign: 'center' },
+  gateBody: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, textAlign: 'center', lineHeight: 20 },
+  gateCta: {
+    width: '100%',
+    height: 50,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.TEXT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  gateCtaLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
+  gateBack: { marginTop: 6, padding: 8 },
+  gateBackLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_3 },
 
   header: {
     flexDirection: 'row',

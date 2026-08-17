@@ -67,9 +67,14 @@ export default function VideosFeedScreen() {
 }
 
 function VideoCard({ video }: { video: LongFormVideo }) {
+  // Thumbnail keeps the video's real aspect ratio (portrait stays portrait,
+  // landscape stays landscape) — only falls back to 16:9 when the server has
+  // no dimensions for the media.
+  const thumbRatio =
+    video.width && video.height && video.height > 0 ? video.width / video.height : 16 / 9;
   return (
     <Pressable style={styles.card} onPress={() => router.push(`/videos/${video.id}`)} accessibilityRole="button" accessibilityLabel={`Open ${video.title}`}>
-      <View style={styles.thumbnail}>
+      <View style={[styles.thumbnail, { aspectRatio: thumbRatio }]}>
         {video.thumbnailUrl ? <MsMediaLoader uri={video.thumbnailUrl} style={StyleSheet.absoluteFill} resizeMode="cover" accessibleLabel={`${video.title} thumbnail`} errorMessage="" fallback={null} /> : null}
         <View style={styles.duration}><Clock size={11} color="#fff" /><Text style={styles.durationText}>{formatDuration(video.durationSecs)}</Text></View>
         {video.tier && video.tier !== 'free' ? <View style={styles.premiumWrap}><MsTierBadge tier={video.tier} size="xs" /></View> : null}
@@ -94,7 +99,7 @@ const styles = StyleSheet.create({
   iconButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center' },
   shortsButton: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT_LIGHT }, shortsLabel: { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' }, intro: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 18 }, introTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 16 }, introCopy: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, marginTop: 4 },
-  list: { paddingBottom: 36 }, card: { backgroundColor: T.SURFACE, borderRadius: T.RADIUS.xl, overflow: 'hidden', marginHorizontal: 12, marginBottom: 16, ...T.SHADOWS.medium }, thumbnail: { aspectRatio: 16 / 9, backgroundColor: T.SURFACE_2 }, duration: { position: 'absolute', bottom: 10, right: 10, flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 4 }, durationText: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 }, premiumWrap: { position: 'absolute', top: 10, left: 10 },
+  list: { paddingBottom: 36 }, card: { backgroundColor: T.SURFACE, borderRadius: T.RADIUS.xl, overflow: 'hidden', marginHorizontal: 12, marginBottom: 16, ...T.SHADOWS.medium },  thumbnail: { backgroundColor: T.SURFACE_2 }, duration: { position: 'absolute', bottom: 10, right: 10, flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 4 }, durationText: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 }, premiumWrap: { position: 'absolute', top: 10, left: 10 },
   cardBody: { flexDirection: 'row', gap: 10, padding: 14 }, cardCopy: { flex: 1, gap: 4 }, videoTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14, lineHeight: 20 }, creator: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11 }, stats: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 2 }, stat: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10, flexDirection: 'row', alignItems: 'center' },
   commentPreview: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 2 }, commentLabel: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1 }, commentLine: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 6 }, commentAuthor: { color: T.TEXT, fontFamily: T.FONT.semibold }, footer: { paddingVertical: 18 },
 });

@@ -36,6 +36,7 @@ import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiFetch } from '@/services/api';
 import { getCategories, type Category } from '@/services/categories';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
@@ -92,6 +93,7 @@ const CONTENT_TYPES: {
 
 export default function CreatePostScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{ type?: string }>();
 
   // Content type state
@@ -524,7 +526,16 @@ export default function CreatePostScreen() {
             <TouchableOpacity
               key={ct.type}
               style={[styles.typeCard, contentType === ct.type && { borderColor: ct.accentColor, borderWidth: 2 }]}
-              onPress={() => { setContentType(ct.type); setStep('onboard'); }}
+              onPress={() => {
+                // Creator-only types (videos, shorts, albums) route non-creators
+                // into the Become-a-Creator flow instead of a dead-end 403.
+                if ((ct.type === 'video' || ct.type === 'shorts' || ct.type === 'album') && user && !user.isCreator) {
+                  router.push('/become-creator');
+                  return;
+                }
+                setContentType(ct.type);
+                setStep('onboard');
+              }}
               activeOpacity={0.8}
             >
               <View style={[styles.typeCardIcon, { backgroundColor: ct.accentColor }]}>

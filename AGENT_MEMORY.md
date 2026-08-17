@@ -682,3 +682,67 @@ server /search endpoint is production-ready for a dedicated search screen.
 APK: eas.json has a preview APK profile but the project isn't linked to EAS
 (no extra.eas.projectId) and eas-cli is not logged in here — build must run
 from the user's machine after `eas login` + `eas init`.
+
+## 2026-08-17 — CROSS-REPO REGRESSION INVESTIGATION (seek / quality / thumbnails / creator flow)
+
+UNCOMMITTED in both trees (mobile 10 files, server 2 files on top of 1 new commit).
+
+SERVER (Meetsweet/):
+- RE-APPLIED the lost commit as `c20311a` ("Authoritative live role in auth; expose
+  qualities on post detail and feed rows") via `git am` of
+  `0001-Authoritative-live-role-and-quality-wiring.patch` — the workspace reset had
+  dropped 892de7c entirely. middleware/auth.ts now re-reads the account's LIVE role
+  from `users` every request (requireAuth + optionalAuth), so a user who becomes a
+  creator is authorized immediately; POST /albums "Creator account required" is fixed.
+  LIVE Vercel still runs the OLD middleware — push required before it takes effect.
+- NEW (working tree, not committed): consistent creator gates — POST /posts rejects
+  short/video creation for non-creators (plain text/image posts stay open) and
+  POST /videos rejects non-creators, both with 403 CREATOR_REQUIRED mirroring albums.
+- Verified (no change needed): media upload route (multipart File validation, R2
+  PutObject + immutable CacheControl, media insert, {id,url,media_type} aliases),
+  media PATCH (thumbnail/width/height/duration_seconds, uploader-owned),
+  buildVideoRow/buildShortRow (width/height/qualities/duration), loadAlbum (items
+  carry qualities + dims; locked URLs nulled), shorts feed (video-media-only),
+  /creator/become (role flip + creator_settings default ₦200).
+
+MOBILE (MeetSweet-mobile/MeetSweet-mobile):
+- MsVideoPlayer SEEK real-bug fixes (native Slider was already in place): (1) jerking
+  seeks clamped against an UNSEEDED duration ref — fullscreen `fsDurationRef` stayed 0
+  until the fs engine's first loaded tick, so an early drag clamped to 0 and playback
+  "jumped back to the beginning"; seekTo/fsSeekTo now fall back to duration state
+  (`d = ref > 0 ? ref : durationMs`), and openFullscreen seeds fs refs from the inline
+  player. (2) source-resolution effect re-ran on every `active` flip and swapped the
+  engine source remote→cached-file once a background download finished (expo-av
+  restarts from 0 on ANY source change) — guarded with lastResolvedUriRef. No custom
+  seek; platform Slider stays. Web "worked" because HTML5 video seeds duration at
+  metadata load, narrowing the unseeded window.
+- Quality selector: verified wiring everywhere (content/[id], videos/[id],
+  MsShortsPlayer, album preview, chat attachments, MsPremiumContent); server offers a
+  single honest Auto (no transcode infra — see limitation below); posts/[id]+feed now
+  carry `qualities` via c20311a. Selector intentionally hidden with ≤1 variant.
+- Become-a-Creator flow was DEAD: screen registered but primary button had NO onPress
+  and NO screen linked to it. Now: button posts /creator/become → refreshUser() → back
+  (409 = already creator → refresh+back); entry points: Profile tab CTA card
+  (non-creators only, server-driven), Settings dashboard row (non-creator →
+  become-creator), Create sheet gates album/video/shorts for non-creators,
+  create-album renders a "Creators only" gate, create-post type-select routes
+  video/shorts/album taps. Server remains the authority (gates in routes), UI just
+  routes users to the flow instead of dead-end 403s.
+- Thumbnail ratio: videos list card (app/videos/index.tsx) was FIXED 16:9 regardless
+  of media → now uses real width/height (LongFormVideo + videoFrom carry them) with
+  16:9 fallback. Feed/explore cards already used natural ratio. Legacy media rows with
+  NULL width/height still fall back to 16:9 (data issue).
+- Short upload + album multi-media: verified end-to-end in code, no changes needed
+  (File-based FormData fix is in services/media.ts; server validates album media
+  ownership and fails loudly on missing items).
+
+VERIFIED LIVE (read-only): https://meetsweet.space/api/videos returns width/height,
+qualities([Auto]), correct duration_secs (47.735 for a ~48s video — ms→s fix is in
+effect); api/health OK. E2E against production (register/upload/purchase) NOT run —
+needs user permission + creds (email verification / R2 / wallet block throwaway runs).
+
+Limitations: no transcoding pipeline (Vercel serverless + R2, no ffmpeg), so quality
+selecting only ever offers the single original variant; user asked for Mux/Cloudflare
+Stream if real multi-quality is wanted. AGENT_MEMORY update: push for the server repo
+is still credential-blocked (scope MetSweet-mobile only); back up any server commits
+as patches at workspace root like prior sessions.

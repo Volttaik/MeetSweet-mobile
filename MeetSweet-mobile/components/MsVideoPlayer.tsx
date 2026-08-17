@@ -225,6 +225,11 @@ export function MsVideoPlayer({
     shouldPlay: boolean;
     target: 'inline' | 'fs';
   } | null>(null);
+  // The last source handed to the engine. Guards the cache-resolution effect
+  // so it never re-sets the same URI (e.g. when `active` flips and a background
+  // download has since completed) — expo-av restarts from 0 on ANY source
+  // change, which is what made playback "jump back to the beginning".
+  const lastResolvedUriRef = useRef<string | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -445,13 +450,19 @@ export function MsVideoPlayer({
     // 1. Check if video already exists in local disk cache
     getCachedVideoFile(selectedUrl, cacheKey).then((cachedPath) => {
       if (!isCurrent) return;
-      if (cachedPath) {
-        setPlayableUri(cachedPath);
-      } else {
-        setPlayableUri(selectedUrl);
-        // Start background cache if player is active, prebuffering, or shorts
-        if (active || prebuffer || autoPlay || isShorts) {
-          downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
+      const next = cachedPath ?? selectedUrl;
+      // Only hand the engine a NEW source URI. Re-setting the same value is a
+      // no-op for state but still reloads the native Video node — and swapping
+      // remote → cached file mid-session (a background download finishing while
+      // `active` flips) used to restart playback from 0 mid-watch.
+      if (lastResolvedUriRef.current !== next) {
+        lastResolvedUriRef.current = next;
+        setPlayableUri(next);
+        if (!cachedPath) {
+          // Start background download if player is active, prebuffering, or shorts
+          if (active || prebuffer || autoPlay || isShorts) {
+            downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
+          }
         }
       }
     });
@@ -928,21 +939,31 @@ export function MsVideoPlayer({
   // and keep the time/progress state in sync. There is no custom drag
   // geometry to conflict with playback ticks.
   const seekTo = useCallback((ms: number) => {
-    const t = Math.max(0, Math.min(durationRef.current, ms));
+    // Clamp against the best-known duration. The duration ref can be unseeded
+    // for a brief moment before the engine reports its first loaded tick, and
+    // Math.min(0, ms) would land the seek at 0 — the "jumps back to the
+    // beginning" bug. Fall back to the duration state when the ref is 0.
+    const d = durationRef.current > 0 ? durationRef.current : durationMs;
+    const t = Math.max(0, Math.min(d, ms));
     positionRef.current = t;
-    if (durationRef.current > 0) setProgress(t / durationRef.current);
+    if (d > 0) setProgress(t / d);
     setPositionMs(t);
     videoRef.current?.setPositionAsync(t).catch(() => {});
     showControls();
-  }, [showControls]);
+  }, [durationMs, showControls]);
 
   const fsSeekTo = useCallback((ms: number) => {
-    const t = Math.max(0, Math.min(fsDurationRef.current, ms));
+    // Same guard as seekTo: on fullscreen open the fs duration REF is not
+    // seeded until the fs engine's first loaded tick (which can take seconds
+    // for large/moov-at-end files), so a drag in that window used to clamp to
+    // 0 and "seek back to the beginning". Fall back to the duration state.
+    const d = fsDurationRef.current > 0 ? fsDurationRef.current : fsDurationMs;
+    const t = Math.max(0, Math.min(d, ms));
     fsPositionRef.current = t;
     setFsPositionMs(t);
     fsVideoRef.current?.setPositionAsync(t).catch(() => {});
     showFsControls();
-  }, [showFsControls]);
+  }, [fsDurationMs, showFsControls]);
 
   // ── Fullscreen open / close ───────────────────────────────────────────────
   const openFullscreen = useCallback(() => {
@@ -952,6 +973,10 @@ export function MsVideoPlayer({
     fsEndedRef.current     = false;
     setFsBuffering(true);
     setFsVideoEnded(false);
+    // Seed the fullscreen refs from the inline player's known state so seeks
+    // never clamp against an unseeded (0) duration right after opening.
+    fsDurationRef.current = durationMs;
+    fsPositionRef.current = positionMs;
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     setFsVisible(true);
