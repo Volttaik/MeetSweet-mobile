@@ -187,18 +187,27 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 }
 
 // ─── Chat message skeleton ─────────────────────────────────────────────────────
-// Mirrors the real chat layout: a date chip, then alternating incoming (avatar +
-// bubble) and outgoing (bubble, right-aligned) messages. Bubbles use the SAME
-// colours as MsTextBubble (#1C1C23 incoming, #28282F outgoing) and the real
-// 8px-radius tail-corner shape. The bubble is ONE clean shimmer block — no fake
-// white text lines inside — so the skeleton reads as loading message bubbles,
-// matching the notification shimmer's visual language. Widths are deterministic
-// (no Math.random) so the skeleton never flickers.
+// Matches the Notifications shimmer sizing (42px avatar, 16/10 row padding,
+// 12px avatar→content gap) but adapted to the chat layout. Each message
+// bubble is a SINGLE STATIC block in the real MsTextBubble colours
+// (#1C1C23 incoming / #28282F outgoing) with the 8px-radius tail corner — the
+// bubble itself represents the loading message. There is NO moving
+// reflection/animation inside the bubble (no MsShimmer inside); only the
+// incoming avatar carries the sweep, exactly like the notification rows.
+// Widths are deterministic (no Math.random) so the skeleton never flickers.
 
 const CHAT_BUBBLE_COLOR_OWN   = '#28282F'; // outgoing  (MsTextBubble BG_OWN)
 const CHAT_BUBBLE_COLOR_OTHER = '#1C1C23'; // incoming  (MsTextBubble BG_OTHER)
 // Deterministic bubble widths, cycled per row.
 const CHAT_BUBBLE_WIDTHS = [176, 214, 132, 198, 240, 150, 186, 224, 140, 208];
+
+/**
+ * Height of a static bubble for `lines` message lines: real MsTextBubble
+ * padding (7 top + 8 bottom) plus 12px line (+ 7px gap + 10px line for 2 lines).
+ */
+function chatBubbleHeight(lines: 1 | 2): number {
+  return lines === 2 ? 7 + 12 + 7 + 10 + 8 : 7 + 12 + 8;
+}
 
 export function MsShimmerChatMessage({
   own = false,
@@ -209,28 +218,26 @@ export function MsShimmerChatMessage({
   width?: number;
   lines?: 1 | 2;
 }) {
-  const bubbleW = width ?? (own ? 180 : 220);
+  const bubbleW = width ?? (own ? 176 : 208);
   const bubbleColor = own ? CHAT_BUBBLE_COLOR_OWN : CHAT_BUBBLE_COLOR_OTHER;
   const tailRadius = own
     ? { borderBottomRightRadius: 3 }
     : { borderBottomLeftRadius: 3 };
-  // Bubble has 10px horizontal padding (like MsTextBubble); the shimmer fill
-  // spans the full inner width and holds the same total height as the real
-  // text (one or two 8px lines + 5px gap) so rows land at identical heights.
-  const lineW = bubbleW - 20;
-  const fillH = lines === 2 ? 21 : 8;
   return (
     <View style={[shimStyles.chatMsg, own ? shimStyles.chatMsgOwn : shimStyles.chatMsgOther]}>
-      {!own && <MsShimmer width={28} height={28} borderRadius={14} subtle />}
-      <View style={[shimStyles.chatBubble, { width: bubbleW, backgroundColor: bubbleColor, ...tailRadius }]}>
-        <MsShimmer
-          width={lineW}
-          height={fillH}
-          borderRadius={4}
-          subtle
-          style={{ backgroundColor: bubbleColor }}
-        />
-      </View>
+      {!own && <MsShimmer width={42} height={42} borderRadius={21} />}
+      {/* Static bubble — no animated shimmer elements inside. */}
+      <View
+        style={[
+          shimStyles.chatBubble,
+          {
+            width: bubbleW,
+            height: chatBubbleHeight(lines),
+            backgroundColor: bubbleColor,
+            ...tailRadius,
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -249,10 +256,6 @@ export function MsShimmerChatList({ count = 8 }: { count?: number }) {
   ] as const;
   return (
     <View style={shimStyles.chatList}>
-      {/* Date separator chip */}
-      <View style={shimStyles.chatDateChip}>
-        <MsShimmer width={104} height={16} borderRadius={8} subtle />
-      </View>
       {Array.from({ length: count }).map((_, i) => {
         const r = rhythm[i % rhythm.length];
         return (
@@ -505,7 +508,15 @@ const shimStyles = StyleSheet.create({
   chatMsg: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
+    gap: 12,
+    // Notification shimmer row spacing (paddingVertical 10 per row).
+    paddingVertical: 10,
+  },
+  // Push the loading bubbles down a touch so they sit naturally in the
+  // message area rather than hugging the top edge.
+  chatList: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
   },
   chatMsgOwn: {
     justifyContent: 'flex-end',
@@ -521,11 +532,6 @@ const shimStyles = StyleSheet.create({
     paddingTop: 7,
     paddingBottom: 8,
     overflow: 'hidden',
-  },
-  chatList: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
   },
   chatDateChip: {
     alignItems: 'center',

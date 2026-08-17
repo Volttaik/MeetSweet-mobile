@@ -37,7 +37,7 @@ import { MsShareSheet } from '@/components/MsShareSheet';
 import { tapLight, tapMedium, tapHeavy } from '@/lib/haptics';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNetwork } from '@/hooks/useNetwork';
-import { enqueueOfflineAction, updateCachedPost } from '@/lib/posts-db';
+import { enqueueOfflineAction, removeCachedPost, updateCachedPost } from '@/lib/posts-db';
 
 // ── Spring presets ────────────────────────────────────────────────────────────
 const SPRING_PRESS  = { damping: 14, stiffness: 380, mass: 1 };
@@ -357,6 +357,9 @@ export function MsPostCard({
           try {
             await deletePost(post.id);
             markDeleted(post.id);
+            // Purge the server-confirmed deleted post from the local feed cache
+            // so it can never reappear from stale cache/local state.
+            removeCachedPost(post.id, userId).catch(() => {});
             onDeleted?.(post.id);
           } catch {
             Alert.alert('Error', 'Could not delete post.');

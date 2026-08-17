@@ -17,6 +17,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Keyboard,
   Modal,
   PanResponder,
   Pressable,
@@ -25,9 +26,10 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowBendUpLeft,
@@ -470,7 +472,34 @@ interface CommentsModalProps {
 
 export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) {
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
+  // Adaptive keyboard handling: the sheet lifts up by the keyboard height
+  // (animated) and its max height shrinks so it never goes full-screen, the
+  // input row stays fully visible, and the comments stay readable above it.
+  const [kbHeight, setKbHeight] = useState(0);
+  const kbLift = useRef(new Animated.Value(0)).current;
   const { user } = useAuth();
+
+  useEffect(() => {
+    const animateTo = (toValue: number) => {
+      setKbHeight(toValue);
+      Animated.timing(kbLift, {
+        toValue,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      animateTo(e.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      animateTo(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [kbLift]);
   const {
     comments,
     setComments,
@@ -670,9 +699,18 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
     >
       <View style={sheetStyles.overlay}>
         <Pressable style={sheetStyles.backdrop} onPress={onClose} />
-        <KeyboardAvoidingView
-          behavior="padding"
-          style={sheetStyles.sheetContainer}
+        <Animated.View
+          style={[
+            sheetStyles.sheetContainer,
+            {
+              // Lift the whole sheet up by the keyboard height and cap its
+              // height so the top never goes off-screen (no full-screen jump).
+              marginBottom: kbLift,
+              maxHeight: kbHeight > 0
+                ? Math.max(240, screenHeight - kbHeight - 8)
+                : '82%',
+            },
+          ]}
         >
           <Animated.View style={{ flex: 1, transform: [{ translateY: dragY }] }}>
             {/* Top Handle */}
@@ -754,7 +792,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
           )}
 
           {/* Composer */}
-          <View style={[sheetStyles.composerContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={[sheetStyles.composerContainer, { paddingBottom: kbHeight > 0 ? 18 : Math.max(insets.bottom, 12) }]}>
             {replyingTo && (
               <View style={sheetStyles.contextChip}>
                 <Text style={sheetStyles.contextText} numberOfLines={1}>
@@ -831,7 +869,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
             )}
           </View>
           </Animated.View>
-        </KeyboardAvoidingView>
+        </Animated.View>
       </View>
     </Modal>
   );

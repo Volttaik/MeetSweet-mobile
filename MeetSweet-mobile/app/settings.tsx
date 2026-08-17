@@ -79,6 +79,11 @@ import {
   isBiometricEnabled,
   setBiometricEnabled as persistBiometricEnabled,
 } from '@/lib/biometric';
+import {
+  isHapticsEnabled as getHapticsEnabled,
+  loadHapticsPreference,
+  setHapticsEnabled as persistHapticsEnabled,
+} from '@/lib/haptics';
 
 // ─── Shared bottom sheet wrapper ──────────────────────────────────────────────
 
@@ -1599,6 +1604,8 @@ export default function SettingsScreen() {
   // Security prefs
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  // General prefs
+  const [hapticsEnabled, setHapticsEnabled] = useState(getHapticsEnabled());
 
   useEffect(() => {
     const userId = user?.id;
@@ -1662,6 +1669,17 @@ export default function SettingsScreen() {
     getTwoFactorStatus()
       .then((s) => setTwoFactorEnabled(s.enabled))
       .catch(() => {});
+  }, []);
+
+  // ── General: haptics / vibration preference ───────────────────────────────
+  useEffect(() => {
+    loadHapticsPreference().then(setHapticsEnabled).catch(() => {});
+  }, []);
+
+  const handleHapticsToggle = useCallback(async (value: boolean) => {
+    setHapticsEnabled(value);
+    await persistHapticsEnabled(value);
+    toast.success(value ? 'Vibrations enabled' : 'Vibrations disabled');
   }, []);
 
   const handleBiometricToggle = useCallback(async (value: boolean) => {
@@ -1932,7 +1950,16 @@ export default function SettingsScreen() {
           <Row label="Active Sessions" sub="View and manage sign-in sessions" onPress={() => setModal('activeSessions')} />
         </View>
 
-        {/* ── NOTIFICATIONS ────────────────────────────────────────────────── */}
+        <SectionHeader title="General" />
+        <View style={rs.section}>
+          <ToggleRow
+            label="Vibrations & Haptics"
+            sub="Gentle feedback for likes, messages, and sends"
+            value={hapticsEnabled}
+            onValueChange={handleHapticsToggle}
+          />
+        </View>
+
         <SectionHeader title="Notifications" />
         <View style={rs.section}>
           <ToggleRow

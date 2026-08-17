@@ -44,7 +44,6 @@ import { searchUsers } from '@/services/users';
 import { ApiError } from '@/services/api';
 import { getCreatorMessagingSettings } from '@/services/subscriptions';
 import {
-  getCachedChatRooms,
   cacheChatRooms,
 } from '@/services/chat-cache';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
@@ -379,28 +378,23 @@ export default function MessagesScreen() {
     async (showRefresh = false) => {
       if (showRefresh) setRefreshing(true);
 
-      // 1. Load from SQLite cache for instant display (all tab only)
-      if (!showRefresh && activeTab === 'All') {
-        const cached = await getCachedChatRooms();
-        if (cached.length > 0) {
-          setChatRooms(sortRooms(cached));
-          setLoading(false);
-        }
-      }
-
-      // 2. Fetch from API — lightweight room metadata only
+      // The SERVER is the source of truth for the chat list — never paint the
+      // local cache first. This guarantees the list belongs to the CURRENT
+      // authenticated account: a previous account's rooms can never flash in
+      // after logout → login (the cache is cleared on account switch, and it
+      // is not read here at all).
       try {
         const tab = activeTab === 'Archived' ? 'archived' : 'all';
         const data = await getChatRoomList(tab);
         setChatRooms(sortRooms(data.chatRooms));
         reportNetworkSuccess();
-        // Cache room list (only for 'all' tab)
+        // Mirror the server list to local storage (offline media-only reads
+        // never use it as the render source).
         if (activeTab === 'All') {
           cacheChatRooms(data.chatRooms).catch(() => {});
         }
       } catch {
         reportNetworkError();
-        // Cached data is still visible — no error state needed
       } finally {
         setLoading(false);
         setRefreshing(false);

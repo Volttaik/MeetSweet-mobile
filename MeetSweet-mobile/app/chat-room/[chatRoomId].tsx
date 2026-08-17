@@ -516,13 +516,10 @@ export default function ChatScreen() {
   const loadMessages = useCallback(async (before?: string) => {
     if (!chatRoomId) return;
     try {
-      const cached = await getCachedMessages(chatRoomId);
-      if (cached.length && !before) {
-        setMessages(
-          cached.map((m) => toMsMessage(m, user?.id ?? '')).sort(byNewestFirst),
-        );
-        setLoading(false);
-      }
+      // The SERVER is the source of truth for message text. No cache-first
+      // paint: the message area shows the loading shimmer until the current
+      // account's messages arrive, so a previous account's cached messages can
+      // never render for the wrong user.
       const result = await getRoomMessages(chatRoomId, before ? { before } : undefined);
       // Mirror the server's context/membership into SQLite and remove any
       // messages the server says no longer belong to this user's context.
@@ -554,7 +551,8 @@ export default function ChatScreen() {
       // Persist media for any message that has a remote URL but no local file.
       ensureMediaLocal(result.messages).catch(() => {});
     } catch {
-      // graceful — cached messages still visible
+      // Server is the source of truth — on failure we simply leave the empty
+      // shimmer state; cached text is never used to populate the UI.
     } finally {
       setLoading(false);
     }
@@ -691,16 +689,18 @@ export default function ChatScreen() {
   // banner + disabled input reflect the persisted state across reloads.
   // chatRoomId is never affected by blocking — the room container survives.
   useEffect(() => {
-    if (!otherUser.username) return;
+    if (!otherUser.username || !user?.id) return;
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(`@ms_blocked_${otherUser.username}`);
+        // Keyed by CURRENT user id so a block is per-account — Account B can
+        // never inherit Account A's block state for the same person.
+        const raw = await AsyncStorage.getItem(`@ms_blocked_${user.id}_${otherUser.username}`);
         setIsBlocked(raw === '1');
       } catch {
         // ignore — defaults to not blocked
       }
     })();
-  }, [otherUser.username]);
+  }, [otherUser.username, user?.id]);
 
   // ── Load earlier (older) messages ────────────────────────────────────────────
   const handleLoadEarlier = useCallback(async () => {
@@ -1216,9 +1216,11 @@ export default function ChatScreen() {
               }
               // Persist the block flag client-side so it survives reloads.
               // chatRoomId is untouched — blocking only gates this client.
-              if (username) {
+              // Keyed by CURRENT user id: the block state is per-account and
+              // must never leak across a logout → different-account login.
+              if (username && user?.id) {
                 await AsyncStorage.setItem(
-                  `@ms_blocked_${username}`,
+                  `@ms_blocked_${user.id}_${username}`,
                   next ? '1' : '0',
                 );
               }
@@ -1231,7 +1233,7 @@ export default function ChatScreen() {
         },
       ],
     );
-  }, [isBlocked, otherUser.name, otherUser.username]);
+  }, [isBlocked, otherUser.name, otherUser.username, user?.id]);
 
   // ── Delete chat room from list ────────────────────────────────────────
   const handleDeleteRoom = useCallback(() => {

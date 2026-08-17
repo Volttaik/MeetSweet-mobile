@@ -28,6 +28,8 @@ import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { MsOfflineBanner } from '@/components/MsOfflineBanner';
 import { MsToastHost } from '@/components/MsToast';
+import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
+import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { T } from '@/constants/theme';
 
@@ -49,7 +51,28 @@ const queryClient = new QueryClient({
 function AppServices() {
   // Drain offline queue whenever network is restored
   useOfflineQueue();
+  // Load the persisted haptics preference so the very first haptic call is
+  // gated correctly (and triggers the one-time enable/disable prompt if the
+  // user hasn't chosen yet).
+  useEffect(() => {
+    loadHapticsPreference().catch(() => {});
+  }, []);
   return null;
+}
+
+function HapticsGate() {
+  const [promptVisible, setPromptVisible] = React.useState(false);
+
+  useEffect(() => {
+    return onHapticsPromptNeeded(() => setPromptVisible(true));
+  }, []);
+
+  return (
+    <MsHapticsPrompt
+      visible={promptVisible}
+      onClose={() => setPromptVisible(false)}
+    />
+  );
 }
 
 function RootLayoutNav() {
@@ -161,6 +184,7 @@ export default function RootLayout() {
                         <RootLayoutNav />
                         <MsOfflineBanner />
                         <MsToastHost />
+                        <HapticsGate />
                       </PostActionsProvider>
                     </NotificationsProvider>
                   </BiometricLockProvider>

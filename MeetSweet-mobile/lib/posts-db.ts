@@ -163,6 +163,47 @@ export async function getCachedPosts(
   }
 }
 
+/**
+ * Purge a server-confirmed deleted post from EVERY feed view of this user.
+ * Prevents a deleted post from resurrecting out of the local cache (e.g. on a
+ * cache-first paint after an app restart, before the server refresh replaces
+ * the list). Call after the server confirms the delete — never optimistically.
+ */
+export async function removeCachedPost(postId: string, userId: string): Promise<void> {
+  if (!postId || !userId) return;
+  const db = await getDb();
+  const prefix = `${userId}_`;
+  if (db) {
+    try {
+      await db.runAsync(
+        `DELETE FROM posts WHERE id = ? AND feed_key LIKE ?`,
+        [postId, `${prefix}%`],
+      );
+    } catch (e) {
+      console.warn('[posts-db] removeCachedPost error:', e);
+    }
+    return;
+  }
+  try {
+    // AsyncStorage fallback: rewrite every feed key scoped to this user.
+    const keys = await AsyncStorage.getAllKeys();
+    const mine = keys.filter(
+      (k) => (k.startsWith('@ms_feed_') || k.startsWith('@ms_posts_')) && k.includes(prefix),
+    );
+    for (const key of mine) {
+      const raw = await AsyncStorage.getItem(key);
+      if (!raw) continue;
+      let list: unknown;
+      try { list = JSON.parse(raw); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      const next = list.filter((p: any) => p?.id !== postId);
+      await AsyncStorage.setItem(key, JSON.stringify(next)).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('[posts-db] removeCachedPost fallback error:', e);
+  }
+}
+
 /** Optimistic like/bookmark patch — works across all feed views for this post */
 export async function updateCachedPost(
   postId: string,
