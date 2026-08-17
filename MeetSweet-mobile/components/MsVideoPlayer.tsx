@@ -62,15 +62,19 @@ import Animated, {
 } from 'react-native-reanimated';
 import { ResizeMode, Video, type AVPlaybackStatus } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ArrowCounterClockwise,
   ArrowsClockwise,
   ArrowsIn,
   ArrowsOut,
+  CaretDown,
+  Check,
   Lock,
   Pause,
   Play,
 } from 'phosphor-react-native';
+import type { MediaQuality } from '@/services/posts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsShimmer } from '@/components/MsShimmer';
@@ -93,6 +97,12 @@ export interface MsVideoPlayerProps {
   videoId: string;
   uri: string | null;
   posterUri?: string | null;
+  /**
+   * Server-authoritative playable quality variants (from the video/short API).
+   * The quality selector only appears when more than one variant exists — the
+   * client never invents qualities. "Auto" uses the server's default variant.
+   */
+  qualities?: MediaQuality[];
   /** Auto-play on mount (standard mode). Default false. */
   autoPlay?: boolean;
   /** Loop the video. Default false (always true for shorts). */
@@ -139,6 +149,9 @@ export interface MsVideoPlayerProps {
 const DOUBLE_TAP_MS    = 260;
 const SEEK_SECONDS     = 10;
 const CONTROLS_HIDE_MS = 2500;
+// Local preference for the user's chosen quality label (a local UX preference
+// only — the actual available qualities always come from the server).
+const QUALITY_PREF_KEY = 'ms_quality_pref_v1';
 
 function fmtTime(ms: number): string {
   const s  = Math.max(0, Math.floor(ms / 1000));
@@ -155,6 +168,7 @@ export function MsVideoPlayer({
   videoId,
   uri,
   posterUri,
+  qualities,
   autoPlay      = false,
   isLooping     = false,
   isPremium     = false,
@@ -203,6 +217,14 @@ export function MsVideoPlayer({
   const fsPlayingRef    = useRef(false);
   const fsPrevBuffRef   = useRef(true);
   const fsEndedRef      = useRef(false);
+  // Quality switch: position + playback to restore once the new variant loads.
+  // `target` picks the player that should consume it (both inline + fullscreen
+  // Video instances reload on a source change, so only the active one resumes).
+  const pendingResumeRef = useRef<{
+    position: number;
+    shouldPlay: boolean;
+    target: 'inline' | 'fs';
+  } | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -210,6 +232,13 @@ export function MsVideoPlayer({
   const [premiumGated,  setPremiumGated]  = useState(false);
   const [error,         setError]         = useState(false);
   const [playableUri,   setPlayableUri]   = useState<string | null>(uri);
+  // ── Quality selection ──
+  // selectedUrl is the actual source handed to the engine (the chosen quality
+  // variant, or the original uri for Auto). Switching quality swaps this and
+  // resumes from the previous position instead of restarting the video.
+  const [selectedUrl,          setSelectedUrl]          = useState<string | null>(uri);
+  const [selectedQualityLabel, setSelectedQualityLabel] = useState('auto');
+  const [qualityMenuOpen,      setQualityMenuOpen]      = useState(false);
   const [progress,      setProgress]      = useState(0);
   const [durationMs,    setDurationMs]    = useState(0);
   const [positionMs,    setPositionMs]    = useState(0);
@@ -321,26 +350,108 @@ export function MsVideoPlayer({
     bufferOpacity.value = 1;
     brightnessOpacity.value = 0.25;
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
-  }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [videoId, selectedUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Quality: follow a NEW video (uri prop change) while keeping the user's
+  // remembered quality preference applied to it. ─────────────────────────────
+  useEffect(() => {
+    setSelectedUrl(uri);
+    setQualityMenuOpen(false);
+  }, [uri]);
+
+  // ── Quality: server-provided options + remembered preference ──────────────
+  // The available qualities come ONLY from the server (never invented here).
+  // The user's selected label may be stored as a local preference, but it only
+  // takes effect when the server actually offers that variant.
+  const qualityOptions = useMemo(() => {
+    if (!qualities || qualities.length === 0) {
+      return uri ? [{ label: 'Auto', url: uri }] : [];
+    }
+    const list = qualities.some((q) => q.label === 'Auto')
+      ? qualities
+      : [{ label: 'Auto', url: qualities[0].url }, ...qualities];
+    return list.filter((q) => q && typeof q.url === 'string' && q.url);
+  }, [qualities, uri]);
+
+  const showQualityPicker = qualityOptions.length > 1;
+  const currentQualityLabel =
+    selectedQualityLabel === 'auto' || !qualityOptions.some((o) => o.label === selectedQualityLabel)
+      ? 'Auto'
+      : selectedQualityLabel;
+
+  // Restore the remembered quality when a video (or its quality list) loads.
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(QUALITY_PREF_KEY)
+      .then((pref) => {
+        if (cancelled || !pref) return;
+        if (pref === 'Auto' || qualityOptions.some((o) => o.label === pref)) {
+          setSelectedQualityLabel(pref === 'Auto' ? 'auto' : pref);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId, qualityOptions]);
+
+  const persistQualityPref = useCallback((label: string) => {
+    AsyncStorage.setItem(QUALITY_PREF_KEY, label).catch(() => {});
+  }, []);
+
+  /**
+   * Switch quality — swaps the engine source and resumes from the previous
+   * position (playback never restarts from zero). Only switches when the
+   * server offered the variant.
+   */
+  const handleQualityChange = useCallback((label: string) => {
+    setQualityMenuOpen(false);
+    if (label === currentQualityLabel) return;
+    const option = qualityOptions.find((o) => o.label === label);
+    if (!option?.url) return;
+    if (option.url === selectedUrl) {
+      setSelectedQualityLabel(label === 'Auto' ? 'auto' : label);
+      persistQualityPref(label);
+      return;
+    }
+    // Preserve position + playback across the source swap. The active player
+    // (fullscreen or inline) consumes this once its new source has loaded.
+    const target: 'inline' | 'fs' = fsVisible ? 'fs' : 'inline';
+    const pos     = fsVisible ? fsPositionRef.current : positionRef.current;
+    const playing = fsVisible ? fsPlayingRef.current : isPlayingRef.current;
+    if (pos > 0 || playing) {
+      pendingResumeRef.current = { position: pos, shouldPlay: playing, target };
+    }
+    setSelectedQualityLabel(label === 'Auto' ? 'auto' : label);
+    persistQualityPref(label);
+    setSelectedUrl(option.url);
+  }, [qualityOptions, selectedUrl, currentQualityLabel, persistQualityPref, fsVisible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Local disk caching for 0ms rewinds and instant replay ──────────────────
+  // Cache entries are keyed by quality too, so different variants never
+  // overwrite each other on disk.
+  const cacheKey =
+    selectedQualityLabel !== 'auto' && selectedQualityLabel
+      ? `${videoId}__q_${selectedQualityLabel}`
+      : videoId;
+
   useEffect(() => {
     let isCurrent = true;
-    if (!uri) {
+    if (!selectedUrl) {
       setPlayableUri(null);
       return;
     }
 
     // 1. Check if video already exists in local disk cache
-    getCachedVideoFile(uri, videoId).then((cachedPath) => {
+    getCachedVideoFile(selectedUrl, cacheKey).then((cachedPath) => {
       if (!isCurrent) return;
       if (cachedPath) {
         setPlayableUri(cachedPath);
       } else {
-        setPlayableUri(uri);
+        setPlayableUri(selectedUrl);
         // Start background cache if player is active, prebuffering, or shorts
         if (active || prebuffer || autoPlay || isShorts) {
-          downloadAndCacheVideo(uri, videoId).catch(() => {});
+          downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
         }
       }
     });
@@ -348,14 +459,14 @@ export function MsVideoPlayer({
     return () => {
       isCurrent = false;
     };
-  }, [uri, videoId, active, prebuffer, autoPlay, isShorts]);
+  }, [selectedUrl, cacheKey, videoId, active, prebuffer, autoPlay, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Preload upcoming videos when prebuffer is true ────────────────────────
   useEffect(() => {
-    if (prebuffer && uri) {
-      preloadVideo(uri, videoId);
+    if (prebuffer && selectedUrl) {
+      preloadVideo(selectedUrl, cacheKey);
     }
-  }, [prebuffer, uri, videoId]);
+  }, [prebuffer, selectedUrl, cacheKey]);
 
   // ── Standard: pause when screen loses focus (active=false) ───────────────
   useEffect(() => {
@@ -424,10 +535,10 @@ export function MsVideoPlayer({
 
   // ── Auto-play (standard) ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!autoPlay || isShorts || !uri) return;
+    if (!autoPlay || isShorts || !selectedUrl) return;
     const t = setTimeout(() => videoRef.current?.playAsync().catch(() => {}), 100);
     return () => clearTimeout(t);
-  }, [videoId, uri]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [videoId, selectedUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Unmount cleanup — stop all playback and release timers ────────────────
   useEffect(() => {
@@ -649,6 +760,20 @@ export function MsVideoPlayer({
     (status: AVPlaybackStatus) => {
       if (!status.isLoaded) return;
 
+      // Quality switch: once the new variant has loaded, restore the position
+      // and playback state captured when the user switched — never restart
+      // the video from zero.
+      if (pendingResumeRef.current && pendingResumeRef.current.target === 'inline') {
+        const resume = pendingResumeRef.current;
+        pendingResumeRef.current = null;
+        if (resume.position > 0) {
+          videoRef.current?.setPositionAsync(resume.position).catch(() => {});
+        }
+        if (resume.shouldPlay) {
+          setTimeout(() => videoRef.current?.playAsync().catch(() => {}), 80);
+        }
+      }
+
       const playing = status.isPlaying ?? false;
       isPlayingRef.current = playing;
       setIsPlaying(playing);
@@ -660,8 +785,8 @@ export function MsVideoPlayer({
       if (justStartedPlaying) {
         hasPlayedRef.current = true;
         // Trigger background disk caching so subsequent loops and rewinds are instant
-        if (uri) {
-          downloadAndCacheVideo(uri, videoId).catch(() => {});
+        if (selectedUrl) {
+          downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
         }
         // Video fades in from black; poster fades out beneath
         videoOpacity.value  = withTiming(1, { duration: 280, easing: MOTION.EASE_ENTER });
@@ -726,12 +851,25 @@ export function MsVideoPlayer({
         videoRef.current?.pauseAsync().catch(() => {});
       }
     },
-    [isPremium, isShorts, onPremiumRequired, uri, videoId], // eslint-disable-line react-hooks/exhaustive-deps
+    [isPremium, isShorts, onPremiumRequired, selectedUrl, cacheKey], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ── Playback status (fullscreen) ───────────────────────────────────────────
   const onFsStatus = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
+
+    // Quality switch while in fullscreen: restore position/playback here.
+    if (pendingResumeRef.current && pendingResumeRef.current.target === 'fs') {
+      const resume = pendingResumeRef.current;
+      pendingResumeRef.current = null;
+      if (resume.position > 0) {
+        fsVideoRef.current?.setPositionAsync(resume.position).catch(() => {});
+      }
+      if (resume.shouldPlay) {
+        setTimeout(() => fsVideoRef.current?.playAsync().catch(() => {}), 80);
+      }
+    }
+
     const playing = status.isPlaying ?? false;
     fsPlayingRef.current = playing;
     setFsPlaying(playing);
@@ -996,17 +1134,56 @@ export function MsVideoPlayer({
 
         {/* Standard: bottom control bar */}
         {!isShorts ? (
-          <Animated.View style={[styles.bottomBarWrap, bottomBarStyle]} pointerEvents="box-none">
-            <SeekBar
-              positionMs={positionMs}
-              durationMs={durationMs}
-              onSeek={seekTo}
-              onDragStart={showControls}
-              onFullscreen={openFullscreen}
-              showFullscreen={!fillContainer}
-              hasBackground={fillContainer}
-            />
-          </Animated.View>
+          <>
+            {/* Quality menu backdrop — closes the picker when tapping elsewhere */}
+            {qualityMenuOpen && showQualityPicker ? (
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => setQualityMenuOpen(false)}
+                accessibilityLabel="Close quality menu"
+              />
+            ) : null}
+            <Animated.View style={[styles.bottomBarWrap, bottomBarStyle]} pointerEvents="box-none">
+              <View style={styles.bottomBarInner}>
+                <SeekBar
+                  positionMs={positionMs}
+                  durationMs={durationMs}
+                  onSeek={seekTo}
+                  onDragStart={showControls}
+                  onFullscreen={openFullscreen}
+                  showFullscreen={!fillContainer}
+                  hasBackground={fillContainer}
+                  qualityOptions={showQualityPicker ? qualityOptions : []}
+                  currentQualityLabel={currentQualityLabel}
+                  qualityMenuOpen={qualityMenuOpen}
+                  onToggleQualityMenu={() => setQualityMenuOpen((o) => !o)}
+                  onQualityChange={handleQualityChange}
+                />
+                {/* Quality picker popup — opens upward from the pill */}
+                {qualityMenuOpen && showQualityPicker ? (
+                  <View style={styles.qualityPopup}>
+                    {qualityOptions.map((opt) => {
+                      const active = opt.label === currentQualityLabel;
+                      return (
+                        <Pressable
+                          key={opt.label}
+                          style={styles.qualityOption}
+                          onPress={() => handleQualityChange(opt.label)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${opt.label} quality`}
+                        >
+                          <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
+                            {opt.label}
+                          </Text>
+                          {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            </Animated.View>
+          </>
         ) : null}
       </Animated.View>
 
@@ -1087,6 +1264,11 @@ export function MsVideoPlayer({
               scheduleHide(fsCtrlOpacity, fsHideTimerRef);
             }
           }}
+          qualityOptions={showQualityPicker ? qualityOptions : []}
+          currentQualityLabel={currentQualityLabel}
+          qualityMenuOpen={qualityMenuOpen}
+          onToggleQualityMenu={() => setQualityMenuOpen((o) => !o)}
+          onQualityChange={handleQualityChange}
         />
       ) : null}
     </View>
@@ -1105,6 +1287,12 @@ interface SeekBarProps {
   showFullscreen?: boolean;
   onExitFullscreen?: () => void;
   hasBackground?: boolean;
+  // ── Quality selector (only passed when multiple variants exist) ──
+  qualityOptions?: Array<{ label: string; url: string; height?: number | null }>;
+  currentQualityLabel?: string;
+  qualityMenuOpen?: boolean;
+  onToggleQualityMenu?: () => void;
+  onQualityChange?: (label: string) => void;
 }
 
 /**
@@ -1124,6 +1312,11 @@ function SeekBar({
   showFullscreen = false,
   onExitFullscreen,
   hasBackground = true,
+  qualityOptions = [],
+  currentQualityLabel = 'Auto',
+  qualityMenuOpen = false,
+  onToggleQualityMenu,
+  onQualityChange,
 }: SeekBarProps) {
   const [dragging, setDragging] = useState(false);
   const [dragMs,   setDragMs]   = useState<number | null>(null);
@@ -1150,6 +1343,20 @@ function SeekBar({
         accessibilityLabel="Video seek bar"
       />
       <Text style={sb.time}>{fmtTime(durationMs)}</Text>
+      {/* Quality selector pill — only rendered when the server offered more
+          than one playable variant (qualityOptions is [] otherwise). */}
+      {qualityOptions.length > 0 ? (
+        <Pressable
+          style={[sb.qualityPill, qualityMenuOpen && sb.qualityPillActive]}
+          onPress={onToggleQualityMenu}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Video quality"
+        >
+          <Text style={sb.qualityPillLabel}>{currentQualityLabel}</Text>
+          <CaretDown size={10} color="rgba(255,255,255,0.85)" weight="bold" />
+        </Pressable>
+      ) : null}
       {showFullscreen && onFullscreen ? (
         <Pressable style={sb.fsBtn} onPress={onFullscreen} hitSlop={10} accessibilityLabel="Enter fullscreen">
           <ArrowsOut size={15} color="rgba(255,255,255,0.85)" />
@@ -1199,6 +1406,24 @@ const sb = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  qualityPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    height: 26,
+    paddingHorizontal: 9,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  qualityPillActive: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  qualityPillLabel: {
+    color: 'rgba(255,255,255,0.9)',
+    fontFamily: T.FONT.semibold,
+    fontSize: 10,
+    letterSpacing: 0.2,
+  },
 });
 
 // ─── FullscreenModal component ────────────────────────────────────────────────
@@ -1225,6 +1450,12 @@ interface FullscreenModalProps {
   onDragStart: () => void;
   /** Called when orientation picker opens (true) or closes (false). */
   onOrientPickerChange: (open: boolean) => void;
+  // ── Quality selector ──
+  qualityOptions: Array<{ label: string; url: string; height?: number | null }>;
+  currentQualityLabel: string;
+  qualityMenuOpen: boolean;
+  onToggleQualityMenu: () => void;
+  onQualityChange: (label: string) => void;
 }
 
 function FullscreenModal({
@@ -1248,6 +1479,11 @@ function FullscreenModal({
   onSeekTo,
   onDragStart,
   onOrientPickerChange,
+  qualityOptions,
+  currentQualityLabel,
+  qualityMenuOpen,
+  onToggleQualityMenu,
+  onQualityChange,
 }: FullscreenModalProps) {
   const { bottom: safeBottom } = useSafeAreaInsets();
   const { width: fsWindowWidth } = useWindowDimensions();
@@ -1437,13 +1673,50 @@ function FullscreenModal({
             style={[fs.bottomWrap, { paddingBottom: Math.max(8, safeBottom) }]}
             pointerEvents="box-none"
           >
-            <SeekBar
-              positionMs={positionMs}
-              durationMs={durationMs}
-              onSeek={onSeekTo}
-              onDragStart={onDragStart}
-              onExitFullscreen={onClose}
-            />
+            {/* Quality menu backdrop — closes the picker when tapping elsewhere */}
+            {qualityMenuOpen && qualityOptions.length > 0 ? (
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={onToggleQualityMenu}
+                accessibilityLabel="Close quality menu"
+              />
+            ) : null}
+            <View style={fs.bottomInner}>
+              <SeekBar
+                positionMs={positionMs}
+                durationMs={durationMs}
+                onSeek={onSeekTo}
+                onDragStart={onDragStart}
+                onExitFullscreen={onClose}
+                qualityOptions={qualityOptions}
+                currentQualityLabel={currentQualityLabel}
+                qualityMenuOpen={qualityMenuOpen}
+                onToggleQualityMenu={onToggleQualityMenu}
+                onQualityChange={onQualityChange}
+              />
+              {/* Quality picker popup — opens upward from the pill */}
+              {qualityMenuOpen && qualityOptions.length > 0 ? (
+                <View style={styles.qualityPopup}>
+                  {qualityOptions.map((opt) => {
+                    const active = opt.label === currentQualityLabel;
+                    return (
+                      <Pressable
+                        key={opt.label}
+                        style={styles.qualityOption}
+                        onPress={() => onQualityChange(opt.label)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${opt.label} quality`}
+                      >
+                        <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
+                          {opt.label}
+                        </Text>
+                        {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
           </View>
         </Animated.View>
       </View>
@@ -1473,6 +1746,9 @@ const fs = StyleSheet.create({
   bottomWrap: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: 14, zIndex: 12,
+  },
+  bottomInner: {
+    position: 'relative',
   },
   // Orientation picker panel
   orientPanel: {
@@ -1583,6 +1859,44 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 10, right: 10, bottom: 10,
     zIndex: 10,
+  },
+  bottomBarInner: {
+    position: 'relative',
+  },
+
+  // Quality picker popup (opens upward from the bottom bar pill)
+  qualityPopup: {
+    position: 'absolute',
+    bottom: 48,
+    right: 6,
+    zIndex: 30,
+    minWidth: 116,
+    backgroundColor: '#1C1C22',
+    borderRadius: 12,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  qualityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    minHeight: 36,
+  },
+  qualityOptionLabel: {
+    color: 'rgba(255,255,255,0.85)',
+    fontFamily: T.FONT.medium,
+    fontSize: 12,
+  },
+  qualityOptionActive: {
+    color: T.ACCENT,
+    fontFamily: T.FONT.semibold,
   },
 
   // Fill-container close button

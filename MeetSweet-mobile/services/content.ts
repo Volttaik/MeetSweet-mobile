@@ -11,6 +11,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/services/api';
+import type { MediaQuality } from '@/services/posts';
 
 export type ContentKind = 'video' | 'short';
 
@@ -64,6 +65,8 @@ export interface Short {
   likeCount: number;
   commentCount: number;
   shareCount: number;
+  /** Server-authoritative playable quality variants ([] when locked). */
+  qualities: MediaQuality[];
   /** Shorts are always free — isLocked is always false */
   isLocked: false;
   previewDuration: null;
@@ -141,6 +144,15 @@ function shortFrom(raw: any): Short {
   const media = Array.isArray(raw.media) ? raw.media[0] : null;
   const videoUrl = raw.video_url ?? raw.videoUrl ?? media?.url ?? null;
   const thumbnailUrl = media?.thumbnail_url ?? raw.thumbnail_url ?? raw.thumbnailUrl ?? null;
+  const rawQualities: MediaQuality[] | undefined = Array.isArray(raw.qualities)
+    ? raw.qualities.filter((q: any) => q && typeof q.url === 'string')
+    : undefined;
+  const qualities: MediaQuality[] =
+    rawQualities && rawQualities.length > 0
+      ? rawQualities
+      : videoUrl
+        ? [{ label: 'Auto', url: videoUrl }]
+        : [];
   return {
     id: raw.id,
     caption: raw.caption ?? '',
@@ -151,6 +163,7 @@ function shortFrom(raw: any): Short {
     likeCount: numberFrom(raw.like_count),
     commentCount: numberFrom(raw.comment_count),
     shareCount: 0,
+    qualities,
     isLocked: false,         // shorts are always free
     previewDuration: null,   // no preview gates for shorts
     likedByMe: Boolean(raw.liked_by_me),

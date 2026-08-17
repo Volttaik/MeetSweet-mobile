@@ -7,6 +7,7 @@
  */
 import React from 'react';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import type { MediaQuality } from '@/services/posts';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ interface Props {
   videoId: string;
   uri: string | null;
   posterUri?: string | null;
+  /** Server-authoritative playable quality variants. */
+  qualities?: MediaQuality[];
   autoPlay?: boolean;
   isPremium?: boolean;
   onPremiumRequired?: () => void;
@@ -40,6 +43,7 @@ export function MsLongFormPlayer({
   videoId,
   uri,
   posterUri,
+  qualities,
   autoPlay          = false,
   isPremium         = false,
   onPremiumRequired,
@@ -53,6 +57,7 @@ export function MsLongFormPlayer({
       videoId={videoId}
       uri={uri}
       posterUri={posterUri}
+      qualities={qualities}
       autoPlay={autoPlay}
       isPremium={isPremium}
       onPremiumRequired={onPremiumRequired}

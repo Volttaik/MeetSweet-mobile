@@ -17,6 +17,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { apiFetch } from './api';
+import type { MediaQuality } from './posts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,10 @@ export interface AlbumItem {
   isLocked: boolean;
   caption: string | null;
   createdAt: string;
+  /** Real media duration (server metadata) — shown as a badge on video items. */
+  durationSecs?: number | null;
+  /** Server-authoritative playable quality variants ([] when locked). */
+  qualities?: MediaQuality[];
 }
 
 export interface Album {
@@ -109,6 +114,9 @@ interface RawAlbumItem {
   caption?: string | null;
   created_at?: string;
   createdAt?: string;
+  duration_secs?: number | null;
+  durationSecs?: number | null;
+  qualities?: Array<{ label: string; url: string; height?: number | null }>;
 }
 
 interface RawAlbumCreator {
@@ -188,14 +196,23 @@ function initials(name: string): string {
 
 function normalizeItem(raw: RawAlbumItem): AlbumItem {
   const rawType = raw.type ?? raw.media_type ?? 'image';
+  const mediaUrl = raw.media_url ?? raw.mediaUrl ?? null;
+  let qualities: MediaQuality[] = [];
+  if (Array.isArray(raw.qualities) && raw.qualities.length > 0) {
+    qualities = raw.qualities.filter((q: any): q is MediaQuality => q && typeof q.url === 'string');
+  } else if (mediaUrl) {
+    qualities = [{ label: 'Auto', url: mediaUrl }];
+  }
   return {
     id: raw.id,
     type: rawType === 'video' ? 'video' : 'image',
     thumbnailUrl: raw.thumbnail_url ?? raw.thumbnailUrl ?? null,
-    mediaUrl: raw.media_url ?? raw.mediaUrl ?? null,
+    mediaUrl,
     isLocked: raw.is_locked ?? false,
     caption: raw.caption ?? null,
     createdAt: raw.created_at ?? raw.createdAt ?? '',
+    durationSecs: raw.durationSecs ?? raw.duration_secs ?? null,
+    qualities,
   };
 }
 

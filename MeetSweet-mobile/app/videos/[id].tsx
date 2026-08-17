@@ -56,6 +56,7 @@ import { useLocalExploreCatalog, fmtTimeAgo } from '@/services/explore';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import { useAuth } from '@/contexts/AuthContext';
+import { useScreenProtection } from '@/lib/screen-protection';
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -125,6 +126,12 @@ export default function VideoWatchScreen() {
 
   const catalogQuery = useLocalExploreCatalog();
   const catalog      = catalogQuery.data;
+
+  // Native capture protection (Android FLAG_SECURE) while viewing
+  // subscriber-gated video content — this screen shows the actual protected
+  // media (or its premium preview), so screenshots/recording are blocked at
+  // the OS level. Restored automatically when leaving this screen.
+  useScreenProtection(Boolean(post?.tier));
 
   useEffect(() => {
     if (!id) return;
@@ -342,6 +349,7 @@ export default function VideoWatchScreen() {
           videoId={post.id}
           uri={videoMedia ?? null}
           posterUri={post.thumbnailUrl}
+          qualities={post.qualities}
           isPremium={post.isLocked ?? false}
           autoPlay
           active={screenActive}

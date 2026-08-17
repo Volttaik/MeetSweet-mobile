@@ -53,6 +53,21 @@ function formatCount(n: number): string {
   return String(n);
 }
 
+/**
+ * Duration badge label — always from the backend's real media metadata
+ * (post.durationSecs), never guessed or hardcoded client-side.
+ * Returns null when no duration is known so no fake badge is rendered.
+ */
+function fmtDuration(secs: number | null | undefined): string | null {
+  if (!secs || secs <= 0 || !isFinite(secs)) return null;
+  const s  = Math.floor(secs);
+  const h  = Math.floor(s / 3600);
+  const m  = Math.floor((s % 3600) / 60);
+  const sc = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sc).padStart(2, '0')}`;
+  return `${m}:${String(sc).padStart(2, '0')}`;
+}
+
 function formatTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -709,6 +724,12 @@ export function MsPostCard({
                 <Play size={20} color="#fff" weight="fill" />
               </View>
             </View>
+            {/* Duration badge — real media metadata (e.g. 0:42 / 12:38) */}
+            {fmtDuration(post.durationSecs) && (
+              <View style={styles.durationBadge} pointerEvents="none">
+                <Text style={styles.durationBadgeText}>{fmtDuration(post.durationSecs)}</Text>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       )}
@@ -888,6 +909,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.52)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  durationBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  durationBadgeText: {
+    color: '#fff',
+    fontFamily: T.FONT.semibold,
+    fontSize: 10,
+    letterSpacing: 0.3,
   },
 
   albumStack: {

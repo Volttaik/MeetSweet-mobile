@@ -38,6 +38,7 @@ export function MsShortsPlayer({
       videoId={item.id}
       uri={item.videoUrl ?? null}
       posterUri={item.thumbnailUrl ?? null}
+      qualities={item.qualities}
       mode="shorts"
       active={active}
       prebuffer={prebuffer}

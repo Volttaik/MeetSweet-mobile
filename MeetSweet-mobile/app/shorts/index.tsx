@@ -49,6 +49,7 @@ function postToShort(post: Post): Short {
     videoUrl: post.mediaUrl ?? '',
     thumbnailUrl: post.thumbnailUrl ?? null,
     durationSecs: post.durationSecs ?? 0,
+    qualities: post.qualities ?? (post.mediaUrl ? [{ label: 'Auto', url: post.mediaUrl }] : []),
     likeCount: post.likeCount,
     commentCount: post.commentCount,
     shareCount: 0,

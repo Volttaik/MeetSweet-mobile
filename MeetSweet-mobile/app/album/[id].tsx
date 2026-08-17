@@ -44,6 +44,7 @@ import type { AlbumItem } from '@/services/albums';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsModal } from '@/components/MsModal';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
+import { useScreenProtection } from '@/lib/screen-protection';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 3;
@@ -63,6 +64,15 @@ const TONE: Record<string, string> = {
 
 function tone(gradient: string) {
   return TONE[gradient] ?? T.SURFACE_2;
+}
+
+/** Duration badge label from the album item's real media metadata. */
+function fmtDuration(secs: number | null | undefined): string | null {
+  if (!secs || secs <= 0 || !isFinite(secs)) return null;
+  const s  = Math.floor(secs);
+  const m  = Math.floor(s / 60);
+  const sc = s % 60;
+  return `${m}:${String(sc).padStart(2, '0')}`;
 }
 
 export default function AlbumScreen() {
@@ -90,6 +100,14 @@ export default function AlbumScreen() {
   // albums and purchased albums as unlocked); unlockedOverride reflects a
   // successful unlock within the current session without a refetch.
   const isUnlockedByMe = unlockedOverride ?? album?.isUnlockedByMe ?? false;
+
+  // Native capture protection (Android FLAG_SECURE) while a PAID album is
+  // unlocked and its content is actually visible — screenshots and screen
+  // recording are blocked at the OS level for purchased/private media. The
+  // flag is released automatically when the screen unmounts (never leaks into
+  // other screens), and the fullscreen item preview is covered too because it
+  // renders inside this same window.
+  useScreenProtection(Boolean(album?.requiresPurchase && !(unlockedOverride ?? album?.isUnlockedByMe)));
 
   /** Run the actual purchase — success is only reported when the server's
    *  atomic transaction committed. Never fabricate a success locally. */
@@ -214,6 +232,13 @@ export default function AlbumScreen() {
       {item.type === 'video' && (
         <View style={styles.playBadge}>
           <Play size={10} color={T.TEXT} weight="fill" />
+        </View>
+      )}
+
+      {/* Video duration — real media metadata (e.g. 0:42) */}
+      {item.type === 'video' && fmtDuration(item.durationSecs) && (
+        <View style={styles.durationBadge}>
+          <Text style={styles.durationBadgeText}>{fmtDuration(item.durationSecs)}</Text>
         </View>
       )}
     </Pressable>
@@ -449,6 +474,7 @@ export default function AlbumScreen() {
             <MsVideoPlayer
               videoId={`album-item-${previewItem.id}`}
               uri={previewItem.mediaUrl ?? null}
+              qualities={previewItem.qualities}
               fillContainer
             />
           ) : (
@@ -723,7 +749,7 @@ const styles = StyleSheet.create({
   },
   playBadge: {
     position: 'absolute',
-    bottom: 6,
+    top: 6,
     right: 6,
     width: 22,
     height: 22,
@@ -731,6 +757,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.62)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  durationBadge: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  durationBadgeText: {
+    color: '#fff',
+    fontFamily: T.FONT.semibold,
+    fontSize: 10,
+    letterSpacing: 0.3,
   },
   thumbLock: {
     ...StyleSheet.absoluteFillObject,

@@ -4,6 +4,14 @@
 import { getAccessToken } from '@/lib/session-storage';
 import { apiFetch, authFetch } from './api';
 
+export interface MediaQuality {
+  /** Label shown in the player's quality selector ("Auto", "720p", …). */
+  label: string;
+  /** Playable URL for this variant (never present for locked content). */
+  url: string;
+  height?: number | null;
+}
+
 export interface PostAuthor {
   id: string;
   name: string;
@@ -33,6 +41,8 @@ export interface Post {
   height?: number | null;
   durationSecs?: number | null;
   fileSize?: number | null;
+  /** Server-authoritative playable quality variants ([] when locked). */
+  qualities?: MediaQuality[];
   visibility?: string;
   isLocked?: boolean;
   is_locked?: boolean;
@@ -125,6 +135,20 @@ export function normalizePost(raw: any): Post {
     (firstMedia?.thumbnail_url as string | null | undefined) ??
     null;
 
+  // ── Qualities — server-authoritative. The server sends the actual playable
+  // variants; callers that construct Post objects without a `qualities` array
+  // fall back to a single Auto entry for their known media URL (the only
+  // variant that exists). Never invent extra qualities.
+  const rawQualities: MediaQuality[] | undefined = Array.isArray(raw.qualities)
+    ? raw.qualities.filter((q: any) => q && typeof q.url === 'string')
+    : undefined;
+  const qualities: MediaQuality[] =
+    rawQualities && rawQualities.length > 0
+      ? rawQualities
+      : mediaUrl
+        ? [{ label: 'Auto', url: mediaUrl }]
+        : [];
+
   return {
     ...raw,
     id: String(raw.id),
@@ -143,6 +167,7 @@ export function normalizePost(raw: any): Post {
     height: raw.height ?? firstMedia?.height ?? undefined,
     durationSecs: raw.durationSecs ?? raw.duration_secs ?? firstMedia?.duration_secs ?? null,
     fileSize: raw.fileSize ?? raw.file_size ?? firstMedia?.file_size ?? null,
+    qualities,
     likes_count: likesCount,
     likeCount: likesCount,
     comments_count: commentsCount,
