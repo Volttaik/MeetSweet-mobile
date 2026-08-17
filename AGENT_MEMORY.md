@@ -513,3 +513,30 @@ CHANGES:
   seek bar knows duration immediately.
 - Server: buildVideoRow/buildShortRow now return width/height top-level + per
   media item (posts/[id] + feeds already did). Locked-media handling unchanged.
+
+## 2026-08-17 — QUALITY SELECTOR + DURATION BADGES + CAPTURE PROTECTION
+
+MOBILE (pushed): quality selector, duration badges, FLAG_SECURE protection.
+- Player (MsVideoPlayer): new `qualities` prop (server-authoritative variants).
+  Quality pill in the bottom bar (inline + fullscreen) opens a compact popup;
+  selector only appears when the server offers >1 variant (today: single Auto).
+  Switching quality swaps the engine source and resumes from the previous
+  position (pendingResumeRef consumed by whichever player is active on load) —
+  never restarts the video. Remembered preference stored in AsyncStorage
+  (ms_quality_pref_v1); only applied when the server offers that variant.
+  Disk-cache key is quality-aware (videoId__q_<label>) so variants don't collide.
+- Duration badges: MsPostCard video thumbnails + album grid video items show
+  m:ss / h:mm:ss from real server metadata (durationSecs) — never invented.
+- Native capture protection: expo-screen-capture (Android FLAG_SECURE, real
+  OS-level blocking) via lib/screen-protection.ts (ref-counted acquire/release
+  + useScreenProtection hook). Active on: paid album screens while unlocked,
+  subscriber-gated video detail (post.tier set). Released on unmount — never
+  leaks to other screens. iOS: no supported OS API — documented limitation.
+- Types: MediaQuality added to services/posts, content (Short), albums
+  (AlbumItem). LongForm/Shorts players pass qualities through.
+
+SERVER (committed locally, patch backed up): buildVideoRow/buildShortRow now
+return `qualities` (single {label:'Auto', url, height} entry today — honest,
+since no transcoding exists; [] when locked so no URL leaks). loadAlbum items
+also carry qualities + duration_secs. Future transcoding (api.video) populates
+more variants and the mobile selector lights up automatically.
