@@ -752,3 +752,12 @@ selecting only ever offers the single original variant; user asked for Mux/Cloud
 Stream if real multi-quality is wanted. AGENT_MEMORY update: push for the server repo
 is still credential-blocked (scope MetSweet-mobile only); back up any server commits
 as patches at workspace root like prior sessions.
+
+## Final cleanup pass (2026-08-17, second session)
+
+- **Styled notifications**: added `components/MsGlobalDialogs.tsx` (global `dialogs.confirm/alert/options` host mounted in `app/_layout.tsx`) and `components/MsCreatorGateSheet.tsx` (styled bottom modal: "Creator access required" → Become a Creator → server call → refreshUser → continue). Converted the app's ~77 `Alert.alert` call sites (posts, comments, creator page/dashboard, chat, albums, attachments, settings) to the shared styled system. Only remaining `Alert.alert` is the styled `MsConfirmDialog`'s own OS fallback — no default/unstyled popups left.
+- **Creator authz consistency (server)**: `POST /api/shorts` was an ungated duplicate creation route (mobile actually creates shorts via `POST /posts`). Added the same live-role gate → commit `dfa20b3`. Backup patch refreshed at workspace root (`0001-Live-role-auth-and-creator-gates.patch`, now 2 commits / 116 lines).
+- **Settings dedup**: removed the dead "Message Permissions" row from Settings → Privacy. `user_settings.message_perm`/`allow_dms` were written but NEVER read; the only enforced messaging gate is `creator_settings.who_can_message` (creator dashboard) via `lib/services/chat-rooms.ts`. One authoritative location remains. No Advertising setting exists.
+- **Settings persistence**: content prefs now load server-first; AsyncStorage only used as offline fallback when the server call fails (was overwriting server values on every load — stale local state could win).
+- Server `/settings/*`, `/settings/privacy`, `/settings/notifications` are the single source of truth; `/users/me/*` are thin aliases to them.
+- Both repos pass `tsc --noEmit`. Server is 3 commits ahead of origin (c20311a, f866c01, dfa20b3); mobile is 3 ahead (a83f43a, 342bf9e, ea58cb1). Still need user push + Vercel redeploy for the live-role fix to take effect in production.
