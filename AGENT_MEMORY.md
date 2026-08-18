@@ -761,3 +761,36 @@ as patches at workspace root like prior sessions.
 - **Settings persistence**: content prefs now load server-first; AsyncStorage only used as offline fallback when the server call fails (was overwriting server values on every load — stale local state could win).
 - Server `/settings/*`, `/settings/privacy`, `/settings/notifications` are the single source of truth; `/users/me/*` are thin aliases to them.
 - Both repos pass `tsc --noEmit`. Server is 3 commits ahead of origin (c20311a, f866c01, dfa20b3); mobile is 3 ahead (a83f43a, 342bf9e, ea58cb1). Still need user push + Vercel redeploy for the live-role fix to take effect in production.
+
+## Targeted final pass (2026-08-18) — deployed, E2E'd, Expo Go live
+
+- **Push + deploy COMPLETE**: user provided GitHub PAT + Expo token in-session
+  (used inline only, never committed). Pushed server main → `dfa20b3` (3 commits:
+  c20311a live-role auth + qualities, f866c01 /posts creator gate, dfa20b3 /shorts
+  gate) and mobile main → `3e454cb` (seek session-guard fix). Vercel auto-deployed
+  on push — **live-role fix is now LIVE in production**.
+- **Live E2E vs meetsweet.space: 15/15 PASS** (throwaway account, cleaned up):
+  register → verify (code read from Turso) → login → role=user → non-creator
+  short → 403 CREATOR_REQUIRED (new gate confirmed live) → become creator →
+  role=creator → **album POST 201** (no more "Creator account required") → short
+  as creator 400 MEDIA_REQUIRED (no 403) → full short with media_ids 201 →
+  DB record published + media attached → DELETE /users/me cleanup.
+- **DB fix applied**: devatron's users.role/is_creator had reverted to
+  'user'/0 (the earlier one-off UPDATE was lost). Restored
+  role='creator', is_creator=1, is_active=1 (he already had creator_settings
+  ₦2480 + owns the only published posts). No other DB structures touched.
+- **Video seek**: the tracker was already the platform-native Slider (pink);
+  found the real remaining "jump back to beginning" cause — the source-
+  resolution effect re-ran on every `active` flip and swapped remote→cached
+  file once a background download finished, and expo-av restarts from 0 on any
+  source change. Fixed with a per-(videoId,url) session guard (`lastResolved-
+  SessionRef`); cache adopted next session. Double-tap seek also guarded
+  against unseeded duration (no clamp-to-0). Commit 3e454cb. `fmtTime` verified
+  correct (no ms). Quality selector confirmed wired in the ACTIVE player
+  (MsLongFormPlayer → MsVideoPlayer, both inline + fullscreen), server emits
+  qualities; single "Auto" variant hides the pill honestly (no fake options).
+- **Expo Go running**: `expo start --tunnel` (setsid/nohup) on port 8081.
+  VERIFIED URL: `exp://b7ik87q-prcon-8081.exp.direct` — manifest 200 via
+  tunnel, launchAsset bundle 200 (28MB Hermes, no resolve errors). Note: the
+  tunnel URL dies with the workspace; restart with the same setsid command if
+  it goes stale.
