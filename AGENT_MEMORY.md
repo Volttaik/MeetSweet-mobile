@@ -794,3 +794,25 @@ as patches at workspace root like prior sessions.
   tunnel, launchAsset bundle 200 (28MB Hermes, no resolve errors). Note: the
   tunnel URL dies with the workspace; restart with the same setsid command if
   it goes stale.
+
+## Final media/player pass (2026-08-18, commit 0862810, pushed)
+
+- **Long-form video now uses platform NATIVE controls** (expo-av `useNativeControls`
+  true) for seek/play/time — inline AND fullscreen. Custom seek bar (Slider),
+  gesture layer, centre play/pause, double-tap seek flashes REMOVED for standard
+  mode. Floating chrome kept always-visible: quality pill (top-right, only when
+  server offers >1 variant), fullscreen button, fill-close. **Shorts untouched**
+  (`useNativeControls={!isShorts}`; all shorts code paths identical).
+- **Album cards**: server already returned item width/height; client was dropping
+  them. Now surfaced (services/albums.ts AlbumItem.width/height) and used by
+  dedicated `AlbumImageCard` (real ratio, square fallback) + `AlbumVideoCard`
+  (real ratio, 16:9 fallback, play badge, real duration) with rounded corners.
+  Tap → fullscreen preview: image contain / standalone MsVideoPlayer (no post UI).
+- **Profile tabs**: Videos thumbnails now follow the video's real aspect ratio
+  (16:9 fallback); Shorts fallback icon = FilmStrip. Navigation: video →
+  /videos/:id, short → /shorts?startId= (unchanged).
+- **Fresh-account live E2E 13/13 PASS**: register → become creator AUTO-SEEDS
+  users.role=creator + is_creator=1 + creator_settings (₦200) → /users/me
+  reflects immediately → album 201 → short 201 → cleanup. No manual DB fixes.
+- Expo tunnel still live at `exp://b7ik87q-prcon-8081.exp.direct`; bundle
+  rebuilds with the new player code (HTTP 200, no resolve errors).
