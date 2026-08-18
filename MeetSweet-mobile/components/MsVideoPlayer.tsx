@@ -47,7 +47,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import Slider from '@react-native-community/slider';
 import Animated, {
   Easing,
   FadeIn,
@@ -153,15 +152,6 @@ const CONTROLS_HIDE_MS = 2500;
 // only — the actual available qualities always come from the server).
 const QUALITY_PREF_KEY = 'ms_quality_pref_v1';
 
-function fmtTime(ms: number): string {
-  const s  = Math.max(0, Math.floor(ms / 1000));
-  const h  = Math.floor(s / 3600);
-  const m  = Math.floor((s % 3600) / 60);
-  const sc = s % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sc).padStart(2, '0')}`;
-  return `${m}:${String(sc).padStart(2, '0')}`;
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function MsVideoPlayer({
@@ -253,12 +243,6 @@ export function MsVideoPlayer({
   const [progress,      setProgress]      = useState(0);
   const [durationMs,    setDurationMs]    = useState(0);
   const [positionMs,    setPositionMs]    = useState(0);
-  // Native seek-bar drag state — while the user drags the Slider, its value
-  // comes from dragMs so the player's own position ticks can't snap the thumb
-  // back (the old custom tracker's jump/reset bug). On release the seek lands
-  // and dragMs clears, resuming live position tracking.
-  const [dragging,      setDragging]      = useState(false);
-  const [dragMs,        setDragMs]        = useState<number | null>(null);
   const [aspectRatio,   setAspectRatio]   = useState(initialAspectRatio ?? 16 / 9);
   const [fsVisible,     setFsVisible]     = useState(false);
   const [videoEnded,    setVideoEnded]    = useState(false);
@@ -1051,7 +1035,9 @@ export function MsVideoPlayer({
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={isShorts ? Boolean(active) : (autoPlay || Boolean(active))}
             isLooping={isShorts ? true : isLooping}
-            useNativeControls={false}
+            // Long-form uses the platform's NATIVE controls (reliable native
+            // seek/play/time); Shorts keeps the immersive custom UI (no seek bar).
+            useNativeControls={!isShorts}
             progressUpdateIntervalMillis={250}
             posterSource={posterUri ? { uri: posterUri } : undefined}
             usePoster={Boolean(posterUri)}
@@ -1107,16 +1093,16 @@ export function MsVideoPlayer({
       {/* ── Brightness ramp — video "wakes up" from a dim exposure on first play ── */}
       <Animated.View style={[StyleSheet.absoluteFill, styles.brightnessOverlay, brightnessStyle]} pointerEvents="none" />
 
-      {/* ── Gesture layer — always active once loaded, independent of buffering ── */}
-      {!premiumGated ? (
+      {/* ── Gesture layer — Shorts only. Long-form uses the platform's native
+          controls, so no custom gesture layer is mounted (it would fight the
+          native seek/play UI). ── */}
+      {!premiumGated && isShorts ? (
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={(e) => {
             const { locationX, locationY } = e.nativeEvent;
-            if (isShorts) handleShortsPress(locationX, locationY);
-            else          handleStandardPress(locationX, locationY);
+            handleShortsPress(locationX, locationY);
           }}
-          onPressIn={!isShorts ? showControls : undefined}
           accessibilityRole="button"
           accessibilityLabel="Show controls"
         />
@@ -1138,118 +1124,72 @@ export function MsVideoPlayer({
         </Animated.View>
       ) : null}
 
-      {/* ── Controls overlay (auto-hiding) ── */}
-      <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
-
-        {/* Standard: centre play / pause / restart */}
-        {!isShorts ? (
-          <Animated.View style={[styles.iconWrap, stdIconStyle]} pointerEvents="box-none">
-            <PressScale
-              style={styles.iconCircle}
-              onPress={toggleStandardPlayback}
-              hitSlop={16}
-              accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
-            >
-              {videoEnded ? (
-                <Animated.View key="replay" entering={FadeIn.duration(MOTION.FADE_IN)}>
-                  <ArrowCounterClockwise size={19} color="#fff" weight="bold" />
-                </Animated.View>
-              ) : isPlaying ? (
-                <Pause size={19} color="#fff" weight="fill" />
-              ) : (
-                <Play size={19} color="#fff" weight="fill" />
-              )}
-            </PressScale>
-          </Animated.View>
-        ) : null}
-
-        {/* Standard: fill-container close button */}
-        {!isShorts && fillContainer && onClose ? (
-          <View style={styles.fillCloseBar} pointerEvents="box-none">
+      {/* ── Standard: floating chrome — ALWAYS visible (outside the auto-hide
+          overlay) so quality/fullscreen stay reachable; seek/play/time are the
+          platform's NATIVE controls. Shorts has its own immersive UI. ── */}
+      {!isShorts ? (
+        <View style={styles.stdChrome} pointerEvents="box-none">
+          {fillContainer && onClose ? (
             <PressScale style={styles.fillCloseBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Close video">
               <ArrowsIn size={15} color="rgba(255,255,255,0.9)" />
             </PressScale>
+          ) : null}
+          <View style={styles.stdChromeRight} pointerEvents="box-none">
+            {showQualityPicker ? (
+              <Pressable
+                style={[sb.qualityPill, qualityMenuOpen && sb.qualityPillActive]}
+                onPress={() => setQualityMenuOpen((o) => !o)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Video quality"
+              >
+                <Text style={sb.qualityPillLabel}>{currentQualityLabel}</Text>
+                <CaretDown size={10} color="rgba(255,255,255,0.85)" weight="bold" />
+              </Pressable>
+            ) : null}
+            {!fillContainer ? (
+              <Pressable style={sb.fsBtn} onPress={openFullscreen} hitSlop={10} accessibilityLabel="Enter fullscreen">
+                <ArrowsOut size={15} color="rgba(255,255,255,0.85)" />
+              </Pressable>
+            ) : null}
           </View>
-        ) : null}
-
-        {/* Standard: bottom control bar */}
-        {!isShorts ? (
-          <>
-            {/* Quality menu backdrop — closes the picker when tapping elsewhere */}
-            {qualityMenuOpen && showQualityPicker ? (
+          {/* Quality picker popup — closes when tapping elsewhere */}
+          {qualityMenuOpen && showQualityPicker ? (
+            <>
               <Pressable
                 style={StyleSheet.absoluteFill}
                 onPress={() => setQualityMenuOpen(false)}
                 accessibilityLabel="Close quality menu"
               />
-            ) : null}
-            <Animated.View style={[styles.bottomBarWrap, bottomBarStyle]} pointerEvents="box-none">
-              <View style={styles.bottomBarInner}>
-                <SeekBar
-                  positionMs={positionMs}
-                  durationMs={durationMs}
-                  onSeek={seekTo}
-                  onDragStart={showControls}
-                  onFullscreen={openFullscreen}
-                  showFullscreen={!fillContainer}
-                  hasBackground={fillContainer}
-                  qualityOptions={showQualityPicker ? qualityOptions : []}
-                  currentQualityLabel={currentQualityLabel}
-                  qualityMenuOpen={qualityMenuOpen}
-                  onToggleQualityMenu={() => setQualityMenuOpen((o) => !o)}
-                  onQualityChange={handleQualityChange}
-                />
-                {/* Quality picker popup — opens upward from the pill */}
-                {qualityMenuOpen && showQualityPicker ? (
-                  <View style={styles.qualityPopup}>
-                    {qualityOptions.map((opt) => {
-                      const active = opt.label === currentQualityLabel;
-                      return (
-                        <Pressable
-                          key={opt.label}
-                          style={styles.qualityOption}
-                          onPress={() => handleQualityChange(opt.label)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${opt.label} quality`}
-                        >
-                          <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
-                            {opt.label}
-                          </Text>
-                          {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ) : null}
+              <View style={styles.qualityPopupTop}>
+                {qualityOptions.map((opt) => {
+                  const active = opt.label === currentQualityLabel;
+                  return (
+                    <Pressable
+                      key={opt.label}
+                      style={styles.qualityOption}
+                      onPress={() => handleQualityChange(opt.label)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${opt.label} quality`}
+                    >
+                      <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
+                        {opt.label}
+                      </Text>
+                      {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
+                    </Pressable>
+                  );
+                })}
               </View>
-            </Animated.View>
-          </>
-        ) : null}
-      </Animated.View>
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* ── Shorts: always-visible progress strip ── */}
       {isShorts ? (
         <View style={styles.shortsTrack} pointerEvents="none">
           <View style={[styles.shortsFill, { width: `${Math.min(100, progress * 100)}%` as any }]} />
         </View>
-      ) : null}
-
-      {/* ── Standard: seek flash overlays (slide outward + fade) ── */}
-      {!isShorts ? (
-        <>
-          <Animated.View style={[styles.seekFlashL, seekLeftStyle]} pointerEvents="none">
-            <View style={styles.seekBubble}>
-              <Text style={styles.seekArrow}>«</Text>
-              <Text style={styles.seekSec}>{SEEK_SECONDS}s</Text>
-            </View>
-          </Animated.View>
-          <Animated.View style={[styles.seekFlashR, seekRightStyle]} pointerEvents="none">
-            <View style={styles.seekBubble}>
-              <Text style={styles.seekSec}>{SEEK_SECONDS}s</Text>
-              <Text style={styles.seekArrow}>»</Text>
-            </View>
-          </Animated.View>
-        </>
       ) : null}
 
       {/* ── Flying hearts ── */}
@@ -1310,102 +1250,6 @@ export function MsVideoPlayer({
           onToggleQualityMenu={() => setQualityMenuOpen((o) => !o)}
           onQualityChange={handleQualityChange}
         />
-      ) : null}
-    </View>
-  );
-}
-
-// ─── SeekBar component ────────────────────────────────────────────────────────
-
-interface SeekBarProps {
-  positionMs: number;
-  durationMs: number;
-  onSeek: (ms: number) => void;
-  /** Called when the user starts dragging — keeps the controls visible. */
-  onDragStart?: () => void;
-  onFullscreen?: () => void;
-  showFullscreen?: boolean;
-  onExitFullscreen?: () => void;
-  hasBackground?: boolean;
-  // ── Quality selector (only passed when multiple variants exist) ──
-  qualityOptions?: Array<{ label: string; url: string; height?: number | null }>;
-  currentQualityLabel?: string;
-  qualityMenuOpen?: boolean;
-  onToggleQualityMenu?: () => void;
-  onQualityChange?: (label: string) => void;
-}
-
-/**
- * Native seek tracker — the platform Slider (@react-native-community/slider)
- * handles ALL dragging/tapping with its own reliable native behaviour. The
- * only customisation is appearance: progress + thumb in the pink brand accent.
- * While dragging, the Slider value is pinned to local drag state so the
- * player's playback ticks can't snap the thumb back; on release the seek is
- * applied and live position tracking resumes.
- */
-function SeekBar({
-  positionMs,
-  durationMs,
-  onSeek,
-  onDragStart,
-  onFullscreen,
-  showFullscreen = false,
-  onExitFullscreen,
-  hasBackground = true,
-  qualityOptions = [],
-  currentQualityLabel = 'Auto',
-  qualityMenuOpen = false,
-  onToggleQualityMenu,
-  onQualityChange,
-}: SeekBarProps) {
-  const [dragging, setDragging] = useState(false);
-  const [dragMs,   setDragMs]   = useState<number | null>(null);
-  const value = dragging && dragMs !== null ? dragMs : positionMs;
-  return (
-    <View style={[sb.bar, !hasBackground && sb.barNoBackground]}>
-      <Text style={sb.time}>{fmtTime(value)}</Text>
-      <Slider
-        style={sb.slider}
-        minimumValue={0}
-        maximumValue={Math.max(1, durationMs)}
-        value={value}
-        disabled={durationMs <= 0}
-        onSlidingStart={() => { onDragStart?.(); setDragging(true); setDragMs(positionMs); }}
-        onValueChange={(v) => setDragMs(v)}
-        onSlidingComplete={(v) => {
-          setDragging(false);
-          setDragMs(null);
-          onSeek(v);
-        }}
-        minimumTrackTintColor={T.ACCENT}
-        maximumTrackTintColor="rgba(255,255,255,0.28)"
-        thumbTintColor={T.ACCENT}
-        accessibilityLabel="Video seek bar"
-      />
-      <Text style={sb.time}>{fmtTime(durationMs)}</Text>
-      {/* Quality selector pill — only rendered when the server offered more
-          than one playable variant (qualityOptions is [] otherwise). */}
-      {qualityOptions.length > 0 ? (
-        <Pressable
-          style={[sb.qualityPill, qualityMenuOpen && sb.qualityPillActive]}
-          onPress={onToggleQualityMenu}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel="Video quality"
-        >
-          <Text style={sb.qualityPillLabel}>{currentQualityLabel}</Text>
-          <CaretDown size={10} color="rgba(255,255,255,0.85)" weight="bold" />
-        </Pressable>
-      ) : null}
-      {showFullscreen && onFullscreen ? (
-        <Pressable style={sb.fsBtn} onPress={onFullscreen} hitSlop={10} accessibilityLabel="Enter fullscreen">
-          <ArrowsOut size={15} color="rgba(255,255,255,0.85)" />
-        </Pressable>
-      ) : null}
-      {!showFullscreen && onExitFullscreen ? (
-        <Pressable style={sb.fsBtn} onPress={onExitFullscreen} hitSlop={10} accessibilityLabel="Exit fullscreen">
-          <ArrowsIn size={15} color="rgba(255,255,255,0.85)" />
-        </Pressable>
       ) : null}
     </View>
   );
@@ -1599,7 +1443,8 @@ function FullscreenModal({
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={false}
             isLooping={isLooping}
-            useNativeControls={false}
+            // Native controls in fullscreen too — reliable seek/play/time.
+            useNativeControls
             onPlaybackStatusUpdate={onStatus}
           />
         ) : null}
@@ -1613,152 +1458,115 @@ function FullscreenModal({
           />
         </Animated.View>
 
-        {/* Gesture layer */}
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={(e) => onPress(e.nativeEvent.locationX / Math.max(fsWindowWidth, 1))}
-          onPressIn={onPressIn}
-        />
-
-        {/* Controls overlay */}
-        <Animated.View style={[StyleSheet.absoluteFill, ctrlStyle]} pointerEvents="box-none">
-
-          {/* Top bar */}
-          <View style={fs.topBar} pointerEvents="box-none">
-            <PressScale style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
-              <ArrowsIn size={15} color="rgba(255,255,255,0.9)" />
-            </PressScale>
-            {/* Orientation picker button */}
-            <PressScale
-              style={[fs.closeBtn, { marginLeft: 10 }]}
-              onPress={openOrientPicker}
-              hitSlop={12}
-              accessibilityLabel="Orientation"
-            >
-              <ArrowsClockwise size={15} color="rgba(255,255,255,0.9)" />
-            </PressScale>
-          </View>
-
-          {/* Orientation picker panel — stays open until user acts or taps outside.
-              Auto-hide timer is suspended while this is visible (see onOrientPickerChange). */}
-          {showOrientPicker ? (
-            <>
-              <Animated.View
-                style={StyleSheet.absoluteFill}
-                entering={FadeIn.duration(MOTION.PANEL_IN)}
-                exiting={FadeOut.duration(MOTION.PANEL_OUT)}
-              >
-                <Pressable style={StyleSheet.absoluteFill} onPress={closeOrientPicker} />
-              </Animated.View>
-              <Animated.View
-                style={fs.orientPanel}
-                entering={ZoomIn.duration(MOTION.PANEL_IN).springify().damping(18)}
-                exiting={FadeOut.duration(MOTION.PANEL_OUT)}
-                pointerEvents="box-none"
-              >
-                <Text style={fs.orientTitle}>Orientation</Text>
-                <Pressable
-                  style={fs.orientRow}
-                  onPress={() => {
-                    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-                    closeOrientPicker();
-                  }}
-                >
-                  <Text style={fs.orientLabel}>Portrait</Text>
-                </Pressable>
-                <Pressable
-                  style={fs.orientRow}
-                  onPress={() => {
-                    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-                    closeOrientPicker();
-                  }}
-                >
-                  <Text style={fs.orientLabel}>Landscape</Text>
-                </Pressable>
-                <Pressable
-                  style={fs.orientRow}
-                  onPress={() => {
-                    ScreenOrientation.unlockAsync().catch(() => {});
-                    closeOrientPicker();
-                  }}
-                >
-                  <Text style={fs.orientLabel}>Auto Rotate</Text>
-                </Pressable>
-              </Animated.View>
-            </>
-          ) : null}
-
-          {/* Centre play / pause / restart */}
-          <View style={styles.iconWrap} pointerEvents="box-none">
-            <PressScale
-              style={styles.iconCircle}
-              onPress={onTogglePlay}
-              hitSlop={16}
-              accessibilityLabel={videoEnded ? 'Restart' : isPlaying ? 'Pause' : 'Play'}
-            >
-              {videoEnded ? (
-                <Animated.View key="fs-replay" entering={FadeIn.duration(MOTION.FADE_IN)}>
-                  <ArrowCounterClockwise size={20} color="#fff" weight="bold" />
-                </Animated.View>
-              ) : isPlaying ? (
-                <Pause size={20} color="#fff" weight="fill" />
-              ) : (
-                <Play size={20} color="#fff" weight="fill" />
-              )}
-            </PressScale>
-          </View>
-
-          {/* Bottom bar */}
-          <View
-            style={[fs.bottomWrap, { paddingBottom: Math.max(8, safeBottom) }]}
-            pointerEvents="box-none"
+        {/* Top chrome — ALWAYS visible (outside the auto-hide overlay) so
+            close/orientation/quality stay reachable; the platform's native
+            controls handle play/seek/time underneath. */}
+        <View style={fs.topBar} pointerEvents="box-none">
+          <PressScale style={fs.closeBtn} onPress={onClose} hitSlop={12} accessibilityLabel="Exit fullscreen">
+            <ArrowsIn size={15} color="rgba(255,255,255,0.9)" />
+          </PressScale>
+          {/* Orientation picker button */}
+          <PressScale
+            style={[fs.closeBtn, { marginLeft: 10 }]}
+            onPress={openOrientPicker}
+            hitSlop={12}
+            accessibilityLabel="Orientation"
           >
-            {/* Quality menu backdrop — closes the picker when tapping elsewhere */}
-            {qualityMenuOpen && qualityOptions.length > 0 ? (
+            <ArrowsClockwise size={15} color="rgba(255,255,255,0.9)" />
+          </PressScale>
+          <View style={{ flex: 1 }} />
+          {qualityOptions.length > 0 ? (
+            <Pressable
+              style={[sb.qualityPill, qualityMenuOpen && sb.qualityPillActive]}
+              onPress={onToggleQualityMenu}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Video quality"
+            >
+              <Text style={sb.qualityPillLabel}>{currentQualityLabel}</Text>
+              <CaretDown size={10} color="rgba(255,255,255,0.85)" weight="bold" />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {/* Orientation picker panel — stays open until user acts or taps outside.
+            Auto-hide timer is suspended while this is visible (see onOrientPickerChange). */}
+        {showOrientPicker ? (
+          <>
+            <Animated.View
+              style={StyleSheet.absoluteFill}
+              entering={FadeIn.duration(MOTION.PANEL_IN)}
+              exiting={FadeOut.duration(MOTION.PANEL_OUT)}
+            >
+              <Pressable style={StyleSheet.absoluteFill} onPress={closeOrientPicker} />
+            </Animated.View>
+            <Animated.View
+              style={fs.orientPanel}
+              entering={ZoomIn.duration(MOTION.PANEL_IN).springify().damping(18)}
+              exiting={FadeOut.duration(MOTION.PANEL_OUT)}
+              pointerEvents="box-none"
+            >
+              <Text style={fs.orientTitle}>Orientation</Text>
               <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={onToggleQualityMenu}
-                accessibilityLabel="Close quality menu"
-              />
-            ) : null}
-            <View style={fs.bottomInner}>
-              <SeekBar
-                positionMs={positionMs}
-                durationMs={durationMs}
-                onSeek={onSeekTo}
-                onDragStart={onDragStart}
-                onExitFullscreen={onClose}
-                qualityOptions={qualityOptions}
-                currentQualityLabel={currentQualityLabel}
-                qualityMenuOpen={qualityMenuOpen}
-                onToggleQualityMenu={onToggleQualityMenu}
-                onQualityChange={onQualityChange}
-              />
-              {/* Quality picker popup — opens upward from the pill */}
-              {qualityMenuOpen && qualityOptions.length > 0 ? (
-                <View style={styles.qualityPopup}>
-                  {qualityOptions.map((opt) => {
-                    const active = opt.label === currentQualityLabel;
-                    return (
-                      <Pressable
-                        key={opt.label}
-                        style={styles.qualityOption}
-                        onPress={() => onQualityChange(opt.label)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${opt.label} quality`}
-                      >
-                        <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
-                          {opt.label}
-                        </Text>
-                        {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
+                style={fs.orientRow}
+                onPress={() => {
+                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+                  closeOrientPicker();
+                }}
+              >
+                <Text style={fs.orientLabel}>Portrait</Text>
+              </Pressable>
+              <Pressable
+                style={fs.orientRow}
+                onPress={() => {
+                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+                  closeOrientPicker();
+                }}
+              >
+                <Text style={fs.orientLabel}>Landscape</Text>
+              </Pressable>
+              <Pressable
+                style={fs.orientRow}
+                onPress={() => {
+                  ScreenOrientation.unlockAsync().catch(() => {});
+                  closeOrientPicker();
+                }}
+              >
+                <Text style={fs.orientLabel}>Auto Rotate</Text>
+              </Pressable>
+            </Animated.View>
+          </>
+        ) : null}
+
+        {/* Quality picker popup — opens below the top-bar pill */}
+        {qualityMenuOpen && qualityOptions.length > 0 ? (
+          <>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={onToggleQualityMenu}
+              accessibilityLabel="Close quality menu"
+            />
+            <View style={fs.qualityPopupTop}>
+              {qualityOptions.map((opt) => {
+                const active = opt.label === currentQualityLabel;
+                return (
+                  <Pressable
+                    key={opt.label}
+                    style={styles.qualityOption}
+                    onPress={() => onQualityChange(opt.label)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${opt.label} quality`}
+                  >
+                    <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
+                      {opt.label}
+                    </Text>
+                    {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
+                  </Pressable>
+                );
+              })}
             </View>
-          </View>
-        </Animated.View>
+          </>
+        ) : null}
       </View>
     </Modal>
   );
@@ -1782,6 +1590,22 @@ const fs = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center', justifyContent: 'center',
+  },
+  // Quality picker popup — anchored below the top-right pill
+  qualityPopupTop: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 68 : 62,
+    right: 16,
+    zIndex: 30,
+    minWidth: 116,
+    backgroundColor: '#1C1C22',
+    borderRadius: 12,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
   bottomWrap: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
@@ -1902,6 +1726,39 @@ const styles = StyleSheet.create({
   },
   bottomBarInner: {
     position: 'relative',
+  },
+
+  // Floating chrome over the native controls (long-form players)
+  stdChrome: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    paddingTop: Platform.OS === 'ios' ? 50 : 16,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 12,
+  },
+  stdChromeRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  // Quality picker popup — anchored below the top-right pill
+  qualityPopupTop: {
+    position: 'absolute',
+    top: 58,
+    right: 12,
+    zIndex: 30,
+    minWidth: 116,
+    backgroundColor: '#1C1C22',
+    borderRadius: 12,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
 
   // Quality picker popup (opens upward from the bottom bar pill)

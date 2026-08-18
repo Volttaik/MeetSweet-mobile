@@ -75,6 +75,70 @@ function fmtDuration(secs: number | null | undefined): string | null {
   return `${m}:${String(sc).padStart(2, '0')}`;
 }
 
+/**
+ * Dedicated album IMAGE card — ratio-aware (uses the real media dimensions
+ * from the server, square fallback), rounded corners, consistent with the
+ * app's other image cards. Tapping opens the fullscreen image preview.
+ */
+function AlbumImageCard({ item, onPress }: { item: AlbumItem; onPress: () => void }) {
+  const ratio = item.width && item.height && item.height > 0 ? item.width / item.height : 1;
+  return (
+    <Pressable
+      style={[styles.albumCard, { width: THUMB_SIZE, height: THUMB_SIZE / ratio, backgroundColor: T.SURFACE_2 }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="View image"
+    >
+      {item.thumbnailUrl ? (
+        <MsMediaLoader
+          uri={item.thumbnailUrl}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          accessibleLabel=""
+          errorMessage=""
+          fallback={null}
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * Dedicated album VIDEO card — ratio-aware (real media dimensions, 16:9
+ * fallback), thumbnail + play badge + duration. Tapping opens the standalone
+ * video player (no post UI / comments / likes).
+ */
+function AlbumVideoCard({ item, onPress }: { item: AlbumItem; onPress: () => void }) {
+  const ratio = item.width && item.height && item.height > 0 ? item.width / item.height : 16 / 9;
+  return (
+    <Pressable
+      style={[styles.albumCard, { width: THUMB_SIZE, height: THUMB_SIZE / ratio, backgroundColor: '#000' }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="View video"
+    >
+      {item.thumbnailUrl ? (
+        <MsMediaLoader
+          uri={item.thumbnailUrl}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          accessibleLabel=""
+          errorMessage=""
+          fallback={null}
+        />
+      ) : null}
+      <View style={styles.playBadge}>
+        <Play size={10} color={T.TEXT} weight="fill" />
+      </View>
+      {fmtDuration(item.durationSecs) ? (
+        <View style={styles.durationBadge}>
+          <Text style={styles.durationBadgeText}>{fmtDuration(item.durationSecs)}</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
 export default function AlbumScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -208,41 +272,6 @@ export default function AlbumScreen() {
   // the Purchase option. The item grid (and every thumbnail) renders ONLY
   // after the server confirms the unlock (isUnlockedByMe).
   const isLocked = album.requiresPurchase && !isUnlockedByMe;
-
-  // ── Grid item renderer (unlocked albums only) ────────────────────────────────
-  const renderItem = ({ item }: { item: AlbumItem }) => (
-    <Pressable
-      style={[styles.gridThumb, { backgroundColor: tone(album.gradient) }]}
-      onPress={() => setPreviewItem(item)}
-      accessibilityRole="button"
-      accessibilityLabel="View item"
-    >
-      {item.thumbnailUrl ? (
-        <MsMediaLoader
-          uri={item.thumbnailUrl}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-          accessibleLabel=""
-          errorMessage=""
-          fallback={null}
-        />
-      ) : null}
-
-      {/* Video indicator */}
-      {item.type === 'video' && (
-        <View style={styles.playBadge}>
-          <Play size={10} color={T.TEXT} weight="fill" />
-        </View>
-      )}
-
-      {/* Video duration — real media metadata (e.g. 0:42) */}
-      {item.type === 'video' && fmtDuration(item.durationSecs) && (
-        <View style={styles.durationBadge}>
-          <Text style={styles.durationBadgeText}>{fmtDuration(item.durationSecs)}</Text>
-        </View>
-      )}
-    </Pressable>
-  );
 
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
@@ -387,7 +416,11 @@ export default function AlbumScreen() {
             <View style={styles.grid}>
               {album.items.map((item) => (
                 <View key={item.id}>
-                  {renderItem({ item })}
+                  {item.type === 'video' ? (
+                    <AlbumVideoCard item={item} onPress={() => setPreviewItem(item)} />
+                  ) : (
+                    <AlbumImageCard item={item} onPress={() => setPreviewItem(item)} />
+                  )}
                 </View>
               ))}
             </View>
@@ -737,10 +770,8 @@ const styles = StyleSheet.create({
     gap: GRID_GAP,
     paddingHorizontal: GRID_GAP,
   },
-  gridThumb: {
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: 0,
+  albumCard: {
+    borderRadius: T.RADIUS.md,
     overflow: 'hidden',
     position: 'relative',
   },

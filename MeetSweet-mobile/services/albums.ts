@@ -31,6 +31,9 @@ export interface AlbumItem {
   createdAt: string;
   /** Real media duration (server metadata) — shown as a badge on video items. */
   durationSecs?: number | null;
+  /** Real media dimensions (server metadata) — drives the card aspect ratio. */
+  width?: number | null;
+  height?: number | null;
   /** Server-authoritative playable quality variants ([] when locked). */
   qualities?: MediaQuality[];
 }
@@ -116,6 +119,8 @@ interface RawAlbumItem {
   createdAt?: string;
   duration_secs?: number | null;
   durationSecs?: number | null;
+  width?: number | null;
+  height?: number | null;
   qualities?: Array<{ label: string; url: string; height?: number | null }>;
 }
 
@@ -212,6 +217,8 @@ function normalizeItem(raw: RawAlbumItem): AlbumItem {
     caption: raw.caption ?? null,
     createdAt: raw.created_at ?? raw.createdAt ?? '',
     durationSecs: raw.durationSecs ?? raw.duration_secs ?? null,
+    width: raw.width ?? null,
+    height: raw.height ?? null,
     qualities,
   };
 }

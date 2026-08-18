@@ -832,8 +832,19 @@ export default function ProfileScreen() {
               onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
               delayLongPress={400}
             >
-              {/* Thumbnail area with overlaid controls */}
-              <View style={{ width: videoColSize, height: thumbH, position: 'relative', overflow: 'hidden' }}>
+              {/* Thumbnail area with overlaid controls — height follows the
+                  video's REAL aspect ratio (16:9 fallback) so vertical videos
+                  aren't distorted or awkwardly cropped. */}
+              <View
+                style={{
+                  width: videoColSize,
+                  height: p.width && p.height && p.height > 0
+                    ? Math.round(videoColSize * (p.width / p.height))
+                    : thumbH,
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
                 {p.thumbnailUrl ? (
                   <MsMediaLoader
                     uri={p.thumbnailUrl}
@@ -930,7 +941,7 @@ export default function ProfileScreen() {
                 />
               ) : (
                 <View style={{ flex: 1, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 24 }}>▶</Text>
+                  <FilmStrip size={22} color={T.TEXT_3} />
                 </View>
               )}
               {/* Duration badge */}
