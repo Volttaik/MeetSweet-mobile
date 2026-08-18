@@ -3,7 +3,6 @@ import {
   Animated,
   FlatList,
   Modal,
-  Alert,
   RefreshControl,
   StyleSheet,
   Text,
@@ -48,6 +47,7 @@ import {
 } from '@/services/chat-cache';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
+import { dialogs } from '@/components/MsGlobalDialogs';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -233,21 +233,14 @@ function NewMessageModal({
       if (!access.can_message) {
         setCreatingRoom(false);
         if (access.who_can_message === 'subscribers') {
-          Alert.alert(
-            'Subscription Required',
-            'You need to subscribe to this creator before sending a message.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              ...(user.isCreator
-                ? [{
-                    text: 'View Creator',
-                    onPress: () => router.push(`/creator/${user.username}`),
-                  }]
-                : []),
-            ],
-          );
+          dialogs.alert({
+            title: 'Subscription Required',
+            message: 'You need to subscribe to this creator before sending a message.',
+            confirmLabel: user.isCreator ? 'View Creator' : 'OK',
+            onClose: user.isCreator ? () => router.push(`/creator/${user.username}`) : undefined,
+          });
         } else {
-          Alert.alert('Cannot Message', 'This user is not accepting messages right now.');
+          dialogs.alert({ title: 'Cannot Message', message: 'This user is not accepting messages right now.' });
         }
         return;
       }
@@ -270,18 +263,16 @@ function NewMessageModal({
         setQ('');
         setResults([]);
         setCreatingRoom(false);
-        Alert.alert(
-          'Subscription Required',
-          'Subscribe to this creator before sending a message.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'View Creator', onPress: () => router.push(`/creator/${redirectTarget}`) },
-          ],
-        );
+        dialogs.alert({
+          title: 'Subscription Required',
+          message: 'Subscribe to this creator before sending a message.',
+          confirmLabel: 'View Creator',
+          onClose: () => router.push(`/creator/${redirectTarget}`),
+        });
         return;
       }
       const message = error instanceof Error ? error.message : '';
-      Alert.alert('Could not open chat', message || 'Please try again.');
+      dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
     } finally {
       setCreatingRoom(false);
     }
@@ -493,7 +484,7 @@ export default function MessagesScreen() {
         deleteChatRoom(room.chatRoomId).catch(() => {
           // If deletion fails restore the room
           setChatRooms((prev) => [room, ...prev]);
-          Alert.alert('Error', 'Could not delete chat room. Please try again.');
+          dialogs.alert({ variant: 'error', title: 'Could not delete chat room', message: 'Please try again.' });
         });
       },
     },

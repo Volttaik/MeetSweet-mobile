@@ -26,7 +26,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  Alert,
   Animated,
   AppState,
   Dimensions,
@@ -86,6 +85,8 @@ import type { AttachmentResult } from '@/components/MsAttachmentSheet';
 import { MsAttachmentPreview } from '@/components/MsAttachmentPreview';
 import type { PendingAttachment, ConfirmedAttachment } from '@/components/MsAttachmentPreview';
 import { MsUserProfileSheet } from '@/components/MsUserProfileSheet';
+import { dialogs } from '@/components/MsGlobalDialogs';
+import { toast } from '@/components/MsToast';
 import type { ProfileSheetUser } from '@/components/MsUserProfileSheet';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 
@@ -719,7 +720,7 @@ export default function ChatScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please allow camera access to take photos.');
+        dialogs.alert({ title: 'Permission required', message: 'Please allow camera access to take photos.' });
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -776,7 +777,7 @@ export default function ChatScreen() {
             m._id === editingMsg._id ? { ...m, text: prevText, msIsEdited: prevEdited } : m,
           ),
         );
-        Alert.alert('Error', 'Could not edit message.');
+        dialogs.alert({ variant: 'error', title: 'Could not edit message' });
       }
       return;
     }
@@ -1162,12 +1163,7 @@ export default function ChatScreen() {
       setMessages((prev) =>
         prev.map((m) => (m._id === target._id ? { ...m, msIsDeleted: false } : m)),
       );
-      Alert.alert(
-        'Could not delete',
-        forEveryone
-          ? 'The message could not be deleted for everyone. Please try again.'
-          : 'The message could not be deleted for you. Please try again.',
-      );
+      dialogs.alert({ variant: 'error', title: 'Could not delete', message: forEveryone ? 'The message could not be deleted for everyone. Please try again.' : 'The message could not be deleted for you. Please try again.' });
     }
   }, [deleteTarget, chatRoomId, user?.id]);
 
@@ -1187,118 +1183,103 @@ export default function ChatScreen() {
     setIsMuted(next);
     muteChatRoom(chatRoomId, next).catch(() => {
       setIsMuted(isMuted);
-      Alert.alert('Error', `Could not ${next ? 'mute' : 'unmute'} this chat.`);
+      dialogs.alert({ variant: 'error', title: 'Could not update chat', message: `Could not ${next ? 'mute' : 'unmute'} this chat.` });
     });
   }, [isMuted, chatRoomId]);
 
   // ── Block user ────────────────────────────────────────────────────────────
   const handleBlockUser = useCallback(() => {
     setShowProfileSheet(false);
-    Alert.alert(
-      isBlocked ? 'Unblock User' : 'Block User',
-      isBlocked
+    dialogs.confirm({
+      title: isBlocked ? 'Unblock User' : 'Block User',
+      message: isBlocked
         ? `Unblock ${otherUser.name}? They will be able to message you again.`
         : `Block ${otherUser.name}? You will not be able to send or receive messages.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: isBlocked ? 'Unblock' : 'Block',
-          style: 'destructive',
-          onPress: async () => {
-            const username = otherUser.username;
-            const next = !isBlocked;
-            setIsBlocked(next);
-            try {
-              if (next) {
-                await blockUser(username);
-              } else {
-                await unblockUser(username);
-              }
-              // Persist the block flag client-side so it survives reloads.
-              // chatRoomId is untouched — blocking only gates this client.
-              // Keyed by CURRENT user id: the block state is per-account and
-              // must never leak across a logout → different-account login.
-              if (username && user?.id) {
-                await AsyncStorage.setItem(
-                  `@ms_blocked_${user.id}_${username}`,
-                  next ? '1' : '0',
-                );
-              }
-            } catch {
-              // revert on failure
-              setIsBlocked(isBlocked);
-              Alert.alert('Error', `Could not ${next ? 'block' : 'unblock'} user. Please try again.`);
-            }
-          },
-        },
-      ],
-    );
+      confirmLabel: isBlocked ? 'Unblock' : 'Block',
+      destructive: true,
+      onConfirm: async () => {
+        const username = otherUser.username;
+        const next = !isBlocked;
+        setIsBlocked(next);
+        try {
+          if (next) {
+            await blockUser(username);
+          } else {
+            await unblockUser(username);
+          }
+          // Persist the block flag client-side so it survives reloads.
+          // chatRoomId is untouched — blocking only gates this client.
+          // Keyed by CURRENT user id: the block state is per-account and
+          // must never leak across a logout → different-account login.
+          if (username && user?.id) {
+            await AsyncStorage.setItem(
+              `@ms_blocked_${user.id}_${username}`,
+              next ? '1' : '0',
+            );
+          }
+        } catch {
+          // revert on failure
+          setIsBlocked(isBlocked);
+          dialogs.alert({ variant: 'error', title: 'Could not update user', message: `Could not ${next ? 'block' : 'unblock'} user. Please try again.` });
+        }
+      },
+    });
   }, [isBlocked, otherUser.name, otherUser.username, user?.id]);
 
   // ── Delete chat room from list ────────────────────────────────────────
   const handleDeleteRoom = useCallback(() => {
     setShowProfileSheet(false);
-    Alert.alert(
-      'Delete Chat',
-      'This will remove the chat from your chat list. Messages will not be deleted for the other person.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (chatRoomId) {
-              try {
-                await deleteChatRoom(chatRoomId);
-                const uid = user?.id ?? '';
-                await removeCachedRoom(chatRoomId).catch(() => {});
-                if (uid) {
-                  await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
-                }
-                await clearRoomMedia(chatRoomId).catch(() => {});
-                router.back();
-              } catch {
-                Alert.alert('Error', 'Could not delete chat room. Please try again.');
-              }
+    dialogs.confirm({
+      title: 'Delete Chat',
+      message: 'This will remove the chat from your chat list. Messages will not be deleted for the other person.',
+      confirmLabel: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        if (chatRoomId) {
+          try {
+            await deleteChatRoom(chatRoomId);
+            const uid = user?.id ?? '';
+            await removeCachedRoom(chatRoomId).catch(() => {});
+            if (uid) {
+              await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
             }
-          },
-        },
-      ],
-    );
+            await clearRoomMedia(chatRoomId).catch(() => {});
+            router.back();
+          } catch {
+            dialogs.alert({ variant: 'error', title: 'Could not delete chat room', message: 'Please try again.' });
+          }
+        }
+      },
+    });
   }, [chatRoomId, user?.id]);
 
   // ── Clear chat (room-level; the room stays the permanent container) ────
   const handleClearRoom = useCallback(() => {
     setShowProfileSheet(false);
-    Alert.alert(
-      'Clear Chat',
-      'All messages in this chat will be permanently cleared for you. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear All',
-          style: 'destructive',
-          onPress: async () => {
-            const uid = user?.id ?? '';
-            if (chatRoomId) {
-              try {
-                await clearChatRoom(chatRoomId);
-                setMessages([]);
-                setLocalReactions({});
-                if (uid) {
-                  await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
-                } else {
-                  await clearCachedMessages(chatRoomId).catch(() => {});
-                }
-                await clearRoomMedia(chatRoomId).catch(() => {});
-              } catch {
-                Alert.alert('Error', 'Could not clear chat room. Please try again.');
-              }
+    dialogs.confirm({
+      title: 'Clear Chat',
+      message: 'All messages in this chat will be permanently cleared for you. This cannot be undone.',
+      confirmLabel: 'Clear All',
+      destructive: true,
+      onConfirm: async () => {
+        const uid = user?.id ?? '';
+        if (chatRoomId) {
+          try {
+            await clearChatRoom(chatRoomId);
+            setMessages([]);
+            setLocalReactions({});
+            if (uid) {
+              await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
+            } else {
+              await clearCachedMessages(chatRoomId).catch(() => {});
             }
-          },
-        },
-      ],
-    );
+            await clearRoomMedia(chatRoomId).catch(() => {});
+          } catch {
+            dialogs.alert({ variant: 'error', title: 'Could not clear chat room', message: 'Please try again.' });
+          }
+        }
+      },
+    });
   }, [chatRoomId, user?.id]);
 
   const handleEdit = useCallback(() => {
@@ -1411,7 +1392,7 @@ export default function ChatScreen() {
       try {
         await Linking.openURL(uri);
       } catch {
-        Alert.alert('Cannot open file', 'No app is available to open this file type.');
+        dialogs.alert({ title: 'Cannot open file', message: 'No app is available to open this file type.' });
       }
     };
 
@@ -1971,7 +1952,7 @@ export default function ChatScreen() {
       )}
 
       {/* ── Room actions accessible from header Info button ──────────────── */}
-      {/* Actions are triggered from Alert dialogs via handleBlockUser,
+      {/* Actions are triggered from the profile sheet (handleBlockUser,
           handleDeleteRoom, handleClearRoom */}
 
       {/* ── Delete confirmation sheet ────────────────────────────────────────── */}

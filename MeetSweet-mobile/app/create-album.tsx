@@ -9,7 +9,6 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Image,
   Modal,
   Platform,
@@ -37,6 +36,7 @@ import {
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { dialogs } from '@/components/MsGlobalDialogs';
 import { Sparkle } from 'phosphor-react-native';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
@@ -158,7 +158,7 @@ export default function CreateAlbumScreen() {
 
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Allow access to your media library to upload content.');
+      dialogs.alert({ title: 'Permission required', message: 'Allow access to your media library to upload content.' });
       return;
     }
 
@@ -213,7 +213,7 @@ export default function CreateAlbumScreen() {
       const room = Math.max(0, 20 - prev.length);
       const next = picked.slice(0, room);
       if (picked.length > room) {
-        Alert.alert('Album limit', `Albums can contain up to 20 items. ${next.length} added.`);
+        dialogs.alert({ title: 'Album limit', message: `Albums can contain up to 20 items. ${next.length} added.` });
       }
       return [...prev, ...next];
     });
@@ -590,7 +590,7 @@ export default function CreateAlbumScreen() {
             style={[styles.continueBtn, !coverUri && styles.continueBtnDisabled]}
             onPress={() => {
               if (!coverUri) {
-                Alert.alert('Cover required', 'Please select a cover image for your album.');
+                dialogs.alert({ title: 'Cover required', message: 'Please select a cover image for your album.' });
                 return;
               }
               setStep('content');

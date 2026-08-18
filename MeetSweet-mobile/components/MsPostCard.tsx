@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
 import {
-  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -34,6 +33,8 @@ import {
   hideCreator,
 } from '@/services/posts';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
+import { dialogs } from '@/components/MsGlobalDialogs';
+import { toast } from '@/components/MsToast';
 import { setCommentsEnabled } from '@/services/comment-room-service';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { MsShareSheet } from '@/components/MsShareSheet';
@@ -381,30 +382,29 @@ export function MsPostCard({
 
   const doDelete = () => {
     tapHeavy();
-    Alert.alert('Delete Post', 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deletePost(post.id);
-            markDeleted(post.id);
-            // Purge the server-confirmed deleted post from the local feed cache
-            // so it can never reappear from stale cache/local state.
-            removeCachedPost(post.id, userId).catch(() => {});
-            onDeleted?.(post.id);
-          } catch {
-            Alert.alert('Error', 'Could not delete post.');
-          }
-        },
+    dialogs.confirm({
+      title: 'Delete Post',
+      message: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await deletePost(post.id);
+          markDeleted(post.id);
+          // Purge the server-confirmed deleted post from the local feed cache
+          // so it can never reappear from stale cache/local state.
+          removeCachedPost(post.id, userId).catch(() => {});
+          onDeleted?.(post.id);
+        } catch {
+          dialogs.alert({ variant: 'error', title: 'Could not delete post' });
+        }
       },
-    ]);
+    });
   };
 
   const doReport = (reason: string) =>
     reportPost(post.id, reason).catch(() =>
-      Alert.alert('Error', 'Could not report post.'),
+      dialogs.alert({ variant: 'error', title: 'Could not report post' }),
     );
 
   const ownActions: ActionItem[] = [
@@ -423,12 +423,11 @@ export function MsPostCard({
         try {
           await setCommentsEnabled(post.id, nextState);
           post.commentsEnabled = nextState;
-          Alert.alert(
+          toast.success(
             nextState ? 'Comments turned on' : 'Comments turned off',
-            nextState ? 'Users can now comment on this post.' : 'New comments disabled for this post.',
           );
         } catch {
-          Alert.alert('Error', 'Could not update comment settings.');
+          dialogs.alert({ variant: 'error', title: 'Could not update comment settings' });
         }
       },
     },

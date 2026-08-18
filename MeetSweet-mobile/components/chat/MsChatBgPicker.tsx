@@ -4,7 +4,6 @@
  */
 import React, { useState } from 'react';
 import {
-  Alert,
   Image,
   Modal,
   Pressable,
@@ -18,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check, Image as ImageIcon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { dialogs } from '@/components/MsGlobalDialogs';
 
 export type ChatBackground =
   | { type: 'default' }
@@ -58,7 +58,7 @@ export function MsChatBgPicker({ visible, current, onSelect, onClose }: Props) {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Allow photo access to set a custom background.');
+      dialogs.alert({ title: 'Permission required', message: 'Allow photo access to set a custom background.' });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({

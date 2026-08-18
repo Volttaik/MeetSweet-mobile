@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import { MsPostCard } from '@/components/MsPostCard';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { CommentsModal } from '@/components/MsCommentsSheet';
 import { useAuth } from '@/contexts/AuthContext';
+import { dialogs } from '@/components/MsGlobalDialogs';
 import { getPost, reportPost, type Post } from '@/services/posts';
 
 export default function PostDetailScreen() {
@@ -79,11 +79,13 @@ export default function PostDetailScreen() {
         <Text style={styles.headerTitle}>Post</Text>
         <Pressable
           style={styles.iconButton}
-          onPress={() => Alert.alert('Report post', 'Choose a reason.', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Inappropriate', onPress: () => reportPost(post.id).catch(() => Alert.alert('Could not report post', 'Please try again.')) },
-            { text: 'Something else', onPress: () => reportPost(post.id, 'other').catch(() => Alert.alert('Could not report post', 'Please try again.')) },
-          ])}
+          onPress={() => dialogs.options({
+            title: 'Report post',
+            actions: [
+              { label: 'Inappropriate', onPress: () => reportPost(post.id).catch(() => dialogs.alert({ variant: 'error', title: 'Could not report post', message: 'Please try again.' })) },
+              { label: 'Something else', onPress: () => reportPost(post.id, 'other').catch(() => dialogs.alert({ variant: 'error', title: 'Could not report post', message: 'Please try again.' })) },
+            ],
+          })}
           accessibilityLabel="Report post"
         >
           <DotsThree size={22} color={T.TEXT_2} />

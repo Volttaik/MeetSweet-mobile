@@ -297,7 +297,6 @@ interface PrivacyPrefs {
   readReceipts: boolean;
   typingIndicator: boolean;
   profileVisibility: 'everyone' | 'subscribers' | 'nobody';
-  messagePerm: 'everyone' | 'subscribers' | 'nobody';
   mentionPerm: boolean;
   tagPerm: boolean;
 }
@@ -325,7 +324,6 @@ const PRIVACY_DEFAULTS: PrivacyPrefs = {
   readReceipts: true,
   typingIndicator: true,
   profileVisibility: 'everyone',
-  messagePerm: 'everyone',
   mentionPerm: true,
   tagPerm: true,
 };
@@ -1094,47 +1092,6 @@ function ProfileVisibilityModal({
   );
 }
 
-// ─── MODAL: Message / Mention / Tag Permissions ───────────────────────────────
-
-function PermissionModal({
-  visible,
-  onClose,
-  title,
-  value,
-  onChange,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  title: string;
-  value: string;
-  onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
-}) {
-  const options: Array<{ value: 'everyone' | 'subscribers' | 'nobody'; label: string }> = [
-    { value: 'everyone', label: 'Everyone' },
-    { value: 'subscribers', label: 'Subscribers only' },
-    { value: 'nobody', label: 'Nobody' },
-  ];
-  return (
-    <BottomSheet visible={visible} onClose={onClose} title={title}>
-      <View style={{ gap: 0 }}>
-        {options.map((opt, i) => (
-          <React.Fragment key={opt.value}>
-            {i > 0 && <Divider />}
-            <TouchableOpacity
-              style={rs.row}
-              onPress={() => { onChange(opt.value); onClose(); toast.success('Permission updated'); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[rs.rowLabel, { flex: 1 }]}>{opt.label}</Text>
-              {value === opt.value && <CheckCircle size={20} color={T.TEXT} weight="fill" />}
-            </TouchableOpacity>
-          </React.Fragment>
-        ))}
-      </View>
-    </BottomSheet>
-  );
-}
-
 // ─── MODAL: Language ──────────────────────────────────────────────────────────
 
 const LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Japanese', 'Arabic', 'Hindi', 'Swahili'];
@@ -1586,7 +1543,7 @@ export default function SettingsScreen() {
   const [modal, setModal] = useState<
     | 'editProfile' | 'username' | 'email' | 'phone'
     | 'changePassword' | 'activeSessions'
-    | 'profileVisibility' | 'messagePerm' | 'mentionPerm'
+    | 'profileVisibility' | 'mentionPerm'
     | 'language' | 'help' | 'bug' | 'contact' | 'about'
     | 'twoFactor'
     | null
@@ -1625,7 +1582,6 @@ export default function SettingsScreen() {
           readReceipts: p.read_receipts ?? PRIVACY_DEFAULTS.readReceipts,
           typingIndicator: p.typing_indicator ?? PRIVACY_DEFAULTS.typingIndicator,
           profileVisibility: p.profile_visibility ?? PRIVACY_DEFAULTS.profileVisibility,
-          messagePerm: p.message_perm ?? (p.allow_dms ? 'everyone' : 'nobody'),
           mentionPerm: p.allow_mentions ?? PRIVACY_DEFAULTS.mentionPerm,
           tagPerm: p.allow_tags ?? PRIVACY_DEFAULTS.tagPerm,
         });
@@ -1655,12 +1611,13 @@ export default function SettingsScreen() {
           highQualityMedia: s.high_quality_media ?? prev.highQualityMedia,
           language: s.language ?? prev.language,
         }));
-      }
-      setNotif(notifBase);
-
-      if (contentResult.status === 'fulfilled') {
+      } else if (contentResult.status === 'fulfilled') {
+        // Server unavailable — fall back to the user's last-saved local prefs
+        // so the screen doesn't silently reset to defaults. The server stays
+        // authoritative whenever it can answer.
         setContent((prev) => ({ ...prev, ...contentResult.value }));
       }
+      setNotif(notifBase);
     });
   }, [user?.id]);
 
@@ -1716,7 +1673,6 @@ export default function SettingsScreen() {
       case 'readReceipts': return { read_receipts: value };
       case 'typingIndicator': return { typing_indicator: value };
       case 'profileVisibility': return { profile_visibility: value };
-      case 'messagePerm': return { allow_dms: value !== 'nobody', message_perm: value };
       case 'mentionPerm': return { allow_mentions: value };
       case 'tagPerm': return { allow_tags: value };
       default: return {};
@@ -1909,12 +1865,6 @@ export default function SettingsScreen() {
             onPress={() => setModal('profileVisibility')}
           />
           <Divider />
-          <Row
-            label="Message Permissions"
-            sub={privacy.messagePerm === 'everyone' ? 'Everyone can message you' : privacy.messagePerm === 'subscribers' ? 'Subscribers only' : 'Nobody'}
-            onPress={() => setModal('messagePerm')}
-          />
-          <Divider />
           <ToggleRow
             label="Allow Mentions"
             sub="Let others mention you in posts"
@@ -2069,13 +2019,6 @@ export default function SettingsScreen() {
         onClose={() => setModal(null)}
         value={privacy.profileVisibility}
         onChange={setP('profileVisibility')}
-      />
-      <PermissionModal
-        visible={modal === 'messagePerm'}
-        onClose={() => setModal(null)}
-        title="Message Permissions"
-        value={privacy.messagePerm}
-        onChange={setP('messagePerm')}
       />
       <LanguageModal
         visible={modal === 'language'}

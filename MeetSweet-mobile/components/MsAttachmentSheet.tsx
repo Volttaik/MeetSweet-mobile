@@ -10,7 +10,6 @@
 
 import React, { useEffect, useRef } from 'react';
 import {
-  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -33,6 +32,7 @@ import {
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPressable } from '@/components/MsPressable';
+import { dialogs } from '@/components/MsGlobalDialogs';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -58,7 +58,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow access to your photo library.');
+      dialogs.alert({ title: 'Permission required', message: 'Please allow access to your photo library.' });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -83,7 +83,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow access to your photo library.');
+      dialogs.alert({ title: 'Permission required', message: 'Please allow access to your photo library.' });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -110,7 +110,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow access to your camera.');
+      dialogs.alert({ title: 'Permission required', message: 'Please allow access to your camera.' });
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -149,7 +149,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
         fileSize: asset.size,
       });
     } catch {
-      Alert.alert('Error', 'Could not open the audio picker.');
+      dialogs.alert({ variant: 'error', title: 'Could not open the audio picker' });
     }
   };
 
@@ -172,7 +172,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
         fileSize: asset.size,
       });
     } catch {
-      Alert.alert('Error', 'Could not open the document picker.');
+      dialogs.alert({ variant: 'error', title: 'Could not open the document picker' });
     }
   };
 

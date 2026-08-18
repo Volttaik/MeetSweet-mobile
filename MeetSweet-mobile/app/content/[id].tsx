@@ -19,7 +19,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -56,6 +55,7 @@ import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsComposer } from '@/components/MsComposer';
 import { useAuth } from '@/contexts/AuthContext';
+import { dialogs } from '@/components/MsGlobalDialogs';
 import { T } from '@/constants/theme';
 
 export default function ContentDetailScreen() {
@@ -150,7 +150,7 @@ export default function ContentDetailScreen() {
       setComments((prev) => prev.map((c) => c.id === tempId ? res.comment as unknown as Comment : c));
     } catch {
       setComments((prev) => prev.filter((c) => c.id !== tempId));
-      Alert.alert('Error', 'Could not post comment. Please try again.');
+      dialogs.alert({ variant: 'error', title: 'Could not post comment', message: 'Please try again.' });
     } finally {
       setSending(false);
     }
@@ -183,18 +183,18 @@ export default function ContentDetailScreen() {
   }, [commentRoomId, setComments]);
 
   const handleDelete = useCallback((commentId: string) => {
-    Alert.alert('Delete comment', 'Remove this comment?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          setComments((prev) => prev.filter((c) => c.id !== commentId));
-          setCommentCount((n) => Math.max(0, n - 1));
-          try { await deleteRoomComment(commentRoomId ?? '', commentId); }
-          catch { /* comment was removed optimistically; silent fail is fine */ }
-        },
+    dialogs.confirm({
+      title: 'Delete comment',
+      message: 'Remove this comment?',
+      confirmLabel: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        setComments((prev) => prev.filter((c) => c.id !== commentId));
+        setCommentCount((n) => Math.max(0, n - 1));
+        try { await deleteRoomComment(commentRoomId ?? '', commentId); }
+        catch { /* comment was removed optimistically; silent fail is fine */ }
       },
-    ]);
+    });
   }, [commentRoomId, setComments]);
 
   // ── Loading / error states ─────────────────────────────────────────────────

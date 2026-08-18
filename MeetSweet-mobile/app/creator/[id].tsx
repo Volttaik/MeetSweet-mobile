@@ -1,6 +1,5 @@
 import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import {
-  Alert,
   Animated,
   Dimensions,
   Image,
@@ -56,6 +55,8 @@ import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
+import { dialogs } from '@/components/MsGlobalDialogs';
+import { toast } from '@/components/MsToast';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsAlbumCard } from '@/components/MsAlbumCard';
@@ -610,20 +611,18 @@ export default function CreatorProfileScreen() {
   const handleMessagePress = async () => {
     // Can't message
     if (whoCanMessage === 'none') {
-      Alert.alert('Cannot Message', 'This creator is not accepting messages right now.');
+      dialogs.alert({ title: 'Cannot Message', message: 'This creator is not accepting messages right now.' });
       return;
     }
 
     // Subscribers only and not subscribed — redirect to subscribe sheet
     if (whoCanMessage === 'subscribers' && !isSubscribed) {
-      Alert.alert(
-        'Subscription Required',
-        'You need to subscribe to send this creator a message.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Subscribe', onPress: () => setSheetOpen(true) },
-        ],
-      );
+      dialogs.alert({
+        title: 'Subscription Required',
+        message: 'You need to subscribe to send this creator a message.',
+        confirmLabel: 'Subscribe',
+        onClose: () => setSheetOpen(true),
+      });
       return;
     }
 
@@ -665,16 +664,14 @@ export default function CreatorProfileScreen() {
         // Route the user to the creator profile's subscribe sheet instead.
         setCreatingRoom(false);
         if (access.who_can_message === 'subscribers') {
-          Alert.alert(
-            'Subscription Required',
-            'You need to subscribe to send this creator a message.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Subscribe', onPress: () => setSheetOpen(true) },
-            ],
-          );
+          dialogs.alert({
+            title: 'Subscription Required',
+            message: 'You need to subscribe to send this creator a message.',
+            confirmLabel: 'Subscribe',
+            onClose: () => setSheetOpen(true),
+          });
         } else {
-          Alert.alert('Cannot Message', 'This creator is not accepting messages right now.');
+          dialogs.alert({ title: 'Cannot Message', message: 'This creator is not accepting messages right now.' });
         }
         return;
       }
@@ -720,7 +717,7 @@ export default function CreatorProfileScreen() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      Alert.alert('Could not open chat', message || 'Please try again.');
+      dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
     } finally {
       setLoadingMessaging(false);
       setCreatingRoom(false);
@@ -1524,7 +1521,7 @@ export default function CreatorProfileScreen() {
             onPress: async () => {
               setMoreSheetOpen(false);
               await Clipboard.setStringAsync(creator.handle);
-              Alert.alert('Copied', `${creator.handle} copied to clipboard.`);
+              toast.success(`${creator.handle} copied to clipboard.`);
             },
           },
           {
@@ -1554,25 +1551,20 @@ export default function CreatorProfileScreen() {
             label: 'Report',
             onPress: () => {
               setMoreSheetOpen(false);
-              Alert.alert(
-                'Report Creator',
-                'Are you sure you want to report this creator?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Report',
-                    style: 'destructive',
-                    onPress: async () => {
-                      try {
-                        await reportUser(creator.handle.replace('@', ''), 'inappropriate_content');
-                        Alert.alert('Reported', 'Thank you. We will review this profile.');
-                      } catch {
-                        Alert.alert('Error', 'Could not submit report. Please try again.');
-                      }
-                    },
-                  },
-                ],
-              );
+              dialogs.confirm({
+                title: 'Report Creator',
+                message: 'Are you sure you want to report this creator?',
+                confirmLabel: 'Report',
+                destructive: true,
+                onConfirm: async () => {
+                  try {
+                    await reportUser(creator.handle.replace('@', ''), 'inappropriate_content');
+                    toast.success('Reported — thank you. We will review this profile.');
+                  } catch {
+                    dialogs.alert({ variant: 'error', title: 'Could not submit report', message: 'Please try again.' });
+                  }
+                },
+              });
             },
           },
           {
@@ -1580,26 +1572,21 @@ export default function CreatorProfileScreen() {
             destructive: true,
             onPress: () => {
               setMoreSheetOpen(false);
-              Alert.alert(
-                'Block Creator',
-                `Block ${creator.name}? You won't see their content anymore.`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Block',
-                    style: 'destructive',
-                    onPress: async () => {
-                      try {
-                        await blockUser(creator.handle.replace('@', ''));
-                        Alert.alert('Blocked', `${creator.name} has been blocked.`);
-                        router.back();
-                      } catch {
-                        Alert.alert('Error', 'Could not block this user. Please try again.');
-                      }
-                    },
-                  },
-                ],
-              );
+              dialogs.confirm({
+                title: 'Block Creator',
+                message: `Block ${creator.name}? You won't see their content anymore.`,
+                confirmLabel: 'Block',
+                destructive: true,
+                onConfirm: async () => {
+                  try {
+                    await blockUser(creator.handle.replace('@', ''));
+                    toast.success(`${creator.name} has been blocked.`);
+                    router.back();
+                  } catch {
+                    dialogs.alert({ variant: 'error', title: 'Could not block this user', message: 'Please try again.' });
+                  }
+                },
+              });
             },
           },
         ] satisfies ActionItem[]}

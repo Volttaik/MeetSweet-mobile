@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   RefreshControl,
   StyleSheet,
   Switch,
@@ -31,6 +30,7 @@ import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollV
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
+import { dialogs } from '@/components/MsGlobalDialogs';
 import {
   getCreatorDashboard,
   getCreatorSettings,
@@ -594,7 +594,7 @@ export default function CreatorDashboardScreen() {
                   await updateCreatorSettings({ subscriptions_enabled: v });
                 } catch {
                   setSubsEnabled(prev);
-                  Alert.alert('Could not update', 'Please try again.');
+                  dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' });
                 }
               }}
             />
@@ -674,27 +674,29 @@ export default function CreatorDashboardScreen() {
               label="Who can message me"
               value={whoCanMessage === 'everyone' ? 'Everyone' : whoCanMessage === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
-                Alert.alert('Who can message you?', undefined, [
-                  { text: 'Everyone', onPress: async () => {
-                    const prev = whoCanMessage;
-                    setWhoCanMessage('everyone');
-                    try { await updateCreatorSettings({ who_can_message: 'everyone' }); }
-                    catch { setWhoCanMessage(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'Subscribers only', onPress: async () => {
-                    const prev = whoCanMessage;
-                    setWhoCanMessage('subscribers');
-                    try { await updateCreatorSettings({ who_can_message: 'subscribers' }); }
-                    catch { setWhoCanMessage(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'No one', onPress: async () => {
-                    const prev = whoCanMessage;
-                    setWhoCanMessage('none');
-                    try { await updateCreatorSettings({ who_can_message: 'none' }); }
-                    catch { setWhoCanMessage(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'Cancel', style: 'cancel' },
-                ])
+                dialogs.options({
+                  title: 'Who can message you?',
+                  actions: [
+                    { label: 'Everyone', onPress: async () => {
+                      const prev = whoCanMessage;
+                      setWhoCanMessage('everyone');
+                      try { await updateCreatorSettings({ who_can_message: 'everyone' }); }
+                      catch { setWhoCanMessage(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                    { label: 'Subscribers only', onPress: async () => {
+                      const prev = whoCanMessage;
+                      setWhoCanMessage('subscribers');
+                      try { await updateCreatorSettings({ who_can_message: 'subscribers' }); }
+                      catch { setWhoCanMessage(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                    { label: 'No one', onPress: async () => {
+                      const prev = whoCanMessage;
+                      setWhoCanMessage('none');
+                      try { await updateCreatorSettings({ who_can_message: 'none' }); }
+                      catch { setWhoCanMessage(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                  ],
+                })
               }
             />
             <SettingsDivider />
@@ -702,27 +704,29 @@ export default function CreatorDashboardScreen() {
               label="Who can comment"
               value={whoCanComment === 'everyone' ? 'Everyone' : whoCanComment === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
-                Alert.alert('Who can comment?', undefined, [
-                  { text: 'Everyone', onPress: async () => {
-                    const prev = whoCanComment;
-                    setWhoCanComment('everyone');
-                    try { await updateCreatorSettings({ allow_comments: true, who_can_comment: 'everyone' }); }
-                    catch { setWhoCanComment(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'Subscribers only', onPress: async () => {
-                    const prev = whoCanComment;
-                    setWhoCanComment('subscribers');
-                    try { await updateCreatorSettings({ allow_comments: true, who_can_comment: 'subscribers' }); }
-                    catch { setWhoCanComment(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'No one', onPress: async () => {
-                    const prev = whoCanComment;
-                    setWhoCanComment('none');
-                    try { await updateCreatorSettings({ allow_comments: false, who_can_comment: 'none' }); }
-                    catch { setWhoCanComment(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'Cancel', style: 'cancel' },
-                ])
+                dialogs.options({
+                  title: 'Who can comment?',
+                  actions: [
+                    { label: 'Everyone', onPress: async () => {
+                      const prev = whoCanComment;
+                      setWhoCanComment('everyone');
+                      try { await updateCreatorSettings({ allow_comments: true, who_can_comment: 'everyone' }); }
+                      catch { setWhoCanComment(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                    { label: 'Subscribers only', onPress: async () => {
+                      const prev = whoCanComment;
+                      setWhoCanComment('subscribers');
+                      try { await updateCreatorSettings({ allow_comments: true, who_can_comment: 'subscribers' }); }
+                      catch { setWhoCanComment(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                    { label: 'No one', onPress: async () => {
+                      const prev = whoCanComment;
+                      setWhoCanComment('none');
+                      try { await updateCreatorSettings({ allow_comments: false, who_can_comment: 'none' }); }
+                      catch { setWhoCanComment(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                  ],
+                })
               }
             />
             <SettingsDivider />
@@ -730,27 +734,29 @@ export default function CreatorDashboardScreen() {
               label="Who can see my posts"
               value={whoCanSee === 'everyone' ? 'Everyone' : whoCanSee === 'subscribers' ? 'Subscribers only' : 'No one'}
               onPress={() =>
-                Alert.alert('Who can see your posts?', undefined, [
-                  { text: 'Everyone', onPress: async () => {
-                    const prev = whoCanSee;
-                    setWhoCanSee('everyone');
-                    try { await updateCreatorSettings({ who_can_see: 'everyone' }); }
-                    catch { setWhoCanSee(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'Subscribers only', onPress: async () => {
-                    const prev = whoCanSee;
-                    setWhoCanSee('subscribers');
-                    try { await updateCreatorSettings({ who_can_see: 'subscribers' }); }
-                    catch { setWhoCanSee(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'No one', onPress: async () => {
-                    const prev = whoCanSee;
-                    setWhoCanSee('none');
-                    try { await updateCreatorSettings({ who_can_see: 'none' }); }
-                    catch { setWhoCanSee(prev); Alert.alert('Could not update', 'Please try again.'); }
-                  }},
-                  { text: 'Cancel', style: 'cancel' },
-                ])
+                dialogs.options({
+                  title: 'Who can see your posts?',
+                  actions: [
+                    { label: 'Everyone', onPress: async () => {
+                      const prev = whoCanSee;
+                      setWhoCanSee('everyone');
+                      try { await updateCreatorSettings({ who_can_see: 'everyone' }); }
+                      catch { setWhoCanSee(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                    { label: 'Subscribers only', onPress: async () => {
+                      const prev = whoCanSee;
+                      setWhoCanSee('subscribers');
+                      try { await updateCreatorSettings({ who_can_see: 'subscribers' }); }
+                      catch { setWhoCanSee(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                    { label: 'No one', onPress: async () => {
+                      const prev = whoCanSee;
+                      setWhoCanSee('none');
+                      try { await updateCreatorSettings({ who_can_see: 'none' }); }
+                      catch { setWhoCanSee(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
+                    }},
+                  ],
+                })
               }
             />
           </SettingsSection>

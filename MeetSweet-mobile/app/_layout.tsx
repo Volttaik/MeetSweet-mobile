@@ -28,6 +28,7 @@ import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { MsOfflineBanner } from '@/components/MsOfflineBanner';
 import { MsToastHost } from '@/components/MsToast';
+import { MsGlobalDialogsHost } from '@/components/MsGlobalDialogs';
 import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
 import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -184,6 +185,7 @@ export default function RootLayout() {
                         <RootLayoutNav />
                         <MsOfflineBanner />
                         <MsToastHost />
+                        <MsGlobalDialogsHost />
                         <HapticsGate />
                       </PostActionsProvider>
                     </NotificationsProvider>

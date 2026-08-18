@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Pressable,
@@ -37,6 +36,7 @@ import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
 import { useAuth } from '@/contexts/AuthContext';
+import { dialogs } from '@/components/MsGlobalDialogs';
 import { apiFetch } from '@/services/api';
 import { getCategories, type Category } from '@/services/categories';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
@@ -269,7 +269,7 @@ export default function CreatePostScreen() {
 
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Allow access to your media library to upload content.');
+      dialogs.alert({ title: 'Permission required', message: 'Allow access to your media library to upload content.' });
       return;
     }
 
@@ -527,10 +527,18 @@ export default function CreatePostScreen() {
               key={ct.type}
               style={[styles.typeCard, contentType === ct.type && { borderColor: ct.accentColor, borderWidth: 2 }]}
               onPress={() => {
-                // Creator-only types (videos, shorts, albums) route non-creators
-                // into the Become-a-Creator flow instead of a dead-end 403.
+                // Creator-only types (videos, shorts, albums) open the styled
+                // creator gate sheet; on server-confirmed activation the flow
+                // continues here. The server stays the authority.
                 if ((ct.type === 'video' || ct.type === 'shorts' || ct.type === 'album') && user && !user.isCreator) {
-                  router.push('/become-creator');
+                  dialogs.creatorGate({
+                    message: ct.type === 'album'
+                      ? 'Albums are a creator feature — set a price and sell your collection.'
+                      : ct.type === 'video'
+                        ? 'Long-form videos are a creator feature.'
+                        : 'Shorts are a creator feature.',
+                    onSuccess: () => { setContentType(ct.type); setStep('onboard'); },
+                  });
                   return;
                 }
                 setContentType(ct.type);

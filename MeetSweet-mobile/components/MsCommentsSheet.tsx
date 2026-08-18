@@ -14,7 +14,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   FlatList,
   Keyboard,
@@ -43,6 +42,8 @@ import {
 
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsShimmer } from '@/components/MsShimmer';
+import { dialogs } from '@/components/MsGlobalDialogs';
+import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import { T } from '@/constants/theme';
 import { getPost } from '@/services/posts';
@@ -324,22 +325,22 @@ export function CommentRow({
 
   const handleMenu = useCallback(() => {
     const options = isOwn ? ['Edit', 'Delete'] : ['Report'];
-    Alert.alert('Comment Actions', undefined, [
-      ...options.map((option) => ({
-        text: option,
-        style: option === 'Delete' ? ('destructive' as const) : ('default' as const),
+    dialogs.options({
+      title: 'Comment Actions',
+      actions: options.map((option) => ({
+        label: option,
+        destructive: option === 'Delete',
         onPress: () => {
           if (option === 'Edit' && onEdit) {
             onEdit(comment);
           } else if (option === 'Delete') {
             onDelete(comment.id);
           } else if (option === 'Report') {
-            Alert.alert('Reported', 'Thank you for keeping MeetSweet safe.');
+            toast.success('Reported — thank you for keeping MeetSweet safe.');
           }
         },
       })),
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    });
   }, [isOwn, comment, onEdit, onDelete]);
 
   return (
@@ -526,7 +527,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
     const body = text.trim();
     if (!body || sending) return;
     if (!commentsEnabled || !roomId) {
-      Alert.alert('Comments are off', 'The author has turned off comments for this post.');
+      dialogs.alert({ title: 'Comments are off', message: 'The author has turned off comments for this post.' });
       return;
     }
 
@@ -539,7 +540,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
         setText('');
         setEditingComment(null);
       } catch {
-        Alert.alert('Error', 'Could not update comment.');
+        dialogs.alert({ variant: 'error', title: 'Could not update comment' });
       } finally {
         setSending(false);
       }
@@ -576,7 +577,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
       setComments((prev) => prev.map((c) => (c.id === tempId ? toLocalComment(res.comment) : c)));
     } catch {
       setComments((prev) => prev.filter((c) => c.id !== tempId));
-      Alert.alert('Error', 'Could not post comment. Please try again.');
+      dialogs.alert({ variant: 'error', title: 'Could not post comment', message: 'Please try again.' });
     } finally {
       setSending(false);
     }
@@ -618,21 +619,20 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
 
   const handleDelete = useCallback(
     (commentId: string) => {
-      Alert.alert('Delete comment', 'Are you sure you want to delete this comment?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setComments((prev) => prev.filter((c) => c.id !== commentId));
-            try {
-              await deleteRoomComment(roomId ?? '', commentId);
-            } catch {
-              // ignore
-            }
-          },
+      dialogs.confirm({
+        title: 'Delete comment',
+        message: 'Are you sure you want to delete this comment?',
+        confirmLabel: 'Delete',
+        destructive: true,
+        onConfirm: async () => {
+          setComments((prev) => prev.filter((c) => c.id !== commentId));
+          try {
+            await deleteRoomComment(roomId ?? '', commentId);
+          } catch {
+            // ignore
+          }
         },
-      ]);
+      });
     },
     [roomId, setComments],
   );
@@ -928,21 +928,20 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
 
   const handleDelete = useCallback(
     (commentId: string) => {
-      Alert.alert('Delete comment', 'Remove this comment?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setComments((prev) => prev.filter((c) => c.id !== commentId));
-            try {
-              await deleteRoomComment(roomId ?? '', commentId);
-            } catch {
-              // ignore
-            }
-          },
+      dialogs.confirm({
+        title: 'Delete comment',
+        message: 'Remove this comment?',
+        confirmLabel: 'Delete',
+        destructive: true,
+        onConfirm: async () => {
+          setComments((prev) => prev.filter((c) => c.id !== commentId));
+          try {
+            await deleteRoomComment(roomId ?? '', commentId);
+          } catch {
+            // ignore
+          }
         },
-      ]);
+      });
     },
     [roomId, setComments],
   );

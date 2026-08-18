@@ -23,6 +23,7 @@ import {
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { becomeCreator } from '@/services/creator';
+import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
 
@@ -63,8 +64,10 @@ export default function BecomeCreatorScreen() {
       await becomeCreator();
       // Re-pull the account from the server so creator state (role/is_creator)
       // is authoritative everywhere — the UI must never decide creator status
-      // on its own.
+      // on its own. Every creator-gated button reads this state, so they all
+      // disappear the moment the server confirms.
       await refreshUser();
+      toast.success('You are now a creator!');
       router.back();
     } catch (e) {
       setSubmitting(false);

@@ -10,7 +10,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   Dimensions,
   Image,
@@ -27,6 +26,7 @@ import { Audio } from 'expo-av';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import { dialogs } from '@/components/MsGlobalDialogs';
 import {
   X,
   Play,
@@ -183,7 +183,7 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
       setIsPlaying(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     } catch {
-      Alert.alert('Playback error', 'Could not play the audio.');
+      dialogs.alert({ variant: 'error', title: 'Playback error', message: 'Could not play the audio.' });
     }
   };
 

@@ -49,6 +49,8 @@ import { ArrowBendUpLeft, ChatCircle, Heart, PaperPlaneRight, SlidersHorizontal,
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { CommentShimmerSkeleton } from '@/components/MsCommentsSheet';
+import { dialogs } from '@/components/MsGlobalDialogs';
+import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getCommentRoom,
@@ -401,10 +403,11 @@ export function MsCommentRoomPanel({
   const handleMenu = useCallback((comment: CommentRoomComment) => {
     const own = comment.author.id === currentUserId;
     const options = own ? ['Edit', 'Delete'] : ['Report'];
-    Alert.alert('Comment', undefined, [
-      ...options.map((option) => ({
-        text: option,
-        style: option === 'Delete' ? 'destructive' as const : 'default' as const,
+    dialogs.options({
+      title: 'Comment',
+      actions: options.map((option) => ({
+        label: option,
+        destructive: option === 'Delete',
         onPress: () => {
           if (option === 'Edit') {
             Alert.prompt(
@@ -418,43 +421,41 @@ export function MsCommentRoomPanel({
                     item.id === comment.id ? { ...item, body: body.trim() } : item,
                   ));
                 } catch {
-                  Alert.alert('Could not edit comment', 'Please try again.');
+                  dialogs.alert({ variant: 'error', title: 'Could not edit comment', message: 'Please try again.' });
                 }
               },
               'plain-text',
               comment.body,
             );
           } else if (option === 'Delete') {
-            Alert.alert('Delete comment?', 'This cannot be undone.', [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: async () => {
-                  if (!commentRoomId) return;
-                  try {
-                    await deleteRoomComment(commentRoomId, comment.id);
-                    setComments((items) => items.filter((item) => item.id !== comment.id));
-                  } catch {
-                    Alert.alert('Could not delete comment', 'Please try again.');
-                  }
-                },
+            dialogs.confirm({
+              title: 'Delete comment?',
+              message: 'This cannot be undone.',
+              confirmLabel: 'Delete',
+              destructive: true,
+              onConfirm: async () => {
+                if (!commentRoomId) return;
+                try {
+                  await deleteRoomComment(commentRoomId, comment.id);
+                  setComments((items) => items.filter((item) => item.id !== comment.id));
+                } catch {
+                  dialogs.alert({ variant: 'error', title: 'Could not delete comment', message: 'Please try again.' });
+                }
               },
-            ]);
+            });
           } else if (option === 'Report') {
-            Alert.alert('Report comment', 'Thanks — our team will review this.');
+            toast.success('Reported — thanks, our team will review this.');
           }
         },
       })),
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    });
   }, [commentRoomId, currentUserId]);
 
   const submit = useCallback(async () => {
     const body = draft.trim();
     if (!body || !commentRoomId || sending) return;
     if (!roomEnabled) {
-      Alert.alert('Comments are disabled', 'The author has turned off comments for this post.');
+      dialogs.alert({ title: 'Comments are disabled', message: 'The author has turned off comments for this post.' });
       return;
     }
     setSending(true);
@@ -467,7 +468,7 @@ export function MsCommentRoomPanel({
       setDraft('');
       setReplyingTo(null);
     } catch {
-      Alert.alert('Could not post comment', 'Please try again.');
+      dialogs.alert({ variant: 'error', title: 'Could not post comment', message: 'Please try again.' });
     } finally {
       setSending(false);
     }
