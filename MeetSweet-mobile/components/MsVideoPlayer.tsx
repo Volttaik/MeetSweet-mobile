@@ -230,6 +230,12 @@ export function MsVideoPlayer({
   // download has since completed) — expo-av restarts from 0 on ANY source
   // change, which is what made playback "jump back to the beginning".
   const lastResolvedUriRef = useRef<string | null>(null);
+  // Guards the engine-source resolution to ONE hand-off per (videoId, url)
+  // session. Without it, a background cache download finishing mid-session
+  // (the resolution effect re-runs on every `active` flip) swapped the engine
+  // source remote → cached file and expo-av restarted playback from 0 — the
+  // "seek/position jumps back to the beginning" bug.
+  const lastResolvedSessionRef = useRef<string | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -447,22 +453,28 @@ export function MsVideoPlayer({
       return;
     }
 
+    const sessionKey = `${videoId}::${selectedUrl}`;
+    if (lastResolvedSessionRef.current === sessionKey) {
+      // This session already handed a source to the engine — never swap it
+      // mid-playback (a remote → cached-file swap restarts the video at 0).
+      // The background download may still finish the cache for NEXT session.
+      if (active || prebuffer || autoPlay || isShorts) {
+        downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
+      }
+      return;
+    }
+
     // 1. Check if video already exists in local disk cache
     getCachedVideoFile(selectedUrl, cacheKey).then((cachedPath) => {
       if (!isCurrent) return;
       const next = cachedPath ?? selectedUrl;
-      // Only hand the engine a NEW source URI. Re-setting the same value is a
-      // no-op for state but still reloads the native Video node — and swapping
-      // remote → cached file mid-session (a background download finishing while
-      // `active` flips) used to restart playback from 0 mid-watch.
-      if (lastResolvedUriRef.current !== next) {
-        lastResolvedUriRef.current = next;
-        setPlayableUri(next);
-        if (!cachedPath) {
-          // Start background download if player is active, prebuffering, or shorts
-          if (active || prebuffer || autoPlay || isShorts) {
-            downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
-          }
+      lastResolvedSessionRef.current = sessionKey;
+      lastResolvedUriRef.current = next;
+      setPlayableUri(next);
+      if (!cachedPath) {
+        // Start background download if player is active, prebuffering, or shorts
+        if (active || prebuffer || autoPlay || isShorts) {
+          downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
         }
       }
     });
@@ -684,12 +696,15 @@ export function MsVideoPlayer({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const seekBy = useCallback((deltaS: number, ref: React.RefObject<Video | null>) => {
-    const target = Math.max(0, Math.min(durationRef.current, positionRef.current + deltaS * 1000));
+    // Fall back to the duration state when the ref is unseeded (first tick not
+    // yet arrived) so a double-tap seek can never clamp to 0 / "jump back".
+    const d = durationRef.current > 0 ? durationRef.current : durationMs;
+    const target = Math.max(0, Math.min(d, positionRef.current + deltaS * 1000));
     ref.current?.setPositionAsync(target).catch(() => {});
     positionRef.current = target;
-    if (durationRef.current > 0) setProgress(target / durationRef.current);
+    if (d > 0) setProgress(target / d);
     setPositionMs(target);
-  }, []);
+  }, [durationMs]);
 
   // ── Standard tap (single / double) ───────────────────────────────────────
   const handleStandardPress = useCallback((tapX: number, tapY: number) => {
