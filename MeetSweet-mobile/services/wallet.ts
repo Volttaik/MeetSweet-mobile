@@ -29,6 +29,7 @@ export interface DepositInitResult {
   bankName: string | null;
   accountName?: string | null;
   amount: number;
+  expiresAt?: string | null;
 }
 
 export interface CreatorBalance {
@@ -132,6 +133,58 @@ export async function verifyWalletDeposit(transactionId: string): Promise<{ succ
     success: Boolean(resp.success ?? resp.verified ?? false),
     amountAdded: resp.amountAdded ?? resp.amount_added ?? resp.amount ?? 0,
     newBalance: resp.newBalance ?? resp.new_balance ?? resp.balance ?? 0,
+  };
+}
+
+// ─── In-app bank-transfer top-up (no hosted checkout) ───────────────────────
+
+/**
+ * Start an in-app bank-transfer top-up. The server returns a dedicated virtual
+ * account the user transfers into — the app never opens Chrome / a hosted
+ * Paystack checkout for this funding method.
+ */
+export async function initiateBankTransferDeposit(amount: number): Promise<DepositInitResult> {
+  const resp = await authedRequest<any>('/payments/initiate-transfer', {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  });
+
+  const transactionId = resp.transactionId ?? resp.transaction_id ?? resp.id;
+  if (!transactionId) {
+    throw new Error('Transfer could not be initiated: the server returned no transaction id.');
+  }
+
+  return {
+    transactionId: String(transactionId),
+    reference: resp.reference ?? resp.ref,
+    authorizationUrl: null,
+    accountNumber: resp.accountNumber ?? resp.account_number ?? null,
+    bankName: resp.bankName ?? resp.bank_name ?? null,
+    accountName: resp.accountName ?? resp.account_name ?? null,
+    amount: resp.amount ?? amount,
+    expiresAt: resp.expiresAt ?? resp.expires_at ?? null,
+  };
+}
+
+/**
+ * Ask the server to independently verify the transfer and credit the wallet.
+ * Never credits on the client — success only after server-side Paystack
+ * verification of the actual incoming transfer.
+ */
+export async function confirmBankTransferDeposit(
+  transactionId: string,
+): Promise<{ success: boolean; status: string; amountAdded: number; newBalance: number; message?: string }> {
+  const resp = await authedRequest<any>('/payments/confirm-transfer', {
+    method: 'POST',
+    body: JSON.stringify({ transactionId }),
+  });
+
+  return {
+    success: Boolean(resp.success ?? false),
+    status: resp.status ?? (resp.success ? 'success' : 'pending'),
+    amountAdded: resp.amountAdded ?? resp.amount_added ?? resp.amount ?? 0,
+    newBalance: resp.newBalance ?? resp.new_balance ?? resp.balance ?? 0,
+    message: resp.message,
   };
 }
 

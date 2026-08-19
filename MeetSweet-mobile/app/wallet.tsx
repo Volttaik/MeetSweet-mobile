@@ -36,7 +36,6 @@ import {
   Warning,
 } from 'phosphor-react-native';
 import * as Clipboard from 'expo-clipboard';
-import * as WebBrowser from 'expo-web-browser';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 import { toast } from '@/components/MsToast';
@@ -46,8 +45,8 @@ import {
   WALLET_QUICK_AMOUNTS,
   getWallet,
   type Transaction,
-  initiateWalletDeposit,
-  verifyWalletDeposit,
+  initiateBankTransferDeposit,
+  confirmBankTransferDeposit,
   type DepositInitResult,
 } from '@/services/wallet';
 
@@ -151,7 +150,6 @@ function PaymentPendingView({
   verifyState: VerifyState;
 }) {
   const [copied, setCopied] = useState(false);
-  const [openingPayment, setOpeningPayment] = useState(false);
   const hasBankTransfer = Boolean(result.accountNumber && result.bankName);
 
   const copyAccount = async () => {
@@ -162,35 +160,15 @@ function PaymentPendingView({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const openPayment = async () => {
-    if (!result.authorizationUrl || openingPayment) return;
-    setOpeningPayment(true);
-    try {
-      // In-app browser (Android Custom Tabs / iOS Safari View Controller) —
-      // keeps the Paystack hosted checkout inside MeetSweet instead of
-      // launching the external Chrome app. The real payment still completes
-      // on Paystack and is confirmed via verify-paystack below.
-      await WebBrowser.openBrowserAsync(result.authorizationUrl, {
-        toolbarColor: T.BG,
-        controlsColor: T.ACCENT,
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-      });
-    } catch {
-      toast.error('Could not open the payment page.');
-    } finally {
-      setOpeningPayment(false);
-    }
-  };
-
   return (
     <KeyboardAwareScrollViewCompat showsVerticalScrollIndicator={false} contentContainerStyle={pendStyles.scroll}>
       <View style={pendStyles.iconWrap}>
         <Clock size={32} color={T.TEXT} weight="duotone" />
       </View>
 
-      <Text style={pendStyles.title}>Complete Payment</Text>
+      <Text style={pendStyles.title}>Transfer to Fund Wallet</Text>
       <Text style={pendStyles.subtitle}>
-        Complete your {formatNaira(result.amount)} payment securely, then return here to confirm.
+        Transfer exactly {formatNaira(result.amount)} to the account below from your bank app, then return here to confirm.
       </Text>
 
       {hasBankTransfer && (
@@ -200,6 +178,15 @@ function PaymentPendingView({
             <Text style={pendStyles.cardVal}>{result.bankName}</Text>
           </View>
           <View style={pendStyles.separator} />
+          {Boolean(result.accountName) && (
+            <>
+              <View style={pendStyles.cardRow}>
+                <Text style={pendStyles.cardKey}>ACCOUNT NAME</Text>
+                <Text style={pendStyles.cardVal}>{result.accountName}</Text>
+              </View>
+              <View style={pendStyles.separator} />
+            </>
+          )}
           <View style={pendStyles.cardRow}>
             <Text style={pendStyles.cardKey}>ACCOUNT NUMBER</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -207,8 +194,7 @@ function PaymentPendingView({
               <TouchableOpacity onPress={copyAccount} hitSlop={8}>
                 {copied
                   ? <CheckCircle size={18} color={T.SUCCESS} weight="fill" />
-                  : <Copy size={18} color={T.TEXT_2} />
-                }
+                  : <Copy size={18} color={T.TEXT_2} />}
               </TouchableOpacity>
             </View>
           </View>
@@ -226,47 +212,30 @@ function PaymentPendingView({
         <View style={pendStyles.infoRow}>
           <Warning size={14} color={T.TEXT_3} />
           <Text style={pendStyles.infoText}>
-            Transfer the exact amount shown. Partial or incorrect amounts cannot be confirmed automatically.
+            Transfer the exact amount shown. Partial or incorrect amounts will not be credited.
+            {result.expiresAt ? ' This account expires — if it does, start a new transfer.' : ''}
           </Text>
         </View>
-      )}
-
-      {result.authorizationUrl && (
-        <TouchableOpacity
-          style={[pendStyles.primaryBtn, openingPayment && pendStyles.primaryBtnLoading]}
-          onPress={openPayment}
-          activeOpacity={0.85}
-          disabled={openingPayment}
-        >
-          {openingPayment ? (
-            <>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={[pendStyles.primaryLabel, { marginLeft: 8 }]}>Opening Paystack…</Text>
-            </>
-          ) : (
-            <Text style={pendStyles.primaryLabel}>Continue to payment</Text>
-          )}
-        </TouchableOpacity>
       )}
 
       {verifyState === 'failed' && (
         <View style={pendStyles.failBox}>
           <Text style={pendStyles.failText}>
-            Payment not confirmed yet. Please wait a few minutes and try again, or contact support.
+            Transfer not confirmed yet. Please wait a few minutes and try again, or contact support.
           </Text>
         </View>
       )}
 
       <TouchableOpacity
-        style={[pendStyles.secondaryBtn, verifyState === 'checking' && pendStyles.paidBtnLoading]}
+        style={[pendStyles.primaryBtn, verifyState === 'checking' && pendStyles.primaryBtnLoading]}
         onPress={onVerify}
         activeOpacity={0.85}
         disabled={verifyState === 'checking'}
       >
         {verifyState === 'checking' ? (
-          <ActivityIndicator color={T.BG} size="small" />
+          <ActivityIndicator size="small" color="#fff" />
         ) : (
-          <Text style={[pendStyles.paidLabel, { color: T.TEXT }]}>I have paid</Text>
+          <Text style={pendStyles.primaryLabel}>Confirm Transaction</Text>
         )}
       </TouchableOpacity>
 
@@ -438,12 +407,12 @@ export default function WalletScreen() {
     if (initiating) return;
     setInitiating(true);
     try {
-      const result = await initiateWalletDeposit(amt);
+      const result = await initiateBankTransferDeposit(amt);
       setDepositResult(result);
       setStep('pending');
       setVerifyState('idle');
     } catch {
-      toast.error('Could not initiate payment. Please try again.');
+      toast.error('Could not start the transfer. Please try again.');
     } finally {
       setInitiating(false);
     }
@@ -453,12 +422,15 @@ export default function WalletScreen() {
     if (!depositResult || verifyState === 'checking') return;
     setVerifyState('checking');
     try {
-      const res = await verifyWalletDeposit(depositResult.transactionId);
+      const res = await confirmBankTransferDeposit(depositResult.transactionId);
       if (res.success) {
         setAddedAmount(res.amountAdded);
         setNewBalance(res.newBalance);
         setBalance(res.newBalance);
         setStep('success');
+      } else if (res.status === 'expired') {
+        toast.error('This transfer account has expired. Please start a new transfer.');
+        setVerifyState('idle');
       } else {
         setVerifyState('failed');
       }
