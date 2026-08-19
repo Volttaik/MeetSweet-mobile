@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -104,13 +105,18 @@ export default function TwoFactorScreen() {
 
         <Animated.View style={[styles.inner, contentStyle]}>
           <View style={styles.iconCircle}>
-            <ShieldCheck size={34} color="#FFFFFF" />
+            <Image
+              source={require('../assets/images/logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              tintColor="#FFFFFF"
+            />
           </View>
 
           <View style={styles.headerText}>
             <Text style={styles.title}>Two-Factor Authentication</Text>
             <Text style={styles.subtitle}>
-              Enter the 6-digit code from your authenticator app to finish signing in.
+              We sent a 6-digit code to your email. Enter it below to finish signing in.
             </Text>
           </View>
 
@@ -189,6 +195,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  logo: { width: 34, height: 34 },
+
   headerText: { alignItems: 'center', gap: 10 },
   title: {
     fontSize: 26,

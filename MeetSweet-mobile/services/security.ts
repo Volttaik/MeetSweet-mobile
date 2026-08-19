@@ -1,8 +1,9 @@
 /**
  * security.ts — Two-factor authentication service.
  *
- * Wraps the backend TOTP endpoints (/auth/2fa/*) so the settings screen and
- * login flow never talk to the raw routes directly.
+ * Wraps the backend 2FA endpoints (/auth/2fa/*). Two-factor authentication is
+ * email-code based: enabling, logging in, and disabling each verify a 6-digit
+ * code sent to the account's email — there is no authenticator app or TOTP.
  */
 import { getAccessToken } from '@/lib/session-storage';
 import { apiFetch, authFetch } from './api';
@@ -11,9 +12,9 @@ export interface TwoFactorStatus {
   enabled: boolean;
 }
 
-export interface TwoFactorSetup {
-  secret: string;
-  otpauth_url: string;
+export interface TwoFactorCodeSent {
+  sent: boolean;
+  expires_in_seconds?: number;
 }
 
 async function authed<T>(path: string, options: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}): Promise<T> {
@@ -26,12 +27,15 @@ export async function getTwoFactorStatus(): Promise<TwoFactorStatus> {
   return authed<TwoFactorStatus>('/auth/2fa/status');
 }
 
-/** Generate a fresh secret + otpauth URL. Does NOT enable 2FA yet. */
-export async function setupTwoFactor(): Promise<TwoFactorSetup> {
-  return authed<TwoFactorSetup>('/auth/2fa/setup', { method: 'POST' });
+/**
+ * Email a fresh 6-digit code to the account owner. Called before enabling 2FA
+ * and again before disabling it (a current code is required in both cases).
+ */
+export async function sendTwoFactorCode(): Promise<TwoFactorCodeSent> {
+  return authed<TwoFactorCodeSent>('/auth/2fa/setup', { method: 'POST' });
 }
 
-/** Confirm the secret by submitting a current code — enables 2FA. */
+/** Confirm the emailed code — enables 2FA on the account. */
 export async function enableTwoFactor(code: string): Promise<{ enabled: boolean }> {
   return authed<{ enabled: boolean }>('/auth/2fa/enable', {
     method: 'POST',
@@ -39,7 +43,7 @@ export async function enableTwoFactor(code: string): Promise<{ enabled: boolean 
   });
 }
 
-/** Disable 2FA (requires password + a current code when already active). */
+/** Disable 2FA (requires password + a current emailed code when already active). */
 export async function disableTwoFactor(password: string, code?: string): Promise<{ enabled: boolean }> {
   return authed<{ enabled: boolean }>('/auth/2fa/disable', {
     method: 'POST',
@@ -47,7 +51,7 @@ export async function disableTwoFactor(password: string, code?: string): Promise
   });
 }
 
-/** Complete a login challenge with a 6-digit authenticator code. */
+/** Complete a login challenge with the 6-digit code emailed during login. */
 export async function verifyTwoFactorLogin(challengeToken: string, code: string): Promise<{
   access_token: string;
   refresh_token: string;

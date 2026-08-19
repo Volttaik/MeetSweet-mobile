@@ -9,7 +9,10 @@ export interface MediaQuality {
   label: string;
   /** Playable URL for this variant (never present for locked content). */
   url: string;
+  /** Rendition height in pixels (null for "Auto"). */
   height?: number | null;
+  /** Index of this rendition inside the HLS manifest (for track selection). */
+  index?: number | null;
 }
 
 export interface PostAuthor {

@@ -13,12 +13,13 @@ import {
   ActivityIndicator,
   AppState,
   type AppStateStatus,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Fingerprint, LockKey } from 'phosphor-react-native';
+import { Fingerprint } from 'phosphor-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { T } from '@/constants/theme';
 import { authenticateBiometric, isBiometricEnabled } from '@/lib/biometric';
@@ -69,7 +70,12 @@ function LockScreen({ onUnlock }: { onUnlock: () => Promise<boolean> }) {
     <View style={styles.overlay}>
       <View style={styles.inner}>
         <View style={styles.iconCircle}>
-          <LockKey size={34} color={T.TEXT} weight="fill" />
+          <Image
+            source={require('@/assets/images/logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+            tintColor="#FFFFFF"
+          />
         </View>
         <Text style={styles.title}>MeetSweet is locked</Text>
         <Text style={styles.subtitle}>
@@ -190,6 +196,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
+  logo: { width: 40, height: 40 },
+
   title: {
     fontSize: 22,
     fontFamily: T.FONT.bold,

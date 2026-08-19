@@ -67,10 +67,9 @@ import {
   updateSettings,
 } from '@/services/settings';
 import { checkUsernameAvailability, updateMe } from '@/services/users';
-import * as Clipboard from 'expo-clipboard';
 import {
   getTwoFactorStatus,
-  setupTwoFactor,
+  sendTwoFactorCode,
   enableTwoFactor,
   disableTwoFactor,
 } from '@/services/security';
@@ -285,7 +284,6 @@ function strengthOf(pw: string): { label: string; color: string; width: number }
 
 const PRIVACY_KEY = '@ms_privacy_prefs';
 const NOTIF_KEY = '@ms_notif_prefs';
-const CONTENT_KEY = '@ms_content_prefs';
 
 function getPrefKey(baseKey: string, userId?: string): string {
   return userId ? `${baseKey}_${userId}` : baseKey;
@@ -310,14 +308,6 @@ interface NotifPrefs {
   marketing: boolean;
 }
 
-interface ContentPrefs {
-  sensitiveContent: boolean;
-  autoplay: boolean;
-  dataSaver: boolean;
-  highQualityMedia: boolean;
-  language: string;
-}
-
 const PRIVACY_DEFAULTS: PrivacyPrefs = {
   privateAccount: false,
   onlineStatus: true,
@@ -335,14 +325,6 @@ const NOTIF_DEFAULTS: NotifPrefs = {
   likes: true,
   mentions: true,
   marketing: false,
-};
-
-const CONTENT_DEFAULTS: ContentPrefs = {
-  sensitiveContent: false,
-  autoplay: true,
-  dataSaver: false,
-  highQualityMedia: true,
-  language: 'English',
 };
 
 async function loadPref<T extends object>(key: string, defaults: T, userId?: string): Promise<T> {
@@ -1092,42 +1074,6 @@ function ProfileVisibilityModal({
   );
 }
 
-// ─── MODAL: Language ──────────────────────────────────────────────────────────
-
-const LANGUAGES = ['English', 'Spanish', 'French', 'German', 'Portuguese', 'Japanese', 'Arabic', 'Hindi', 'Swahili'];
-
-function LanguageModal({
-  visible,
-  onClose,
-  value,
-  onChange,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <BottomSheet visible={visible} onClose={onClose} title="Language">
-      <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
-        {LANGUAGES.map((lang, i) => (
-          <React.Fragment key={lang}>
-            {i > 0 && <Divider />}
-            <TouchableOpacity
-              style={rs.row}
-              onPress={() => { onChange(lang); onClose(); toast.success(`Language set to ${lang}`); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[rs.rowLabel, { flex: 1 }]}>{lang}</Text>
-              {value === lang && <CheckCircle size={20} color={T.TEXT} weight="fill" />}
-            </TouchableOpacity>
-          </React.Fragment>
-        ))}
-      </ScrollView>
-    </BottomSheet>
-  );
-}
-
 // ─── MODAL: Support ───────────────────────────────────────────────────────────
 
 function SupportModal({
@@ -1348,7 +1294,7 @@ const ms = StyleSheet.create({
 
 function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [phase, setPhase] = useState<'loading' | 'disabled' | 'setup' | 'enabled'>('loading');
-  const [secret, setSecret] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1360,31 +1306,26 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
     setError('');
     setCode('');
     setPassword('');
+    setCodeSent(false);
     getTwoFactorStatus()
       .then((s) => setPhase(s.enabled ? 'enabled' : 'disabled'))
       .catch(() => setPhase('disabled'));
   }, [visible]);
 
-  const beginSetup = async () => {
+  // Emails a fresh 6-digit code to the account owner. Used both to enable
+  // 2FA and to confirm disabling it — no authenticator app involved.
+  const sendCode = async () => {
     setBusy(true);
     setError('');
     try {
-      const s = await setupTwoFactor();
-      setSecret(s.secret);
-      setPhase('setup');
+      await sendTwoFactorCode();
+      setCodeSent(true);
+      setCode('');
+      toast.success('Code sent to your email');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to start setup');
+      setError(e instanceof Error ? e.message : 'Failed to send the code');
     } finally {
       setBusy(false);
-    }
-  };
-
-  const copySecret = async () => {
-    try {
-      await Clipboard.setStringAsync(secret);
-      toast.success('Secret copied');
-    } catch {
-      toast.error('Could not copy secret');
     }
   };
 
@@ -1400,7 +1341,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
       setPhase('enabled');
       toast.success('Two-factor authentication enabled');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Invalid code');
+      setError(e instanceof Error ? e.message : 'Invalid or expired code');
     } finally {
       setBusy(false);
     }
@@ -1412,7 +1353,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
       return;
     }
     if (code.length !== 6) {
-      setError('Enter the 6-digit code');
+      setError('Enter the 6-digit code from your email');
       return;
     }
     setBusy(true);
@@ -1437,31 +1378,24 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
       ) : phase === 'disabled' ? (
         <View style={{ gap: 12 }}>
           <Text style={ms.sub}>
-            Add a second layer of security to your account. After enabling, you'll enter a
-            6-digit code from your authenticator app each time you log in.
+            Add a second layer of security to your account. After enabling, we'll email you a
+            6-digit code each time you log in — enter it to finish signing in.
           </Text>
           <View style={ms.buttons}>
             <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
               <Text style={ms.cancelLabel}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={beginSetup} disabled={busy} activeOpacity={0.8}>
-              {busy ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={ms.saveLabel}>Set Up</Text>}
+            <TouchableOpacity style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={sendCode} disabled={busy} activeOpacity={0.8}>
+              {busy ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={ms.saveLabel}>Enable</Text>}
             </TouchableOpacity>
           </View>
         </View>
       ) : phase === 'setup' ? (
         <View style={{ gap: 12 }}>
           <Text style={ms.sub}>
-            Enter this secret in your authenticator app (Google Authenticator, 1Password, etc.),
-            then enter the 6-digit code to confirm.
+            We've emailed a 6-digit code to {`your account's email`}. Enter it below to turn on
+            two-factor authentication.
           </Text>
-          <View style={{ backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md, padding: 14, gap: 8 }}>
-            <Text style={ms.label}>Secret key</Text>
-            <Text style={{ color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 16, letterSpacing: 1 }}>{secret}</Text>
-            <TouchableOpacity onPress={copySecret} hitSlop={8}>
-              <Text style={{ color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 }}>Copy secret</Text>
-            </TouchableOpacity>
-          </View>
           <View style={{ gap: 6 }}>
             <Text style={ms.label}>Verification code</Text>
             <MsInput
@@ -1475,6 +1409,13 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
               maxLength={6}
             />
           </View>
+          {codeSent && (
+            <TouchableOpacity onPress={sendCode} disabled={busy} hitSlop={8} style={{ alignSelf: 'flex-start' }}>
+              <Text style={{ color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 }}>
+                {busy ? 'Sending…' : 'Resend code'}
+              </Text>
+            </TouchableOpacity>
+          )}
           {!!error && <Text style={{ color: T.ERROR, fontSize: 12, fontFamily: T.FONT.regular }}>{error}</Text>}
           <View style={ms.buttons}>
             <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
@@ -1491,7 +1432,19 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
             <View style={[ms.statusDot, { backgroundColor: T.SUCCESS }]} />
             <Text style={ms.statusLabel}>Two-factor authentication is on</Text>
           </View>
-          <Text style={ms.sub}>To turn it off, confirm your password and a current 6-digit code.</Text>
+          <Text style={ms.sub}>
+            To turn it off, confirm your password and a current 6-digit code from your email.
+          </Text>
+          {!codeSent && (
+            <TouchableOpacity
+              style={[ms.saveBtn, { backgroundColor: T.SURFACE_2 }, busy && { opacity: 0.6 }]}
+              onPress={sendCode}
+              disabled={busy}
+              activeOpacity={0.8}
+            >
+              {busy ? <ActivityIndicator size="small" color={T.TEXT} /> : <Text style={[ms.saveLabel, { color: T.TEXT }]}>Send code to email</Text>}
+            </TouchableOpacity>
+          )}
           <View style={{ gap: 6 }}>
             <Text style={ms.label}>Password</Text>
             <MsInput
@@ -1512,7 +1465,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
                 setCode(v.replace(/[^0-9]/g, '').slice(0, 6));
                 setError('');
               }}
-              placeholder="Authenticator code"
+              placeholder="Code from your email"
               keyboardType="number-pad"
               maxLength={6}
             />
@@ -1544,7 +1497,7 @@ export default function SettingsScreen() {
     | 'editProfile' | 'username' | 'email' | 'phone'
     | 'changePassword' | 'activeSessions'
     | 'profileVisibility' | 'mentionPerm'
-    | 'language' | 'help' | 'bug' | 'contact' | 'about'
+    | 'help' | 'bug' | 'contact' | 'about'
     | 'twoFactor'
     | null
   >(null);
@@ -1557,8 +1510,6 @@ export default function SettingsScreen() {
   const [privacy, setPrivacy] = useState<PrivacyPrefs>(PRIVACY_DEFAULTS);
   // Notification prefs
   const [notif, setNotif] = useState<NotifPrefs>(NOTIF_DEFAULTS);
-  // Content prefs
-  const [content, setContent] = useState<ContentPrefs>(CONTENT_DEFAULTS);
   // Security prefs
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
@@ -1572,8 +1523,7 @@ export default function SettingsScreen() {
       getPrivacySettings(),
       getNotificationSettings(),
       getSettings(),
-      loadPref(CONTENT_KEY, CONTENT_DEFAULTS, userId),
-    ]).then(async ([privResult, notifResult, settingsResult, contentResult]) => {
+    ]).then(async ([privResult, notifResult, settingsResult]) => {
       if (privResult.status === 'fulfilled') {
         const p = privResult.value;
         setPrivacy({
@@ -1603,19 +1553,6 @@ export default function SettingsScreen() {
       if (settingsResult.status === 'fulfilled') {
         const s = settingsResult.value;
         notifBase.push = s.push_notifications ?? NOTIF_DEFAULTS.push;
-        setContent((prev) => ({
-          ...prev,
-          sensitiveContent: s.sensitive_content ?? prev.sensitiveContent,
-          autoplay: s.autoplay_media ?? prev.autoplay,
-          dataSaver: s.data_saver ?? prev.dataSaver,
-          highQualityMedia: s.high_quality_media ?? prev.highQualityMedia,
-          language: s.language ?? prev.language,
-        }));
-      } else if (contentResult.status === 'fulfilled') {
-        // Server unavailable — fall back to the user's last-saved local prefs
-        // so the screen doesn't silently reset to defaults. The server stays
-        // authoritative whenever it can answer.
-        setContent((prev) => ({ ...prev, ...contentResult.value }));
       }
       setNotif(notifBase);
     });
@@ -1723,33 +1660,6 @@ export default function SettingsScreen() {
       toast.error('Failed to save notification preference');
     }
   }, [notif, user?.id]);
-
-  const setC = useCallback((key: keyof ContentPrefs) => async (value: any) => {
-    const prevVal = content[key];
-    setContent((prev) => ({ ...prev, [key]: value }));
-    savePref(CONTENT_KEY, { ...content, [key]: value }, user?.id);
-
-    const patchMap: Partial<Record<keyof ContentPrefs, Record<string, any>>> = {
-      sensitiveContent: { sensitive_content: value },
-      autoplay: { autoplay_media: value },
-      dataSaver: { data_saver: value },
-      highQualityMedia: { high_quality_media: value },
-      language: { language: value },
-    };
-
-    const patch = patchMap[key];
-    if (patch) {
-      try {
-        await updateSettings(patch);
-        toast.success('Preference saved');
-      } catch {
-        setContent((prev) => ({ ...prev, [key]: prevVal }));
-        toast.error('Failed to save preference to server');
-      }
-    } else {
-      toast.success('Preference saved');
-    }
-  }, [content, user?.id]);
 
   const togglePrivacy = (key: keyof PrivacyPrefs) => (value: boolean) => {
     setP(key)(value);
@@ -1931,31 +1841,6 @@ export default function SettingsScreen() {
           <ToggleRow label="Marketing" sub="Promotions and platform news" value={notif.marketing} onValueChange={setN('marketing')} />
         </View>
 
-        {/* ── CONTENT ──────────────────────────────────────────────────────── */}
-        <SectionHeader title="Content" />
-        <View style={rs.section}>
-          <ToggleRow
-            label="Sensitive Content"
-            sub="Show potentially sensitive media"
-            value={content.sensitiveContent}
-            onValueChange={setC('sensitiveContent')}
-          />
-          <Divider />
-          <ToggleRow label="Autoplay" sub="Auto-play videos in feed" value={content.autoplay} onValueChange={setC('autoplay')} />
-          <Divider />
-          <ToggleRow label="Data Saver" sub="Reduce data usage" value={content.dataSaver} onValueChange={setC('dataSaver')} />
-          <Divider />
-          <ToggleRow label="High Quality Media" sub="Load full-resolution images" value={content.highQualityMedia} onValueChange={setC('highQualityMedia')} />
-          <Divider />
-          <Row label="Language" sub={content.language} onPress={() => setModal('language')} />
-          <Divider />
-          <Row
-            label="Theme"
-            sub="Dark (Default)"
-            noChevron
-          />
-        </View>
-
         {/* ── SUPPORT ──────────────────────────────────────────────────────── */}
         <SectionHeader title="Support" />
         <View style={rs.section}>
@@ -2019,12 +1904,6 @@ export default function SettingsScreen() {
         onClose={() => setModal(null)}
         value={privacy.profileVisibility}
         onChange={setP('profileVisibility')}
-      />
-      <LanguageModal
-        visible={modal === 'language'}
-        onClose={() => setModal(null)}
-        value={content.language}
-        onChange={setC('language')}
       />
       <SupportModal visible={modal === 'help'} onClose={() => setModal(null)} type="help" />
       <SupportModal visible={modal === 'bug'} onClose={() => setModal(null)} type="bug" />

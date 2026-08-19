@@ -71,6 +71,16 @@ function getExtension(url: string): string {
 }
 
 /**
+ * True for directly-downloadable progressive files. Adaptive streams (HLS
+ * .m3u8 manifests, etc.) must stream from the network — "caching" the manifest
+ * as a file would break playback since its segments live remotely.
+ */
+function isCacheableVideo(url: string): boolean {
+  const clean = url.split('?')[0].split('#')[0];
+  return /\.(mp4|mov|m4v|webm|mkv)$/i.test(clean);
+}
+
+/**
  * Ensure the video cache root directory exists.
  */
 async function getCacheDir(fs: FileSystemModule): Promise<string | null> {
@@ -145,6 +155,8 @@ export async function getCachedVideoFile(
 ): Promise<string | null> {
   if (!remoteUrl || Platform.OS === 'web') return null;
   if (remoteUrl.startsWith('file://')) return remoteUrl;
+  // Adaptive streams (HLS) must play from the network, never from a local file.
+  if (!isCacheableVideo(remoteUrl)) return null;
 
   const fs = await getFs();
   if (!fs) return null;
@@ -184,6 +196,7 @@ export async function downloadAndCacheVideo(
   if (!remoteUrl || Platform.OS === 'web' || remoteUrl.startsWith('file://')) {
     return null;
   }
+  if (!isCacheableVideo(remoteUrl)) return null;
 
   // Deduplicate in-flight downloads for the same URL
   const existing = _inFlightDownloads.get(remoteUrl);
@@ -246,6 +259,7 @@ export async function downloadAndCacheVideo(
  */
 export function preloadVideo(remoteUrl: string | null | undefined, videoId?: string): void {
   if (!remoteUrl || Platform.OS === 'web' || remoteUrl.startsWith('file://')) return;
+  if (!isCacheableVideo(remoteUrl)) return;
   downloadAndCacheVideo(remoteUrl, videoId).catch(() => {});
 }
 

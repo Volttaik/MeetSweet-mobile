@@ -30,11 +30,13 @@ export async function uploadMedia(
   fileName = 'upload.jpg',
   onProgress?: (progress: number) => void,
   meta?: UploadMediaMeta,
+  /** Request server-side transcoding (Cloudflare Stream) for long-form videos. */
+  transcode?: boolean,
 ): Promise<{ id: string; url: string; media_type?: string }> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not authenticated');
 
-  const uploaded = await uploadOnce(uri, mimeType, fileName, token, onProgress, meta);
+  const uploaded = await uploadOnce(uri, mimeType, fileName, token, onProgress, meta, false, transcode);
 
   // Best-effort: attach width/height/duration to the media record so the API
   // can return real aspect ratio + duration (instant sizing, no layout jump).
@@ -68,8 +70,10 @@ async function uploadOnce(
   onProgress?: (progress: number) => void,
   _meta?: UploadMediaMeta,
   _retried = false,
+  transcode?: boolean,
 ): Promise<{ id: string; url: string; media_type?: string }> {
   const formData = new FormData();
+  if (transcode) formData.append('transcode', '1');
 
   if (Platform.OS === 'web') {
     // Web: expo-image-picker returns a blob:/data: URI. Browser FormData
@@ -115,7 +119,7 @@ async function uploadOnce(
   if (resp.status === 401 && !_retried) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      return uploadOnce(uri, mimeType, fileName, newToken, onProgress, _meta, true);
+      return uploadOnce(uri, mimeType, fileName, newToken, onProgress, _meta, true, transcode);
     }
   }
 

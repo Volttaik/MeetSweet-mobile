@@ -390,7 +390,7 @@ export default function CreatePostScreen() {
             : undefined;
         const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
           setUploadProgress(thumbnailUri ? p * 0.9 : p);
-        }, assetMeta);
+        }, assetMeta, contentType === 'video');
 
         if (thumbnailUri) {
           const uploadedThumb = await uploadMedia(thumbnailUri, thumbnailMime, thumbnailName, (p) => {

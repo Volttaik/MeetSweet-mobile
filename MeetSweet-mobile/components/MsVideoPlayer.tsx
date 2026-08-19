@@ -155,6 +155,13 @@ const CONTROLS_HIDE_MS = 2500;
 // position before releasing and trusting the engine again.
 const SEEK_CONFIRM_TOLERANCE_MS = 2000;
 const SEEK_TIMEOUT_MS = 4000;
+// How many times a dropped/reset seek may be re-asserted before giving up.
+// If the engine still reports a position nowhere near the target after the
+// timeout (the native seek was silently dropped, or the source reset to 0),
+// re-issue the seek instead of accepting the wrong position — this is what
+// guarantees playback actually begins at the requested timestamp rather than
+// snapping back to 0:00.
+const SEEK_MAX_RETRIES = 2;
 // A seek must never be "confirmed" by the position reported synchronously from
 // setPositionAsync() itself — on Android that value can be the optimistic
 // target while the native engine is still seeking, which is what made the
@@ -264,8 +271,8 @@ export function MsVideoPlayer({
   // actual playback position. While a seek is in flight we hold the optimistic
   // target; once the engine reports a position near the target (or the seek
   // times out) we release the guard and resume live tracking.
-  const pendingSeekRef   = useRef<{ target: number; at: number } | null>(null);
-  const fsPendingSeekRef = useRef<{ target: number; at: number } | null>(null);
+  const pendingSeekRef   = useRef<{ target: number; at: number; retries: number } | null>(null);
+  const fsPendingSeekRef = useRef<{ target: number; at: number; retries: number } | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -613,10 +620,10 @@ export function MsVideoPlayer({
   // pre-seek tick from the confirmed post-seek tick.
   const requestSeek = useCallback(
     (
-      ref: React.MutableRefObject<{ target: number; at: number } | null>,
+      ref: React.MutableRefObject<{ target: number; at: number; retries: number } | null>,
       target: number,
     ) => {
-      ref.current = { target, at: Date.now() };
+      ref.current = { target, at: Date.now(), retries: 0 };
     },
     [],
   );
@@ -626,8 +633,9 @@ export function MsVideoPlayer({
   // caller then keeps the optimistic target instead of snapping back).
   const reconcileSeek = useCallback(
     (
-      ref: React.MutableRefObject<{ target: number; at: number } | null>,
+      ref: React.MutableRefObject<{ target: number; at: number; retries: number } | null>,
       reportedPos: number,
+      playerRef: React.RefObject<Video | null>,
     ): number | null => {
       const pending = ref.current;
       if (!pending) return reportedPos;
@@ -635,8 +643,23 @@ export function MsVideoPlayer({
       const confirmed =
         elapsed >= SEEK_SETTLE_MS &&
         Math.abs(reportedPos - pending.target) <= SEEK_CONFIRM_TOLERANCE_MS;
-      const timedOut = elapsed > SEEK_TIMEOUT_MS;
-      if (confirmed || timedOut) {
+      if (confirmed) {
+        ref.current = null;
+        return reportedPos;
+      }
+      if (elapsed > SEEK_TIMEOUT_MS) {
+        // The engine still hasn't landed near the target — the native seek was
+        // silently dropped (e.g. issued while still buffering) or the source
+        // reset to 0. Re-assert the seek a bounded number of times instead of
+        // accepting the stale/zero position, so playback really begins at the
+        // requested timestamp. Once retries are exhausted we stop fighting the
+        // engine and trust whatever it reports.
+        if (pending.retries < SEEK_MAX_RETRIES) {
+          pending.retries += 1;
+          pending.at = Date.now();
+          playerRef.current?.setPositionAsync(pending.target, SEEK_TOLERANCES).catch(() => {});
+          return null; // still in flight — keep holding the optimistic target
+        }
         ref.current = null;
         return reportedPos;
       }
@@ -889,7 +912,7 @@ export function MsVideoPlayer({
         const resume = pendingResumeRef.current;
         pendingResumeRef.current = null;
         if (resume.position > 0) {
-          videoRef.current?.setPositionAsync(resume.position).catch(() => {});
+          videoRef.current?.setPositionAsync(resume.position, SEEK_TOLERANCES).catch(() => {});
         }
         if (resume.shouldPlay) {
           setTimeout(() => videoRef.current?.playAsync().catch(() => {}), 80);
@@ -956,7 +979,7 @@ export function MsVideoPlayer({
         durationRef.current = dur;
         setDurationMs(dur);
       }
-      const shown = reconcileSeek(pendingSeekRef, pos);
+      const shown = reconcileSeek(pendingSeekRef, pos, videoRef);
       if (shown !== null) {
         positionRef.current = shown;
         if (dur > 0) setProgress(shown / dur);
@@ -993,7 +1016,7 @@ export function MsVideoPlayer({
       const resume = pendingResumeRef.current;
       pendingResumeRef.current = null;
       if (resume.position > 0) {
-        fsVideoRef.current?.setPositionAsync(resume.position).catch(() => {});
+        fsVideoRef.current?.setPositionAsync(resume.position, SEEK_TOLERANCES).catch(() => {});
       }
       if (resume.shouldPlay) {
         setTimeout(() => fsVideoRef.current?.playAsync().catch(() => {}), 80);
@@ -1037,7 +1060,7 @@ export function MsVideoPlayer({
       fsDurationRef.current = dur;
       setFsDurationMs(dur);
     }
-    const shown = reconcileSeek(fsPendingSeekRef, pos);
+    const shown = reconcileSeek(fsPendingSeekRef, pos, fsVideoRef);
     if (shown !== null) {
       fsPositionRef.current = shown;
       setFsPositionMs(shown);
@@ -1122,7 +1145,7 @@ export function MsVideoPlayer({
     // The fullscreen engine is a fresh Video instance that starts at 0. Seed a
     // pending seek so its 0-position status ticks can't snap the bar back to
     // the beginning while the restore seek (issued on open) is still landing.
-    fsPendingSeekRef.current = { target: positionMs, at: Date.now() };
+    fsPendingSeekRef.current = { target: positionMs, at: Date.now(), retries: 0 };
     setFsVisible(true);
     if (aspectRatio >= 1) {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
