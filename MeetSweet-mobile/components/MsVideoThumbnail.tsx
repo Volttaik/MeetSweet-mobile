@@ -2,8 +2,8 @@
  * MsVideoThumbnail — renders the first decoded frame of a video as a thumbnail.
  *
  * Used when a post has no thumbnail_url but has a video URL.
- * Mounts a silent, non-playing Video instance off-screen whose first frame
- * expo-av renders natively on both iOS and Android. Once the frame appears
+ * Mounts a silent, paused react-native-video instance whose first frame the
+ * native player renders once it is ready. Once the frame appears
  * (onReadyForDisplay) the overlay fades out to reveal it.
  *
  * Performance: the video is paused immediately and never buffers past the first
@@ -16,7 +16,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { ResizeMode, Video } from 'expo-av';
+import Video from 'react-native-video';
 import { T } from '@/constants/theme';
 
 interface Props {
@@ -38,15 +38,14 @@ export function MsVideoThumbnail({ videoUri, style, visible = true }: Props) {
 
   return (
     <View style={[styles.container, style]}>
-      {/* Silent non-playing video — first frame rendered natively */}
+      {/* Silent, paused video — first frame rendered natively */}
       <Video
         source={{ uri: videoUri }}
         style={StyleSheet.absoluteFill}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={false}
-        isMuted
+        resizeMode="cover"
+        paused
+        muted
         onReadyForDisplay={onReadyForDisplay}
-        useNativeControls={false}
       />
 
       {/* Dark overlay while first frame hasn't decoded yet */}

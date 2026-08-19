@@ -1,6 +1,9 @@
 /**
  * MsVideoPreview — YouTube-style silent preview for feed video cards.
  *
+ * Engine: `react-native-video` — muted preview playback driven by the
+ * FlatList viewability prop (`active`).
+ *
  * Behaviour:
  *   • Default state: shows only the thumbnail/poster. No video is loaded.
  *   • After PREVIEW_DELAY_MS (10 s) of continuous visibility:
@@ -8,7 +11,7 @@
  *       - No controls, no progress bar, no play button.
  *   • When the card leaves the viewport (active → false):
  *       - The 10-second timer is cancelled.
- *       - Playback is stopped.
+ *       - Playback is paused.
  *       - The <Video> element is unmounted (releases buffer/decoder resources).
  *       - The poster is restored immediately.
  *   • When the card re-enters the viewport (active → true):
@@ -21,7 +24,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
+import Video from 'react-native-video';
 import Animated, {
   useSharedValue,
   withTiming,
@@ -53,7 +56,6 @@ export function MsVideoPreview({
   posterUri,
   active = true,
 }: MsVideoPreviewProps) {
-  const videoRef     = useRef<Video>(null);
   const activeRef    = useRef(active);
   const timerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPlayedRef = useRef(false);
@@ -62,6 +64,8 @@ export function MsVideoPreview({
   const [videoMounted,  setVideoMounted]  = useState(false);
   // Control poster layer visibility so it can be removed from layout when hidden.
   const [posterVisible, setPosterVisible] = useState(true);
+  // Declarative play/pause — react-native-video's `paused` prop.
+  const [paused,        setPaused]        = useState(true);
 
   // Animated opacity drives a smooth crossfade between poster and video.
   const posterOpacity = useSharedValue(1);
@@ -75,6 +79,7 @@ export function MsVideoPreview({
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     setVideoMounted(false);
     setPosterVisible(true);
+    setPaused(true);
     posterOpacity.value = 1;
     hasPlayedRef.current = false;
   }, [uri]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -87,15 +92,16 @@ export function MsVideoPreview({
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
         if (activeRef.current) {
-          // Threshold reached: mount the video and let the effect below start it.
+          // Threshold reached: mount the video and start muted playback.
           hasPlayedRef.current = false;
           setVideoMounted(true);
+          setPaused(false);
         }
       }, PREVIEW_DELAY_MS);
     } else {
-      // Card left viewport — cancel timer, stop playback, release resources.
+      // Card left viewport — cancel timer, pause, release resources.
       if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-      videoRef.current?.pauseAsync().catch(() => {});
+      setPaused(true);
       setVideoMounted(false);
       // Restore poster immediately (no animation when going off-screen).
       posterOpacity.value = 1;
@@ -108,39 +114,28 @@ export function MsVideoPreview({
     };
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Start playback once the Video element has mounted ────────────────────
-  useEffect(() => {
-    if (!videoMounted) return;
-    // Brief settle to let expo-av initialise the Video ref after mount.
-    const t = setTimeout(() => {
-      if (activeRef.current) videoRef.current?.playAsync().catch(() => {});
-    }, 80);
-    return () => clearTimeout(t);
-  }, [videoMounted]);
-
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
-  // ── Playback status ───────────────────────────────────────────────────────
-  const onStatus = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
-
-    // Crossfade poster out when the video starts playing for the first time.
-    if (status.isPlaying && !hasPlayedRef.current) {
+  // ── Playback events ───────────────────────────────────────────────────────
+  // First progress tick = playback actually started — crossfade the poster out.
+  const onProgress = useCallback(() => {
+    if (!hasPlayedRef.current) {
       hasPlayedRef.current = true;
       posterOpacity.value = withTiming(0, { duration: 400 });
       setTimeout(() => setPosterVisible(false), 460);
     }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Preview finished — restore poster and release the video element.
-    if (status.didJustFinish) {
-      posterOpacity.value = 1;
-      setPosterVisible(true);
-      setVideoMounted(false);
-      hasPlayedRef.current = false;
-    }
+  // Preview finished — restore poster and release the video element.
+  const onEnd = useCallback(() => {
+    posterOpacity.value = 1;
+    setPosterVisible(true);
+    setPaused(true);
+    setVideoMounted(false);
+    hasPlayedRef.current = false;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -150,15 +145,13 @@ export function MsVideoPreview({
       {/* Video — conditionally mounted only after 10-second threshold */}
       {videoMounted ? (
         <Video
-          ref={videoRef}
           source={{ uri }}
           style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={false}
-          isMuted
-          isLooping={false}
-          useNativeControls={false}
-          onPlaybackStatusUpdate={onStatus}
+          resizeMode="cover"
+          paused={paused}
+          muted
+          onProgress={onProgress}
+          onEnd={onEnd}
         />
       ) : null}
 

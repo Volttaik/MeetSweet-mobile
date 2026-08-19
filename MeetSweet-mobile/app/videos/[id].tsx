@@ -37,7 +37,7 @@ import {
   UserPlus,
 } from 'phosphor-react-native';
 import { MsEmptyState } from '@/components/MsEmptyState';
-import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { CommentsModal } from '@/components/MsCommentsSheet';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsPostCard } from '@/components/MsPostCard';
@@ -350,7 +350,7 @@ export default function VideoWatchScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
       >
         {/* ── Video player (aspect-ratio, custom controls) ──────────────── */}
-        <MsLongFormPlayer
+        <MsVideoPlayer
           videoId={post.id}
           uri={videoMedia ?? null}
           posterUri={post.thumbnailUrl}

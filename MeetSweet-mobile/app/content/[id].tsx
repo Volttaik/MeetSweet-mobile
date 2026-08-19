@@ -50,7 +50,7 @@ import { useComments, CommentRow, CommentShimmerSkeleton, type Comment } from '@
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { MsLongFormPlayer } from '@/components/MsLongFormPlayer';
+import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsComposer } from '@/components/MsComposer';
@@ -227,7 +227,7 @@ export default function ContentDetailScreen() {
     <View>
       {/* Media */}
       {isVideo ? (
-        <MsLongFormPlayer
+        <MsVideoPlayer
           videoId={post.id}
           uri={post.mediaUrl ?? null}
           posterUri={post.thumbnailUrl}

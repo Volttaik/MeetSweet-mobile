@@ -280,11 +280,12 @@ export default function ShortsScreen() {
         viewabilityConfig={viewConfig.current}
         onViewableItemsChanged={onViewableItemsChanged}
         getItemLayout={(_, index) => ({ length: pageHeight, offset: pageHeight * index, index })}
-        // NOTE: removeClippedSubviews is intentionally OFF here. With expo-av
-        // Video inside a paged FlatList, clipping detaches the native video
-        // view while the JS ref still targets it — pausing/playing a detached
-        // instance crashes on Android (the Shorts pause crash). windowSize +
-        // maxToRenderPerBatch already cap how many pages are mounted.
+        // NOTE: removeClippedSubviews is intentionally OFF here. With the
+        // native video player (react-native-video) inside a paged FlatList,
+        // clipping detaches the native video view while the JS ref still
+        // targets it — pausing/playing a detached instance crashes on Android
+        // (the Shorts pause crash). windowSize + maxToRenderPerBatch already
+        // cap how many pages are mounted.
         removeClippedSubviews={false}
         windowSize={3}
         initialNumToRender={2}

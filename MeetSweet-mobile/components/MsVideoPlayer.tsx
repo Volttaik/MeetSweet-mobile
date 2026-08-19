@@ -5,8 +5,8 @@
  *   mode='standard'  → feed, explore, profile, paid content, DMs, video detail
  *   mode='shorts'    → Shorts feed (immersive, no seek bar, no fullscreen button)
  *
- * Expo's Video engine handles all rendering, buffering and decoding.
- * Only the UI/control layer is custom.
+ * react-native-video (native ExoPlayer / AVPlayer) handles all rendering,
+ * buffering, decoding and seeking. Only the UI/control layer is custom.
  *
  * Standard features:
  *   • Auto-hiding controls overlay (2.5 s after last interaction)
@@ -60,7 +60,15 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ResizeMode, Video, type AVPlaybackStatus } from 'expo-av';
+import Video, {
+  type OnBufferData,
+  type OnLoadData,
+  type OnProgressData,
+  type OnSeekData,
+  type SelectedVideoTrack,
+  SelectedVideoTrackType,
+  type VideoRef,
+} from 'react-native-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -149,35 +157,14 @@ export interface MsVideoPlayerProps {
 const DOUBLE_TAP_MS    = 260;
 const SEEK_SECONDS     = 10;
 const CONTROLS_HIDE_MS = 2500;
-// Seek-sync: how close the engine's reported position must be to the requested
-// target before we accept it (MP4 seeks snap to the nearest keyframe, so a few
-// hundred ms of drift is normal), and how long to hold an optimistic seek
-// position before releasing and trusting the engine again.
-const SEEK_CONFIRM_TOLERANCE_MS = 2000;
-const SEEK_TIMEOUT_MS = 4000;
-// How many times a dropped/reset seek may be re-asserted before giving up.
-// If the engine still reports a position nowhere near the target after the
-// timeout (the native seek was silently dropped, or the source reset to 0),
-// re-issue the seek instead of accepting the wrong position — this is what
-// guarantees playback actually begins at the requested timestamp rather than
-// snapping back to 0:00.
-const SEEK_MAX_RETRIES = 2;
-// A seek must never be "confirmed" by the position reported synchronously from
-// setPositionAsync() itself — on Android that value can be the optimistic
-// target while the native engine is still seeking, which is what made the
-// tracker snap back to 0 / the beginning. Require a short settle window so the
-// first poll (getStatusAsync) reads the engine's real position instead.
-const SEEK_SETTLE_MS = 600;
-// Seek tolerances handed to the native engine on every seek. These must be
-// ZERO (sample-accurate), not a wide window: a ±30s tolerance tells AVPlayer
-// (iOS) it may snap to the nearest keyframe within that window, so a sparse-
-// keyframe MP4 seeking to 00:23 lands back at 00:00 and the tracker snaps to
-// zero. Zero forces an exact seek so the player lands precisely on the target
-// (Android already ignores these tolerances and seeks exactly).
-const SEEK_TOLERANCES = {
-  toleranceMillisBefore: 0,
-  toleranceMillisAfter: 0,
-};
+// Seek-sync: react-native-video's seek() lands exactly (ExoPlayer/AVPlayer
+// seekTo with no tolerance window), so the native engine is the single
+// authority and a requested seek never snaps back to 0. While a seek is in
+// flight the UI holds the optimistic target until onProgress/onSeek reports a
+// position near it — this stops a stale pre-seek tick from fighting the seek
+// bar back.
+const SEEK_CONFIRM_TOLERANCE_MS = 600;
+const SEEK_CONFIRM_WINDOW_MS = 1500;
 // Local preference for the user's chosen quality label (a local UX preference
 // only — the actual available qualities always come from the server).
 const QUALITY_PREF_KEY = 'ms_quality_pref_v1';
@@ -219,7 +206,7 @@ export function MsVideoPlayer({
   const ph       = pageHeight ?? windowHeight;
 
   // ── Refs (playback & gesture) ─────────────────────────────────────────────
-  const videoRef        = useRef<Video>(null);
+  const videoRef        = useRef<VideoRef>(null);
   const hasPlayedRef    = useRef(false);
   const premiumFiredRef = useRef(false);
   const premiumGateRef  = useRef(false);
@@ -238,7 +225,7 @@ export function MsVideoPlayer({
   const watchLastPosRef  = useRef<number | null>(null);
 
   // Fullscreen refs
-  const fsVideoRef      = useRef<Video>(null);
+  const fsVideoRef      = useRef<VideoRef>(null);
   const fsPositionRef   = useRef(0);
   const fsDurationRef   = useRef(0);
   const fsTapTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,14 +243,14 @@ export function MsVideoPlayer({
   } | null>(null);
   // The last source handed to the engine. Guards the cache-resolution effect
   // so it never re-sets the same URI (e.g. when `active` flips and a background
-  // download has since completed) — expo-av restarts from 0 on ANY source
-  // change, which is what made playback "jump back to the beginning".
+  // download has since completed) — react-native-video restarts from 0 on ANY
+  // source change, which is what made playback "jump back to the beginning".
   const lastResolvedUriRef = useRef<string | null>(null);
   // Guards the engine-source resolution to ONE hand-off per (videoId, url)
   // session. Without it, a background cache download finishing mid-session
   // (the resolution effect re-runs on every `active` flip) swapped the engine
-  // source remote → cached file and expo-av restarted playback from 0 — the
-  // "seek/position jumps back to the beginning" bug.
+  // source remote → cached file and react-native-video restarted playback from
+  // 0 — the "seek/position jumps back to the beginning" bug.
   const lastResolvedSessionRef = useRef<string | null>(null);
   // Pending-seek guards — after requesting a seek the native engine can still
   // report the stale (pre-seek) position for a tick or two, which was snapping
@@ -271,8 +258,8 @@ export function MsVideoPlayer({
   // actual playback position. While a seek is in flight we hold the optimistic
   // target; once the engine reports a position near the target (or the seek
   // times out) we release the guard and resume live tracking.
-  const pendingSeekRef   = useRef<{ target: number; at: number; retries: number } | null>(null);
-  const fsPendingSeekRef = useRef<{ target: number; at: number; retries: number } | null>(null);
+  const pendingSeekRef   = useRef<{ target: number; at: number } | null>(null);
+  const fsPendingSeekRef = useRef<{ target: number; at: number } | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -287,6 +274,10 @@ export function MsVideoPlayer({
   const [selectedUrl,          setSelectedUrl]          = useState<string | null>(uri);
   const [selectedQualityLabel, setSelectedQualityLabel] = useState('auto');
   const [qualityMenuOpen,      setQualityMenuOpen]      = useState(false);
+  // HLS rendition selection (react-native-video `selectedVideoTrack`). When the
+  // server offers multi-variant HLS (same manifest URL, distinct `index`), a
+  // quality choice picks the ACTUAL rendition — no source reload, no restart.
+  const [videoTrack,           setVideoTrack]           = useState<SelectedVideoTrack | undefined>(undefined);
   const [progress,      setProgress]      = useState(0);
   const [durationMs,    setDurationMs]    = useState(0);
   const [positionMs,    setPositionMs]    = useState(0);
@@ -301,6 +292,11 @@ export function MsVideoPlayer({
   const [videoEnded,    setVideoEnded]    = useState(false);
   const { hearts, spawnHeart } = useHeartBurst();
 
+  // react-native-video's `paused` prop is declarative: `isPlaying` / `fsPlaying`
+  // are the single source of truth for play/pause. Keep the refs in sync so
+  // callbacks and event handlers always read the latest value.
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+
   // Fullscreen player state
   const [fsPlaying,    setFsPlaying]    = useState(false);
   const [fsDurationMs, setFsDurationMs] = useState(0);
@@ -308,6 +304,8 @@ export function MsVideoPlayer({
   const [fsBuffering,  setFsBuffering]  = useState(true);
   const [fsVideoEnded, setFsVideoEnded] = useState(false);
   const fsHasPlayedRef = useRef(false);
+
+  useEffect(() => { fsPlayingRef.current = fsPlaying; }, [fsPlaying]);
 
   // ── Animated values ───────────────────────────────────────────────────────
   // Controls overlay (auto-hiding)
@@ -406,6 +404,7 @@ export function MsVideoPlayer({
   // remembered quality preference applied to it. ─────────────────────────────
   useEffect(() => {
     setSelectedUrl(uri);
+    setVideoTrack(undefined);
     setQualityMenuOpen(false);
   }, [uri]);
 
@@ -459,19 +458,38 @@ export function MsVideoPlayer({
     if (label === currentQualityLabel) return;
     const option = qualityOptions.find((o) => o.label === label);
     if (!option?.url) return;
-    if (option.url === selectedUrl) {
-      setSelectedQualityLabel(label === 'Auto' ? 'auto' : label);
+
+    // HLS rendition within the SAME manifest — select the actual track via the
+    // native player (no source swap, playback keeps going uninterrupted).
+    if (option.index != null && option.url === selectedUrl) {
+      setVideoTrack({ type: SelectedVideoTrackType.INDEX, value: option.index });
+      setSelectedQualityLabel(label);
       persistQualityPref(label);
       return;
     }
-    // Preserve position + playback across the source swap. The active player
-    // (fullscreen or inline) consumes this once its new source has loaded.
+    // Back to Auto on the current manifest — clear the forced rendition.
+    if (label === 'Auto' && option.url === selectedUrl) {
+      setVideoTrack(undefined);
+      setSelectedQualityLabel('auto');
+      persistQualityPref(label);
+      return;
+    }
+
+    // Distinct source (e.g. the MP4 "Original" fallback) — swap the source and
+    // restore position + playback on load so switching never restarts from zero.
+    // If the new source is an HLS manifest, re-apply the rendition track; a
+    // progressive MP4 clears it.
     const target: 'inline' | 'fs' = fsVisible ? 'fs' : 'inline';
     const pos     = fsVisible ? fsPositionRef.current : positionRef.current;
     const playing = fsVisible ? fsPlayingRef.current : isPlayingRef.current;
     if (pos > 0 || playing) {
       pendingResumeRef.current = { position: pos, shouldPlay: playing, target };
     }
+    setVideoTrack(
+      option.index != null
+        ? { type: SelectedVideoTrackType.INDEX, value: option.index }
+        : undefined,
+    );
     setSelectedQualityLabel(label === 'Auto' ? 'auto' : label);
     persistQualityPref(label);
     setSelectedUrl(option.url);
@@ -534,37 +552,12 @@ export function MsVideoPlayer({
   useEffect(() => {
     if (isShorts) return;
     if (active === false) {
-      videoRef.current?.pauseAsync().catch(() => {});
-      fsVideoRef.current?.pauseAsync().catch(() => {});
+      setIsPlaying(false);
+      setFsPlaying(false);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       ctrlOpacity.value = withTiming(1, { duration: 180 });
     }
   }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Standard: position polling (expo-av Android workaround) ──────────────
-  // expo-av's onPlaybackStatusUpdate does NOT fire at regular intervals on
-  // Android during playback (expo/expo#29044) — it only emits on load / play /
-  // pause / seek. That left the long-form seek bar frozen while the video
-  // played and only "caught up" on pause. getStatusAsync() always reads the
-  // live native position and re-enters onPlaybackStatusUpdate/onFsStatus via
-  // _handleNewStatus, so polling it keeps the tracker, watch-time accumulator
-  // and seek confirmation advancing. Shorts are excluded — they are driven by
-  // `active` and must remain untouched.
-  useEffect(() => {
-    if (isShorts) return;
-    let cancelled = false;
-    const tick = () => {
-      if (cancelled) return;
-      const player = (fsVisible ? fsVideoRef : videoRef).current;
-      if (!player) return;
-      player.getStatusAsync().catch(() => {});
-    };
-    const id = setInterval(tick, 250);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [isShorts, fsVisible]);
 
   // ── Shorts: respond to active prop ────────────────────────────────────────
   // The centre play/pause icon is HIDDEN until the user interacts with the
@@ -574,11 +567,11 @@ export function MsVideoPlayer({
   useEffect(() => {
     if (!isShorts) return;
     if (active && !premiumGateRef.current) {
-      videoRef.current?.playAsync().catch(() => {});
+      setIsPlaying(true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       shortsIconOpacity.value = withTiming(0, { duration: 200 });
     } else {
-      videoRef.current?.pauseAsync().catch(() => {});
+      setIsPlaying(false);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     }
   }, [active, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -620,10 +613,10 @@ export function MsVideoPlayer({
   // pre-seek tick from the confirmed post-seek tick.
   const requestSeek = useCallback(
     (
-      ref: React.MutableRefObject<{ target: number; at: number; retries: number } | null>,
+      ref: React.MutableRefObject<{ target: number; at: number } | null>,
       target: number,
     ) => {
-      ref.current = { target, at: Date.now(), retries: 0 };
+      ref.current = { target, at: Date.now() };
     },
     [],
   );
@@ -633,35 +626,17 @@ export function MsVideoPlayer({
   // caller then keeps the optimistic target instead of snapping back).
   const reconcileSeek = useCallback(
     (
-      ref: React.MutableRefObject<{ target: number; at: number; retries: number } | null>,
-      reportedPos: number,
-      playerRef: React.RefObject<Video | null>,
+      ref: React.MutableRefObject<{ target: number; at: number } | null>,
+      reportedMs: number,
     ): number | null => {
       const pending = ref.current;
-      if (!pending) return reportedPos;
+      if (!pending) return reportedMs;
       const elapsed = Date.now() - pending.at;
       const confirmed =
-        elapsed >= SEEK_SETTLE_MS &&
-        Math.abs(reportedPos - pending.target) <= SEEK_CONFIRM_TOLERANCE_MS;
-      if (confirmed) {
+        Math.abs(reportedMs - pending.target) <= SEEK_CONFIRM_TOLERANCE_MS;
+      if (confirmed || elapsed > SEEK_CONFIRM_WINDOW_MS) {
         ref.current = null;
-        return reportedPos;
-      }
-      if (elapsed > SEEK_TIMEOUT_MS) {
-        // The engine still hasn't landed near the target — the native seek was
-        // silently dropped (e.g. issued while still buffering) or the source
-        // reset to 0. Re-assert the seek a bounded number of times instead of
-        // accepting the stale/zero position, so playback really begins at the
-        // requested timestamp. Once retries are exhausted we stop fighting the
-        // engine and trust whatever it reports.
-        if (pending.retries < SEEK_MAX_RETRIES) {
-          pending.retries += 1;
-          pending.at = Date.now();
-          playerRef.current?.setPositionAsync(pending.target, SEEK_TOLERANCES).catch(() => {});
-          return null; // still in flight — keep holding the optimistic target
-        }
-        ref.current = null;
-        return reportedPos;
+        return reportedMs;
       }
       return null; // seek in flight — hold the optimistic target
     },
@@ -673,18 +648,23 @@ export function MsVideoPlayer({
     return () => flushWatch();
   }, [flushWatch]);
 
+  // Flush any pending watch time when playback pauses — react-native-video
+  // stops emitting progress ticks while paused, so the accumulated delta must
+  // be reported here rather than waiting for the next tick.
+  useEffect(() => {
+    if (!isPlaying) flushWatch();
+  }, [isPlaying, flushWatch]);
+
   // ── Auto-play (standard) ──────────────────────────────────────────────────
   useEffect(() => {
     if (!autoPlay || isShorts || !selectedUrl) return;
-    const t = setTimeout(() => videoRef.current?.playAsync().catch(() => {}), 100);
+    const t = setTimeout(() => setIsPlaying(true), 100);
     return () => clearTimeout(t);
   }, [videoId, selectedUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Unmount cleanup — stop all playback and release timers ────────────────
+  // ── Unmount cleanup — release timers ──────────────────────────────────────
   useEffect(() => {
     return () => {
-      videoRef.current?.stopAsync().catch(() => {});
-      fsVideoRef.current?.stopAsync().catch(() => {});
       if (hideTimerRef.current)   clearTimeout(hideTimerRef.current);
       if (tapTimerRef.current)    clearTimeout(tapTimerRef.current);
       if (fsHideTimerRef.current) clearTimeout(fsHideTimerRef.current);
@@ -733,11 +713,11 @@ export function MsVideoPlayer({
     if (premiumGateRef.current) return;
     pulseIcon();
     if (isPlayingRef.current) {
-      videoRef.current?.pauseAsync().catch(() => {});
+      setIsPlaying(false);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       shortsIconOpacity.value = withTiming(1, { duration: 180 });
     } else {
-      videoRef.current?.playAsync().catch(() => {});
+      setIsPlaying(true);
       scheduleHide(shortsIconOpacity, hideTimerRef);
     }
   }, [pulseIcon, scheduleHide]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -775,17 +755,17 @@ export function MsVideoPlayer({
       // Video ended → restart from beginning
       videoEndedRef.current = false;
       setVideoEnded(false);
-      videoRef.current?.setPositionAsync(0).catch(() => {});
-      videoRef.current?.playAsync().catch(() => {});
+      videoRef.current?.seek(0);
+      setIsPlaying(true);
       showControls();
       return;
     }
     if (isPlayingRef.current) {
-      videoRef.current?.pauseAsync().catch(() => {});
+      setIsPlaying(false);
       ctrlOpacity.value = withTiming(1, { duration: 180 });
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     } else {
-      videoRef.current?.playAsync().catch(() => {});
+      setIsPlaying(true);
       showControls();
     }
   }, [pulseIcon, showControls]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -812,12 +792,12 @@ export function MsVideoPlayer({
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const seekBy = useCallback((deltaS: number, ref: React.RefObject<Video | null>) => {
+  const seekBy = useCallback((deltaS: number, ref: React.RefObject<VideoRef | null>) => {
     // Fall back to the duration state when the ref is unseeded (first tick not
     // yet arrived) so a double-tap seek can never clamp to 0 / "jump back".
     const d = durationRef.current > 0 ? durationRef.current : durationMs;
     const target = Math.max(0, Math.min(d, positionRef.current + deltaS * 1000));
-    ref.current?.setPositionAsync(target, SEEK_TOLERANCES).catch(() => {});
+    ref.current?.seek(target / 1000);
     positionRef.current = target;
     if (d > 0) setProgress(target / d);
     setPositionMs(target);
@@ -864,7 +844,7 @@ export function MsVideoPlayer({
       const target = tapRatio < 0.5
         ? Math.max(0, fsPositionRef.current - SEEK_SECONDS * 1000)
         : Math.min(fsDurationRef.current, fsPositionRef.current + SEEK_SECONDS * 1000);
-      fsVideoRef.current?.setPositionAsync(target, SEEK_TOLERANCES).catch(() => {});
+      fsVideoRef.current?.seek(target / 1000);
       fsPositionRef.current = target;
       setFsPositionMs(target);
       requestSeek(fsPendingSeekRef, target);
@@ -885,101 +865,81 @@ export function MsVideoPlayer({
       // Restart fullscreen video
       fsEndedRef.current = false;
       setFsVideoEnded(false);
-      fsVideoRef.current?.setPositionAsync(0).catch(() => {});
-      fsVideoRef.current?.playAsync().catch(() => {});
+      fsVideoRef.current?.seek(0);
+      setFsPlaying(true);
       showFsControls();
       return;
     }
     if (fsPlayingRef.current) {
-      fsVideoRef.current?.pauseAsync().catch(() => {});
+      setFsPlaying(false);
       fsCtrlOpacity.value = withTiming(1, { duration: 180 });
       if (fsHideTimerRef.current) clearTimeout(fsHideTimerRef.current);
     } else {
-      fsVideoRef.current?.playAsync().catch(() => {});
+      setFsPlaying(true);
       showFsControls();
     }
   }, [showFsControls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Playback status (inline) ───────────────────────────────────────────────
-  const onPlaybackStatusUpdate = useCallback(
-    (status: AVPlaybackStatus) => {
-      if (!status.isLoaded) return;
+  const onInlineLoad = useCallback(
+    (data: OnLoadData) => {
+      if (data.duration > 0) {
+        durationRef.current = data.duration * 1000;
+        setDurationMs(data.duration * 1000);
+      }
+      const w = data.naturalSize?.width;
+      const h = data.naturalSize?.height;
+      if (w && h && h > 0 && !initialAspectRatio) setAspectRatio(w / h);
 
-      // Quality switch: once the new variant has loaded, restore the position
-      // and playback state captured when the user switched — never restart
-      // the video from zero.
+      // Quality switch (inline): restore position/playback once the new variant
+      // has loaded — never restart the video from zero.
       if (pendingResumeRef.current && pendingResumeRef.current.target === 'inline') {
         const resume = pendingResumeRef.current;
         pendingResumeRef.current = null;
         if (resume.position > 0) {
-          videoRef.current?.setPositionAsync(resume.position, SEEK_TOLERANCES).catch(() => {});
+          positionRef.current = resume.position;
+          setPositionMs(resume.position);
+          requestSeek(pendingSeekRef, resume.position);
+          videoRef.current?.seek(resume.position / 1000);
         }
-        if (resume.shouldPlay) {
-          setTimeout(() => videoRef.current?.playAsync().catch(() => {}), 80);
-        }
+        if (resume.shouldPlay) setIsPlaying(true);
       }
+    },
+    [initialAspectRatio, requestSeek],
+  );
 
-      const playing = status.isPlaying ?? false;
-      isPlayingRef.current = playing;
-      setIsPlaying(playing);
+  // onProgress: fires regularly during playback — the ONLY place the inline
+  // position advances. Mirrors the engine's real currentTime and drives the
+  // poster crossfade, watch-time accumulation and the premium gate.
+  const onInlineProgress = useCallback(
+    (data: OnProgressData) => {
+      const pos = data.currentTime * 1000;
 
-      // True only on the single status tick where playback first begins.
-      const justStartedPlaying = playing && !hasPlayedRef.current;
-
-      // Crossfade: on first play, fade poster out and video in
+      // First progress tick while playing = the poster/video crossfade moment.
+      const justStartedPlaying = isPlayingRef.current && !hasPlayedRef.current;
       if (justStartedPlaying) {
         hasPlayedRef.current = true;
-        // Trigger background disk caching so subsequent loops and rewinds are instant
+        // Trigger background disk caching so subsequent loops and rewinds are instant.
         if (selectedUrl) {
           downloadAndCacheVideo(selectedUrl, cacheKey).catch(() => {});
         }
-        // Video fades in from black; poster fades out beneath
+        // Video fades in from black; poster fades out beneath.
         videoOpacity.value  = withTiming(1, { duration: 280, easing: MOTION.EASE_ENTER });
         posterOpacity.value = withTiming(0, { duration: 380, easing: MOTION.EASE_ENTER });
         // Brightness ramp: video "wakes up" from a dim exposure to 100%.
         brightnessOpacity.value = withTiming(0, { duration: 420, easing: MOTION.EASE_ENTER });
+        // A progress tick while playing means we are definitively not buffering.
+        setIsBuffering(false);
+        if (prevBufferingRef.current) {
+          prevBufferingRef.current = false;
+          bufferOpacity.value = withTiming(0, { duration: 240, easing: MOTION.EASE_EXIT });
+        }
       }
 
-      // Restart detection
-      if (status.didJustFinish) {
-        videoEndedRef.current = true;
-        setVideoEnded(true);
-      }
-      if (playing && videoEndedRef.current) {
-        videoEndedRef.current = false;
-        setVideoEnded(false);
-      }
-
-      // Buffering — animate shimmer in/out instead of conditional mount.
-      // `justStartedPlaying` is authoritative and wins over a stale
-      // `isBuffering: true` the engine can still report for one frame right
-      // as playback begins — this is what prevents the loader from ever
-      // lingering over video that is already playing.
-      const nextBuffering = justStartedPlaying
-        ? false
-        : hasPlayedRef.current
-          ? (status.isBuffering ?? false)
-          : (status.isBuffering ?? true);
-      setIsBuffering(nextBuffering);
-      if (nextBuffering !== prevBufferingRef.current) {
-        prevBufferingRef.current = nextBuffering;
-        bufferOpacity.value = withTiming(nextBuffering ? 1 : 0, {
-          duration: nextBuffering ? 150 : 240,
-          easing: nextBuffering ? MOTION.EASE_ENTER : MOTION.EASE_EXIT,
-        });
-      }
-
-      // Track position / duration. Only overwrite a known duration with a real
-      // one (a transient `durationMillis: 0` tick while buffering must not wipe
-      // the duration we already have). Reconcile position against any in-flight
-      // seek so stale pre-seek ticks can't snap the bar back to 0 / the old spot.
-      const dur = status.durationMillis ?? 0;
-      const pos = status.positionMillis ?? 0;
-      if (dur > 0) {
-        durationRef.current = dur;
-        setDurationMs(dur);
-      }
-      const shown = reconcileSeek(pendingSeekRef, pos, videoRef);
+      // Position: reconcile against any in-flight seek so stale pre-seek ticks
+      // can't snap the bar back to 0 / the old spot.
+      const dur = durationRef.current;
+      const shown = reconcileSeek(pendingSeekRef, pos);
       if (shown !== null) {
         positionRef.current = shown;
         if (dur > 0) setProgress(shown / dur);
@@ -987,112 +947,122 @@ export function MsVideoPlayer({
       }
 
       // Watch-time accumulation (runs for shorts and long-form alike).
-      // While the native Slider is dragged its value is pinned to dragMs, so
-      // these ticks can't snap the thumb back mid-drag.
-      accumulateWatch(pos, playing, false);
+      accumulateWatch(pos, isPlayingRef.current, false);
 
-      // Premium gate
+      // Premium gate at 3 s.
       if (isPremium && !premiumFiredRef.current && pos >= 3000) {
         premiumFiredRef.current = true;
         premiumGateRef.current  = true;
-        videoRef.current?.pauseAsync().catch(() => {});
+        setIsPlaying(false);
         setPremiumGated(true);
         onPremiumRequired?.();
         return;
       }
-      if (premiumGateRef.current && playing) {
-        videoRef.current?.pauseAsync().catch(() => {});
+      if (premiumGateRef.current && isPlayingRef.current) {
+        setIsPlaying(false);
       }
     },
-    [isPremium, isShorts, onPremiumRequired, selectedUrl, cacheKey], // eslint-disable-line react-hooks/exhaustive-deps
+    [isPremium, onPremiumRequired, selectedUrl, cacheKey, reconcileSeek, accumulateWatch],
   );
+
+  const onInlineBuffer = useCallback(
+    ({ isBuffering }: OnBufferData) => {
+      setIsBuffering(isBuffering);
+      if (isBuffering !== prevBufferingRef.current) {
+        prevBufferingRef.current = isBuffering;
+        bufferOpacity.value = withTiming(isBuffering ? 1 : 0, {
+          duration: isBuffering ? 150 : 240,
+          easing: isBuffering ? MOTION.EASE_ENTER : MOTION.EASE_EXIT,
+        });
+      }
+    },
+    [],
+  );
+
+  // onSeek: the engine confirms the seek landed — adopt its real position.
+  const onInlineSeek = useCallback(
+    ({ currentTime }: OnSeekData) => {
+      pendingSeekRef.current = null;
+      if (currentTime > 0) {
+        positionRef.current = currentTime * 1000;
+        const dur = durationRef.current;
+        if (dur > 0) setProgress((currentTime * 1000) / dur);
+        setPositionMs(currentTime * 1000);
+      }
+    },
+    [],
+  );
+
+  const onInlineEnd = useCallback(() => {
+    videoEndedRef.current = true;
+    setVideoEnded(true);
+    setIsPlaying(false);
+    flushWatch();
+  }, [flushWatch]);
+
+  const onInlineError = useCallback(() => {
+    setError(true);
+    setIsBuffering(false);
+    onError?.();
+  }, [onError]);
 
   // ── Playback status (fullscreen) ───────────────────────────────────────────
-  const onFsStatus = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) return;
-
-    // Quality switch while in fullscreen: restore position/playback here.
-    if (pendingResumeRef.current && pendingResumeRef.current.target === 'fs') {
-      const resume = pendingResumeRef.current;
-      pendingResumeRef.current = null;
-      if (resume.position > 0) {
-        fsVideoRef.current?.setPositionAsync(resume.position, SEEK_TOLERANCES).catch(() => {});
+  const onFsLoad = useCallback(
+    (data: OnLoadData) => {
+      if (data.duration > 0) {
+        fsDurationRef.current = data.duration * 1000;
+        setFsDurationMs(data.duration * 1000);
       }
-      if (resume.shouldPlay) {
-        setTimeout(() => fsVideoRef.current?.playAsync().catch(() => {}), 80);
+      // Quality switch while in fullscreen: restore position/playback here.
+      if (pendingResumeRef.current && pendingResumeRef.current.target === 'fs') {
+        const resume = pendingResumeRef.current;
+        pendingResumeRef.current = null;
+        if (resume.position > 0) {
+          fsPositionRef.current = resume.position;
+          setFsPositionMs(resume.position);
+          requestSeek(fsPendingSeekRef, resume.position);
+          fsVideoRef.current?.seek(resume.position / 1000);
+        }
+        if (resume.shouldPlay) setFsPlaying(true);
       }
-    }
-
-    const playing = status.isPlaying ?? false;
-    fsPlayingRef.current = playing;
-    setFsPlaying(playing);
-
-    const fsJustStartedPlaying = playing && !fsHasPlayedRef.current;
-    if (fsJustStartedPlaying) {
-      fsHasPlayedRef.current = true;
-    }
-
-    // Restart detection
-    if (status.didJustFinish) {
-      fsEndedRef.current = true;
-      setFsVideoEnded(true);
-    }
-    if (playing && fsEndedRef.current) {
-      fsEndedRef.current = false;
-      setFsVideoEnded(false);
-    }
-
-    // Buffering animation — first-play tick always wins over a stale
-    // isBuffering:true the engine can still report for one frame.
-    const nextBuf = fsJustStartedPlaying
-      ? false
-      : fsHasPlayedRef.current
-        ? (status.isBuffering ?? false)
-        : (status.isBuffering ?? true);
-    setFsBuffering(nextBuf);
-    if (nextBuf !== fsPrevBuffRef.current) {
-      fsPrevBuffRef.current = nextBuf;
-    }
-
-    const dur = status.durationMillis ?? 0;
-    const pos = status.positionMillis ?? 0;
-    if (dur > 0) {
-      fsDurationRef.current = dur;
-      setFsDurationMs(dur);
-    }
-    const shown = reconcileSeek(fsPendingSeekRef, pos, fsVideoRef);
-    if (shown !== null) {
-      fsPositionRef.current = shown;
-      setFsPositionMs(shown);
-    }
-
-    // Share the accumulator with the inline player — fullscreen time counts.
-    accumulateWatch(pos, playing, false);
-  }, [accumulateWatch, reconcileSeek]);
-
-  // ── Aspect ratio from video ────────────────────────────────────────────────
-  const onReadyForDisplay = useCallback(
-    (e: { naturalSize?: { width: number; height: number } }) => {
-      const w = e.naturalSize?.width;
-      const h = e.naturalSize?.height;
-      if (w && h && h > 0 && !initialAspectRatio) setAspectRatio(w / h);
-      // Duration fallback: expo-av can report durationMillis=0 in the earliest
-      // status ticks (or emit no tick at all on some devices). Once the first
-      // frame is displayed the duration is authoritative via getStatusAsync —
-      // fetch it so the timer/seek range are never stuck at 00:00 for a video
-      // that is clearly playing.
-      videoRef.current
-        ?.getStatusAsync()
-        .then((s) => {
-          if (s.isLoaded && s.durationMillis && s.durationMillis > 0) {
-            durationRef.current = s.durationMillis;
-            setDurationMs(s.durationMillis);
-          }
-        })
-        .catch(() => {});
     },
-    [initialAspectRatio],
+    [requestSeek],
   );
+
+  const onFsProgress = useCallback(
+    (data: OnProgressData) => {
+      const pos = data.currentTime * 1000;
+      if (fsPlayingRef.current && !fsHasPlayedRef.current) {
+        fsHasPlayedRef.current = true;
+      }
+      const shown = reconcileSeek(fsPendingSeekRef, pos);
+      if (shown !== null) {
+        fsPositionRef.current = shown;
+        setFsPositionMs(shown);
+      }
+      // Share the accumulator with the inline player — fullscreen time counts.
+      accumulateWatch(pos, fsPlayingRef.current, false);
+    },
+    [reconcileSeek, accumulateWatch],
+  );
+
+  const onFsBuffer = useCallback(
+    ({ isBuffering }: OnBufferData) => {
+      setFsBuffering(isBuffering);
+      if (isBuffering !== fsPrevBuffRef.current) {
+        fsPrevBuffRef.current = isBuffering;
+      }
+    },
+    [],
+  );
+
+  const onFsEnd = useCallback(() => {
+    fsEndedRef.current = true;
+    setFsVideoEnded(true);
+    setFsPlaying(false);
+  }, []);
+
+
 
   // ── Seek (native Slider) ──────────────────────────────────────────────────
   // The platform Slider drives all dragging/tapping (reliable native
@@ -1110,7 +1080,7 @@ export function MsVideoPlayer({
     if (d > 0) setProgress(t / d);
     setPositionMs(t);
     requestSeek(pendingSeekRef, t);
-    videoRef.current?.setPositionAsync(t, SEEK_TOLERANCES).catch(() => {});
+    videoRef.current?.seek(t / 1000);
     showControls();
   }, [durationMs, showControls, requestSeek]);
 
@@ -1124,18 +1094,20 @@ export function MsVideoPlayer({
     fsPositionRef.current = t;
     setFsPositionMs(t);
     requestSeek(fsPendingSeekRef, t);
-    fsVideoRef.current?.setPositionAsync(t, SEEK_TOLERANCES).catch(() => {});
+    fsVideoRef.current?.seek(t / 1000);
     showFsControls();
   }, [fsDurationMs, showFsControls, requestSeek]);
 
   // ── Fullscreen open / close ───────────────────────────────────────────────
   const openFullscreen = useCallback(() => {
-    videoRef.current?.pauseAsync().catch(() => {});
+    setIsPlaying(false);
     fsHasPlayedRef.current = false;
     fsPrevBuffRef.current  = true;
     fsEndedRef.current     = false;
     setFsBuffering(true);
     setFsVideoEnded(false);
+    // The fullscreen player auto-plays and restores the inline position.
+    setFsPlaying(true);
     // Seed the fullscreen refs from the inline player's known state so seeks
     // never clamp against an unseeded (0) duration right after opening.
     fsDurationRef.current = durationMs;
@@ -1143,26 +1115,26 @@ export function MsVideoPlayer({
     setFsDurationMs(durationMs);
     setFsPositionMs(positionMs);
     // The fullscreen engine is a fresh Video instance that starts at 0. Seed a
-    // pending seek so its 0-position status ticks can't snap the bar back to
+    // pending seek so its 0-position progress ticks can't snap the bar back to
     // the beginning while the restore seek (issued on open) is still landing.
-    fsPendingSeekRef.current = { target: positionMs, at: Date.now(), retries: 0 };
+    fsPendingSeekRef.current = { target: positionMs, at: Date.now() };
     setFsVisible(true);
     if (aspectRatio >= 1) {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
     } else {
       ScreenOrientation.unlockAsync().catch(() => {});
     }
-  }, [progress, durationMs, positionMs, aspectRatio]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [durationMs, positionMs, aspectRatio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeFullscreen = useCallback(() => {
-    fsVideoRef.current?.pauseAsync().catch(() => {});
+    setFsPlaying(false);
     const pos = fsPositionRef.current;
     fsPendingSeekRef.current = null;
     setFsVisible(false);
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     setTimeout(() => {
-      videoRef.current?.setPositionAsync(pos, SEEK_TOLERANCES).catch(() => {});
-      videoRef.current?.playAsync().catch(() => {});
+      videoRef.current?.seek(pos / 1000);
+      setIsPlaying(true);
       showControls();
     }, 180);
   }, [showControls]);
@@ -1201,17 +1173,17 @@ export function MsVideoPlayer({
             style={StyleSheet.absoluteFill}
             // Adaptive media: always CONTAIN so the full frame stays visible
             // (no cropping); unused space shows the player's black background.
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={isShorts ? Boolean(active) : (autoPlay || Boolean(active))}
-            isLooping={isShorts ? true : isLooping}
-            useNativeControls={false}
-            progressUpdateIntervalMillis={250}
-            posterSource={posterUri ? { uri: posterUri } : undefined}
-            usePoster={Boolean(posterUri)}
-            posterStyle={{ resizeMode: 'contain' }}
-            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-            onReadyForDisplay={onReadyForDisplay}
-            onError={() => { setError(true); setIsBuffering(false); onError?.(); }}
+            resizeMode="contain"
+            paused={!isPlaying}
+            repeat={isShorts ? true : isLooping}
+            selectedVideoTrack={videoTrack}
+            progressUpdateInterval={250}
+            onLoad={onInlineLoad}
+            onProgress={onInlineProgress}
+            onSeek={onInlineSeek}
+            onBuffer={onInlineBuffer}
+            onEnd={onInlineEnd}
+            onError={onInlineError}
           />
         </Animated.View>
       ) : null}
@@ -1428,6 +1400,7 @@ export function MsVideoPlayer({
           uri={playableUri ?? uri}
           posterUri={posterUri}
           isLooping={isLooping}
+          videoTrack={videoTrack}
           startPositionMs={positionRef.current}
           videoRef={fsVideoRef}
           isPlaying={fsPlaying}
@@ -1435,7 +1408,10 @@ export function MsVideoPlayer({
           videoEnded={fsVideoEnded}
           positionMs={fsPositionMs}
           durationMs={fsDurationMs}
-          onStatus={onFsStatus}
+          onLoad={onFsLoad}
+          onProgress={onFsProgress}
+          onBuffer={onFsBuffer}
+          onEnd={onFsEnd}
           onClose={closeFullscreen}
           onPress={handleFsPress}
           onPressIn={showFsControls}
@@ -1626,14 +1602,18 @@ interface FullscreenModalProps {
   uri: string | null;
   posterUri?: string | null;
   isLooping: boolean;
+  videoTrack: SelectedVideoTrack | undefined;
   startPositionMs: number;
-  videoRef: React.RefObject<Video | null>;
+  videoRef: React.RefObject<VideoRef | null>;
   isPlaying: boolean;
   isBuffering: boolean;
   videoEnded: boolean;
   positionMs: number;
   durationMs: number;
-  onStatus: (s: AVPlaybackStatus) => void;
+  onLoad: (data: OnLoadData) => void;
+  onProgress: (data: OnProgressData) => void;
+  onBuffer: (data: OnBufferData) => void;
+  onEnd: () => void;
   onClose: () => void;
   onPress: (tapRatio: number) => void;
   onPressIn: () => void;
@@ -1656,6 +1636,7 @@ function FullscreenModal({
   uri,
   posterUri,
   isLooping,
+  videoTrack,
   startPositionMs,
   videoRef,
   isPlaying,
@@ -1663,7 +1644,10 @@ function FullscreenModal({
   videoEnded,
   positionMs,
   durationMs,
-  onStatus,
+  onLoad,
+  onProgress,
+  onBuffer,
+  onEnd,
   onClose,
   onPress,
   onPressIn,
@@ -1710,9 +1694,8 @@ function FullscreenModal({
     StatusBar.setHidden(true, 'fade');
     const t = setTimeout(() => {
       if (startPositionMs > 0) {
-        videoRef.current?.setPositionAsync(startPositionMs, SEEK_TOLERANCES).catch(() => {});
+        videoRef.current?.seek(startPositionMs / 1000);
       }
-      videoRef.current?.playAsync().catch(() => {});
     }, 220);
     return () => {
       clearTimeout(t);
@@ -1749,15 +1732,15 @@ function FullscreenModal({
             ref={videoRef}
             source={{ uri }}
             style={StyleSheet.absoluteFill}
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={false}
-            isLooping={isLooping}
-            useNativeControls={false}
-            // Match the inline player: without a progress interval the engine
-            // only emits discrete load/play/pause events, so the seek bar never
-            // advances while the fullscreen video is playing.
-            progressUpdateIntervalMillis={250}
-            onPlaybackStatusUpdate={onStatus}
+            resizeMode="contain"
+            paused={!isPlaying}
+            repeat={isLooping}
+            selectedVideoTrack={videoTrack}
+            progressUpdateInterval={250}
+            onLoad={onLoad}
+            onProgress={onProgress}
+            onBuffer={onBuffer}
+            onEnd={onEnd}
           />
         ) : null}
 
