@@ -27,6 +27,7 @@ import {
   Sparkle,
   Star,
   Users,
+  UserPlus,
   X,
 } from 'phosphor-react-native';
 import { blockUser, reportUser, searchUsers } from '@/services/users';
@@ -297,11 +298,12 @@ function SubscribeSheet({
                 >
                   {/* Top row */}
                   <View style={shStyles.tierTop}>
-                    <View style={[shStyles.tierBadge, { backgroundColor: plan.color }]}>
-                      {active
-                        ? <Check size={12} color="#fff" weight="bold" />
-                        : <View style={shStyles.tierBadgeEmpty} />
-                      }
+                    <View style={[shStyles.tierBadge, { backgroundColor: plan.bg }]}>
+                      {plan.key === 'subscriber_plus' ? (
+                        <UserPlus size={17} color={plan.color} weight="fill" />
+                      ) : (
+                        <Users size={17} color={plan.color} weight="fill" />
+                      )}
                     </View>
                     <View style={shStyles.tierLabelWrap}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -439,10 +441,9 @@ const shStyles = StyleSheet.create({
   },
   tierTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   tierBadge: {
-    width: 22, height: 22, borderRadius: 11,
+    width: 30, height: 30, borderRadius: 15,
     alignItems: 'center', justifyContent: 'center',
   },
-  tierBadgeEmpty: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.4)' },
   tierLabelWrap: { flex: 1, gap: 1 },
   tierName: { fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT },
   currentBadge: {

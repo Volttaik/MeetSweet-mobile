@@ -318,6 +318,11 @@ export default function VideoWatchScreen() {
     const isSelf = user?.id === authorId || (!!user?.username && user.username === username);
     router.push(isSelf ? '/(tabs)/profile' : `/creator/${authorId}`);
   };
+  // Own content never offers a Subscribe action — the authenticated account
+  // already owns this video. (Server-authoritative author id from getPost.)
+  const isOwnVideo = Boolean(
+    user && (user.id === post.author.id || (!!user.username && user.username === post.author.username)),
+  );
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -447,15 +452,17 @@ export default function VideoWatchScreen() {
               </View>
               <Text style={styles.creatorHandle}>@{post.author.username}</Text>
             </View>
-            <PressScale
-              style={styles.subscribeBtn}
-               onPress={() => openProfile(post.author.id, post.author.username)}
-              hitSlop={6}
-              accessibilityLabel="Subscribe"
-            >
-              <UserPlus size={13} color={T.BG} />
-              <Text style={styles.subscribeBtnText}>Subscribe</Text>
-            </PressScale>
+            {!isOwnVideo && (
+              <PressScale
+                style={styles.subscribeBtn}
+                onPress={() => openProfile(post.author.id, post.author.username)}
+                hitSlop={6}
+                accessibilityLabel="Subscribe"
+              >
+                <UserPlus size={13} color={T.BG} />
+                <Text style={styles.subscribeBtnText}>Subscribe</Text>
+              </PressScale>
+            )}
           </Pressable>
         </PressScale>
 

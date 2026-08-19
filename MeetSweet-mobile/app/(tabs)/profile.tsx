@@ -54,8 +54,9 @@ import {
   deletePost,
   type Post,
 } from '@/services/posts';
-import { usePurchasedAlbums, type AlbumCardData } from '@/services/albums';
+import { getAlbums, getPurchasedAlbums, type AlbumCardData } from '@/services/albums';
 import { MsAlbumCard } from '@/components/MsAlbumCard';
+import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { MsTierBadge } from '@/components/MsTierBadge';
 import { getCachedPosts, cachePosts, cacheUser, getCachedUser } from '@/lib/posts-db';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
@@ -463,8 +464,12 @@ export default function ProfileScreen() {
   const [activeTab,    setActiveTab]    = useState<ProfileTab>('Posts');
   const [posts,        setPosts]        = useState<Post[]>([]);
   const [savedPosts,   setSavedPosts]   = useState<Post[]>([]);
+  const [albums,       setAlbums]       = useState<AlbumCardData[]>([]);
+  const [purchasedAlbums, setPurchasedAlbums] = useState<AlbumCardData[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  const [loadingAlbums, setLoadingAlbums] = useState(true);
+  const [loadingPurchased, setLoadingPurchased] = useState(false);
   const [refreshing,   setRefreshing]   = useState(false);
 
   // Profile photo UI
@@ -524,12 +529,44 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  useEffect(() => { loadPosts(); }, [user?.id]);
+  // Albums are a first-class content type with their own endpoints — they are
+  // NOT derived from posts. Fetch the authenticated user's own albums from the
+  // server (server-authoritative, includes private/subscriber-only owned albums)
+  // so newly-created and existing albums appear without any manual DB fix.
+  const loadAlbums = useCallback(async () => {
+    if (!user) return;
+    setLoadingAlbums(true);
+    try {
+      const page = await getAlbums({ creatorId: user.id, limit: 50 });
+      setAlbums(page.albums);
+      reportNetworkSuccess();
+    } catch {
+      reportNetworkError();
+      // keep any previously-loaded albums visible on transient failures
+    } finally {
+      setLoadingAlbums(false);
+    }
+  }, [user]);
+
+  const loadPurchasedAlbums = useCallback(async () => {
+    setLoadingPurchased(true);
+    try {
+      const data = await getPurchasedAlbums();
+      setPurchasedAlbums(data);
+    } catch {
+      // show empty state on transient failures
+    } finally {
+      setLoadingPurchased(false);
+    }
+  }, []);
+
+  useEffect(() => { loadPosts(); loadAlbums(); }, [user?.id]);
   useEffect(() => { if (activeTab === 'Saved') loadSavedPosts(); }, [activeTab]);
+  useEffect(() => { if (activeTab === 'Purchased') loadPurchasedAlbums(); }, [activeTab]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refreshUser(), loadPosts()]);
+    await Promise.all([refreshUser(), loadPosts(), loadAlbums()]);
   };
 
   // ── Profile photo ───────────────────────────────────────────────────────────
@@ -764,19 +801,20 @@ export default function ProfileScreen() {
       );
     }
 
-    // Albums tab — grid of album thumbnails
+    // Albums tab — the user's OWN albums from the albums API (not derived from
+    // posts, which never contains albums). Server-authoritative and keyed by the
+    // authenticated account id.
     if (activeTab === 'Albums') {
-      const albumPosts = posts.filter((p) => p.contentType === 'album');
-      if (loadingPosts) {
+      if (loadingAlbums) {
         return (
-          <View style={styles.grid}>
-            {Array.from({ length: 9 }).map((_, i) => (
-              <MsSkeletonCard key={i} style={{ width: gridItemSize, height: gridItemSize }} radius={0} />
+          <View style={{ gap: 12, padding: 16 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <MsSkeletonCard key={i} style={{ height: 240 }} radius={T.RADIUS.xl} />
             ))}
           </View>
         );
       }
-      if (albumPosts.length === 0) {
+      if (albums.length === 0) {
         return (
           <MsEmptyState
             title="No albums yet"
@@ -787,8 +825,15 @@ export default function ProfileScreen() {
         );
       }
       return (
-        <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
-          {albumPosts.map((p) => <GridTile key={p.id} item={p} />)}
+        <View style={{ paddingTop: 8 }}>
+          {albums.map((album) => (
+            <MsAlbumCard
+              key={album.id}
+              album={album}
+              onPress={() => router.push(`/album/${album.id}`)}
+              onCreatorPress={() => router.push({ pathname: '/creator/[id]', params: { id: album.creatorId } })}
+            />
+          ))}
         </View>
       );
     }
@@ -833,13 +878,14 @@ export default function ProfileScreen() {
               delayLongPress={400}
             >
               {/* Thumbnail area with overlaid controls — height follows the
-                  video's REAL aspect ratio (16:9 fallback) so vertical videos
-                  aren't distorted or awkwardly cropped. */}
+                  video's REAL aspect ratio (16:9 fallback) so landscape videos
+                  aren't stretched into tall/portrait cards. height = width ×
+                  (height / width). */}
               <View
                 style={{
                   width: videoColSize,
                   height: p.width && p.height && p.height > 0
-                    ? Math.round(videoColSize * (p.width / p.height))
+                    ? Math.round(videoColSize * (p.height / p.width))
                     : thumbH,
                   position: 'relative',
                   overflow: 'hidden',
@@ -952,6 +998,41 @@ export default function ProfileScreen() {
               )}
               {/* Shorts are always free — no lock badge */}
             </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+
+    // Purchased tab — albums the user has unlocked by purchasing from their wallet.
+    if (activeTab === 'Purchased') {
+      if (loadingPurchased) {
+        return (
+          <View style={{ gap: 12, padding: 16 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <MsSkeletonCard key={i} style={{ height: 240 }} radius={T.RADIUS.xl} />
+            ))}
+          </View>
+        );
+      }
+      if (purchasedAlbums.length === 0) {
+        return (
+          <MsEmptyState
+            title="No purchased albums"
+            message="Albums you purchase will appear here. Browse Explore to discover albums from your favourite creators."
+            actionLabel="Go to Explore"
+            onAction={() => router.push('/(tabs)/explore')}
+          />
+        );
+      }
+      return (
+        <View style={{ paddingTop: 8, paddingHorizontal: 16, gap: 20 }}>
+          {purchasedAlbums.map((album) => (
+            <ExploreAlbumCard
+              key={album.id}
+              album={album}
+              onPress={() => router.push(`/album/${album.id}`)}
+              onCreatorPress={() => router.push({ pathname: '/creator/[id]', params: { id: album.creatorId } })}
+            />
           ))}
         </View>
       );

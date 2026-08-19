@@ -121,8 +121,9 @@ export function ExploreAlbumCard({
             {/* Bottom scrim */}
             <View style={styles.bottomScrim} pointerEvents="none" />
 
-            {/* Purchase lock overlay */}
-            {album.requiresPurchase && (
+            {/* Purchase lock overlay — hidden for the owner and for albums the
+                viewer has already unlocked (server-authoritative isUnlockedByMe). */}
+            {album.requiresPurchase && !album.isUnlockedByMe && (
               <View style={styles.lockOverlay} pointerEvents="box-none">
                 <View style={styles.lockCircle}>
                   <Lock size={22} color={T.TEXT} weight="bold" />
@@ -180,7 +181,7 @@ export function ExploreAlbumCard({
                 </View>
               </TouchableOpacity>
 
-              {album.requiresPurchase && (
+              {album.requiresPurchase && !album.isUnlockedByMe && (
                 <View style={styles.premiumPill}>
                   <Star size={8} color="#fff" weight="fill" />
                   <Text style={styles.premiumText}>PURCHASE</Text>
@@ -221,7 +222,7 @@ export function ExploreAlbumCard({
                 <Images size={13} color={T.TEXT_3} />
                 <Text style={styles.footerMeta}>{album.itemCount} items in collection</Text>
               </View>
-              {album.requiresPurchase ? (
+              {album.requiresPurchase && !album.isUnlockedByMe ? (
                 <TouchableOpacity
                   style={styles.ctaUnlock}
                   onPress={onUnlockPress ?? onPress}

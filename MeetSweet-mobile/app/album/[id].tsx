@@ -34,6 +34,7 @@ import {
 } from 'phosphor-react-native';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -82,6 +83,10 @@ function fmtDuration(secs: number | null | undefined): string | null {
  */
 function AlbumImageCard({ item, onPress }: { item: AlbumItem; onPress: () => void }) {
   const ratio = item.width && item.height && item.height > 0 ? item.width / item.height : 1;
+  // Images have no thumbnail_url — the actual media URL IS the image. Fall
+  // back to mediaUrl so purchased/owned image items render immediately instead
+  // of showing a blank card until the user taps into the fullscreen preview.
+  const uri = item.thumbnailUrl ?? item.mediaUrl;
   return (
     <Pressable
       style={[styles.albumCard, { width: THUMB_SIZE, height: THUMB_SIZE / ratio, backgroundColor: T.SURFACE_2 }]}
@@ -89,9 +94,9 @@ function AlbumImageCard({ item, onPress }: { item: AlbumItem; onPress: () => voi
       accessibilityRole="button"
       accessibilityLabel="View image"
     >
-      {item.thumbnailUrl ? (
+      {uri ? (
         <MsMediaLoader
-          uri={item.thumbnailUrl}
+          uri={uri}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           accessibleLabel=""
@@ -126,6 +131,10 @@ function AlbumVideoCard({ item, onPress }: { item: AlbumItem; onPress: () => voi
           errorMessage=""
           fallback={null}
         />
+      ) : item.mediaUrl ? (
+        // Album videos have no thumbnail_url — render the first decoded frame
+        // of the real video so the card is never a blank black tile.
+        <MsVideoThumbnail videoUri={item.mediaUrl} style={StyleSheet.absoluteFill} />
       ) : null}
       <View style={styles.playBadge}>
         <Play size={10} color={T.TEXT} weight="fill" />
