@@ -816,3 +816,43 @@ as patches at workspace root like prior sessions.
   reflects immediately → album 201 → short 201 → cleanup. No manual DB fixes.
 - Expo tunnel still live at `exp://b7ik87q-prcon-8081.exp.direct`; bundle
   rebuilds with the new player code (HTTP 200, no resolve errors).
+
+## 2026-08-20 — MEDIA UPLOAD 413 FIX: direct-to-R2 sessions (pushed)
+
+**Root cause of the HTTP 413:** the mobile `services/media.ts` POSTed the whole
+file as `multipart/form-data` to `/api/upload` (alias of `/api/media/upload`),
+and that route did `req.formData()` → `file.arrayBuffer()`, buffering the entire
+video in the **Vercel serverless request body**. Vercel's body limit rejects
+files above a few MB with 413 Payload Too Large before the handler runs.
+
+**Fix (both repos, pushed):**
+
+- **Server (`Volttaik/Meetsweet`, commit `3036775`)** — new
+  `server/lib/services/uploads.ts` + `server/app/api/uploads/*` routes
+  (`POST /api/uploads`, `GET/DELETE /api/uploads/:id`,
+  `POST /api/uploads/:id/complete`, `POST /api/uploads/:id/parts/:partNumber`).
+  Small files → single presigned R2 PUT; files > 20 MiB → S3/R2 multipart
+  (10 MiB parts, per-part presigned URLs, server-side CompleteMultipartUpload).
+  The media row is created only after the bytes are confirmed in R2. New
+  `upload_sessions` table (pending/uploading/completed/failed/cancelled) in
+  `schema.ts` + idempotent `scripts/migrate.ts` entry; abandoned multipart
+  uploads swept by `scripts/cleanup-uploads.ts`. Legacy `/api/upload` now
+  returns 410 and `server/app/api/media/upload/route.ts` was deleted.
+- **Mobile (`Volttaik/MeetSweet-mobile`, commit `9965863`)** —
+  `services/media.ts` rewritten to: `POST /api/uploads` → direct PUT to R2
+  (single or multipart with per-part ETag tracking + retry + URL re-issue) →
+  `POST /api/uploads/:id/complete`. `uploadMedia()` signature and return shape
+  (`{ id, url, media_type }`) unchanged, so posts/shorts/albums/chat/avatar
+  callers migrate untouched. R2 access/secret keys never reach the client.
+
+**MIGRATION REQUIRED on the live DB:** `cd server && pnpm migrate` (creates
+`upload_sessions`). **Deploy:** push server main (Vercel auto-deploys) and
+rebuild the mobile APK.
+
+**Video player untouched** — no changes to MsVideoPlayer / react-native-video /
+Expo Video / seek / play-pause / sync / controls / fullscreen.
+
+NOTE: mobile typecheck could not run in this session (Expo `node_modules` were
+not installed); server `tsc --noEmit` passes. A device E2E of the
+1/3/4/5/10/25 MB+ matrix is still outstanding and needs the deployed server +
+`R2_PUBLIC_BASE_URL` set.

@@ -1,12 +1,34 @@
 # MeetSweet — Backend Issue Report
 
 Audited from the mobile client (MeetSweet-mobile) against the server
-(`Volttaik/Meetsweet`, Next.js + Drizzle + Turso + R2). Last updated: 2026-08-16.
+(`Volttaik/Meetsweet`, Next.js + Drizzle + Turso + R2). Last updated: 2026-08-20.
 
 Legend:
 - **MOBILE FIXED** — issue resolved on the client in this pass.
 - **BACKEND ISSUE** — root cause is server/API/database; needs a server fix.
 - **VERIFIED OK** — checked end-to-end; behaves as intended.
+
+---
+
+## 0. MEDIA UPLOAD — HTTP 413 Payload Too Large (FIXED, 2026-08-20)
+
+- **Problem:** mobile `services/media.ts` POSTed the entire file as
+  `multipart/form-data` to `/api/upload` (alias of `/api/media/upload`). That
+  route buffered the whole file in the Vercel serverless request body
+  (`req.formData()` → `file.arrayBuffer()`), so any file above Vercel's body
+  limit failed with **413 Payload Too Large**.
+- **Fix:** replaced with a direct-to-storage flow. Server
+  (`Volttaik/Meetsweet` commit `3036775`) adds `server/lib/services/uploads.ts`
+  + `server/app/api/uploads/*` and an `upload_sessions` table; it issues a
+  presigned R2 PUT (small files) or an S3/R2 multipart upload with per-part
+  presigned URLs (files > 20 MiB), and creates the media row only after the
+  bytes are confirmed in R2. Mobile (`Volttaik/MeetSweet-mobile` commit
+  `9965863`) rewrites `services/media.ts` to authorize → PUT directly to R2 →
+  complete, with per-part ETag tracking + retry. No media bytes cross the
+  Vercel request body. Legacy `/api/upload` returns 410;
+  `server/app/api/media/upload/route.ts` deleted.
+- **Deploy note:** run `cd server && pnpm migrate` (creates `upload_sessions`),
+  push server main (Vercel auto-deploys), rebuild the mobile APK.
 
 ---
 
