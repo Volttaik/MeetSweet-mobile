@@ -65,7 +65,7 @@
     "@react-native-community/slider": "5.0.1",
     "@shopify/flash-list": "^2.0.2",
     "@tailwindcss/postcss": "^4.3.3",
-    "expo-auth-session": "^57.0.8",
+    "expo-auth-session": "~56.0.0",
     "expo-av": "^16.0.8",
     "expo-clipboard": "^8.0.8",
     "expo-device": "^8.0.10",
