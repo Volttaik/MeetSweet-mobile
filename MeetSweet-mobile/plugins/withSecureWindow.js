@@ -131,8 +131,13 @@ module.exports = function withSecureWindow(config) {
   ]);
 
   config = withAndroidStyles(config, (cfg) => {
-    const styles = cfg.modResults;
-    styles.contents = patchStyles(styles.contents);
+    const results = cfg.modResults;
+    // SDK 54: modResults can be a string (raw XML) or an object with .contents
+    if (typeof results === 'string') {
+      cfg.modResults = patchStyles(results);
+    } else if (results && typeof results.contents === 'string') {
+      results.contents = patchStyles(results.contents);
+    }
     return cfg;
   });
 
