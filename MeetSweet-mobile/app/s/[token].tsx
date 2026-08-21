@@ -10,19 +10,41 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { resolveShareLink } from '@/services/sharing';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  routeToShareDestination,
+  setPendingShareDestination,
+  type ShareDestination,
+} from '@/lib/deep-link';
 import { T } from '@/constants/theme';
 
 export default function ShareTokenResolver() {
   const { token } = useLocalSearchParams<{ token: string }>();
+  const { isAuthenticated, isLoading } = useAuth();
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // Wait for the session state — the resolver must know whether the viewer
+    // is signed in before deciding what to do with the destination.
+    if (isLoading) return;
+
     if (!token) {
       router.replace('/(tabs)');
       return;
     }
 
     let cancelled = false;
+
+    const go = (destination: ShareDestination) => {
+      // A logged-out recipient should still land on the shared content right
+      // away (the destination screens support anonymous viewing), but the
+      // destination is remembered so a later login returns here instead of
+      // onboarding — the shared link is never lost.
+      if (!isAuthenticated) {
+        setPendingShareDestination(destination);
+      }
+      routeToShareDestination(destination, 'replace');
+    };
 
     resolveShareLink(token as string)
       .then((result) => {
@@ -34,46 +56,34 @@ export default function ShareTokenResolver() {
 
         if (!contentId) throw new Error('Missing content ID');
 
-        switch (contentType) {
-          case 'video':
-            router.replace(`/videos/${contentId}`);
-            break;
-          case 'short':
-            router.replace({ pathname: '/shorts', params: { startId: contentId } });
-            break;
-          case 'album':
-            router.replace(`/album/${contentId}`);
-            break;
-          case 'creator':
-            router.replace(`/creator/${contentId}`);
-            break;
-          case 'post':
-          default:
-            router.replace(`/post/${contentId}`);
-            break;
-        }
+        const type =
+          contentType === 'video' || contentType === 'short' || contentType === 'album' || contentType === 'creator'
+            ? contentType
+            : 'post';
+        go({ type, id: contentId });
       })
       .catch(() => {
         if (cancelled) return;
         const str = String(token);
+        // Legacy fallback: some older shared links carry the id itself.
         if (str.startsWith('post_')) {
-          router.replace(`/post/${str}`);
+          go({ type: 'post', id: str });
           return;
         }
         if (str.startsWith('creator_') || str.startsWith('@')) {
-          router.replace(`/creator/${str.replace(/^@/, '')}`);
+          go({ type: 'creator', id: str.replace(/^@/, '') });
           return;
         }
         if (str.startsWith('album_')) {
-          router.replace(`/album/${str}`);
+          go({ type: 'album', id: str });
           return;
         }
         if (str.startsWith('video_')) {
-          router.replace(`/videos/${str}`);
+          go({ type: 'video', id: str });
           return;
         }
         if (str.startsWith('short_')) {
-          router.replace({ pathname: '/shorts', params: { startId: str } });
+          go({ type: 'short', id: str });
           return;
         }
 
@@ -83,7 +93,7 @@ export default function ShareTokenResolver() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, isLoading, isAuthenticated]);
 
   return (
     <View style={styles.container}>

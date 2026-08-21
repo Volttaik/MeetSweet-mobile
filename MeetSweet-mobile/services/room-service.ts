@@ -70,6 +70,7 @@ export interface RoomParticipant {
   avatarUrl: string | null;
   isVerified?: boolean;
   isCreator?: boolean;
+  isOnline?: boolean;
 }
 
 /** Chat Room row — used by the chat list and the chat header. */
@@ -100,6 +101,8 @@ export interface ChatRoom {
   lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | null;
   /** Sender id of the latest message (chat list "You:" prefix). */
   lastMessageSenderId?: string | null;
+  /** User IDs currently typing in this room. */
+  typingUserIds?: string[];
 }
 
 /** A message inside a Chat Room. Destination is chatRoomId; sender is author. */
@@ -168,6 +171,8 @@ export interface RoomChanges {
   marker: string | null;
   /** New messages since the marker (only when `after` style fetch is used). */
   messages?: RoomMessage[];
+  /** IDs of users currently typing in this room (server-reported). */
+  typing?: string[];
 }
 
 /**
@@ -255,6 +260,7 @@ function normalizeParticipant(raw: any): RoomParticipant {
     avatarUrl: raw?.avatarUrl ?? raw?.avatar_url ?? raw?.profile_picture_url ?? null,
     isVerified: raw?.isVerified ?? raw?.is_verified ?? false,
     isCreator: raw?.isCreator ?? raw?.is_creator ?? undefined,
+    isOnline: raw?.isOnline ?? raw?.is_online ?? false,
   };
 }
 
@@ -317,6 +323,10 @@ function normalizeChatRoom(raw: any): ChatRoom {
       source.last_message_sender_id ??
       lastMessage?.sender_id ??
       null,
+    typingUserIds:
+      source.typingUserIds ??
+      source.typing_user_ids ??
+      undefined,
   };
 }
 
@@ -709,10 +719,12 @@ export async function checkRoomChanges(
   ).catch((): RoomChanges => ({ changed: false, marker }));
 
   const changed = raw?.changed ?? (raw as { has_changes?: boolean }).has_changes ?? false;
+  const typingChanged = (raw as any)?.typing && (raw as any).typing.length > 0;
   return {
-    changed: Boolean(changed),
+    changed: Boolean(changed) || typingChanged,
     marker: raw?.marker ?? marker,
     messages: raw?.messages ?? undefined,
+    typing: (raw as any)?.typing ?? undefined,
   };
 }
 
@@ -821,6 +833,34 @@ export async function deleteChatRoom(chatRoomId: string): Promise<void> {
     method: 'DELETE',
     headers: authHeader(token),
   });
+}
+
+// ─── Typing broadcast ───────────────────────────────────────────────────────
+
+/**
+ * Broadcast "I'm typing" for a chat room.
+ * POST /api/chat-rooms/:chatRoomId/typing
+ */
+export async function broadcastTyping(chatRoomId: string): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/typing`, {
+    method: 'POST',
+    headers: authHeader(token),
+  }).catch(() => {});
+}
+
+/**
+ * Clear typing state for a room (user stopped typing / sent / left).
+ * DELETE /api/chat-rooms/:chatRoomId/typing
+ */
+export async function clearTyping(chatRoomId: string): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/typing`, {
+    method: 'DELETE',
+    headers: authHeader(token),
+  }).catch(() => {});
 }
 
 // ─── Re-exported user search (room entry points use the same user search) ─────

@@ -56,7 +56,7 @@ import { useLocalExploreCatalog, fmtTimeAgo } from '@/services/explore';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { useScreenProtection } from '@/lib/screen-protection';
+import { usePostActions } from '@/contexts/PostActionsContext';
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -90,6 +90,7 @@ export default function VideoWatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { likeOverrides, bookmarkOverrides, markLiked, markBookmarked } = usePostActions();
 
   const [post,                setPost]                = useState<Post | null>(null);
   const [loading,             setLoading]             = useState(true);
@@ -127,11 +128,8 @@ export default function VideoWatchScreen() {
   const catalogQuery = useLocalExploreCatalog();
   const catalog      = catalogQuery.data;
 
-  // Native capture protection (Android FLAG_SECURE) while viewing
-  // subscriber-gated video content — this screen shows the actual protected
-  // media (or its premium preview), so screenshots/recording are blocked at
-  // the OS level. Restored automatically when leaving this screen.
-  useScreenProtection(Boolean(post?.tier));
+  // Screen-capture protection is application-wide (see lib/screen-protection.ts)
+  // — every MeetSweet screen is protected from launch until the app closes.
 
   useEffect(() => {
     if (!id) return;
@@ -145,9 +143,13 @@ export default function VideoWatchScreen() {
       .then((p) => {
         if (cancelled) return;
         setPost(p);
-        setLiked(p.likedByMe);
-        setBookmarked(p.bookmarkedByMe ?? false);
-        setLikeCount(p.likeCount);
+        // Seed from shared like/bookmark overrides when available so a like
+        // performed on another screen is reflected here on open.
+        const likeOv = likeOverrides[id];
+        const bookmarkOv = bookmarkOverrides[id];
+        setLiked(likeOv?.likedByMe ?? p.likedByMe);
+        setBookmarked(bookmarkOv?.bookmarkedByMe ?? p.bookmarkedByMe ?? false);
+        setLikeCount(likeOv?.likeCount ?? p.likeCount);
       })
       .catch(() => {})
       .finally(() => {
@@ -190,6 +192,9 @@ export default function VideoWatchScreen() {
       } else {
         await unlikePost(post.id);
       }
+      // Publish to the shared post-actions store so every other view of this
+      // post (Home feed card, creator page, profile) reflects it immediately.
+      markLiked(post.id, nextLiked, Math.max(0, likeCount + (nextLiked ? 1 : -1)));
     } catch {
       setLiked(!nextLiked);
       setLikeCount((n) => Math.max(0, n + (nextLiked ? -1 : 1)));
@@ -203,6 +208,7 @@ export default function VideoWatchScreen() {
     try {
       if (next) await bookmarkPost(post.id);
       else await unbookmarkPost(post.id);
+      markBookmarked(post.id, next, Math.max(0, (post.bookmarkCount ?? 0) + (next ? 1 : -1)));
     } catch {
       setBookmarked(!next);
     }

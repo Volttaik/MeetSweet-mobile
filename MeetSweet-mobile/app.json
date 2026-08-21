@@ -22,6 +22,14 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
+        ],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "meetsweet",
+              "com.meetsweet.app"
+            ]
+          }
         ]
       }
     },
@@ -49,6 +57,34 @@
             "BROWSABLE",
             "DEFAULT"
           ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "meetsweet.space",
+              "pathPrefix": "/r"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "com.meetsweet.app",
+              "pathPrefix": "/oauthredirect"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -56,6 +92,7 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
+      "./plugins/withSecureWindow",
       [
         "expo-router",
         {

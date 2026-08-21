@@ -38,6 +38,7 @@ import { blockUser } from '@/services/users';
 import { subscribe } from '@/services/subscriptions';
 import { hideCreator } from '@/services/posts';
 import { usePostActions } from '@/contexts/PostActionsContext';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
@@ -246,6 +247,7 @@ export default function ExploreScreen() {
   // authoritative state returned by /explore on load/refetch.
   const [subscribedIds, setSubscribedIds] = useState<Set<string>>(new Set());
   const [subscribingId, setSubscribingId] = useState<string | null>(null);
+  const { refreshWallet } = useWalletBalance();
 
   // ── Data hooks ───────────────────────────────────────────────────────────────
   const catalogQuery = useLocalExploreCatalog();
@@ -407,6 +409,9 @@ export default function ExploreScreen() {
       setSubscribingId(creator.id);
       try {
         await subscribe(creator.id, 'subscriber');
+        // The subscription debits the wallet — refresh the shared balance so
+        // the header badge reflects it immediately.
+        refreshWallet();
         setSubscribedIds((prev) => {
           const next = new Set(prev);
           next.add(creator.id);
@@ -434,7 +439,7 @@ export default function ExploreScreen() {
         setSubscribingId(null);
       }
     },
-    [subscribingId, catalogQuery, subscribedIds, navToCreatorId],
+    [subscribingId, catalogQuery, subscribedIds, navToCreatorId, refreshWallet],
   );
 
   const refresh = useCallback(async () => {

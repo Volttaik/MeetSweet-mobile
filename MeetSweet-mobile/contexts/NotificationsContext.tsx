@@ -21,11 +21,13 @@ import React, {
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
 import { getChatRoomList } from '@/services/room-service';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWallet } from '@/contexts/WalletContext';
 
 const LAST_HANDLED_NOTIF_KEY = '@ms_last_handled_notif_id';
 
@@ -107,7 +109,15 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
   }
 
   try {
-    const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
+    // Pass the EAS projectId so the token is bound to the installed app,
+    // NOT to Expo Go. Without this, standalone builds and Expo Go produce
+    // the same-form token and notifications go to the wrong client.
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    // Standalone MeetSweet builds must use the EAS project id. Calling without
+    // it can bind a token to Expo Go, which silently sends notifications to the
+    // wrong installation.
+    if (!projectId) return { token: null, status: finalStatus };
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId }).catch(() => null);
     return { token: tokenData?.data ?? null, status: finalStatus };
   } catch {
     return { token: null, status: finalStatus };
@@ -135,7 +145,7 @@ function handleNotificationTap(notification: Notifications.Notification) {
   }
 
   // wallet / payout → open wallet
-  if (type === 'wallet' || type === 'payout' || type === 'payment' || type === 'purchase') {
+  if (type === 'wallet' || type === 'payout' || type === 'payment' || type === 'purchase' || type === 'referral_reward') {
     router.push('/wallet');
     return;
   }
@@ -190,6 +200,7 @@ const POLL_INTERVAL_MS = 30_000; // 30 s
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuth();
+  const { refreshWallet } = useWallet();
   const [notifUnread, setNotifUnread] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
@@ -279,6 +290,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       } else {
         setNotifUnread((n) => n + 1);
       }
+      if (data?.wallet || type === 'wallet' || type === 'payment' || type === 'referral_reward') {
+        // WalletProvider owns the balance; this makes a foreground reward or
+        // payment reflect in the header without waiting for a restart.
+        refreshWallet();
+      }
     });
 
     // Background/quit: user taps a notification
@@ -305,7 +321,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       notifListenerRef.current?.remove();
       responseListenerRef.current?.remove();
     };
-  }, []);
+  }, [refreshWallet]);
 
   // ── Cold start response handling (guarded against double-handling) ─────────
   useEffect(() => {

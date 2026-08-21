@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
+import { router } from 'expo-router';
 import { apiFetch, ApiError, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
 import { clearChatCache } from '@/services/chat-cache';
@@ -53,6 +54,7 @@ export interface RegisterData {
   date_of_birth?: string;
   dob?: string;
   avatar_url?: string;
+  referral_code?: string;
 }
 
 export interface LoginData {
@@ -64,6 +66,10 @@ export type LoginResult =
   | { requiresTwoFactor: false }
   | { requiresTwoFactor: true; challengeToken: string };
 
+export interface GoogleLoginResult {
+  isNewUser: boolean;
+}
+
 interface AuthState {
   user: User | null;
   accessToken: string | null;
@@ -73,6 +79,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login: (data: LoginData) => Promise<LoginResult>;
+  googleLogin: (idToken: string, referralCode?: string) => Promise<GoogleLoginResult>;
   completeTwoFactorLogin: (challengeToken: string, code: string) => Promise<void>;
   register: (data: RegisterData) => Promise<{ userId: string }>;
   logout: () => Promise<void>;
@@ -161,7 +168,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
   }, [state.user?.id]);
 
-  // Register session-expired handler so API layer can clear auth state
+  // Register session-expired handler so API layer can clear auth state.
+  // A dead session must never leave the user inside the authenticated app with
+  // missing profile data — clear everything and land on Login immediately.
   useEffect(() => {
     setSessionExpiredHandler(async () => {
       await clearSessionStorage();
@@ -169,6 +178,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // (rather than a clean logout) can never leak the prior user's messages.
       await clearChatCache().catch(() => {});
       setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
+      // Pop every authenticated screen off the stack (so Back can never return
+      // to protected screens) and show the Login screen directly.
+      if (router.canDismiss()) router.dismissAll();
+      router.replace('/auth');
     });
     return () => {
       setSessionExpiredHandler(() => {});
@@ -299,6 +312,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { requiresTwoFactor: false };
   }, []);
 
+  const googleLogin = useCallback(async (idToken: string, referralCode?: string): Promise<GoogleLoginResult> => {
+    await clearSessionStorage().catch(() => {});
+    await clearChatCache().catch(() => {});
+
+    const result = await apiFetch<{
+      access_token?: string;
+      refresh_token?: string;
+      user?: unknown;
+      is_new_user?: boolean;
+    }>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({
+        id_token: idToken,
+        referral_code: referralCode,
+      }),
+    });
+
+    if (!result.access_token || !result.refresh_token) {
+      throw new Error('Google authentication failed: no session token returned');
+    }
+
+    const user = normalizeUser(result.user);
+    await saveSessionTokens(result.access_token, result.refresh_token, user);
+    setState({
+      user,
+      accessToken: result.access_token,
+      isLoading: false,
+      isAuthenticated: true,
+    });
+
+    finalizePendingAvatar(user.email).catch(() => {});
+    return { isNewUser: Boolean(result.is_new_user) };
+  }, []);
+
   const completeTwoFactorLogin = useCallback(async (challengeToken: string, code: string) => {
     const result = await apiFetch<{
       access_token: string;
@@ -392,7 +439,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, completeTwoFactorLogin, register, logout, refreshUser, updateUser }}>
+    <AuthContext.Provider value={{ ...state, login, googleLogin, completeTwoFactorLogin, register, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

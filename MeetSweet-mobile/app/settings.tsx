@@ -46,7 +46,7 @@ import {
   Warning,
   X,
 } from 'phosphor-react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { pushOnce } from '@/lib/nav';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T } from '@/constants/theme';
@@ -438,7 +438,7 @@ const rs = StyleSheet.create({
   },
   rowText: { flex: 1 },
   rowLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
-  rowSub: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2, lineHeight: 17 },
+  rowSub: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2, marginTop: 3, lineHeight: 18 },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1489,7 +1489,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout, updateUser, isAuthenticated, isLoading } = useAuth();
   const { refreshLockState } = useBiometricLock();
 
   // Modal open state
@@ -1671,7 +1671,10 @@ export default function SettingsScreen() {
 
   const doLogout = async () => {
     await logout();
-    router.replace('/welcome');
+    // Pop every authenticated screen first so Back can never return to them,
+    // then land on the Login screen.
+    if (router.canDismiss()) router.dismissAll();
+    router.replace('/auth');
   };
 
   const handleSaveProfile = async (fields: { name: string; bio: string }) => {
@@ -1683,6 +1686,15 @@ export default function SettingsScreen() {
       throw e;
     }
   };
+
+  // Authenticated screen only — a logged-out visit (stale navigation history
+  // or a direct web URL) must land on Login, never a placeholder shell.
+  if (isLoading) {
+    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  }
+  if (!isAuthenticated) {
+    return <Redirect href="/auth" />;
+  }
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
@@ -1928,7 +1940,8 @@ export default function SettingsScreen() {
           try {
             await deleteAccount(password);
             await logout();
-            router.replace('/welcome');
+            if (router.canDismiss()) router.dismissAll();
+            router.replace('/auth');
           } catch (e: unknown) {
             toast.error(e instanceof Error ? e.message : 'Failed to delete account');
           }

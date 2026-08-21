@@ -6,7 +6,7 @@
  * request body and hit the platform body limit (HTTP 413) for anything above a
  * few MB. That path is removed.
  *
- * The new flow never sends media bytes through the MeetSuite API:
+ * The new flow never sends media bytes through the MeetSweet API:
  *
  *   1. POST /api/uploads              → authorize the upload; the server issues
  *       a presigned R2 PUT (small files) or a multipart upload id + presigned

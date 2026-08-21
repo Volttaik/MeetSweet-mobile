@@ -21,8 +21,9 @@ import {
   X,
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
 import { T } from '@/constants/theme';
-import { becomeCreator } from '@/services/creator';
+import { becomeCreator, initiateActivation, verifyActivation } from '@/services/creator';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
@@ -56,19 +57,30 @@ export default function BecomeCreatorScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState('');
 
+  const [paying, setPaying] = useState(false);
+  const [transactionId, setTransactionId] = useState('');
+  const [paymentRef, setPaymentRef] = useState('');
+
   const handleBecomeCreator = async () => {
     if (submitting) return;
     setSubmitting(true);
     setError('');
     try {
-      await becomeCreator();
-      // Re-pull the account from the server so creator state (role/is_creator)
-      // is authoritative everywhere — the UI must never decide creator status
-      // on its own. Every creator-gated button reads this state, so they all
-      // disappear the moment the server confirms.
-      await refreshUser();
-      toast.success('You are now a creator!');
-      router.back();
+      // Step 1: Initiate the ₦1,000 activation payment
+      const init = await initiateActivation();
+      setTransactionId(init.transactionId);
+      setPaymentRef(init.reference);
+      setPaying(true);
+      setSubmitting(false);
+
+      // Step 2: Open Paystack checkout
+      const supported = await Linking.canOpenURL(init.authorizationUrl);
+      if (supported) {
+        await Linking.openURL(init.authorizationUrl);
+      } else {
+        setError('Could not open payment page. Please try again.');
+        setPaying(false);
+      }
     } catch (e) {
       setSubmitting(false);
       // Already a creator (409) — the user is ahead of us; refresh and leave.
@@ -77,7 +89,33 @@ export default function BecomeCreatorScreen() {
         router.back();
         return;
       }
+      // 402 = activation payment required — show the activation flow
+      if (e instanceof ApiError && e.status === 402) {
+        setError('A one-time creator activation fee of ₦1,000 is required.');
+        return;
+      }
       setError((e as Error).message ?? 'Could not activate your creator account. Please try again.');
+    }
+  };
+
+  // Step 3: Verify the payment (called by user after they return from Paystack)
+  const handleVerifyPayment = async () => {
+    if (!transactionId || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const result = await verifyActivation(transactionId, paymentRef);
+      if (result.activated && result.is_creator) {
+        await refreshUser();
+        toast.success('You are now a creator!');
+        router.back();
+        return;
+      }
+      setError('Payment verification failed. Please try again or contact support.');
+    } catch (e) {
+      setError((e as Error).message ?? 'Payment verification failed.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -114,6 +152,18 @@ export default function BecomeCreatorScreen() {
           </Text>
         </View>
 
+        {/* Activation payment info */}
+        <View style={styles.activationCard}>
+          <Text style={styles.activationTitle}>Become a MeetSweet creator and unlock subscriber content tools.</Text>
+          <View style={styles.activationPriceRow}>
+            <Text style={styles.activationPrice}>One-time activation fee</Text>
+            <Text style={styles.activationPriceAmount}>₦1,000</Text>
+          </View>
+          <Text style={styles.activationNote}>
+            Pay once. Create forever. You will not be charged again for creating posts, albums, or setting subscriber content.
+          </Text>
+        </View>
+
         {/* Stats bar */}
         <View style={styles.statsBar}>
           <View style={styles.statItem}>
@@ -146,18 +196,38 @@ export default function BecomeCreatorScreen() {
         {/* CTAs */}
         <View style={styles.ctaSection}>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          <TouchableOpacity
-            style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
-            activeOpacity={0.85}
-            onPress={handleBecomeCreator}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator size="small" color={T.BG} />
-            ) : (
-              <Text style={styles.primaryBtnLabel}>Become a Creator</Text>
-            )}
-          </TouchableOpacity>
+          {paying && transactionId ? (
+            <>
+              <TouchableOpacity
+                style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
+                activeOpacity={0.85}
+                onPress={handleVerifyPayment}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color={T.BG} />
+                ) : (
+                  <Text style={styles.primaryBtnLabel}>Verify Payment & Activate</Text>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.paymentHint}>
+                After completing the Paystack payment, tap above to verify and activate your creator account.
+              </Text>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
+              activeOpacity={0.85}
+              onPress={handleBecomeCreator}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color={T.BG} />
+              ) : (
+                <Text style={styles.primaryBtnLabel}>Pay ₦1,000 & Become a Creator</Text>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.secondaryBtn}
             onPress={() => router.back()}
@@ -166,7 +236,7 @@ export default function BecomeCreatorScreen() {
             <Text style={styles.secondaryBtnLabel}>Maybe Later</Text>
           </TouchableOpacity>
           <Text style={styles.disclaimer}>
-            Free to sign up · Earn 80% of every subscription
+            One-time fee · Earn 80% of every subscription
           </Text>
         </View>
       </ScrollView>
@@ -348,5 +418,60 @@ const styles = StyleSheet.create({
     color: '#E5484D',
     textAlign: 'center',
     marginBottom: 4,
+  },
+  // Activation card
+  activationCard: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 8,
+    padding: 20,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    borderWidth: 1,
+    borderColor: T.ACCENT,
+    gap: 12,
+    alignItems: 'center',
+  },
+  activationTitle: {
+    fontSize: 14,
+    fontFamily: T.FONT.medium,
+    color: T.TEXT,
+    textAlign: 'center',
+    lineHeight: 21,
+  },
+  activationPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+  },
+  activationPrice: {
+    fontSize: 15,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+  },
+  activationPriceAmount: {
+    fontSize: 22,
+    fontFamily: T.FONT.bold,
+    color: T.ACCENT,
+  },
+  activationNote: {
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_3,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  paymentHint: {
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 10,
   },
 });

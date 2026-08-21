@@ -45,7 +45,7 @@ import type { AlbumItem } from '@/services/albums';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsModal } from '@/components/MsModal';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
-import { useScreenProtection } from '@/lib/screen-protection';
+import { useWalletBalance } from '@/hooks/useWalletBalance';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 3;
@@ -166,6 +166,7 @@ export default function AlbumScreen() {
     secondaryLabel?: string;
     onSecondary?: () => void;
   } | null>(null);
+  const { refreshWallet } = useWalletBalance();
 
   const { data: album, isLoading, isError } = useAlbum(id ?? '');
 
@@ -174,13 +175,9 @@ export default function AlbumScreen() {
   // successful unlock within the current session without a refetch.
   const isUnlockedByMe = unlockedOverride ?? album?.isUnlockedByMe ?? false;
 
-  // Native capture protection (Android FLAG_SECURE) while a PAID album is
-  // unlocked and its content is actually visible — screenshots and screen
-  // recording are blocked at the OS level for purchased/private media. The
-  // flag is released automatically when the screen unmounts (never leaks into
-  // other screens), and the fullscreen item preview is covered too because it
-  // renders inside this same window.
-  useScreenProtection(Boolean(album?.requiresPurchase && !(unlockedOverride ?? album?.isUnlockedByMe)));
+  // Screen-capture protection is application-wide (see lib/screen-protection.ts)
+  // — every MeetSweet screen, including paid-album content and its fullscreen
+  // item preview, is protected from the moment the app launches.
 
   /** Run the actual purchase — success is only reported when the server's
    *  atomic transaction committed. Never fabricate a success locally. */
@@ -194,6 +191,11 @@ export default function AlbumScreen() {
         throw new Error('Purchase could not be completed.');
       }
       setUnlockedOverride(true);
+      // The album purchase debits the wallet — refresh the shared balance so
+      // the header badge reflects it immediately.
+      if (!res.alreadyUnlocked) {
+        refreshWallet();
+      }
       // Re-fetch so the server-authoritative unlock state replaces the cached
       // "locked" snapshot (and stays correct on the next open).
       queryClient.invalidateQueries({ queryKey: ['album', album.id] });

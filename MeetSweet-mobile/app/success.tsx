@@ -10,6 +10,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { CheckCircle } from 'phosphor-react-native';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
 
 const AUTO_NAVIGATE_MS = 2200;
 
@@ -50,7 +51,7 @@ export default function SuccessScreen() {
   }));
 
   return (
-    <View style={styles.bg}>
+    <MsScreenBackground>
       <View
         style={[
           styles.container,
@@ -72,12 +73,11 @@ export default function SuccessScreen() {
           You're all set. Taking you to sign in…
         </Animated.Text>
       </View>
-    </View>
+    </MsScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
   container: {
     flex: 1,
     alignItems: 'center',

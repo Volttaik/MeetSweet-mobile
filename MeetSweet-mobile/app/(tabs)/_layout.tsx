@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native';
-import { Tabs, router } from 'expo-router';
+import { Tabs, router, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -333,6 +333,20 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 }
 
 export default function TabLayout() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Authenticated shell only. A logged-out boot (direct web URL, stale
+  // navigation history, or a deep link to a tab route) must never render the
+  // tab screens — they would show placeholder "U"/"Display Name" states with
+  // no session to fetch real data. Wait for session restore, then route to
+  // Login if there is no valid session.
+  if (isLoading) {
+    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  }
+  if (!isAuthenticated) {
+    return <Redirect href="/auth" />;
+  }
+
   return (
     <Tabs
       tabBar={(props) => (

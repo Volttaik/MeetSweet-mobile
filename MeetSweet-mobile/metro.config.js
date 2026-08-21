@@ -7,6 +7,9 @@ const config = getDefaultConfig(__dirname);
 // node_modules that Metro doesn't need and can't watch safely.
 config.resolver = config.resolver ?? {};
 config.resolver.blockList = [/backend_source\/.*/, /\.local\/share\/pnpm\/.*/];
+// expo-sqlite's web worker loads wa-sqlite.wasm as a URL asset (needed for the
+// web export/dev server; the file ships inside the expo-sqlite package).
+config.resolver.assetExts = [...(config.resolver.assetExts ?? []), "wasm"];
 
 module.exports = withUniwindConfig(config, {
   cssEntryFile: './global.css',

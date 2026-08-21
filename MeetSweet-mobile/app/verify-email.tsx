@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Button, Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -21,6 +20,8 @@ import { ArrowLeft, Envelope } from 'phosphor-react-native';
 import OTPInput, { OTPInputRef } from '@/components/OTPInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiFetch } from '@/services/api';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
 const RESEND_DURATION = 60;
 
@@ -136,14 +137,14 @@ export default function VerifyEmailScreen() {
   };
 
   return (
-    <View style={styles.bg}>
-      <ScrollView
-        style={styles.scroll}
+    <MsScreenBackground>
+      <KeyboardAwareScrollViewCompat
+        style={styles.flex}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 24),
-            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 60 : 48),
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingBottom: insets.bottom + 48,
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -197,28 +198,21 @@ export default function VerifyEmailScreen() {
           )}
 
           {/* Verify button */}
-          <Button
-            variant="primary"
-            size="lg"
-            onPress={handleVerify}
-            isDisabled={loading || !completed}
+          <TouchableOpacity
             style={[
               styles.verifyBtn,
-              loading && styles.verifyBtnLoading,
-              (!completed && !loading) && styles.verifyBtnDisabled,
+              (!completed || loading) && styles.verifyBtnDisabled,
             ]}
+            onPress={handleVerify}
+            disabled={loading || !completed}
+            activeOpacity={0.85}
           >
             {loading ? (
-              <Spinner size="sm" color="#FFFFFF" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Button.Label style={[
-                styles.verifyBtnLabel,
-                (!completed || loading) && styles.verifyBtnLabelDisabled,
-              ]}>
-                Verify Email
-              </Button.Label>
+              <Text style={styles.verifyBtnLabel}>Verify Email</Text>
             )}
-          </Button>
+          </TouchableOpacity>
 
           {/* Resend */}
           <View style={styles.resendSection}>
@@ -232,33 +226,34 @@ export default function VerifyEmailScreen() {
             </TouchableOpacity>
           </View>
         </Animated.View>
-      </ScrollView>
-    </View>
+      </KeyboardAwareScrollViewCompat>
+    </MsScreenBackground>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
-  scroll: { flex: 1 },
+  flex: { flex: 1 },
   content: {
     paddingHorizontal: 28,
+    gap: 22,
     flexGrow: 1,
   },
   backBtn: {
     width: 42,
     height: 42,
     borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'flex-start',
-    marginBottom: 32,
   },
   inner: {
+    flex: 1,
     alignItems: 'center',
     gap: 28,
+    justifyContent: 'center',
   },
   iconCircle: {
     width: 76,
@@ -305,24 +300,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   verifyBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    height: 46,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 50,
+    height: 56,
     width: '100%',
-  },
-  verifyBtnLoading: {
-    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   verifyBtnDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   verifyBtnLabel: {
     fontFamily: 'Poppins_600SemiBold',
-    fontSize: 15,
-    color: '#000000',
-  },
-  verifyBtnLabelDisabled: {
-    color: 'rgba(255,255,255,0.25)',
+    fontSize: 16,
+    color: '#FFFFFF',
   },
   resendSection: {
     alignItems: 'center',

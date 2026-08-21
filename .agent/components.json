@@ -1,0 +1,161 @@
+{
+  "repo": "MeetSweet-mobile (mobile app)",
+  "description": "Machine-readable map of routes, contexts, services, hooks, lib modules and key components. Paths are relative to MeetSweet-mobile/ (the app dir).",
+  "stack": {
+    "expo": "SDK 54",
+    "react_native": "0.81.5",
+    "router": "expo-router ~6.0.24 (file-based)",
+    "video": "react-native-video 6.19.2 (single unified player)",
+    "state": "@tanstack/react-query + contexts",
+    "styling": "uniwind (Tailwind classes), heroui-native",
+    "persistence": "AsyncStorage + expo-secure-store (refresh token) + expo-sqlite (chat/video caches)"
+  },
+  "screens": {
+    "boot": { "app/index.tsx": "Valid session → (tabs); else Welcome. Never shows a broken half-authenticated state." },
+    "onboarding": {
+      "app/welcome.tsx": "Welcome landing (logged out)",
+      "app/get-started.tsx": "Get started CTA",
+      "app/onboarding.tsx": "Onboarding steps",
+      "app/new-user-welcome.tsx": "Post-registration welcome",
+      "app/profile-setup.tsx": "Profile setup after registration",
+      "app/complete-registration.tsx": "Finish registration"
+    },
+    "auth": {
+      "app/auth.tsx": "Login screen (current MeetSweet auth UI)",
+      "app/register.tsx": "Registration (multi-step)",
+      "app/create-account.tsx": "Account creation step",
+      "app/create-password.tsx": "Password step",
+      "app/verify-email.tsx": "Email verification (OTP)",
+      "app/verification.tsx": "Verification screens",
+      "app/two-factor.tsx": "2FA challenge (email-code OTP)",
+      "app/forgot-password.tsx": "4-step reset: email → code → new password → done",
+      "app/success.tsx": "Success confirmation screen"
+    },
+    "tabs": {
+      "app/(tabs)/_layout.tsx": "Tab bar (Home/Explore/Messages/Profile) + header wallet badge + AUTH GATE (logged-out → Welcome/Login)",
+      "app/(tabs)/index.tsx": "Home feed",
+      "app/(tabs)/explore.tsx": "Explore/discovery",
+      "app/(tabs)/messages.tsx": "DM room list",
+      "app/(tabs)/profile.tsx": "Own profile"
+    },
+    "content": {
+      "app/content/[id].tsx": "Unified post/album detail with pinned MsComposer (modern comments path)",
+      "app/post/[id].tsx": "Legacy post detail (share links resolve here; comments in MsCommentsSheet modal)",
+      "app/videos/[id].tsx": "Long-form video player",
+      "app/videos/index.tsx": "Videos feed",
+      "app/shorts/index.tsx": "Shorts feed/player",
+      "app/album/[id].tsx": "Album detail: locked → purchase CTA → confirm sheet → unlock → content revealed",
+      "app/purchased-albums.tsx": "Purchased albums list",
+      "app/creator/[id].tsx": "Creator profile (gated content, subscribe, albums)"
+    },
+    "creation": {
+      "app/create-post.tsx": "Create post",
+      "app/edit-post/[id].tsx": "Edit post",
+      "app/post-media.tsx": "Media attach for posts",
+      "app/create-album.tsx": "Create album (price, cover, items)"
+    },
+    "messaging": {
+      "app/chat-room/[chatRoomId].tsx": "DM thread (MsComposer, media, reactions)"
+    },
+    "creator": {
+      "app/become-creator.tsx": "Apply to become creator",
+      "app/creator-dashboard.tsx": "Creator analytics dashboard",
+      "app/creator-payout.tsx": "Creator payout"
+    },
+    "push_screens": {
+      "app/notifications.tsx": "Notification feed (AUTH GATED)",
+      "app/settings.tsx": "Settings (AUTH GATED, no duplicates/obsolete entries)",
+      "app/wallet.tsx": "Wallet (fund, balance, transactions) (AUTH GATED)"
+    },
+    "deep_link": { "app/s/[token].tsx": "Share-token resolver → exact destination (post/album/creator); works logged-out; returns to destination after login" }
+  },
+  "contexts": {
+    "contexts/AuthContext.tsx": "Tokens (access in memory, refresh in SecureStore); login/register/logout; single-flight 401 refresh; session-expiry → clear → redirect Login; logout clears chat caches + per-account prefs",
+    "contexts/WalletContext.tsx": "Wallet balance shared by wallet screen + Home header badge (MsWalletBadge); updates propagate immediately from server responses",
+    "contexts/PostActionsContext.tsx": "Optimistic like/comment/subscribe reconciled with server-authoritative responses",
+    "contexts/NotificationsContext.tsx": "Notification feed + unread state",
+    "contexts/BiometricLockContext.tsx": "Optional biometric app lock (expo-local-authentication)"
+  },
+  "services": {
+    "services/api.ts": "Fetch wrapper: EXPO_PUBLIC_API_URL base, Bearer header, 401 → single-flight refresh → retry once; refresh failure → logout redirect",
+    "services/security.ts": "Auth endpoints (login/register/refresh/logout/2FA/password)",
+    "services/posts.ts": "Posts CRUD + feed + normalizePost",
+    "services/content.ts": "Unified content (posts/shorts/albums) + shares",
+    "services/albums.ts": "Album CRUD, items, unlock/purchase",
+    "services/creators.ts": "Creator profiles + catalog + subscribe",
+    "services/creator.ts": "Creator dashboard/settings/wallet",
+    "services/explore.ts": "Explore + search",
+    "services/subscriptions.ts": "Subscription state + plan changes",
+    "services/wallet.ts": "Wallet balance + transactions + funding",
+    "services/notifications.ts": "Notification feed + push token",
+    "services/settings.ts": "Settings read/write (server-backed, user-scoped AsyncStorage fallback)",
+    "services/room-service.ts": "Chat rooms + messages + changes polling",
+    "services/comment-room-service.ts": "Comment rooms + comments + likes + changes polling",
+    "services/chat-cache.ts": "SQLite chat cache (rooms/messages/drafts), cleared on logout/account switch",
+    "services/chat-media.ts": "DM media",
+    "services/media.ts": "Direct-to-R2 upload: authorize → presigned PUT (or multipart parts) → complete",
+    "services/sharing.ts": "Share create/resolve",
+    "services/users.ts": "User profiles + follow/block/mute",
+    "services/categories.ts": "Categories",
+    "services/onboarding.ts": "Onboarding state",
+    "services/video-cache.ts": "Local video byte cache with stable logical URLs",
+    "services/posts-db.ts": "SQLite post cache"
+  },
+  "hooks": {
+    "hooks/useWalletBalance.ts": "Header/wallet balance subscription (WalletContext)",
+    "hooks/useColors.ts": "Theme colors",
+    "hooks/useNetwork.ts": "Connectivity",
+    "hooks/useOfflineQueue.ts": "Offline mutation queue",
+    "hooks/useOnboarding.ts": "Onboarding state",
+    "hooks/useScreenSlide.ts": "Screen transition animation"
+  },
+  "lib": {
+    "lib/deep-link.ts": "Share-token resolution → destination screens (no onboarding/home flash)",
+    "lib/screen-protection.ts": "Global capture prevention via expo-screen-capture + modal theme override",
+    "lib/session-storage.ts": "Session/token storage helpers",
+    "lib/posts-db.ts": "SQLite post persistence",
+    "lib/biometric.ts": "Biometric helpers",
+    "lib/haptics.ts": "Haptics (device-level pref @ms_haptics_enabled)",
+    "lib/nav.ts": "Navigation helpers",
+    "lib/pending-avatar.ts": "Avatar generation",
+    "lib/api-client-react": "React bindings for the shared API client"
+  },
+  "plugins": {
+    "plugins/withSecureWindow.js": "Expo config plugin setting FLAG_SECURE natively (app-wide screenshot/screen-record blocking on Android)"
+  },
+  "key_components": {
+    "MsVideoPlayer.tsx": "Single react-native-video player: play/pause/seek/fullscreen; stable source URL; used for posts, shorts, albums, DMs, previews",
+    "MsComposer.tsx": "Multiline composer; send via button (Enter does not submit)",
+    "MsCommentsSheet.tsx": "Comments in modal (legacy post detail)",
+    "MsPostCard.tsx": "Feed post card (like/comment/share)",
+    "MsFeedVideoCard.tsx": "Feed video card",
+    "MsImageCard.tsx": "Feed image card",
+    "MsAlbumCard.tsx": "Album card",
+    "MsCreatorCard.tsx": "Creator card (subscribe state)",
+    "MsWalletBadge.tsx": "Header balance (compact ₦ formatting: 4500 → ₦5K)",
+    "OTPInput.tsx": "6-box code entry (verify-email / 2FA / reset)",
+    "MsPaymentSheet.tsx": "Payment/checkout sheet",
+    "MsShareSheet.tsx": "Share sheet (creates share token)",
+    "MsGlobalDialogs.tsx": "App-wide dialog host (mounted in root layout)",
+    "MsToast.tsx": "Toast notifications",
+    "MsNetworkBanner.tsx / MsOfflineBanner.tsx": "Connectivity banners",
+    "ErrorBoundary.tsx": "Global error boundary",
+    "KeyboardAwareScrollViewCompat.tsx": "Keyboard avoidance for auth forms",
+    "MsShortsPlayer.tsx": "Shorts player",
+    "MsVideoPreview.tsx": "Video previews",
+    "MsVideoThumbnailPicker.tsx": "Thumbnail picker",
+    "MsActionSheet.tsx / MsGlassSheet.tsx / MsModal.tsx / MsConfirmDialog.tsx": "Overlay primitives",
+    "MsCreatorGateSheet.tsx": "Creator subscription gate",
+    "MsNotificationCard.tsx": "Notification row",
+    "MsSearchModal.tsx": "Search overlay",
+    "MsSwipeableMessage.tsx": "Swipeable DM message"
+  },
+  "key_interactions": {
+    "auth": "AuthContext owns tokens; services/api.ts auto-refreshes on 401; expired session → Login redirect; tabs + push screens are auth-gated so no logged-out placeholder (U) state exists",
+    "wallet_sync": "Server mutation (fund/purchase) → WalletContext balance update → wallet screen + header badge update immediately, no restart",
+    "realtime": "Like/comment/subscribe mutations return authoritative state → PostActionsContext applies instantly; chat/comment rooms poll /changes endpoints",
+    "deep_links": "meetsweet://s/<token> → app/s/[token].tsx → lib/deep-link.ts → exact destination; logged-out users authenticate then return to the destination",
+    "media_upload": "services/media.ts → POST /api/uploads (server) → presigned R2 PUT/multipart → complete → media row → attach to post/album",
+    "video_playback": "MsVideoPlayer with stable source URL from server; local video-cache stores bytes but never swaps the playing URL; seek lands at the target time (no restart-from-0)"
+  }
+}

@@ -23,6 +23,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { WalletProvider } from '@/contexts/WalletContext';
 import { BiometricLockProvider } from '@/contexts/BiometricLockContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
@@ -33,6 +34,7 @@ import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
 import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { T } from '@/constants/theme';
+import { enableGlobalScreenProtection } from '@/lib/screen-protection';
 
 // Set native background colour immediately — prevents the white flash
 // that occurs while React Native paints the first frame.
@@ -48,6 +50,20 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Activates application-wide native screen-capture protection (Android
+ * FLAG_SECURE, iOS recording/screenshot blocking + app-switcher blur). Runs
+ * after the first render so the native window/key window definitely exists,
+ * and is never released — every MeetSweet screen is protected from launch
+ * until the app closes.
+ */
+function GlobalScreenProtection() {
+  useEffect(() => {
+    enableGlobalScreenProtection();
+  }, []);
+  return null;
+}
 
 function AppServices() {
   // Drain offline queue whenever network is restored
@@ -178,9 +194,11 @@ export default function RootLayout() {
             <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
+                  <WalletProvider>
                   <BiometricLockProvider>
                     <NotificationsProvider>
                       <PostActionsProvider>
+                        <GlobalScreenProtection />
                         <AppServices />
                         <RootLayoutNav />
                         <MsOfflineBanner />
@@ -190,6 +208,7 @@ export default function RootLayout() {
                       </PostActionsProvider>
                     </NotificationsProvider>
                   </BiometricLockProvider>
+                  </WalletProvider>
                 </AuthProvider>
               </KeyboardProvider>
             </HeroUINativeProvider>

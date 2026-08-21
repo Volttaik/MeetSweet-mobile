@@ -55,6 +55,7 @@ import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsComposer } from '@/components/MsComposer';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { T } from '@/constants/theme';
 
@@ -62,6 +63,7 @@ export default function ContentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { likeOverrides, bookmarkOverrides, commentCounts, markLiked, markBookmarked, setCommentCount: publishCommentCount } = usePostActions();
 
   // ── Post state ─────────────────────────────────────────────────────────────
   const [post, setPost] = useState<Post | null>(null);
@@ -86,10 +88,12 @@ export default function ContentDetailScreen() {
     getPost(id)
       .then((p) => {
         setPost(p);
-        setLiked(p.likedByMe);
-        setBookmarked(p.bookmarkedByMe ?? false);
-        setLikeCount(p.likeCount);
-        setCommentCount(p.commentCount ?? 0);
+        // Seed from shared overrides when available so likes/bookmarks made on
+        // other screens are reflected here on open.
+        setLiked(likeOverrides[id]?.likedByMe ?? p.likedByMe);
+        setBookmarked(bookmarkOverrides[id]?.bookmarkedByMe ?? p.bookmarkedByMe ?? false);
+        setLikeCount(likeOverrides[id]?.likeCount ?? p.likeCount);
+        setCommentCount(commentCounts[id] ?? p.commentCount ?? 0);
       })
       .catch(() => setPost(null))
       .finally(() => setLoadingPost(false));
@@ -107,6 +111,8 @@ export default function ContentDetailScreen() {
       } else {
         await unlikePost(post.id);
       }
+      // Publish to the shared store so every other view updates immediately.
+      markLiked(post.id, next, Math.max(0, likeCount + (next ? 1 : -1)));
     } catch {
       setLiked(!next);
       setLikeCount((n) => Math.max(0, n + (next ? -1 : 1)));
@@ -117,7 +123,10 @@ export default function ContentDetailScreen() {
     if (!post) return;
     const next = !bookmarked;
     setBookmarked(next);
-    try { await bookmarkPost(post.id); }
+    try {
+      await bookmarkPost(post.id);
+      markBookmarked(post.id, next, Math.max(0, (post.bookmarkCount ?? 0) + (next ? 1 : -1)));
+    }
     catch { setBookmarked(!next); }
   };
 
@@ -148,13 +157,15 @@ export default function ContentDetailScreen() {
     try {
       const res = await submitRoomComment(commentRoomId ?? '', body);
       setComments((prev) => prev.map((c) => c.id === tempId ? res.comment as unknown as Comment : c));
+      // Publish the confirmed count so every card showing this post updates.
+      publishCommentCount(id, commentCount + 1);
     } catch {
       setComments((prev) => prev.filter((c) => c.id !== tempId));
       dialogs.alert({ variant: 'error', title: 'Could not post comment', message: 'Please try again.' });
     } finally {
       setSending(false);
     }
-  }, [commentRoomId, commentText, sending, user, setComments]);
+  }, [commentRoomId, commentText, sending, user, setComments, id, commentCount, publishCommentCount]);
 
   const handleLike = useCallback(async (commentId: string) => {
     setComments((prev) => prev.map((c) =>
@@ -191,11 +202,13 @@ export default function ContentDetailScreen() {
       onConfirm: async () => {
         setComments((prev) => prev.filter((c) => c.id !== commentId));
         setCommentCount((n) => Math.max(0, n - 1));
+        // Publish the confirmed count so cards update immediately.
+        publishCommentCount(id, Math.max(0, commentCount - 1));
         try { await deleteRoomComment(commentRoomId ?? '', commentId); }
         catch { /* comment was removed optimistically; silent fail is fine */ }
       },
     });
-  }, [commentRoomId, setComments]);
+  }, [commentRoomId, setComments, id, commentCount, publishCommentCount]);
 
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loadingPost) {

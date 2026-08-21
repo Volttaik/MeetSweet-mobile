@@ -1,11 +1,14 @@
 /**
- * seed-content.mjs  (v2 — presigned R2 flow with download URLs)
+ * seed-content.mjs — direct-to-storage upload-session flow
+ *
+ * Uses the same `/api/uploads` flow as the mobile app. No legacy upload URL or
+ * whole-file API request is used.
  *
  * For each creator:
  *   1. Login
- *   2. Upload avatar → get 7-day download URL → PATCH /users/me
- *   3. Upload post image → get 7-day download URL
- *   4. POST /api/posts with inline media object (url + blob_path + type)
+ *   2. Upload avatar → PATCH /users/me
+ *   3. Upload post image
+ *   4. POST /api/posts with the registered media object
  *
  * Run: node scripts/seed-content.mjs
  */
@@ -50,51 +53,49 @@ async function login(email, password) {
   return data.access_token ?? data.accessToken;
 }
 
-/** Step 1 of R2 flow: get presigned PUT URL + object key */
-async function getUploadUrl(mimeType, folder, token) {
-  const qs = new URLSearchParams({ mime_type: mimeType, folder });
-  const data = await apiFetch(`/credentials/upload-url?${qs}`, {
-    headers: authHeaders(token),
-  });
-  // API returns uploadUrl + key (camelCase)
-  const uploadUrl = data.uploadUrl ?? data.upload_url;
-  const key = data.key ?? data.object_key;
-  if (!uploadUrl || !key) throw new Error('credentials/upload-url returned unexpected shape');
-  return { uploadUrl, key };
-}
-
-/** Step 2 of R2 flow: PUT file bytes directly to R2 */
-async function putToR2(uploadUrl, filePath, mimeType) {
-  const bytes = readFileSync(filePath);
-  const res = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType },
-    body: bytes,
-  });
-  if (!res.ok) throw new Error(`R2 PUT failed: ${res.status}`);
-  return bytes.length;
-}
-
-/** Step 3 of R2 flow: get 7-day presigned download URL */
-async function getDownloadUrl(key, token) {
-  const qs = new URLSearchParams({ key });
-  const data = await apiFetch(`/credentials/download-url?${qs}`, {
-    headers: authHeaders(token),
-  });
-  const url = data.url ?? data.downloadUrl;
-  if (!url) throw new Error('credentials/download-url returned no url');
-  return url;
-}
-
-/**
- * Full R2 upload: PUT → get download URL.
- * Returns { url (https presigned), key, sizeBytes }.
- */
+/** Authorize, upload directly to R2, and finalize through `/api/uploads`. */
 async function uploadViaR2(filePath, mimeType, folder, token) {
-  const { uploadUrl, key } = await getUploadUrl(mimeType, folder, token);
-  const sizeBytes = await putToR2(uploadUrl, filePath, mimeType);
-  const url = await getDownloadUrl(key, token);
-  return { url, key, sizeBytes };
+  const bytes = readFileSync(filePath);
+  const session = await apiFetch('/uploads', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ mime_type: mimeType, file_name: filePath.split('/').pop(), size_bytes: bytes.length, folder }),
+  });
+
+  const uploadedParts = [];
+  if (session.mode === 'multipart') {
+    const partSize = session.part_size;
+    for (let i = 0; i < session.part_count; i++) {
+      const partNumber = i + 1;
+      const part = session.parts[i];
+      const start = i * partSize;
+      const res = await fetch(part.uploadUrl, {
+        method: 'PUT',
+        body: bytes.subarray(start, Math.min(bytes.length, start + partSize)),
+      });
+      if (!res.ok) throw new Error(`R2 part PUT failed: ${res.status}`);
+      const etag = res.headers.get('etag') || res.headers.get('ETag');
+      if (!etag) throw new Error(`R2 part ${partNumber} returned no ETag`);
+      uploadedParts.push({ partNumber, etag });
+    }
+  } else {
+    const res = await fetch(session.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': mimeType },
+      body: bytes,
+    });
+    if (!res.ok) throw new Error(`R2 PUT failed: ${res.status}`);
+  }
+
+  const completed = await apiFetch(`/uploads/${session.id}/complete`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ parts: uploadedParts }),
+  });
+  const url = completed.url ?? completed.media?.url;
+  const key = completed.key ?? session.key;
+  if (!url || !key) throw new Error('Upload finalization returned no media URL');
+  return { url, key, sizeBytes: bytes.length };
 }
 
 async function updateAvatar(avatarUrl, token) {

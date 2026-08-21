@@ -68,19 +68,21 @@ function OtpBox({
     transform: [{ scale: scale.value }],
   }));
 
+  // Box treatment matches the auth input system: translucent pill surface,
+  // subtle border, white focus ring — not a heavy boxed look.
   const borderColor = hasError
     ? '#EF4444'
     : focused
     ? '#FFFFFF'
     : digit
-    ? 'rgba(255,255,255,0.35)'
-    : 'rgba(255,255,255,0.1)';
+    ? 'rgba(255,255,255,0.4)'
+    : 'rgba(255,255,255,0.12)';
 
   const bgColor = hasError
-    ? 'rgba(239,68,68,0.08)'
+    ? 'rgba(239,68,68,0.09)'
     : focused
-    ? 'rgba(255,255,255,0.06)'
-    : '#111111';
+    ? 'rgba(255,255,255,0.12)'
+    : 'rgba(255,255,255,0.07)';
 
   return (
     <Animated.View style={animStyle}>
@@ -258,9 +260,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   box: {
-    width: 44,
-    height: 52,
-    borderRadius: 11,
+    width: 46,
+    height: 54,
+    borderRadius: 14,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',

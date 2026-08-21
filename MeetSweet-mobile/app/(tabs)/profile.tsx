@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -31,7 +31,7 @@ import {
   X,
 } from 'phosphor-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -458,7 +458,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user, refreshUser, updateUser } = useAuth();
-  const { markDeleted } = usePostActions();
+  const { markDeleted, contentCreatedAt } = usePostActions();
 
   // Tab state
   const [activeTab,    setActiveTab]    = useState<ProfileTab>('Posts');
@@ -563,6 +563,19 @@ export default function ProfileScreen() {
   useEffect(() => { loadPosts(); loadAlbums(); }, [user?.id]);
   useEffect(() => { if (activeTab === 'Saved') loadSavedPosts(); }, [activeTab]);
   useEffect(() => { if (activeTab === 'Purchased') loadPurchasedAlbums(); }, [activeTab]);
+
+  // After publishing content (create-post bumps contentCreatedAt), refresh the
+  // profile lists on next focus so the new post/album appears immediately.
+  const lastContentVersion = useRef(contentCreatedAt);
+  useFocusEffect(
+    useCallback(() => {
+      if (contentCreatedAt !== lastContentVersion.current) {
+        lastContentVersion.current = contentCreatedAt;
+        loadPosts();
+        loadAlbums();
+      }
+    }, [contentCreatedAt, loadPosts, loadAlbums]),
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);

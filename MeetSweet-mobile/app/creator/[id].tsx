@@ -66,6 +66,7 @@ import { T } from '@/constants/theme';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
+import { wasOpenedViaShareLink } from '@/lib/deep-link';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -544,10 +545,15 @@ export default function CreatorProfileScreen() {
   const [shortsLoading, setShortsLoading] = useState(false);
   const [albumsLoading, setAlbumsLoading] = useState(false);
 
-  // Check for subscription onboarding on mount
+  // Check for subscription onboarding on mount. When the profile was opened
+  // straight from a shared link, the recipient must see the profile itself —
+  // never the subscribe-onboarding modal popping over the shared destination.
   useEffect(() => {
-    shouldShowOnboarding('subscription_onboarded').then((shouldShow) => {
-      if (shouldShow) setShowSubscriptionOnboarding(true);
+    wasOpenedViaShareLink().then((viaShare) => {
+      if (viaShare) return;
+      shouldShowOnboarding('subscription_onboarded').then((shouldShow) => {
+        if (shouldShow) setShowSubscriptionOnboarding(true);
+      });
     });
   }, []);
 
@@ -922,7 +928,7 @@ export default function CreatorProfileScreen() {
     };
   }, [id, realProfile]);
 
-  const { balance: walletBalance } = useWalletBalance();
+  const { balance: walletBalance, refreshWallet } = useWalletBalance();
 
   // Reviews (always empty — backend has no reviews endpoint)
   const reviews      = reviewsQuery.data?.reviews ?? [];
@@ -1429,6 +1435,10 @@ export default function CreatorProfileScreen() {
             const result = await subscribe(creatorUUID || creator.id, plan);
             setIsSubscribed(true);
             setCurrentTier(result.tier === 'subscriber_plus' ? 'subscriber_plus' : 'subscriber');
+
+            // The subscription debits the wallet — refresh the shared balance so
+            // the header badge and subscribe sheet reflect it immediately.
+            refreshWallet();
 
             // Apply the authoritative subscriber count immediately (no stale 0).
             const count = result.subscriber_count ?? result.subscriberCount;

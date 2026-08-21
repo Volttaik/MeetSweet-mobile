@@ -109,6 +109,11 @@ function ChatRoomRow({
   const suppressTapRef = useRef(false);
   const avatarUrl = item.otherUser?.avatarUrl as string | undefined;
 
+  // ── Typing / Online indicators ──────────────────────────────────────────
+  const typingUserIds = item.typingUserIds ?? [];
+  const isOtherTyping = typingUserIds.length > 0 && typingUserIds[0] !== currentUserId;
+  const isOtherOnline = item.otherUser?.isOnline === true;
+
   // Contextual preview label per feature doc §1.2 (media messages show vector
   // icons + labels: Photo, Video, Voice message, Document).
   const previewLabel = (() => {
@@ -126,9 +131,11 @@ function ChatRoomRow({
   const showMediaIcon = PreviewIcon !== null && !item.lastMessageBody;
 
   const isOwnLast = !!item.lastMessageSenderId && item.lastMessageSenderId === currentUserId;
-  const previewText = item.lastMessageBody
-    ? (isOwnLast ? `You: ${item.lastMessageBody}` : item.lastMessageBody)
-    : previewLabel;
+  const previewText = isOtherTyping
+    ? 'Typing...'
+    : item.lastMessageBody
+      ? (isOwnLast ? `You: ${item.lastMessageBody}` : item.lastMessageBody)
+      : previewLabel;
 
   return (
     <TouchableOpacity
@@ -155,17 +162,22 @@ function ChatRoomRow({
         size={50}
         initials={initials(item.otherUser.name)}
         imageUri={avatarUrl}
+        showOnline={isOtherOnline}
       />
       <View style={styles.convoContent}>
         <Text style={[styles.convoName, isUnread && styles.bold]} numberOfLines={1}>
           {item.otherUser.name}
         </Text>
         <View style={styles.convoMsgRow}>
-          {showMediaIcon && PreviewIcon ? (
+          {showMediaIcon && !isOtherTyping ? (
             <PreviewIcon size={13} color={T.TEXT_2} />
           ) : null}
           <Text
-            style={[styles.convoMsg, isUnread && styles.convoMsgUnread]}
+            style={[
+              styles.convoMsg,
+              isUnread && styles.convoMsgUnread,
+              isOtherTyping && { color: T.ACCENT, fontStyle: 'italic' as const },
+            ]}
             numberOfLines={1}
           >
             {previewText}
@@ -578,8 +590,8 @@ export default function MessagesScreen() {
                   ? `No chats matching "${searchText}".`
                   : 'Tap the pencil icon above to message a creator you love.'
               }
-              actionLabel={!activeTab && !searchText ? 'New Message' : undefined}
-              onAction={!activeTab && !searchText ? () => setShowNewMsg(true) : undefined}
+              actionLabel={activeTab === 'All' && !searchText ? 'New Message' : undefined}
+              onAction={activeTab === 'All' && !searchText ? () => setShowNewMsg(true) : undefined}
             />
           }
         />

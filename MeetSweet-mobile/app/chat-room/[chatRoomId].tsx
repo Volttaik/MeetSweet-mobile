@@ -105,6 +105,8 @@ import {
   checkRoomChanges,
   muteChatRoom,
   deriveFileType,
+  broadcastTyping,
+  clearTyping,
   type RoomMessage,
 } from '@/services/room-service';
 import { ApiError } from '@/services/api';
@@ -238,7 +240,11 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [isTyping] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+
+  // ── Typing debounce ref ────────────────────────────────────────────────────
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingBroadcastRef = useRef(false);
 
   // ── Input state ──────────────────────────────────────────────────────────────
   const [inputText, setInputText] = useState('');
@@ -253,11 +259,12 @@ export default function ChatScreen() {
   // ── Other user info ──────────────────────────────────────────────────────────
   // Initialized empty until the actual participant data is loaded from the
   // room. Never use chatRoomId as a temporary user id.
-  const [otherUser, setOtherUser] = useState<ProfileSheetUser>({
+  const [otherUser, setOtherUser] = useState<ProfileSheetUser & { isOnline?: boolean }>({
     id: '',
     name: '',
     username: '',
     avatarUrl: null,
+    isOnline: false,
   });
 
   // ── Context menu animation ────────────────────────────────────────────────────
@@ -562,15 +569,23 @@ export default function ChatScreen() {
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
   // ── Poll ONLY the currently-viewed room (incremental, serverless) ──────
-  // No typing indicators / presence / live cursors. Uses the change marker:
-  // "give me messages after <last id>" returns only the new ones.
+  // Messages + typing indicators arrive via the same changes poll.
   const pollMarkerRef = useRef<string | null>(null);
   const pollActiveRef = useRef(true);
 
   const pollRoom = useCallback(async () => {
     if (!chatRoomId || !pollActiveRef.current) return;
     const changes = await checkRoomChanges(chatRoomId, pollMarkerRef.current).catch(() => null);
-    if (!changes || !changes.changed) return;
+    if (!changes) return;
+
+    // ── Typing state ────────────────────────────────────────────────────
+    // The server always returns the current typing list; empty means nobody
+    // is typing. This is authoritative so a stale "Typing…" can't linger.
+    const typingUsers = changes.typing ?? [];
+    const otherIsTyping = typingUsers.some((id) => id !== user?.id);
+    setIsTyping(otherIsTyping);
+
+    if (!changes.changed) return;
     pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
     const fresh = changes.messages;
     if (!fresh?.length) return;
@@ -628,6 +643,41 @@ export default function ChatScreen() {
     return () => clearInterval(interval);
   }, [chatRoomId, pollRoom]);
 
+  // ── Typing broadcast (client → server) ──────────────────────────────────
+  // When the user types, fire a debounced "I'm typing" broadcast. Stop/clear
+  // when input becomes empty. Cleared on send and on unmount as well.
+  useEffect(() => {
+    if (!chatRoomId || isBlocked) return;
+    if (inputText.trim().length === 0) {
+      if (typingBroadcastRef.current) {
+        typingBroadcastRef.current = false;
+        clearTyping(chatRoomId);
+      }
+      return;
+    }
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      typingBroadcastRef.current = true;
+      broadcastTyping(chatRoomId);
+    }, 250);
+
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, [inputText, chatRoomId, isBlocked]);
+
+  // ── Clear typing on unmount (leaving the conversation) ────────────────────
+  useEffect(() => {
+    return () => {
+      if (typingBroadcastRef.current) {
+        typingBroadcastRef.current = false;
+        clearTyping(chatRoomId);
+      }
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, [chatRoomId]);
+
   // ── Pause polling while the app is backgrounded; resume on foreground ────
   // Avoids hitting the server every 10s while the chat isn't visible. On
   // resume we fire one immediate poll so freshly-arrived messages show up
@@ -664,6 +714,7 @@ export default function ChatScreen() {
             name: other.name || 'Chat',
             username: other.username,
             avatarUrl: other.avatarUrl ?? null,
+            isOnline: other.isOnline ?? false,
           });
         }
       } catch {
@@ -677,6 +728,7 @@ export default function ChatScreen() {
             name: room.otherUser.name || 'Chat',
             username: room.otherUser.username,
             avatarUrl: room.otherUser.avatarUrl ?? null,
+            isOnline: room.otherUser.isOnline ?? false,
           });
         }
       }
@@ -1691,7 +1743,11 @@ export default function ChatScreen() {
             <Text style={styles.headerName} numberOfLines={1}>
               {otherUser.name || 'Chat'}
             </Text>
-            {otherUser.username ? (
+            {isTyping ? (
+              <Text style={[styles.headerUsername, { color: T.ACCENT }]}>Typing...</Text>
+            ) : otherUser.isOnline ? (
+              <Text style={[styles.headerUsername, { color: T.SUCCESS }]}>Online</Text>
+            ) : otherUser.username ? (
               <Text style={styles.headerUsername}>@{otherUser.username}</Text>
             ) : null}
           </View>

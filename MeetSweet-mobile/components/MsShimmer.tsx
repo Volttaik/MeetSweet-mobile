@@ -199,7 +199,7 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 const CHAT_BUBBLE_COLOR_OWN   = '#28282F'; // outgoing  (MsTextBubble BG_OWN)
 const CHAT_BUBBLE_COLOR_OTHER = '#1C1C23'; // incoming  (MsTextBubble BG_OTHER)
 // Deterministic bubble widths, cycled per row.
-const CHAT_BUBBLE_WIDTHS = [176, 214, 132, 198, 240, 150, 186, 224, 140, 208];
+const CHAT_BUBBLE_WIDTHS = [224, 232, 216, 240, 228, 220, 236, 224, 232, 218];
 
 /**
  * Height of a static bubble for `lines` message lines: real MsTextBubble
@@ -243,16 +243,16 @@ export function MsShimmerChatMessage({
 }
 
 export function MsShimmerChatList({ count = 8 }: { count?: number }) {
-  // A natural conversation rhythm: incoming/outgoing with 1–2 line bubbles.
+  // All bubbles are the larger/full-size style (2 lines) — no skinny variants.
   const rhythm = [
     { own: false, lines: 2 },
-    { own: true,  lines: 1 },
-    { own: false, lines: 1 },
     { own: true,  lines: 2 },
     { own: false, lines: 2 },
-    { own: true,  lines: 1 },
-    { own: false, lines: 1 },
-    { own: true,  lines: 1 },
+    { own: true,  lines: 2 },
+    { own: false, lines: 2 },
+    { own: true,  lines: 2 },
+    { own: false, lines: 2 },
+    { own: true,  lines: 2 },
   ] as const;
   return (
     <View style={shimStyles.chatList}>

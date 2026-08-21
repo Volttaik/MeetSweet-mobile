@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Spinner } from 'heroui-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
@@ -36,10 +36,28 @@ import {
 } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { savePendingAvatar } from '@/lib/pending-avatar';
+import { clearPendingReferralCode, getPendingReferralCode, lookupReferral, savePendingReferralCode, type ReferralReferrer } from '@/services/referrals';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const INPUT_BG = 'rgba(255,255,255,0.07)';
+
+const COUNTRY_CODES = [
+  { code: '+234', flag: '🇳🇬', name: 'Nigeria' },
+  { code: '+1', flag: '🇺🇸', name: 'United States' },
+  { code: '+44', flag: '🇬🇧', name: 'United Kingdom' },
+  { code: '+61', flag: '🇦🇺', name: 'Australia' },
+  { code: '+91', flag: '🇮🇳', name: 'India' },
+  { code: '+49', flag: '🇩🇪', name: 'Germany' },
+  { code: '+33', flag: '🇫🇷', name: 'France' },
+  { code: '+81', flag: '🇯🇵', name: 'Japan' },
+  { code: '+55', flag: '🇧🇷', name: 'Brazil' },
+  { code: '+27', flag: '🇿🇦', name: 'South Africa' },
+];
+
+// Nigeria is the default
+const DEFAULT_COUNTRY_IDX = 0;
 
 type StepNum = 1 | 2 | 3;
 
@@ -84,14 +102,6 @@ function formatDOB(raw: string): string {
   if (digits.length <= 2) return digits;
   if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-}
-
-function formatPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '').slice(0, 11);
-  if (digits.length <= 1) return digits;
-  if (digits.length <= 4) return `${digits[0]} (${digits.slice(1)}`;
-  if (digits.length <= 7) return `${digits[0]} (${digits.slice(1, 4)}) ${digits.slice(4)}`;
-  return `${digits[0]} (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
 }
 
 // ─── InputRow ─────────────────────────────────────────────────────────────────
@@ -158,6 +168,7 @@ interface Step1Data {
   username: string;
   email: string;
   phone: string;
+  countryCodeIdx: number;
   dob: string;
 }
 
@@ -166,17 +177,22 @@ const Step1 = React.memo(function Step1({
   onChange,
   onNext,
   serverEmailError,
+  referralReferrer,
 }: {
   data: Step1Data;
   onChange: (d: Partial<Step1Data>) => void;
   onNext: () => void;
   serverEmailError?: string;
+  referralReferrer?: ReferralReferrer | null;
 }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
   const usernameRef = React.useRef<TextInput>(null);
   const emailRef = React.useRef<TextInput>(null);
   const phoneRef = React.useRef<TextInput>(null);
   const dobRef = React.useRef<TextInput>(null);
+
+  const country = COUNTRY_CODES[data.countryCodeIdx] ?? COUNTRY_CODES[DEFAULT_COUNTRY_IDX];
 
   // Show server-side email error inline
   useEffect(() => {
@@ -193,7 +209,7 @@ const Step1 = React.memo(function Step1({
     if (!data.email.includes('@') || !data.email.includes('.'))
       e.email = 'Enter a valid email address';
     const phoneDigits = data.phone.replace(/\D/g, '');
-    if (phoneDigits.length < 11) e.phone = 'Enter a valid 11-digit phone number';
+    if (phoneDigits.length < 7) e.phone = 'Enter a valid phone number';
     const age = calculateAge(data.dob);
     if (!data.dob || data.dob.length < 10) e.dob = 'Enter your date of birth (MM/DD/YYYY)';
     else if (age < 18) e.dob = 'You must be at least 18 years old to join';
@@ -209,116 +225,162 @@ const Step1 = React.memo(function Step1({
         <Text style={styles.stepSubtitle}>Tell us a little about yourself to get started.</Text>
       </View>
 
-      <View style={styles.form}>
-        {/* Full Name */}
-        <View>
-          <FieldLabel>Full Name</FieldLabel>
-          <InputRow icon={<User size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.name}>
-            <TextInput
-              placeholder="Jane Smith"
-              autoComplete="name"
-              textContentType="name"
-              returnKeyType="next"
-              onSubmitEditing={() => usernameRef.current?.focus()}
-              value={data.name}
-              onChangeText={(v) => { onChange({ name: v }); setErrors((e) => ({ ...e, name: '' })); }}
-              style={styles.input}
-              placeholderTextColor="rgba(255,255,255,0.18)"
-            />
-          </InputRow>
-          <FieldErr msg={errors.name} />
+      {referralReferrer ? (
+        <View style={styles.referralNotice}>
+          <Text style={styles.referralNoticeLabel}>REFERRED BY</Text>
+          <Text style={styles.referralNoticeText}>{referralReferrer.name}</Text>
+          <Text style={styles.referralNoticeSub}>Your referral code is attached to this registration.</Text>
         </View>
+      ) : null}
 
-        {/* Username */}
-        <View>
-          <FieldLabel>Username</FieldLabel>
-          <InputRow icon={<At size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.username}>
-            <TextInput
-              ref={usernameRef}
-              placeholder="yourhandle"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="username"
-              textContentType="username"
-              returnKeyType="next"
-              onSubmitEditing={() => emailRef.current?.focus()}
-              value={data.username}
-              onChangeText={(v) => { onChange({ username: v.replace(/\s/g, '') }); setErrors((e) => ({ ...e, username: '' })); }}
-              style={styles.input}
-              placeholderTextColor="rgba(255,255,255,0.18)"
-            />
-          </InputRow>
-          <FieldErr msg={errors.username} />
+      {showCountryPicker ? (
+        <View style={{ gap: 4 }}>
+          <Text style={styles.fieldLabel}>Select Country</Text>
+          <View style={{ backgroundColor: INPUT_BG, borderRadius: 16, overflow: 'hidden' }}>
+            {COUNTRY_CODES.map((c, i) => (
+              <TouchableOpacity
+                key={c.code}
+                style={[
+                  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, gap: 10 },
+                  i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+                ]}
+                onPress={() => { onChange({ countryCodeIdx: i }); setShowCountryPicker(false); }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 18 }}>{c.flag}</Text>
+                <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Poppins_400Regular', color: '#FFFFFF' }}>{c.name}</Text>
+                <Text style={{ fontSize: 14, fontFamily: 'Poppins_500Medium', color: 'rgba(255,255,255,0.4)' }}>{c.code}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
+      ) : (
+        <View style={styles.form}>
+          {/* Full Name */}
+          <View>
+            <FieldLabel>Full Name</FieldLabel>
+            <InputRow icon={<User size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.name}>
+              <TextInput
+                placeholder="Jane Smith"
+                autoComplete="name"
+                textContentType="name"
+                returnKeyType="next"
+                onSubmitEditing={() => usernameRef.current?.focus()}
+                value={data.name}
+                onChangeText={(v) => { onChange({ name: v }); setErrors((e) => ({ ...e, name: '' })); }}
+                style={styles.input}
+                placeholderTextColor="rgba(255,255,255,0.18)"
+              />
+            </InputRow>
+            <FieldErr msg={errors.name} />
+          </View>
 
-        {/* Email */}
-        <View>
-          <FieldLabel>Email</FieldLabel>
-          <InputRow icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.email}>
-            <TextInput
-              ref={emailRef}
-              placeholder="your@email.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textContentType="emailAddress"
-              returnKeyType="next"
-              onSubmitEditing={() => phoneRef.current?.focus()}
-              value={data.email}
-              onChangeText={(v) => { onChange({ email: v }); setErrors((e) => ({ ...e, email: '' })); }}
-              style={styles.input}
-              placeholderTextColor="rgba(255,255,255,0.18)"
-            />
-          </InputRow>
-          <FieldErr msg={errors.email} />
+          {/* Username */}
+          <View>
+            <FieldLabel>Username</FieldLabel>
+            <InputRow icon={<At size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.username}>
+              <TextInput
+                ref={usernameRef}
+                placeholder="yourhandle"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                textContentType="username"
+                returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()}
+                value={data.username}
+                onChangeText={(v) => { onChange({ username: v.replace(/\s/g, '') }); setErrors((e) => ({ ...e, username: '' })); }}
+                style={styles.input}
+                placeholderTextColor="rgba(255,255,255,0.18)"
+              />
+            </InputRow>
+            <FieldErr msg={errors.username} />
+          </View>
+
+          {/* Email */}
+          <View>
+            <FieldLabel>Email</FieldLabel>
+            <InputRow icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.email}>
+              <TextInput
+                ref={emailRef}
+                placeholder="your@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+                returnKeyType="next"
+                onSubmitEditing={() => phoneRef.current?.focus()}
+                value={data.email}
+                onChangeText={(v) => { onChange({ email: v }); setErrors((e) => ({ ...e, email: '' })); }}
+                style={styles.input}
+                placeholderTextColor="rgba(255,255,255,0.18)"
+              />
+            </InputRow>
+            <FieldErr msg={errors.email} />
+          </View>
+
+          {/* Phone */}
+          <View>
+            <FieldLabel>Phone Number</FieldLabel>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {/* Country code selector */}
+              <TouchableOpacity
+                style={[styles.inputWrapper, { width: 80, justifyContent: 'center', gap: 4, paddingHorizontal: 12 }]}
+                onPress={() => setShowCountryPicker(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 14 }}>{country.flag}</Text>
+                <Text style={{ fontSize: 13, fontFamily: 'Poppins_500Medium', color: '#FFFFFF' }}>{country.code}</Text>
+              </TouchableOpacity>
+
+              {/* Phone digits input */}
+              <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.phone}>
+                <TextInput
+                  ref={phoneRef}
+                  placeholder="Phone number"
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                  returnKeyType="next"
+                  onSubmitEditing={() => dobRef.current?.focus()}
+                  value={data.phone}
+                  onChangeText={(v) => { onChange({ phone: v.replace(/\D/g, '').slice(0, 15) }); setErrors((e) => ({ ...e, phone: '' })); }}
+                  style={styles.input}
+                  placeholderTextColor="rgba(255,255,255,0.18)"
+                />
+              </InputRow>
+            </View>
+            <FieldErr msg={errors.phone} />
+          </View>
+
+          {/* Date of Birth */}
+          <View>
+            <FieldLabel>Date of Birth</FieldLabel>
+            <Text style={styles.fieldHintText}>You must be 18+ to join</Text>
+            <InputRow icon={<Calendar size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.dob}>
+              <TextInput
+                ref={dobRef}
+                placeholder="MM/DD/YYYY"
+                keyboardType="numeric"
+                returnKeyType="done"
+                onSubmitEditing={() => { if (validate()) onNext(); }}
+                value={data.dob}
+                onChangeText={(v) => { onChange({ dob: formatDOB(v) }); setErrors((e) => ({ ...e, dob: '' })); }}
+                style={styles.input}
+                placeholderTextColor="rgba(255,255,255,0.18)"
+                maxLength={10}
+              />
+            </InputRow>
+            <FieldErr msg={errors.dob} />
+          </View>
         </View>
+      )}
 
-        {/* Phone */}
-        <View>
-          <FieldLabel>Phone Number</FieldLabel>
-          <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.phone}>
-            <TextInput
-              ref={phoneRef}
-              placeholder="1 (555) 000-0000"
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              textContentType="telephoneNumber"
-              returnKeyType="next"
-              onSubmitEditing={() => dobRef.current?.focus()}
-              value={data.phone}
-              onChangeText={(v) => { onChange({ phone: formatPhone(v) }); setErrors((e) => ({ ...e, phone: '' })); }}
-              style={styles.input}
-              placeholderTextColor="rgba(255,255,255,0.18)"
-            />
-          </InputRow>
-          <FieldErr msg={errors.phone} />
-        </View>
-
-        {/* Date of Birth */}
-        <View>
-          <FieldLabel>Date of Birth</FieldLabel>
-          <Text style={styles.fieldHintText}>You must be 18+ to join</Text>
-          <InputRow icon={<Calendar size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.dob}>
-            <TextInput
-              ref={dobRef}
-              placeholder="MM/DD/YYYY"
-              keyboardType="numeric"
-              returnKeyType="done"
-              onSubmitEditing={() => { if (validate()) onNext(); }}
-              value={data.dob}
-              onChangeText={(v) => { onChange({ dob: formatDOB(v) }); setErrors((e) => ({ ...e, dob: '' })); }}
-              style={styles.input}
-              placeholderTextColor="rgba(255,255,255,0.18)"
-              maxLength={10}
-            />
-          </InputRow>
-          <FieldErr msg={errors.dob} />
-        </View>
-      </View>
-
-      <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }} activeOpacity={0.85}>
-        <Text style={styles.btnLabel}>Continue</Text>
-      </TouchableOpacity>
+      {!showCountryPicker && (
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }} activeOpacity={0.85}>
+          <Text style={styles.btnLabel}>Continue</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 });
@@ -567,7 +629,10 @@ const Step3 = React.memo(function Step3({
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
   const { register } = useAuth();
+  const { referral: referralParam } = useLocalSearchParams<{ referral?: string }>();
   const [step, setStep] = useState<StepNum>(1);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [referralReferrer, setReferralReferrer] = useState<ReferralReferrer | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [registerError, setRegisterError] = useState('');
   // Surface email-in-use errors back to Step 1 for inline display
@@ -576,9 +641,33 @@ export default function RegisterScreen() {
 
   const opacity = useSharedValue(1);
 
-  const [step1, setStep1] = useState<Step1Data>({ name: '', username: '', email: '', phone: '', dob: '' });
+  const [step1, setStep1] = useState<Step1Data>({ name: '', username: '', email: '', phone: '', countryCodeIdx: DEFAULT_COUNTRY_IDX, dob: '' });
   const [step2, setStep2] = useState<Step2Data>({ password: '', confirm: '' });
   const [step3, setStep3] = useState<Step3Data>({ bio: '', avatarUri: null });
+
+  // The referral code is persisted independently of the form so it survives
+  // navigation, email verification, and a closed/reopened registration flow.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const code = referralParam || await getPendingReferralCode();
+      if (!code) return;
+      await savePendingReferralCode(code);
+      // Keep the raw normalized code available immediately so a user can
+      // choose Google before the referrer lookup finishes.
+      if (!cancelled) setReferralCode(code.trim().toUpperCase());
+      try {
+        const resolved = await lookupReferral(code);
+        if (!cancelled) {
+          setReferralCode(resolved.code);
+          setReferralReferrer(resolved.referrer);
+        }
+      } catch {
+        if (!cancelled) setReferralCode(code.trim().toUpperCase());
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [referralParam]);
 
   // Scroll resets to the top automatically on step change via key={step} on
   // the keyboard-aware scroll view (remount starts at the top).
@@ -625,17 +714,22 @@ export default function RegisterScreen() {
           fileName: step3.avatarFileName,
         });
       }
+      const country = COUNTRY_CODES[step1.countryCodeIdx] ?? COUNTRY_CODES[DEFAULT_COUNTRY_IDX];
+      const phoneDigits = step1.phone.replace(/\D/g, '');
+      const fullPhone = phoneDigits ? `${country.code}${phoneDigits}` : undefined;
       await register({
         full_name: step1.name.trim(),
         username: step1.username.trim().toLowerCase(),
         email: step1.email.trim().toLowerCase(),
         password: step2.password,
         confirm_password: step2.confirm,
-        phone: step1.phone.replace(/\D/g, '').slice(0, 15) || undefined,
+        phone: fullPhone,
         bio: step3.bio.trim() || undefined,
         date_of_birth: step1.dob || undefined,
         dob: step1.dob || undefined,
+        referral_code: referralCode || undefined,
       });
+      await clearPendingReferralCode();
       router.replace({ pathname: '/verify-email', params: { email: step1.email.trim() } });
     } catch (err) {
       if (err instanceof ApiError) {
@@ -665,7 +759,7 @@ export default function RegisterScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [step1, step2, register, transitionTo]);
+  }, [step1, step2, referralCode, register, transitionTo]);
 
   return (
     <MsScreenBackground>
@@ -700,6 +794,20 @@ export default function RegisterScreen() {
         {/* Step bar */}
         <StepBar current={step} />
 
+        {step === 1 && (
+          <View style={styles.googleSection}>
+            <Text style={styles.orLabel}>OR</Text>
+            <GoogleSignInButton
+              referralCode={referralCode ?? referralParam ?? undefined}
+              onError={setRegisterError}
+              onSuccess={async ({ isNewUser }) => {
+                await clearPendingReferralCode();
+                router.replace(isNewUser ? '/new-user-welcome' : '/(tabs)');
+              }}
+            />
+          </View>
+        )}
+
         {/* Animated step content */}
         <Animated.View style={[contentStyle, { width: '100%' }]}>
           {step === 1 && (
@@ -708,6 +816,7 @@ export default function RegisterScreen() {
               onChange={handleStep1Change}
               onNext={handleStep1Next}
               serverEmailError={emailError || undefined}
+              referralReferrer={referralReferrer}
             />
           )}
           {step === 2 && (
@@ -948,6 +1057,43 @@ const styles = StyleSheet.create({
   },
 
   // Buttons
+  googleSection: {
+    gap: 10,
+    marginTop: -6,
+  },
+  orLabel: {
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Poppins_500Medium',
+    fontSize: 11,
+    letterSpacing: 1.5,
+    textAlign: 'center',
+  },
+  referralNotice: {
+    backgroundColor: 'rgba(196,90,114,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(196,90,114,0.28)',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 3,
+  },
+  referralNoticeLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 10,
+    letterSpacing: 1.2,
+  },
+  referralNoticeText: {
+    color: '#FFFFFF',
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 15,
+  },
+  referralNoticeSub: {
+    color: 'rgba(255,255,255,0.55)',
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 11,
+  },
+
   primaryBtn: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 50,

@@ -36,6 +36,7 @@ import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { apiFetch } from '@/services/api';
 import { getCategories, type Category } from '@/services/categories';
@@ -94,6 +95,7 @@ const CONTENT_TYPES: {
 export default function CreatePostScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { markContentCreated } = usePostActions();
   const params = useLocalSearchParams<{ type?: string }>();
 
   // Content type state
@@ -399,7 +401,7 @@ export default function CreatePostScreen() {
           thumbUrl = uploadedThumb.url || undefined;
         }
 
-        // Use the stable media ID returned by POST /api/media (Step 3 of the upload flow)
+        // Use the stable media ID returned by POST /api/uploads/:id/complete.
         mediaIds = [uploaded.id];
 
         // Attach thumbnail to the media record (best-effort PATCH).
@@ -462,6 +464,10 @@ export default function CreatePostScreen() {
 
       // Clear the draft on success
       AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+      // Bump the shared content-created version so the (already-mounted) Home
+      // and Profile feeds refresh on their next focus — the new post appears
+      // without closing/reopening the app.
+      markContentCreated();
       router.replace('/(tabs)');
     } catch (err) {
       setError((err as Error).message ?? 'Publish failed. Please try again.');

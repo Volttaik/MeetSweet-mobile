@@ -1,14 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Image,
+  ActivityIndicator,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Button, Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -23,6 +21,9 @@ import OTPInput, { OTPInputRef } from '@/components/OTPInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
 import { shouldShowOnboarding } from '@/services/onboarding';
+import { consumePendingShareDestination, routeToShareDestination } from '@/lib/deep-link';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
 export default function TwoFactorScreen() {
   const insets = useSafeAreaInsets();
@@ -62,6 +63,13 @@ export default function TwoFactorScreen() {
     setLoading(true);
     try {
       await completeTwoFactorLogin(challengeToken, otp);
+      // A share-link recipient who signed in mid-flow returns to the shared
+      // content — the destination is never replaced by onboarding.
+      const pendingDestination = consumePendingShareDestination();
+      if (pendingDestination) {
+        routeToShareDestination(pendingDestination, 'replace');
+        return;
+      }
       const isNewUser = await shouldShowOnboarding('creator_onboarded');
       router.replace(isNewUser ? '/new-user-welcome' : '/(tabs)');
     } catch (err: unknown) {
@@ -82,14 +90,14 @@ export default function TwoFactorScreen() {
   };
 
   return (
-    <View style={styles.bg}>
-      <ScrollView
-        style={styles.scroll}
+    <MsScreenBackground>
+      <KeyboardAwareScrollViewCompat
+        style={styles.flex}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 24),
-            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 60 : 48),
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingBottom: insets.bottom + 48,
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -105,12 +113,7 @@ export default function TwoFactorScreen() {
 
         <Animated.View style={[styles.inner, contentStyle]}>
           <View style={styles.iconCircle}>
-            <Image
-              source={require('../assets/images/logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-              tintColor="#FFFFFF"
-            />
+            <ShieldCheck size={32} color="#FFFFFF" />
           </View>
 
           <View style={styles.headerText}>
@@ -140,51 +143,51 @@ export default function TwoFactorScreen() {
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-          <Button
-            variant="primary"
-            size="lg"
-            onPress={handleVerify}
-            isDisabled={loading || !completed}
+          <TouchableOpacity
             style={[
               styles.verifyBtn,
-              loading && styles.verifyBtnLoading,
-              (!completed && !loading) && styles.verifyBtnDisabled,
+              (!completed || loading) && styles.verifyBtnDisabled,
             ]}
+            onPress={handleVerify}
+            disabled={loading || !completed}
+            activeOpacity={0.85}
           >
             {loading ? (
-              <Spinner size="sm" color="#FFFFFF" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Button.Label
-                style={[
-                  styles.verifyBtnLabel,
-                  (!completed || loading) && styles.verifyBtnLabelDisabled,
-                ]}
-              >
-                Verify
-              </Button.Label>
+              <Text style={styles.verifyBtnLabel}>Verify</Text>
             )}
-          </Button>
+          </TouchableOpacity>
         </Animated.View>
-      </ScrollView>
-    </View>
+      </KeyboardAwareScrollViewCompat>
+    </MsScreenBackground>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 28, flexGrow: 1 },
+  flex: { flex: 1 },
+  content: {
+    paddingHorizontal: 28,
+    gap: 22,
+    flexGrow: 1,
+  },
   backBtn: {
     width: 42,
     height: 42,
     borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'flex-start',
-    marginBottom: 32,
   },
-  inner: { alignItems: 'center', gap: 28 },
+  inner: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 28,
+    justifyContent: 'center',
+  },
   iconCircle: {
     width: 76,
     height: 76,
@@ -195,11 +198,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logo: { width: 34, height: 34 },
-
-  headerText: { alignItems: 'center', gap: 10 },
+  headerText: {
+    alignItems: 'center',
+    gap: 10,
+  },
   title: {
-    fontSize: 26,
+    fontSize: 28,
     fontFamily: 'Poppins_700Bold',
     color: '#FFFFFF',
     letterSpacing: -0.4,
@@ -219,17 +223,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   verifyBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    height: 46,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 50,
+    height: 56,
     width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  verifyBtnLoading: { backgroundColor: '#111111' },
-  verifyBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.1)' },
+  verifyBtnDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
   verifyBtnLabel: {
     fontFamily: 'Poppins_600SemiBold',
-    fontSize: 15,
-    color: '#000000',
+    fontSize: 16,
+    color: '#FFFFFF',
   },
-  verifyBtnLabelDisabled: { color: 'rgba(255,255,255,0.25)' },
 });

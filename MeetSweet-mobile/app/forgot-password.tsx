@@ -1,20 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import {
-  Button,
-  FieldError,
-  Input,
-  Label,
-  Spinner,
-  TextField,
-} from 'heroui-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -23,43 +16,64 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowLeft, CheckCircle, Eye, EyeSlash, Lock, Envelope } from 'phosphor-react-native';
+import { ArrowLeft, Eye, EyeSlash, Lock, Envelope } from 'phosphor-react-native';
 import OTPInput, { OTPInputRef } from '@/components/OTPInput';
 import { apiFetch } from '@/services/api';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
 type Step = 'email' | 'code' | 'new_password' | 'done';
 
 const RESEND_DURATION = 60;
-const INPUT_BG = '#111111';
-const INPUT_BORDER = 'rgba(255,255,255,0.1)';
-const INPUT_BORDER_FOCUSED = 'rgba(255,255,255,0.35)';
-const INPUT_BORDER_ERROR = '#EF4444';
-const FORM_MAX_WIDTH = 340;
+const INPUT_BG = 'rgba(255,255,255,0.07)';
 
-// ─── Shared input row ─────────────────────────────────────────────────────────
+// ─── Shared form atoms (same system as Login / Register) ─────────────────────
 
 function InputRow({
   icon,
   children,
   isError,
-  isFocused,
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
   isError?: boolean;
-  isFocused?: boolean;
 }) {
-  const borderColor = isError
-    ? INPUT_BORDER_ERROR
-    : isFocused
-    ? INPUT_BORDER_FOCUSED
-    : INPUT_BORDER;
   return (
-    <View style={[styles.inputWrapper, { borderColor }]}>
+    <View style={[styles.inputWrapper, isError && styles.inputWrapperError]}>
       {icon}
       {children}
     </View>
   );
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return <Text style={styles.fieldLabel}>{children}</Text>;
+}
+
+function FieldErr({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <Text style={styles.fieldError}>{msg}</Text>;
+}
+
+type Strength = 'weak' | 'fair' | 'good' | 'strong';
+const STRENGTH_COLOR: Record<Strength, string> = {
+  weak: '#EF4444',
+  fair: '#F97316',
+  good: '#EAB308',
+  strong: '#22C55E',
+};
+
+function passwordStrength(pw: string): { level: Strength; score: number } {
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  if (score <= 1) return { level: 'weak', score };
+  if (score === 2) return { level: 'fair', score };
+  if (score === 3) return { level: 'good', score };
+  return { level: 'strong', score };
 }
 
 // ─── Step 1: Enter email ──────────────────────────────────────────────────────
@@ -68,7 +82,6 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [focused, setFocused] = useState(false);
 
   const handleSend = async () => {
     if (!email.includes('@') || !email.includes('.')) {
@@ -92,54 +105,48 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
   };
 
   return (
-    <View style={step.container}>
-      <View style={step.iconWrap}>
-        <Envelope size={32} color="#FFFFFF" />
+    <View style={styles.stepContainer}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>Forgot Password?</Text>
+        <Text style={styles.stepSubtitle}>
+          Enter the email address on your account and we'll send you a reset code.
+        </Text>
       </View>
-      <Text style={step.title}>Forgot Password?</Text>
-      <Text style={step.subtitle}>
-        Enter the email address on your account and we'll send you a reset code.
-      </Text>
 
-      <TextField isInvalid={!!error}>
-        <Label style={styles.fieldLabel}>Email Address</Label>
-        <InputRow
-          icon={
-            <Envelope
-              size={18}
-              color={focused ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
-             
+      <View style={styles.form}>
+        <View>
+          <FieldLabel>Email Address</FieldLabel>
+          <InputRow icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />} isError={!!error}>
+            <TextInput
+              placeholder="your@email.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="done"
+              onSubmitEditing={handleSend}
+              value={email}
+              onChangeText={(v) => { setEmail(v); setError(''); }}
+              style={styles.input}
+              placeholderTextColor="rgba(255,255,255,0.18)"
             />
-          }
-          isError={!!error}
-          isFocused={focused}
-        >
-          <Input
-            placeholder="your@email.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={email}
-            onChangeText={(v) => { setEmail(v); setError(''); }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={styles.input}
-            placeholderTextColor="rgba(255,255,255,0.18)"
-          />
-        </InputRow>
-        {!!error && <FieldError style={styles.fieldError}>{error}</FieldError>}
-      </TextField>
+          </InputRow>
+          <FieldErr msg={error} />
+        </View>
+      </View>
 
-      <Button
-        variant="primary"
-        size="lg"
+      <TouchableOpacity
+        style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
         onPress={handleSend}
-        isDisabled={loading}
-        style={styles.primaryBtn}
+        disabled={loading}
+        activeOpacity={0.85}
       >
-        {loading
-          ? <Spinner size="sm" color="#FFFFFF" />
-          : <Button.Label style={styles.btnLabel}>Send Reset Code</Button.Label>}
-      </Button>
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Text style={styles.btnLabel}>Send Reset Code</Text>
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -183,8 +190,7 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
     setError('');
     setLoading(true);
     try {
-      // We validate the code exists on the server in reset-password step.
-      // Here just advance with the code.
+      // The code is validated on the server in the reset-password step.
       onNext(otp);
     } catch {
       setLoading(false);
@@ -217,15 +223,14 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
   };
 
   return (
-    <View style={step.container}>
-      <View style={step.iconWrap}>
-        <Envelope size={32} color="#FFFFFF" />
+    <View style={styles.stepContainer}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>Check Your Email</Text>
+        <Text style={styles.stepSubtitle}>
+          We sent a 6-digit code to{'\n'}
+          <Text style={styles.emailHighlight}>{email}</Text>
+        </Text>
       </View>
-      <Text style={step.title}>Check Your Email</Text>
-      <Text style={step.subtitle}>
-        We sent a 6-digit code to{'\n'}
-        <Text style={step.highlight}>{email}</Text>
-      </Text>
 
       <OTPInput
         ref={otpRef}
@@ -240,24 +245,20 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
       {!!error && <Text style={styles.errorText}>{error}</Text>}
       {!!resendMsg && <Text style={styles.successText}>{resendMsg}</Text>}
 
-      <Button
-        variant="primary"
-        size="lg"
-        onPress={handleVerify}
-        isDisabled={!completed || loading}
-        style={[styles.primaryBtn, (!completed || loading) && styles.primaryBtnDisabled]}
-      >
-        {loading
-          ? <Spinner size="sm" color="#FFFFFF" />
-          : <Button.Label style={[styles.btnLabel, !completed && styles.btnLabelDisabled]}>
-              Verify Code
-            </Button.Label>}
-      </Button>
-
       <TouchableOpacity
-        onPress={handleResend}
-        style={styles.resendRow}
+        style={[styles.primaryBtn, (!completed || loading) && styles.primaryBtnDisabled]}
+        onPress={handleVerify}
+        disabled={!completed || loading}
+        activeOpacity={0.85}
       >
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Text style={styles.btnLabel}>Verify Code</Text>
+        )}
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={handleResend} style={styles.resendRow} disabled={!canResend}>
         <Text style={[styles.resendText, !canResend && styles.resendDisabled]}>
           {canResend
             ? 'Resend code'
@@ -277,12 +278,14 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [focused, setFocused] = useState<Record<string, boolean>>({});
-  const setFoc = (k: string, v: boolean) => setFocused((f) => ({ ...f, [k]: v }));
+  const confirmRef = useRef<TextInput>(null);
+
+  const strength = password ? passwordStrength(password) : null;
 
   const validate = () => {
     const e: Record<string, string> = {};
     if (password.length < 8) e.password = 'At least 8 characters required';
+    else if (strength && strength.level === 'weak') e.password = 'Choose a stronger password';
     if (confirm !== password) e.confirm = 'Passwords do not match';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -306,98 +309,83 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
   };
 
   return (
-    <View style={step.container}>
-      <View style={step.iconWrap}>
-        <Lock size={32} color="#FFFFFF" />
+    <View style={styles.stepContainer}>
+      <View style={styles.stepHeader}>
+        <Text style={styles.stepTitle}>New Password</Text>
+        <Text style={styles.stepSubtitle}>Choose a strong password of at least 8 characters.</Text>
       </View>
-      <Text style={step.title}>New Password</Text>
-      <Text style={step.subtitle}>Choose a strong password of at least 8 characters.</Text>
 
-      <TextField isInvalid={!!errors.password}>
-        <Label style={styles.fieldLabel}>New Password</Label>
-        <InputRow
-          icon={
-            <Lock
-              size={18}
-              color={focused.password ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
-             
+      <View style={styles.form}>
+        <View>
+          <FieldLabel>New Password</FieldLabel>
+          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.password}>
+            <TextInput
+              placeholder="••••••••"
+              secureTextEntry={!showPw}
+              value={password}
+              returnKeyType="next"
+              onSubmitEditing={() => confirmRef.current?.focus()}
+              onChangeText={(v) => { setPassword(v); setErrors((e) => ({ ...e, password: '' })); }}
+              style={[styles.input, { flex: 1 }]}
+              placeholderTextColor="rgba(255,255,255,0.18)"
             />
-          }
-          isError={!!errors.password}
-          isFocused={focused.password}
-        >
-          <Input
-            placeholder="••••••••"
-            secureTextEntry={!showPw}
-            value={password}
-            onChangeText={(v) => { setPassword(v); setErrors((e) => ({ ...e, password: '' })); }}
-            onFocus={() => setFoc('password', true)}
-            onBlur={() => setFoc('password', false)}
-            style={[styles.input, { flex: 1 }]}
-            placeholderTextColor="rgba(255,255,255,0.18)"
-          />
-          <TouchableOpacity
-            onPress={() => setShowPw((v) => !v)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            {showPw
-              ? <EyeSlash size={18} color="rgba(255,255,255,0.35)" />
-              : <Eye size={18} color="rgba(255,255,255,0.35)" />}
-          </TouchableOpacity>
-        </InputRow>
-        {!!errors.password && (
-          <FieldError style={styles.fieldError}>{errors.password}</FieldError>
-        )}
-      </TextField>
+            <TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              {showPw ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
+            </TouchableOpacity>
+          </InputRow>
+          {password.length > 0 && strength && (
+            <View style={styles.strengthRow}>
+              {[0, 1, 2, 3].map((i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.strengthSeg,
+                    { backgroundColor: i < strength.score ? STRENGTH_COLOR[strength.level] : 'rgba(255,255,255,0.1)' },
+                  ]}
+                />
+              ))}
+              <Text style={[styles.strengthLabel, { color: STRENGTH_COLOR[strength.level] }]}>
+                {strength.level}
+              </Text>
+            </View>
+          )}
+          <FieldErr msg={errors.password} />
+        </View>
 
-      <TextField isInvalid={!!errors.confirm}>
-        <Label style={styles.fieldLabel}>Confirm Password</Label>
-        <InputRow
-          icon={
-            <Lock
-              size={18}
-              color={focused.confirm ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}
-             
+        <View>
+          <FieldLabel>Confirm Password</FieldLabel>
+          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.confirm}>
+            <TextInput
+              ref={confirmRef}
+              placeholder="••••••••"
+              secureTextEntry={!showConfirm}
+              value={confirm}
+              returnKeyType="done"
+              onSubmitEditing={handleReset}
+              onChangeText={(v) => { setConfirm(v); setErrors((e) => ({ ...e, confirm: '' })); }}
+              style={[styles.input, { flex: 1 }]}
+              placeholderTextColor="rgba(255,255,255,0.18)"
             />
-          }
-          isError={!!errors.confirm}
-          isFocused={focused.confirm}
-        >
-          <Input
-            placeholder="••••••••"
-            secureTextEntry={!showConfirm}
-            value={confirm}
-            onChangeText={(v) => { setConfirm(v); setErrors((e) => ({ ...e, confirm: '' })); }}
-            onFocus={() => setFoc('confirm', true)}
-            onBlur={() => setFoc('confirm', false)}
-            style={[styles.input, { flex: 1 }]}
-            placeholderTextColor="rgba(255,255,255,0.18)"
-          />
-          <TouchableOpacity
-            onPress={() => setShowConfirm((v) => !v)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            {showConfirm
-              ? <EyeSlash size={18} color="rgba(255,255,255,0.35)" />
-              : <Eye size={18} color="rgba(255,255,255,0.35)" />}
-          </TouchableOpacity>
-        </InputRow>
-        {!!errors.confirm && (
-          <FieldError style={styles.fieldError}>{errors.confirm}</FieldError>
-        )}
-      </TextField>
+            <TouchableOpacity onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              {showConfirm ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
+            </TouchableOpacity>
+          </InputRow>
+          <FieldErr msg={errors.confirm} />
+        </View>
+      </View>
 
-      <Button
-        variant="primary"
-        size="lg"
+      <TouchableOpacity
+        style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
         onPress={handleReset}
-        isDisabled={loading}
-        style={styles.primaryBtn}
+        disabled={loading}
+        activeOpacity={0.85}
       >
-        {loading
-          ? <Spinner size="sm" color="#FFFFFF" />
-          : <Button.Label style={styles.btnLabel}>Reset Password</Button.Label>}
-      </Button>
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Text style={styles.btnLabel}>Reset Password</Text>
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -406,22 +394,23 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
 
 function StepDone() {
   return (
-    <View style={[step.container, { alignItems: 'center' }]}>
-      <View style={[step.iconWrap, styles.successIconWrap]}>
-        <CheckCircle size={46} color="#22C55E" />
+    <View style={[styles.stepContainer, { alignItems: 'center' }]}>
+      <View style={[styles.successIconWrap]}>
+        <Text style={styles.successCheck}>✓</Text>
       </View>
-      <Text style={[step.title, { textAlign: 'center' }]}>Password Reset!</Text>
-      <Text style={[step.subtitle, { textAlign: 'center' }]}>
-        Your password has been reset successfully. Log in with your new password.
-      </Text>
-      <Button
-        variant="primary"
-        size="lg"
-        onPress={() => router.replace('/auth')}
+      <View style={[styles.stepHeader, { alignItems: 'center' }]}>
+        <Text style={[styles.stepTitle, { textAlign: 'center' }]}>Password Reset!</Text>
+        <Text style={[styles.stepSubtitle, { textAlign: 'center' }]}>
+          Your password has been reset successfully. Log in with your new password.
+        </Text>
+      </View>
+      <TouchableOpacity
         style={styles.primaryBtn}
+        onPress={() => router.replace('/auth')}
+        activeOpacity={0.85}
       >
-        <Button.Label style={styles.btnLabel}>Back to Log In</Button.Label>
-      </Button>
+        <Text style={styles.btnLabel}>Back to Log In</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -480,20 +469,24 @@ export default function ForgotPasswordScreen() {
     transform: [{ translateY: contentY.value }],
   }));
 
+  const stepNum = STEP_KEYS.indexOf(currentStep) + 1;
+
   return (
-    <View style={styles.bg}>
-      <ScrollView
-        style={styles.scroll}
+    <MsScreenBackground>
+      <KeyboardAwareScrollViewCompat
+        key={currentStep}
+        style={styles.flex}
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 24),
-            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 60 : 52),
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingBottom: insets.bottom + 48,
           },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* Back */}
         {currentStep !== 'done' && (
           <TouchableOpacity
             onPress={() => router.back()}
@@ -504,84 +497,112 @@ export default function ForgotPasswordScreen() {
           </TouchableOpacity>
         )}
 
-        <Text style={styles.screenTitle}>Reset Password</Text>
+        {/* Screen title */}
+        <View style={styles.screenHead}>
+          <Text style={styles.screenTitle}>Reset Password</Text>
+          <Text style={styles.screenSubtitle}>Step {stepNum} of 4</Text>
+        </View>
+
+        {/* Step bar */}
         <StepBar current={currentStep} />
 
-        <View style={styles.formOuter}>
-          <Animated.View style={contentStyle}>
-            {currentStep === 'email' && (
-              <StepEmail onNext={(e) => { setEmail(e); advance('code'); }} />
-            )}
-            {currentStep === 'code' && (
-              <StepCode
-                email={email}
-                onNext={(c) => { setCode(c); advance('new_password'); }}
-              />
-            )}
-            {currentStep === 'new_password' && (
-              <StepNewPassword
-                email={email}
-                code={code}
-                onNext={() => advance('done')}
-              />
-            )}
-            {currentStep === 'done' && <StepDone />}
-          </Animated.View>
-        </View>
-      </ScrollView>
-    </View>
+        {/* Animated step content */}
+        <Animated.View style={[contentStyle, { width: '100%' }]}>
+          {currentStep === 'email' && (
+            <StepEmail onNext={(e) => { setEmail(e); advance('code'); }} />
+          )}
+          {currentStep === 'code' && (
+            <StepCode
+              email={email}
+              onNext={(c) => { setCode(c); advance('new_password'); }}
+            />
+          )}
+          {currentStep === 'new_password' && (
+            <StepNewPassword
+              email={email}
+              code={code}
+              onNext={() => advance('done')}
+            />
+          )}
+          {currentStep === 'done' && <StepDone />}
+        </Animated.View>
+      </KeyboardAwareScrollViewCompat>
+    </MsScreenBackground>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
-  scroll: { flex: 1 },
+  flex: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 26,
     gap: 22,
     flexGrow: 1,
-    alignItems: 'center',
   },
+
   backBtn: {
     width: 42,
     height: 42,
     borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'flex-start',
   },
+
+  screenHead: { gap: 2 },
   screenTitle: {
     fontSize: 24,
     fontFamily: 'Poppins_700Bold',
     color: '#FFFFFF',
     letterSpacing: -0.4,
-    alignSelf: 'flex-start',
+  },
+  screenSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Poppins_400Regular',
+    color: 'rgba(255,255,255,0.35)',
   },
 
-  formOuter: {
-    width: '100%',
-    maxWidth: FORM_MAX_WIDTH,
+  // Step content
+  stepContainer: { gap: 24, width: '100%' },
+  stepHeader: { gap: 6 },
+  stepTitle: {
+    fontSize: 22,
+    fontFamily: 'Poppins_700Bold',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
   },
+  stepSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Poppins_400Regular',
+    color: 'rgba(255,255,255,0.4)',
+    lineHeight: 22,
+  },
+  emailHighlight: {
+    color: '#FFFFFF',
+    fontFamily: 'Poppins_500Medium',
+  },
+
+  form: { gap: 18 },
 
   fieldLabel: {
     fontFamily: 'Poppins_500Medium',
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    marginBottom: 6,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.55)',
+    marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: INPUT_BG,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: INPUT_BORDER,
-    height: 44,
-    gap: 10,
+    borderRadius: 50,
+    paddingHorizontal: 18,
+    height: 54,
+    gap: 12,
+  },
+  inputWrapperError: {
+    backgroundColor: 'rgba(239,68,68,0.09)',
   },
   input: {
     flex: 1,
@@ -590,19 +611,21 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_400Regular',
     height: '100%',
     backgroundColor: 'transparent',
+    // Vertically centre the caret + text inside the input row on Android.
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   fieldError: {
     fontFamily: 'Poppins_400Regular',
     fontSize: 12,
     color: '#EF4444',
-    marginTop: 4,
+    marginTop: 6,
+    paddingHorizontal: 4,
   },
-
-  primaryBtn: { backgroundColor: '#FFFFFF', borderRadius: 12, height: 46 },
-  primaryBtnLoading: { backgroundColor: '#111111' },
-  primaryBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.1)' },
-  btnLabel: { fontFamily: 'Poppins_600SemiBold', fontSize: 15, color: '#000000' },
-  btnLabelDisabled: { color: 'rgba(255,255,255,0.25)' },
 
   errorText: {
     fontSize: 13,
@@ -617,12 +640,54 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  resendRow: { alignItems: 'center' },
+  // Password strength
+  strengthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 8,
+  },
+  strengthSeg: { flex: 1, height: 3, borderRadius: 2 },
+  strengthLabel: {
+    fontSize: 12,
+    fontFamily: 'Poppins_500Medium',
+    marginLeft: 4,
+    textTransform: 'capitalize',
+  },
+
+  // Buttons
+  primaryBtn: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 50,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  primaryBtnLoading: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  primaryBtnDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  btnLabel: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+
+  resendRow: { alignItems: 'center', paddingVertical: 4 },
   resendText: {
     fontSize: 14,
     fontFamily: 'Poppins_600SemiBold',
     color: '#FFFFFF',
-    paddingVertical: 4,
   },
   resendDisabled: { color: 'rgba(255,255,255,0.25)' },
 
@@ -630,58 +695,56 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: 'rgba(34,197,94,0.07)',
+    backgroundColor: 'rgba(34,197,94,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.18)',
-  },
-});
-
-const step = StyleSheet.create({
-  container: { gap: 20 },
-  iconWrap: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(34,197,94,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
   },
-  title: {
-    fontSize: 26,
+  successCheck: {
+    fontSize: 40,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
-    letterSpacing: -0.4,
+    color: '#22C55E',
   },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: 'Poppins_400Regular',
-    color: 'rgba(255,255,255,0.45)',
-    lineHeight: 22,
-  },
-  highlight: { color: '#FFFFFF', fontFamily: 'Poppins_500Medium' },
 });
 
+// ─── Step bar styles ──────────────────────────────────────────────────────────
+
 const bar = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' },
+  row: { flexDirection: 'row', alignItems: 'center' },
   step: { alignItems: 'center', gap: 5 },
   dot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#111111',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dotActive: { borderColor: '#FFFFFF', backgroundColor: 'rgba(255,255,255,0.07)' },
-  num: { fontSize: 12, fontFamily: 'Poppins_700Bold', color: 'rgba(255,255,255,0.22)' },
+  dotActive: {
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  num: {
+    fontSize: 12,
+    fontFamily: 'Poppins_700Bold',
+    color: 'rgba(255,255,255,0.25)',
+  },
   numActive: { color: '#FFFFFF' },
-  label: { fontSize: 10, fontFamily: 'Poppins_400Regular', color: 'rgba(255,255,255,0.22)' },
+  label: {
+    fontSize: 11,
+    fontFamily: 'Poppins_400Regular',
+    color: 'rgba(255,255,255,0.25)',
+  },
   labelActive: { color: '#FFFFFF', fontFamily: 'Poppins_500Medium' },
-  connector: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.07)', marginBottom: 18 },
-  connectorActive: { backgroundColor: 'rgba(255,255,255,0.35)' },
+  connector: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 18,
+  },
+  connectorActive: { backgroundColor: 'rgba(255,255,255,0.4)' },
 });

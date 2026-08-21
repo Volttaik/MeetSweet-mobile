@@ -280,11 +280,7 @@ export function MsPostCard({
   locked,
   onSubscribe,
 }: MsPostCardProps) {
-  const [liked, setLiked] = useState(post.likedByMe);
-  const [likeCount, setLikeCount] = useState(post.likeCount);
   const [liking, setLiking] = useState(false);
-  const [bookmarked, setBookmarked] = useState(post.bookmarkedByMe ?? false);
-  const [bookmarkCount, setBookmarkCount] = useState(post.bookmarkCount ?? 0);
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
@@ -298,6 +294,27 @@ export function MsPostCard({
   const { isOnline } = useNetwork();
   const userId = user?.id ?? '';
 
+  // Like/bookmark state comes from the shared post-actions store (with the
+  // server-fetched post fields as fallback), so a like performed on ANY screen
+  // is reflected on every mounted card of this post immediately.
+  const {
+    markDeleted,
+    markHidden,
+    markCreatorHidden,
+    likeOverrides,
+    bookmarkOverrides,
+    commentCounts,
+    markLiked,
+    markBookmarked,
+  } = usePostActions();
+  const likeOverride = likeOverrides[post.id];
+  const bookmarkOverride = bookmarkOverrides[post.id];
+  const liked = likeOverride?.likedByMe ?? post.likedByMe;
+  const likeCount = likeOverride?.likeCount ?? post.likeCount;
+  const bookmarked = bookmarkOverride?.bookmarkedByMe ?? post.bookmarkedByMe ?? false;
+  const bookmarkCount = bookmarkOverride?.bookmarkCount ?? post.bookmarkCount ?? 0;
+  const commentCount = commentCounts[post.id] ?? post.commentCount ?? post.comments_count ?? 0;
+
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
   const isLocked = Boolean(locked ?? post.isLocked ?? post.is_locked);
 
@@ -307,14 +324,15 @@ export function MsPostCard({
     const wasLiked = liked;
     const nextLiked = !wasLiked;
     const delta = nextLiked ? 1 : -1;
-    setLiked(nextLiked);
-    setLikeCount((c) => Math.max(0, c + delta));
+    const nextCount = Math.max(0, likeCount + delta);
+    // Publish optimistically — every mounted view of this post updates now.
+    markLiked(post.id, nextLiked, nextCount);
     tapMedium();
 
     // Update SQLite cache optimistically
     updateCachedPost(post.id, userId, {
       likedByMe: nextLiked,
-      likeCount: Math.max(0, post.likeCount + delta),
+      likeCount: nextCount,
     }).catch(() => {});
 
     if (!isOnline) {
@@ -329,12 +347,14 @@ export function MsPostCard({
       } else {
         await likePost(post.id);
       }
+      // Server confirmed — keep the shared state authoritative.
+      markLiked(post.id, nextLiked, nextCount);
     } catch {
-      setLiked(wasLiked);
-      setLikeCount((c) => Math.max(0, c - delta));
+      // Revert on API failure
+      markLiked(post.id, wasLiked, Math.max(0, likeCount - delta));
       updateCachedPost(post.id, userId, {
         likedByMe: wasLiked,
-        likeCount: Math.max(0, post.likeCount - delta),
+        likeCount: Math.max(0, likeCount - delta),
       }).catch(() => {});
     } finally {
       setLiking(false);
@@ -347,14 +367,14 @@ export function MsPostCard({
     const was = bookmarked;
     const next = !was;
     const delta = next ? 1 : -1;
-    setBookmarked(next);
-    setBookmarkCount((c) => Math.max(0, c + delta));
+    const nextCount = Math.max(0, bookmarkCount + delta);
+    markBookmarked(post.id, next, nextCount);
     tapLight();
 
     // Update SQLite cache optimistically
     updateCachedPost(post.id, userId, {
       bookmarkedByMe: next,
-      bookmarkCount: Math.max(0, bookmarkCount + delta),
+      bookmarkCount: nextCount,
     }).catch(() => {});
 
     if (!isOnline) {
@@ -366,9 +386,9 @@ export function MsPostCard({
     try {
       if (was) await unbookmarkPost(post.id);
       else await bookmarkPost(post.id);
+      markBookmarked(post.id, next, nextCount);
     } catch {
-      setBookmarked(was);
-      setBookmarkCount((c) => Math.max(0, c - delta));
+      markBookmarked(post.id, was, Math.max(0, bookmarkCount - delta));
       updateCachedPost(post.id, userId, {
         bookmarkedByMe: was,
         bookmarkCount: Math.max(0, bookmarkCount - delta),
@@ -377,8 +397,6 @@ export function MsPostCard({
       setBookmarking(false);
     }
   };
-
-  const { markDeleted, markHidden, markCreatorHidden } = usePostActions();
 
   const doDelete = () => {
     tapHeavy();
@@ -748,8 +766,8 @@ export function MsPostCard({
         {/* Comment */}
         <ActionButton onPress={onCommentsPress ?? onPress} style={styles.actionBtn}>
           <ChatCircle size={18} color={T.TEXT_2} />
-          {((post.commentCount ?? post.comments_count ?? 0) > 0) && (
-            <Text style={styles.actionCount}>{formatCount(post.commentCount ?? post.comments_count ?? 0)}</Text>
+          {commentCount > 0 && (
+            <Text style={styles.actionCount}>{formatCount(commentCount)}</Text>
           )}
         </ActionButton>
 

@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Button, Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -14,47 +14,16 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withSequence,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowLeft, CheckCircle, Lock } from 'phosphor-react-native';
+import { ArrowLeft, Lock } from 'phosphor-react-native';
 import OTPInput, { OTPInputRef } from '@/components/OTPInput';
+import { MsScreenBackground } from '@/components/MsScreenBackground';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const RESEND_DURATION = 60;
-
-// ─── Success overlay ──────────────────────────────────────────────────────────
-
-function SuccessOverlay({ visible }: { visible: boolean }) {
-  const opacity = useSharedValue(0);
-  const scale = useSharedValue(0.6);
-
-  useEffect(() => {
-    if (visible) {
-      opacity.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) });
-      scale.value = withSequence(
-        withSpring(1.1, { damping: 8, stiffness: 280 }),
-        withSpring(1, { damping: 14, stiffness: 400 }),
-      );
-    }
-  }, [visible]);
-
-  const style = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }],
-  }));
-
-  if (!visible) return null;
-
-  return (
-    <Animated.View style={[styles.successOverlay, style]}>
-      <CheckCircle size={48} color="#22C55E" />
-      <Text style={styles.successText}>Verified!</Text>
-    </Animated.View>
-  );
-}
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -67,36 +36,22 @@ export default function VerificationScreen() {
   const [countdown, setCountdown] = useState(RESEND_DURATION);
   const [canResend, setCanResend] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   const otpRef = useRef<OTPInputRef>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Entrance animations
-  const headerOpacity = useSharedValue(0);
-  const headerY = useSharedValue(20);
-  const otpOpacity = useSharedValue(0);
-  const otpY = useSharedValue(16);
-  const btnOpacity = useSharedValue(0);
+  const contentOpacity = useSharedValue(0);
+  const contentY = useSharedValue(20);
 
   useEffect(() => {
-    headerOpacity.value = withDelay(60, withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) }));
-    headerY.value = withDelay(60, withTiming(0, { duration: 400, easing: Easing.out(Easing.cubic) }));
-    otpOpacity.value = withDelay(180, withTiming(1, { duration: 380, easing: Easing.out(Easing.cubic) }));
-    otpY.value = withDelay(180, withTiming(0, { duration: 380, easing: Easing.out(Easing.cubic) }));
-    btnOpacity.value = withDelay(300, withTiming(1, { duration: 360, easing: Easing.out(Easing.cubic) }));
+    contentOpacity.value = withDelay(80, withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) }));
+    contentY.value = withDelay(80, withTiming(0, { duration: 400, easing: Easing.out(Easing.cubic) }));
   }, []);
 
-  const headerStyle = useAnimatedStyle(() => ({
-    opacity: headerOpacity.value,
-    transform: [{ translateY: headerY.value }],
-  }));
-  const otpStyle = useAnimatedStyle(() => ({
-    opacity: otpOpacity.value,
-    transform: [{ translateY: otpY.value }],
-  }));
-  const btnStyle = useAnimatedStyle(() => ({
-    opacity: btnOpacity.value,
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+    transform: [{ translateY: contentY.value }],
   }));
 
   const startTimer = () => {
@@ -146,15 +101,18 @@ export default function VerificationScreen() {
   const isReady = otp.replace(/\s/g, '').length === 4;
 
   return (
-    <View style={styles.bg}>
-      <View
-        style={[
-          styles.container,
+    <MsScreenBackground>
+      <KeyboardAwareScrollViewCompat
+        style={styles.flex}
+        contentContainerStyle={[
+          styles.content,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 20),
-            paddingBottom: insets.bottom + 36,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingBottom: insets.bottom + 48,
           },
         ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {/* Back button */}
         <TouchableOpacity
@@ -166,24 +124,24 @@ export default function VerificationScreen() {
         </TouchableOpacity>
 
         {/* Center content */}
-        <View style={styles.body}>
+        <Animated.View style={[styles.body, contentStyle]}>
           {/* Header */}
-          <Animated.View style={[styles.header, headerStyle]}>
-            {/* Lock icon circle */}
+          <View style={styles.header}>
             <View style={styles.iconCircle}>
-              <Lock size={34} color="#FFFFFF" />
+              <Lock size={32} color="#FFFFFF" />
             </View>
 
-            <Text style={styles.title}>Verify Your Number</Text>
-            <Text style={styles.subtitle}>
-              We sent a 4-digit code to{'\n'}
-              <Text style={styles.phoneHighlight}>{maskedPhone}</Text>
-            </Text>
-
-          </Animated.View>
+            <View style={styles.headerText}>
+              <Text style={styles.title}>Verify Your Number</Text>
+              <Text style={styles.subtitle}>
+                We sent a 4-digit code to{'\n'}
+                <Text style={styles.phoneHighlight}>{maskedPhone}</Text>
+              </Text>
+            </View>
+          </View>
 
           {/* OTP inputs */}
-          <Animated.View style={[styles.otpSection, otpStyle]}>
+          <View style={styles.otpSection}>
             <OTPInput
               ref={otpRef}
               length={4}
@@ -200,10 +158,10 @@ export default function VerificationScreen() {
             {!!error && (
               <Text style={styles.errorText}>{error}</Text>
             )}
-          </Animated.View>
+          </View>
 
           {/* Resend */}
-          <Animated.View style={[styles.resendRow, btnStyle]}>
+          <View style={styles.resendRow}>
             {canResend ? (
               <TouchableOpacity onPress={handleResend} activeOpacity={0.65}>
                 <Text style={styles.resendActive}>Resend Code</Text>
@@ -216,56 +174,45 @@ export default function VerificationScreen() {
                 </Text>
               </Text>
             )}
-          </Animated.View>
-        </View>
-
-        {/* Verify button */}
-        <Animated.View style={[styles.btnWrap, btnStyle]}>
-          <Button
-            variant="primary"
-            size="lg"
-            onPress={handleVerify}
-            isDisabled={loading || !isReady || success}
-            style={[
-              styles.verifyBtn,
-              loading && styles.verifyBtnLoading,
-              (!isReady && !loading) && styles.verifyBtnDisabled,
-            ]}
-          >
-            {loading ? (
-              <Spinner size="sm" color="#FFFFFF" />
-            ) : (
-              <Button.Label style={[
-                styles.verifyBtnLabel,
-                (!isReady || loading || success) && styles.verifyBtnLabelDisabled,
-              ]}>
-                Verify &amp; Continue
-              </Button.Label>
-            )}
-          </Button>
+          </View>
         </Animated.View>
 
-        {/* Success overlay */}
-        <SuccessOverlay visible={success} />
-      </View>
-    </View>
+        {/* Verify button */}
+        <TouchableOpacity
+          style={[
+            styles.verifyBtn,
+            (!isReady || loading) && styles.verifyBtnDisabled,
+          ]}
+          onPress={handleVerify}
+          disabled={loading || !isReady}
+          activeOpacity={0.85}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.verifyBtnLabel}>Verify & Continue</Text>
+          )}
+        </TouchableOpacity>
+      </KeyboardAwareScrollViewCompat>
+    </MsScreenBackground>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#000000' },
-  container: {
-    flex: 1,
+  flex: { flex: 1 },
+  content: {
     paddingHorizontal: 28,
+    gap: 22,
+    flexGrow: 1,
   },
 
   backBtn: {
     width: 42,
     height: 42,
     borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'flex-start',
@@ -275,29 +222,32 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 36,
+    gap: 32,
   },
 
   header: {
     alignItems: 'center',
-    gap: 12,
+    gap: 20,
   },
   iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+  },
+  headerText: {
+    alignItems: 'center',
+    gap: 10,
   },
   title: {
-    fontSize: 30,
+    fontSize: 28,
     fontFamily: 'Poppins_700Bold',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
     textAlign: 'center',
   },
   subtitle: {
@@ -342,41 +292,27 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
 
-  btnWrap: {
-    gap: 0,
-  },
   verifyBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    height: 46,
-  },
-  verifyBtnLoading: {
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 50,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   verifyBtnDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   verifyBtnLabel: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
-    color: '#000000',
-  },
-  verifyBtnLabelDisabled: {
-    color: 'rgba(255,255,255,0.3)',
-  },
-
-  // Success overlay
-  successOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  successText: {
-    fontSize: 22,
-    fontFamily: 'Poppins_600SemiBold',
-    color: '#22C55E',
-    letterSpacing: -0.3,
+    color: '#FFFFFF',
   },
 });

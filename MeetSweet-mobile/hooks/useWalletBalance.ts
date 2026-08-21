@@ -1,40 +1,17 @@
 /**
- * useWalletBalance — fetches the user's Naira wallet balance,
- * caches in AsyncStorage, and returns the current value.
+ * useWalletBalance — shared Naira wallet balance.
+ *
+ * Thin wrapper over WalletContext: every caller reads the SAME authoritative
+ * balance, so a server-confirmed change (deposit verified, subscription
+ * charged, album purchased) re-renders the Home header badge, the wallet page,
+ * and the subscribe sheet at once — no app restart required.
+ *
+ * The return shape is kept compatible with the previous hook so existing call
+ * sites (Home header, creator profile, new-user-welcome) work unchanged.
  */
-import { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAccessToken } from '@/lib/session-storage';
-import { apiFetch } from '@/services/api';
-
-const BALANCE_KEY = '@ms_wallet_balance';
+import { useWallet } from '@/contexts/WalletContext';
 
 export function useWalletBalance(): { balance: number; refreshWallet: () => Promise<void> } {
-  const [balance, setBalance] = useState(0);
-
-  const refreshWallet = async () => {
-    try {
-      const token = await getAccessToken();
-      if (!token) return;
-      const raw = await apiFetch<any>('/wallet', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const bal = Number(raw?.balance ?? raw?.data?.balance ?? 0);
-      setBalance(bal);
-      await AsyncStorage.setItem(BALANCE_KEY, String(bal));
-    } catch {
-      // silently use cached
-    }
-  };
-
-  useEffect(() => {
-    // Load cached value immediately for instant display
-    AsyncStorage.getItem(BALANCE_KEY)
-      .then((v) => { if (v) setBalance(Number(v)); })
-      .catch(() => {});
-
-    refreshWallet();
-  }, []);
-
+  const { balance, refreshWallet } = useWallet();
   return { balance, refreshWallet };
 }

@@ -11,7 +11,7 @@ import { Spinner } from 'heroui-native';
 import { MsShimmer } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, BellSlash, Check, ArrowsClockwise, Trash } from 'phosphor-react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -24,6 +24,7 @@ import {
   type Notification,
 } from '@/services/notifications';
 import { useNotifications } from '@/contexts/NotificationsContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,7 @@ function NotifGroup({
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const { isAuthenticated, isLoading } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -217,7 +219,7 @@ export default function NotificationsScreen() {
       }
     }
 
-    if (n.type === 'wallet' || n.type === 'payout' || n.type === 'payment' || n.type === 'purchase') {
+    if (n.type === 'wallet' || n.type === 'payout' || n.type === 'payment' || n.type === 'purchase' || n.type === 'referral_reward') {
       router.push('/wallet');
       return;
     }
@@ -272,6 +274,15 @@ export default function NotificationsScreen() {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
   const { today, yesterday, earlier } = groupNotifications(notifications);
+
+  // Authenticated screen only — a logged-out visit (stale navigation history
+  // or a direct web URL) must land on Login, never a placeholder shell.
+  if (isLoading) {
+    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  }
+  if (!isAuthenticated) {
+    return <Redirect href="/auth" />;
+  }
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>

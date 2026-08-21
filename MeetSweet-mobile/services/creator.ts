@@ -64,10 +64,39 @@ export async function getCreatorDashboard(): Promise<CreatorDashboard> {
  * default subscription price. The caller should then refresh the auth user so
  * the UI renders creator state from the server. Throws on failure (including
  * 409 when the account is already a creator).
+ *
+ * Requires creator_activation_paid = true first.
  */
 export async function becomeCreator(): Promise<{ is_creator: boolean }> {
   return authedRequest<{ is_creator: boolean }>('/creator/become', {
     method: 'POST',
+  });
+}
+
+/**
+ * Initiate the ₦1,000 creator activation payment via Paystack.
+ * Returns the authorization_url for the Paystack checkout.
+ */
+export async function initiateActivation(): Promise<{
+  transactionId: string;
+  reference: string;
+  authorizationUrl: string;
+  amount: number;
+}> {
+  return authedRequest('/creator/activation', { method: 'POST' });
+}
+
+/**
+ * Verify the creator activation payment with the server.
+ * The server verifies the Paystack transaction — never trust client-side.
+ */
+export async function verifyActivation(
+  transactionId: string,
+  reference?: string,
+): Promise<{ activated: boolean; is_creator: boolean; creator_activation_paid: boolean }> {
+  return authedRequest('/creator/activation/verify', {
+    method: 'POST',
+    body: JSON.stringify({ transactionId, reference }),
   });
 }
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   RefreshControl,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -25,6 +26,7 @@ import {
   type Icon,
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import { T } from '@/constants/theme';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsShimmer } from '@/components/MsShimmer';
@@ -39,6 +41,7 @@ import {
   type CreatorDashboard,
   type PeriodStat,
 } from '@/services/creator';
+import { getMyReferralLink, type MyReferralLink } from '@/services/referrals';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 
@@ -263,6 +266,8 @@ export default function CreatorDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [referral, setReferral] = useState<MyReferralLink | null>(null);
+  const [referralBusy, setReferralBusy] = useState(false);
 
   // ── Local settings state ────────
   const [subsEnabled, setSubsEnabled] = useState(true);
@@ -329,13 +334,15 @@ export default function CreatorDashboardScreen() {
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [dash, subs, settings] = await Promise.all([
+      const [dash, subs, settings, referralLink] = await Promise.all([
         getCreatorDashboard(),
         getCreatorSubscribers(1).catch(() => ({ subscribers: [] as typeof subscribers })),
         getCreatorSettings().catch(() => null),
+        getMyReferralLink().catch(() => null),
       ]);
       setDashboard(dash);
       setSubscribers(subs.subscribers ?? []);
+      if (referralLink) setReferral(referralLink);
       if (settings) {
         setWhoCanMessage(settings.who_can_message ?? 'everyone');
         setWhoCanComment(settings.who_can_comment ?? (settings.allow_comments === false ? 'none' : 'everyone'));
@@ -577,6 +584,40 @@ export default function CreatorDashboardScreen() {
               </View>
               <Text style={styles.actionLabel}>Settings</Text>
             </TouchableOpacity>
+          </View>
+
+              {/* ── Referral link ─────────────────────────────────────────────── */}
+          <Text style={styles.sectionTitle}>Referral Link</Text>
+          <View style={styles.referralCard}>
+            <Text style={styles.referralTitle}>Invite someone to MeetSweet</Text>
+            <Text style={styles.referralDescription}>
+              Share your creator link. You receive ₦200 when a referred user pays the one-time ₦1,000 creator activation fee.
+            </Text>
+            <View style={styles.referralUrlBox}>
+              <Text style={styles.referralUrl} numberOfLines={1}>{referral?.url ?? 'Loading referral link…'}</Text>
+            </View>
+            <View style={styles.referralActions}>
+              <TouchableOpacity
+                style={styles.referralAction}
+                disabled={!referral?.url || referralBusy}
+                onPress={async () => {
+                  if (!referral?.url) return;
+                  setReferralBusy(true);
+                  await Clipboard.setStringAsync(referral.url);
+                  setReferralBusy(false);
+                  setFeedback({ variant: 'success', title: 'Referral link copied', message: 'Share it anywhere to invite a new creator.' });
+                }}
+              >
+                <Text style={styles.referralActionText}>Copy Link</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.referralAction, styles.referralActionPrimary]}
+                disabled={!referral?.url || referralBusy}
+                onPress={() => referral?.url && Share.share({ title: 'Join MeetSweet', message: `Join MeetSweet with my referral link: ${referral.url}`, url: referral.url })}
+              >
+                <Text style={[styles.referralActionText, styles.referralActionPrimaryText]}>Share</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* ── Settings Sections ─────────────────────────────────────────── */}
@@ -999,6 +1040,26 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   actionLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.TEXT },
+
+  referralCard: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+    padding: 16,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(196,90,114,0.22)',
+    gap: 10,
+  },
+  referralTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  referralDescription: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 18 },
+  referralUrlBox: { backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md, paddingHorizontal: 12, paddingVertical: 11 },
+  referralUrl: { fontSize: 12, fontFamily: T.FONT.medium, color: T.ACCENT },
+  referralActions: { flexDirection: 'row', gap: 10 },
+  referralAction: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: T.RADIUS.md, backgroundColor: T.SURFACE_2 },
+  referralActionPrimary: { backgroundColor: T.ACCENT },
+  referralActionText: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
+  referralActionPrimaryText: { color: '#fff' },
 
   // ── Settings sections ──────────────────────────────────────────────────────
   settingsCard: {

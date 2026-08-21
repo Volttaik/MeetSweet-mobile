@@ -45,6 +45,7 @@ import { MsShimmer } from '@/components/MsShimmer';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { T } from '@/constants/theme';
 import { getPost } from '@/services/posts';
 import {
@@ -480,6 +481,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
   const [kbHeight, setKbHeight] = useState(0);
   const kbLift = useRef(new Animated.Value(0)).current;
   const { user } = useAuth();
+  const { setCommentCount } = usePostActions();
 
   useEffect(() => {
     const animateTo = (toValue: number) => {
@@ -575,6 +577,11 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
     try {
       const res = await submitRoomComment(roomId, body, { parentCommentId: replyingTo?.id });
       setComments((prev) => prev.map((c) => (c.id === tempId ? toLocalComment(res.comment) : c)));
+      // Publish the new top-level comment count so every card showing this
+      // post updates immediately. Replies don't change the top-level count.
+      if (!replyingTo) {
+        setCommentCount(postId, comments.length + 1);
+      }
     } catch {
       setComments((prev) => prev.filter((c) => c.id !== tempId));
       dialogs.alert({ variant: 'error', title: 'Could not post comment', message: 'Please try again.' });
@@ -626,6 +633,8 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
         destructive: true,
         onConfirm: async () => {
           setComments((prev) => prev.filter((c) => c.id !== commentId));
+          // Publish the decremented count so cards update immediately.
+          setCommentCount(postId, Math.max(0, comments.length - 1));
           try {
             await deleteRoomComment(roomId ?? '', commentId);
           } catch {
@@ -634,7 +643,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
         },
       });
     },
-    [roomId, setComments],
+    [roomId, setComments, postId, setCommentCount],
   );
 
   const handleStartEdit = useCallback((comment: Comment) => {
@@ -885,6 +894,7 @@ interface MsCommentsSectionProps {
 export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectionProps) {
   const { user } = useAuth();
   const { comments, setComments, isLoading, commentRoomId } = useComments(postId);
+  const { setCommentCount } = usePostActions();
   const [modalOpen, setModalOpen] = useState(false);
   const totalCount = comments.length;
   const preview = comments.slice(0, previewCount);
@@ -935,6 +945,8 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         destructive: true,
         onConfirm: async () => {
           setComments((prev) => prev.filter((c) => c.id !== commentId));
+          // Publish the decremented count so cards update immediately.
+          setCommentCount(postId, Math.max(0, comments.length - 1));
           try {
             await deleteRoomComment(roomId ?? '', commentId);
           } catch {
@@ -943,7 +955,7 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         },
       });
     },
-    [roomId, setComments],
+    [roomId, setComments, postId, setCommentCount],
   );
 
   return (

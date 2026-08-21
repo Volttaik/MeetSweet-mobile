@@ -1,5 +1,11 @@
 # MeetSweet — Backend Issue Report
 
+> **ARCHIVED (2026-08-21).** Moved from the repo root into `.agent/` during a
+> cleanup pass. The items below are **historical**; the ones marked FIXED have
+> been resolved and verified, and the "deployment blocker" commits are now in
+> the server repo's git history. Keep this file as history — the live wire
+> contract lives in the sibling repo `Meetsweet/.agent/BACKEND-SPEC.md`.
+
 Audited from the mobile client (MeetSweet-mobile) against the server
 (`Volttaik/Meetsweet`, Next.js + Drizzle + Turso + R2). Last updated: 2026-08-20.
 

@@ -23,8 +23,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWallet } from '@/contexts/WalletContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   ArrowLeft,
@@ -393,12 +395,15 @@ const CUSTOM_ID = -1;
 
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
+  const { isAuthenticated, isLoading } = useAuth();
 
   const [step, setStep]                   = useState<ScreenStep>('wallet');
   const [selectedAmount, setSelectedAmount] = useState<number>(1000);
   const [customAmount, setCustomAmount]   = useState('');
   const [isCustom, setIsCustom]           = useState(false);
-  const [balance, setBalance]             = useState<number | null>(null);
+  // Balance comes from the shared WalletContext — one authoritative source for
+  // this page, the Home header badge, and every other balance-dependent UI.
+  const { balance, refreshWallet, setBalance } = useWallet();
   const [transactions, setTransactions]   = useState<Transaction[]>([]);
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [walletError, setWalletError]     = useState(false);
@@ -411,11 +416,11 @@ export default function WalletScreen() {
   const loadWallet = () => {
     setLoadingWallet(true);
     setWalletError(false);
-    getWallet()
-      .then(({ balance: b, transactions: t }) => {
-        setBalance(b);
-        setTransactions(t);
-      })
+    Promise.all([
+      // Refresh the shared balance (updates the header badge + this page).
+      refreshWallet(),
+      getWallet().then(({ transactions: t }) => setTransactions(t)),
+    ])
       .catch(() => setWalletError(true))
       .finally(() => setLoadingWallet(false));
   };
@@ -457,6 +462,8 @@ export default function WalletScreen() {
       if (res.success) {
         setAddedAmount(res.amountAdded);
         setNewBalance(res.newBalance);
+        // Server-confirmed new balance → publish to the shared wallet store so
+        // the Home header badge (and any other balance UI) updates instantly.
         setBalance(res.newBalance);
         setStep('success');
       } else {
@@ -466,6 +473,15 @@ export default function WalletScreen() {
       setVerifyState('failed');
     }
   };
+
+  // Authenticated screen only — a logged-out visit (stale navigation history
+  // or a direct web URL) must land on Login, never a placeholder shell.
+  if (isLoading) {
+    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  }
+  if (!isAuthenticated) {
+    return <Redirect href="/auth" />;
+  }
 
   if (step === 'success') {
     return (

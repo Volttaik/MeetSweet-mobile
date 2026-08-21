@@ -22,6 +22,8 @@ import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollV
 import { T } from '@/constants/theme';
 import * as Haptics from 'expo-haptics';
 import { shouldShowOnboarding } from '@/services/onboarding';
+import { consumePendingShareDestination, routeToShareDestination } from '@/lib/deep-link';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 // ─── Input row ────────────────────────────────────────────────────────────────
 
@@ -90,6 +92,13 @@ export default function AuthScreen() {
         return;
       }
       try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
+      // A share-link recipient who signed in mid-flow returns to the shared
+      // content — the destination is never replaced by onboarding.
+      const pendingDestination = consumePendingShareDestination();
+      if (pendingDestination) {
+        routeToShareDestination(pendingDestination, 'replace');
+        return;
+      }
       const isNewUser = await shouldShowOnboarding('creator_onboarded');
       if (isNewUser) {
         router.replace('/new-user-welcome');
@@ -260,6 +269,23 @@ export default function AuthScreen() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.googleSection}>
+            <Text style={styles.orLabel}>OR</Text>
+            <GoogleSignInButton
+              onError={setServerError}
+              onSuccess={async ({ isNewUser }) => {
+                try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
+                const pendingDestination = consumePendingShareDestination();
+                if (pendingDestination) {
+                  routeToShareDestination(pendingDestination, 'replace');
+                  return;
+                }
+                const showWelcome = isNewUser || await shouldShowOnboarding('creator_onboarded');
+                router.replace(showWelcome ? '/new-user-welcome' : '/(tabs)');
+              }}
+            />
+          </View>
+
           {/* Create account link */}
           <View style={styles.createRow}>
             <Text style={styles.createText}>Don't have an account? </Text>
@@ -398,6 +424,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FFFFFF',
     letterSpacing: 0.2,
+  },
+
+  googleSection: {
+    gap: 10,
+    marginTop: -8,
+  },
+  orLabel: {
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: T.FONT.medium,
+    fontSize: 11,
+    letterSpacing: 1.5,
+    textAlign: 'center',
   },
 
   createRow: {
