@@ -32,14 +32,19 @@ import { getShortsFeed, likeContent, trackShortView, type Short } from '@/servic
 import { getCachedPosts, cachePosts } from '@/lib/posts-db';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 import { T } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import type { Post } from '@/services/posts';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
+import { wasOpenedViaShareLink } from '@/lib/deep-link';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// Shorts focus mode: after this much uninterrupted playback the non-essential
+// overlays fade away; any tap/interaction restores them and restarts the timer.
+const FOCUS_DELAY_MS = 3000;
 
 /** Map a cached Post (from posts-db) into the Short shape content.ts expects */
 function postToShort(post: Post): Short {
@@ -98,10 +103,15 @@ export default function ShortsScreen() {
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
 
-  // Check for shorts onboarding on mount
+  // Check for shorts onboarding on mount. When a short was opened straight
+  // from a shared link, the recipient must see the short itself — never the
+  // shorts onboarding modal flashing over the shared destination.
   useEffect(() => {
-    shouldShowOnboarding('shorts_onboarded').then((shouldShow) => {
-      if (shouldShow) setShowOnboarding(true);
+    wasOpenedViaShareLink().then((viaShare) => {
+      if (viaShare) return;
+      shouldShowOnboarding('shorts_onboarded').then((shouldShow) => {
+        if (shouldShow) setShowOnboarding(true);
+      });
     });
   }, []);
 
@@ -351,11 +361,59 @@ function ShortPage({
 }) {
   const [liked,     setLiked]     = useState(item.likedByMe);
   const [likeCount, setLikeCount] = useState(item.likeCount);
+  const { markLiked } = usePostActions();
   // Live ownership: the authenticated user's id vs the short's creator id
   // (server data). Own shorts never show a Subscribe pill.
   const isOwnCreator = Boolean(
     currentUser?.id && item.creator.id && currentUser.id === item.creator.id,
   );
+
+  // ── Focus mode ────────────────────────────────────────────────────────────
+  // While the short plays uninterrupted, non-essential overlays (top bar,
+  // creator/caption text, side actions, scrim) gradually fade out so the video
+  // stays the focus. Pausing, tapping, or swiping to this short restores them;
+  // the fade-out countdown only runs while the video is actively playing.
+  const [playing, setPlaying] = useState(true);
+  const activeRef   = useRef(active);
+  const playingRef  = useRef(playing);
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { playingRef.current = playing; }, [playing]);
+
+  const focusOpacity   = useSharedValue(1);
+  const overlayStyle   = useAnimatedStyle(() => ({ opacity: focusOpacity.value }));
+  const focusTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Restore the overlays and re-arm the countdown once the video is playing.
+  const enterFocusIfIdle = useCallback(() => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => {
+      focusTimerRef.current = null;
+      if (activeRef.current && playingRef.current) {
+        focusOpacity.value = withTiming(0, { duration: MOTION.CONTROL_HIDE });
+      }
+    }, FOCUS_DELAY_MS);
+  }, [focusOpacity]);
+
+  const showShortsUi = useCallback(() => {
+    focusOpacity.value = withTiming(1, { duration: MOTION.CONTROL_SHOW });
+    if (playingRef.current) enterFocusIfIdle();
+  }, [focusOpacity, enterFocusIfIdle]);
+
+  // Pause → keep the UI visible (never enter focus mode while paused).
+  // Playing → restore briefly, then fade to focus after the inactivity window.
+  // Swiping to/away from this short re-runs this with the new active state.
+  useEffect(() => {
+    if (!active) {
+      if (focusTimerRef.current) { clearTimeout(focusTimerRef.current); focusTimerRef.current = null; }
+      focusOpacity.value = 1;
+      return;
+    }
+    showShortsUi();
+  }, [active, playing, showShortsUi, focusOpacity]);
+
+  const handlePlayStateChange = useCallback((isPlaying: boolean) => {
+    setPlaying(isPlaying);
+  }, []);
 
   const { hearts, spawnHeart } = useHeartBurst();
   const likeScale = useSharedValue(1);
@@ -390,6 +448,9 @@ function ShortPage({
     try {
       const result = await likeContent('short', item.id, liked);
       setLikeCount(result.likeCount);
+      // Publish to the shared store so every other view (e.g. Home feed card)
+      // reflects the new like state immediately.
+      markLiked(item.id, next, result.likeCount);
     } catch {
       setLiked(!next);
       setLikeCount(item.likeCount);
@@ -397,6 +458,9 @@ function ShortPage({
   };
 
   const handleVideoAreaTap = useCallback((evt: { nativeEvent: { locationX: number; locationY: number } }) => {
+    // Any interaction restores the overlays and restarts the focus countdown
+    // (the countdown no-ops while paused, so controls never vanish mid-tap).
+    showShortsUi();
     tapCountRef.current += 1;
     if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
     tapTimerRef.current = setTimeout(() => {
@@ -406,7 +470,7 @@ function ShortPage({
       }
       tapCountRef.current = 0;
     }, 250);
-  }, [liked, toggleLike]);
+  }, [liked, toggleLike, showShortsUi]);
 
   return (
     <View style={[styles.page, { height: pageHeight }]}>
@@ -419,11 +483,13 @@ function ShortPage({
           prebuffer={prebuffer}
           pageHeight={pageHeight}
           onViewProgress={onViewProgress}
+          onPlayStateChange={handlePlayStateChange}
+          onShortsTap={showShortsUi}
         />
       </Pressable>
 
-      {/* Top bar */}
-      <View style={[styles.topBar, { paddingTop: topInset + 12 }]}>
+      {/* Top bar — fades out in focus mode, restored on any interaction */}
+      <Animated.View style={[styles.topBar, { paddingTop: topInset + 12 }, overlayStyle]} onTouchStart={showShortsUi}>
         <PressScale style={styles.topButton} onPress={() => router.back()} accessibilityLabel="Close Shorts">
           <ArrowLeft size={21} color="#fff" />
         </PressScale>
@@ -432,19 +498,19 @@ function ShortPage({
           <Text style={styles.topText}>Shorts</Text>
         </View>
         <View style={{ minWidth: 40 }} />
-      </View>
+      </Animated.View>
 
       {/* Bottom scrim — keeps captions & actions legible over bright video */}
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.62)']}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
-        style={styles.bottomScrim}
+        style={[styles.bottomScrim, overlayStyle]}
         pointerEvents="none"
       />
 
       {/* Bottom content */}
-      <View style={styles.content}>
+      <Animated.View style={[styles.content, overlayStyle]} onTouchStart={showShortsUi}>
         <Pressable
           style={styles.creatorLine}
           onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}
@@ -471,10 +537,10 @@ function ShortPage({
             <Text style={styles.swipeText}>Swipe up for more</Text>
           </View>
         )}
-      </View>
+      </Animated.View>
 
       {/* Side actions */}
-      <View style={[styles.actions, { paddingBottom: bottomInset + 20 }]}>
+      <Animated.View style={[styles.actions, { paddingBottom: bottomInset + 20 }, overlayStyle]} onTouchStart={showShortsUi}>
         <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
           <PressScale style={styles.actionCircleWrap} onPress={toggleLike} hitSlop={8} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
             <Animated.View style={[styles.actionCircle, likeStyle]}>
@@ -497,7 +563,7 @@ function ShortPage({
           </View>
           <Text style={styles.actionCount}>{formatCount(item.shareCount)}</Text>
         </PressScale>
-      </View>
+      </Animated.View>
 
     </View>
   );

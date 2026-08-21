@@ -19,6 +19,10 @@ interface Props {
   onDoubleTap?: () => void;
   onPremiumRequired?: () => void;
   onError?: () => void;
+  /** Fired when the short's playback state changes (play ↔ pause). */
+  onPlayStateChange?: (playing: boolean) => void;
+  /** Fired when the user taps the video (host restores overlays). */
+  onShortsTap?: () => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -32,6 +36,8 @@ export function MsShortsPlayer({
   onDoubleTap,
   onPremiumRequired,
   onError,
+  onPlayStateChange,
+  onShortsTap,
 }: Props) {
   return (
     <MsVideoPlayer
@@ -47,6 +53,8 @@ export function MsShortsPlayer({
       onViewProgress={onViewProgress}
       onDoubleTap={onDoubleTap}
       onError={onError}
+      onPlayStateChange={onPlayStateChange}
+      onShortsTap={onShortsTap}
     />
   );
 }

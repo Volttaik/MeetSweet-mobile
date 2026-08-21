@@ -39,6 +39,7 @@ import React, {
 } from 'react';
 import {
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   StatusBar,
@@ -146,6 +147,19 @@ export interface MsVideoPlayerProps {
   onDoubleTap?: () => void;
   onError?: () => void;
   /**
+   * Shorts: fired whenever the playback state changes (play ↔ pause). Lets the
+   * host screen restore its overlays on pause and re-engage focus mode while
+   * the video plays uninterrupted.
+   */
+  onPlayStateChange?: (playing: boolean) => void;
+  /**
+   * Shorts: fired when the user taps the video (single tap confirmed, or a
+   * double tap). The player's gesture layer is the press responder on every
+   * platform, so the host screen uses this to restore overlays on interaction
+   * instead of relying on an outer Pressable that native/web may not fire.
+   */
+  onShortsTap?: () => void;
+  /**
    * When fillContainer=true (e.g. inside a fullscreen Modal), provide this to
    * render a close/back button in the controls overlay.
    */
@@ -157,6 +171,11 @@ export interface MsVideoPlayerProps {
 const DOUBLE_TAP_MS    = 260;
 const SEEK_SECONDS     = 10;
 const CONTROLS_HIDE_MS = 2500;
+// Shorts paused seek handle: the visual ball is deliberately small (matches
+// the standard seek bar's accent thumb) while its touch target is much larger.
+const SHORTS_HANDLE_SIZE  = 12;
+const SHORTS_HANDLE_TOUCH = 36;
+const SHORTS_BUBBLE_WIDTH = 46;
 // Seek-sync: react-native-video's seek() lands exactly (ExoPlayer/AVPlayer
 // seekTo with no tolerance window), so the native engine is the single
 // authority and a requested seek never snaps back to 0. While a seek is in
@@ -199,6 +218,8 @@ export function MsVideoPlayer({
   onDoubleTap,
   onError,
   onClose,
+  onPlayStateChange,
+  onShortsTap,
 }: MsVideoPlayerProps) {
 
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -296,6 +317,18 @@ export function MsVideoPlayer({
   // are the single source of truth for play/pause. Keep the refs in sync so
   // callbacks and event handlers always read the latest value.
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+
+  // ── Shorts: notify the host of playback state (drives focus mode) ──────────
+  // A ref keeps the latest callback without re-subscribing the effect.
+  const onPlayStateChangeRef = useRef(onPlayStateChange);
+  useEffect(() => { onPlayStateChangeRef.current = onPlayStateChange; }, [onPlayStateChange]);
+  useEffect(() => {
+    if (isShorts) onPlayStateChangeRef.current?.(isPlaying);
+  }, [isPlaying, isShorts]);
+
+  // ── Shorts: notify the host of a completed video tap ──────────────────────
+  const onShortsTapRef = useRef(onShortsTap);
+  useEffect(() => { onShortsTapRef.current = onShortsTap; }, [onShortsTap]);
 
   // Fullscreen player state
   const [fsPlaying,    setFsPlaying]    = useState(false);
@@ -732,12 +765,14 @@ export function MsVideoPlayer({
       lastTapRef.current = { time: 0, x: 0 };
       spawnHeart(tapX, tapY);
       showShortsIcon();
+      onShortsTapRef.current?.();
       return;
     }
     lastTapRef.current = { time: now, x: tapX };
     tapTimerRef.current = setTimeout(() => {
       tapTimerRef.current = null;
       showShortsIcon();
+      onShortsTapRef.current?.();
     }, DOUBLE_TAP_MS);
   }, [spawnHeart, showShortsIcon]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1064,6 +1099,71 @@ export function MsVideoPlayer({
 
 
 
+  // ── Shorts seek handle (paused-only draggable ball) ───────────────────────
+  // The always-visible Shorts progress strip stays exactly as it is while
+  // playing. When paused, a small circular handle appears at the current
+  // position; dragging it scrubs, and releasing seeks to the exact position
+  // and resumes playback (never restarts from 0:00 — the engine's seek() + the
+  // pending-seek guard hold the target until the engine confirms).
+  const [shortsDragRatio, setShortsDragRatio] = useState<number | null>(null);
+  const shortsDragRatioRef = useRef<number | null>(null); // live during gesture
+  const grantRatioRef = useRef(0);                         // ratio at gesture start
+  const grantXRef     = useRef(0);                         // absolute x at gesture start
+  const trackWidthRef = useRef(0);                         // strip width (measured)
+  const progressRef   = useRef(0);
+  useEffect(() => { progressRef.current = progress; }, [progress]);
+
+  const shortsPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (_evt, g) => {
+        grantXRef.current = g.x0;
+        grantRatioRef.current = shortsDragRatioRef.current ?? progressRef.current;
+        shortsDragRatioRef.current = grantRatioRef.current;
+        setShortsDragRatio(grantRatioRef.current);
+      },
+      onPanResponderMove: (_evt, g) => {
+        const w = trackWidthRef.current;
+        if (w <= 0) return;
+        const ratio = Math.max(
+          0,
+          Math.min(1, grantRatioRef.current + (g.moveX - grantXRef.current) / w),
+        );
+        shortsDragRatioRef.current = ratio;
+        setShortsDragRatio(ratio);
+      },
+      onPanResponderRelease: () => {
+        const ratio = shortsDragRatioRef.current ?? progressRef.current;
+        shortsDragRatioRef.current = null;
+        setShortsDragRatio(null);
+        const d = durationRef.current;
+        if (d > 0) {
+          // Seek to the exact released position and resume playback.
+          seekToRef.current(ratio * d);
+          setIsPlaying(true);
+          // The centre icon auto-hides like any normal resume.
+          scheduleHide(shortsIconOpacity, hideTimerRef);
+        }
+      },
+      onPanResponderTerminate: () => {
+        shortsDragRatioRef.current = null;
+        setShortsDragRatio(null);
+      },
+    }),
+  ).current;
+
+  const shownRatio = shortsDragRatio ?? progress;
+  const shortsHandleLeft =
+    trackWidthRef.current > 0
+      ? Math.max(0, Math.min(trackWidthRef.current - SHORTS_HANDLE_SIZE, shownRatio * trackWidthRef.current - SHORTS_HANDLE_SIZE / 2))
+      : 0;
+  // Time bubble stays centred on the handle, clamped to the player edges.
+  const shortsBubbleLeft =
+    trackWidthRef.current > 0
+      ? Math.max(2, Math.min(trackWidthRef.current - SHORTS_BUBBLE_WIDTH - 2, shortsHandleLeft + SHORTS_HANDLE_SIZE / 2 - SHORTS_BUBBLE_WIDTH / 2))
+      : 0;
+
   // ── Seek (native Slider) ──────────────────────────────────────────────────
   // The platform Slider drives all dragging/tapping (reliable native
   // behaviour); these helpers just land the resulting position on the player
@@ -1083,6 +1183,11 @@ export function MsVideoPlayer({
     videoRef.current?.seek(t / 1000);
     showControls();
   }, [durationMs, showControls, requestSeek]);
+
+  // seekTo is re-created per render; keep the latest in a ref so the (once-
+  // created) shorts PanResponder always lands on the current implementation.
+  const seekToRef = useRef<(ms: number) => void>(() => {});
+  useEffect(() => { seekToRef.current = seekTo; }, [seekTo]);
 
   const fsSeekTo = useCallback((ms: number) => {
     // Same guard as seekTo: on fullscreen open the fs duration REF is not
@@ -1352,10 +1457,58 @@ export function MsVideoPlayer({
         ) : null}
       </Animated.View>
 
-      {/* ── Shorts: always-visible progress strip ── */}
+      {/* ── Shorts: always-visible progress strip (+ paused-only seek handle) ── */}
       {isShorts ? (
-        <View style={styles.shortsTrack} pointerEvents="none">
-          <View style={[styles.shortsFill, { width: `${Math.min(100, progress * 100)}%` as any }]} />
+        <View
+          style={styles.shortsTrack}
+          pointerEvents="box-none"
+          onLayout={(e) => { trackWidthRef.current = e.nativeEvent.layout.width; }}
+        >
+          <View
+            style={[styles.shortsFill, { width: `${Math.min(100, shownRatio * 100)}%` as any }]}
+            pointerEvents="none"
+          />
+          {!isPlaying && durationMs > 0 ? (
+            <>
+              {/* Tap-to-seek layer — the whole strip is scrubbable while paused.
+                  A tap seeks to that spot and resumes (same as dragging the
+                  handle and releasing). The handle below captures its own area. */}
+              <Pressable
+                style={styles.shortsSeekLayer}
+                onPress={(e) => {
+                  const w = trackWidthRef.current;
+                  if (w <= 0) return;
+                  const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / w));
+                  const d = durationRef.current;
+                  if (d > 0) {
+                    seekToRef.current(ratio * d);
+                    setIsPlaying(true);
+                    scheduleHide(shortsIconOpacity, hideTimerRef);
+                  }
+                }}
+                accessibilityRole="adjustable"
+                accessibilityLabel="Video seek bar"
+              />
+              {/* Drag handle */}
+              <View
+                {...shortsPanResponder.panHandlers}
+                style={[styles.shortsHandleTouch, { left: shortsHandleLeft }]}
+                accessibilityRole="adjustable"
+                accessibilityLabel="Seek"
+              >
+                <View style={styles.shortsHandle} />
+              </View>
+              {/* Time bubble — shows the exact target while scrubbing */}
+              {shortsDragRatio !== null ? (
+                <View
+                  style={[styles.shortsTimeBubble, { left: shortsBubbleLeft }]}
+                  pointerEvents="none"
+                >
+                  <Text style={styles.shortsTimeBubbleText}>{fmtTime(shownRatio * durationMs)}</Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
         </View>
       ) : null}
 
@@ -2103,6 +2256,51 @@ const styles = StyleSheet.create({
   shortsFill: {
     height: 3,
     backgroundColor: T.ACCENT,
+  },
+  // Paused-only seek handle — small ball that sits on the strip; the touch
+  // target is much larger than the visual ball for easy grabbing.
+  shortsHandleTouch: {
+    position: 'absolute',
+    bottom: -9,
+    width: SHORTS_HANDLE_TOUCH,
+    height: SHORTS_HANDLE_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 7,
+  },
+  shortsHandle: {
+    width: SHORTS_HANDLE_SIZE,
+    height: SHORTS_HANDLE_SIZE,
+    borderRadius: SHORTS_HANDLE_SIZE / 2,
+    backgroundColor: T.ACCENT,
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 4,
+  },
+  // Full-strip tap target (taller than the 3px line for easy tapping).
+  shortsSeekLayer: {
+    position: 'absolute', left: 0, right: 0, bottom: -16, height: 36,
+    zIndex: 6,
+  },
+  // Time bubble while scrubbing — small pill above the handle.
+  shortsTimeBubble: {
+    position: 'absolute', bottom: 24,
+    width: SHORTS_BUBBLE_WIDTH, height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 8,
+  },
+  shortsTimeBubbleText: {
+    color: '#fff',
+    fontFamily: T.FONT.semibold,
+    fontSize: 10,
+    letterSpacing: 0.2,
   },
 
   // Seek flash

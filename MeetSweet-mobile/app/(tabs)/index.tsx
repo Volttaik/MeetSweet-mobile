@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, Compass, MagnifyingGlass, MonitorPlay } from 'phosphor-react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { pushOnce } from '@/lib/nav';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -156,7 +156,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { isOnline } = useNetwork();
-  const { deletedIds, hiddenIds, hiddenCreatorIds } = usePostActions();
+  const { deletedIds, hiddenIds, hiddenCreatorIds, contentCreatedAt } = usePostActions();
   const { notifUnread } = useNotifications();
 
   const userId = user?.id ?? '';
@@ -251,6 +251,19 @@ export default function HomeScreen() {
     }
   }, [cursor, userId, posts.length, dedupPosts]);
 
+  // When the user publishes content (create-post bumps contentCreatedAt), the
+  // already-mounted Home feed refreshes on its next focus so the new post shows
+  // up immediately — no app restart or pull-to-refresh required.
+  const lastContentVersion = useRef(contentCreatedAt);
+  useFocusEffect(
+    useCallback(() => {
+      if (contentCreatedAt !== lastContentVersion.current) {
+        lastContentVersion.current = contentCreatedAt;
+        loadFeed(true);
+      }
+    }, [contentCreatedAt, loadFeed]),
+  );
+
   const handleRefresh = () => { setRefreshing(true); loadFeed(true); };
   const handleLoadMore = () => {
     if (!loadingMore && hasMore && !loading) { setLoadingMore(true); loadFeed(); }
@@ -335,7 +348,10 @@ export default function HomeScreen() {
 
       {/* ── Top bar ── */}
       <View style={styles.topBar}>
-        <Text style={styles.topAppName}>MeetSweet</Text>
+        <View style={styles.topAppNameRow}>
+          <Text style={[styles.topAppName, styles.topAppNameMeet]}>Meet</Text>
+          <Text style={[styles.topAppName, styles.topAppNameSweet]}>Sweet</Text>
+        </View>
         <View style={{ flex: 1 }} />
         <View style={styles.topActions}>
           <MsWalletBadge balance={walletBalance.balance} />
@@ -362,7 +378,7 @@ export default function HomeScreen() {
               <MonitorPlay size={20} color={T.TEXT} />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(tabs)/profile')}>
+          <TouchableOpacity style={styles.avatarBtn} activeOpacity={0.75} onPress={() => router.push('/(tabs)/profile')}>
             <MsAvatar size={34} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
           </TouchableOpacity>
         </View>
@@ -467,9 +483,15 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
-  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 12 },
-  topAppName: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 20, letterSpacing: -0.5 },
+  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 14 },
+  topAppNameRow: { flexDirection: 'row', alignItems: 'baseline' },
+  // Slightly smaller than before so the profile picture gets more breathing
+  // room; "Meet" uses the primary text colour and "Sweet" the rose accent.
+  topAppName: { fontFamily: T.FONT.bold, fontSize: 17, letterSpacing: -0.5 },
+  topAppNameMeet: { color: T.TEXT },
+  topAppNameSweet: { color: T.ROSE },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  avatarBtn: { marginLeft: 4 },
   iconBtn: {
     width: 38, height: 38, borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center',
