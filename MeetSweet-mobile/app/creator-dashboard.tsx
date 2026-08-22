@@ -65,6 +65,10 @@ function shortPeriod(period: string): string {
 // ─── Performance chart (real period_stats only) ───────────────────────────────
 
 function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
+  const Svg = require('react-native-svg').default;
+  const { Line, Circle, G, Path, Defs, LinearGradient, Stop } = require('react-native-svg');
+  const { useWindowDimensions } = require('react-native');
+
   // Newest-first from the API; render chronologically left → right.
   const ascending = [...stats].reverse();
   const totalViews = ascending.reduce((s, p) => s + p.views, 0);
@@ -81,26 +85,115 @@ function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
   }
 
   const maxViews = Math.max(...ascending.map((s) => s.views), 1);
+  const CHART_H = 120;
+  const CHART_PAD_X = 8;
+  const CHART_PAD_Y = 16;
+  const dotR = 4;
+
+  // Build SVG path points
+  const points = ascending.map((s, i) => {
+    const x = ascending.length === 1
+      ? 0.5
+      : (i / (ascending.length - 1));
+    const y = 1 - (s.views / maxViews);
+    return { x, y, views: s.views, period: s.period };
+  });
+
+  const lineD = points.map((p, i) => {
+    const px = p.x * 100;
+    const py = CHART_PAD_Y + p.y * (CHART_H - CHART_PAD_Y * 2);
+    return `${i === 0 ? 'M' : 'L'} ${px} ${py}`;
+  }).join(' ');
+
+  // Smooth curve: catmull-rom spline approximation
+  const smoothD = (() => {
+    if (points.length < 2) return lineD;
+    const pts = points.map((p) => ({
+      x: p.x * 100,
+      y: CHART_PAD_Y + p.y * (CHART_H - CHART_PAD_Y * 2),
+    }));
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
+    return d;
+  })();
+
+  // Gradient fill path (area under the curve)
+  const fillD = (() => {
+    const pts = points.map((p) => ({
+      x: p.x * 100,
+      y: CHART_PAD_Y + p.y * (CHART_H - CHART_PAD_Y * 2),
+    }));
+    if (pts.length === 0) return '';
+    const curve = (() => {
+      if (pts.length < 2) return `L ${pts[0].x} ${pts[0].y}`;
+      let d = '';
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(pts.length - 1, i + 2)];
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+        d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+      }
+      return d;
+    })();
+    return `M ${pts[0].x} ${CHART_H} L ${pts[0].x} ${pts[0].y}${curve} L ${pts[pts.length - 1].x} ${CHART_H} Z`;
+  })();
 
   return (
     <View style={styles.chartCard}>
-      <View style={styles.chartRow}>
-        {ascending.map((s) => {
-          const barHeight = Math.max(6, Math.round((s.views / maxViews) * 110));
-          return (
-            <View key={s.period} style={styles.chartCol}>
-              <Text style={styles.chartValue} numberOfLines={1}>
-                {s.views >= 1000 ? `${(s.views / 1000).toFixed(1)}k` : s.views}
-              </Text>
-              <View style={styles.chartTrack}>
-                <View style={[styles.chartBar, { height: barHeight }]} />
-              </View>
-              <Text style={styles.chartPeriod} numberOfLines={1}>
-                {shortPeriod(s.period)}
-              </Text>
-            </View>
-          );
-        })}
+      <Svg width="100%" height={CHART_H} viewBox={`0 0 100 ${CHART_H}`} preserveAspectRatio="none">
+        <Defs>
+          <LinearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#C45A72" stopOpacity="0.25" />
+            <Stop offset="1" stopColor="#C45A72" stopOpacity="0" />
+          </LinearGradient>
+        </Defs>
+        {/* Gradient fill under the line */}
+        {fillD ? <Path d={fillD} fill="url(#lineGrad)" /> : null}
+        {/* Smooth line */}
+        <Path d={smoothD} fill="none" stroke="#C45A72" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Data points */}
+        {points.map((p, i) => (
+          <Circle
+            key={i}
+            cx={p.x * 100}
+            cy={CHART_PAD_Y + p.y * (CHART_H - CHART_PAD_Y * 2)}
+            r={dotR}
+            fill="#C45A72"
+            stroke="#0C0C0F"
+            strokeWidth="1.5"
+          />
+        ))}
+      </Svg>
+      {/* Period labels */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+        {points.map((p, i) => (
+          <Text key={i} style={styles.chartPeriod} numberOfLines={1}>
+            {shortPeriod(p.period)}
+          </Text>
+        ))}
+      </View>
+      {/* Value labels on top */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        {points.map((p, i) => (
+          <Text key={i} style={[styles.chartValue, { fontSize: 10, minWidth: 24, textAlign: 'center' }]} numberOfLines={1}>
+            {p.views >= 1000 ? `${(p.views / 1000).toFixed(1)}k` : p.views}
+          </Text>
+        ))}
       </View>
       <Text style={styles.chartCaption}>Views per period</Text>
     </View>

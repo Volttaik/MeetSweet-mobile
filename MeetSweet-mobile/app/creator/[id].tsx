@@ -691,7 +691,7 @@ export default function CreatorProfileScreen() {
         ((r.otherUser?.id && r.otherUser.id === creatorUserId) ||
           r.participants.some((p) => p.id === creatorUserId));
 
-      const cachedRooms = await getCachedChatRooms().catch(() => []);
+      const cachedRooms = await getCachedChatRooms(currentUser?.id).catch(() => []);
       const cachedMatch = cachedRooms.find(matchesPeer);
       if (cachedMatch?.chatRoomId) {
         router.push({
@@ -704,7 +704,7 @@ export default function CreatorProfileScreen() {
       const serverRooms = await getChatRoomList('all').catch(() => ({ chatRooms: [] }));
       const serverMatch = serverRooms.chatRooms.find(matchesPeer);
       if (serverMatch?.chatRoomId) {
-        await cacheChatRooms(serverRooms.chatRooms).catch(() => {});
+        await cacheChatRooms(serverRooms.chatRooms, currentUser?.id).catch(() => {});
         router.push({
           pathname: '/chat-room/[chatRoomId]',
           params: { chatRoomId: serverMatch.chatRoomId },
@@ -717,7 +717,7 @@ export default function CreatorProfileScreen() {
       setCreatingRoom(true);
       const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
       setCreatingRoom(false);
-      await cacheChatRooms([chatRoom]).catch(() => {});
+      await cacheChatRooms([chatRoom], currentUser?.id).catch(() => {});
       router.push({
         pathname: '/chat-room/[chatRoomId]',
         params: { chatRoomId },

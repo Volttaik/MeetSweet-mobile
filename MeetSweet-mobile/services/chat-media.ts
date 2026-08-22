@@ -1,31 +1,41 @@
 /**
- * Chat Room local media storage — Expo FileSystem.
+ * Chat Room local media storage — Expo FileSystem (current SDK 54 API).
  *
  * Every media message in a Chat Room is persisted as a local file on the
  * device, structured so media cannot collide between rooms:
  *
- *   <documentDirectory>/chat-media/<chatRoomId>/<messageId>.<ext>
+ *   <Paths.document>/chat-media/<chatRoomId>/<messageId>.<ext>
+ *
+ * `Paths.document` is the PERSISTENT document directory — "a place to store
+ * files that are safe from being deleted by the system" (unlike
+ * `Paths.cache`, which the OS may clear when storage runs low). Downloaded
+ * chat media therefore stays available until the message is deleted or the
+ * app explicitly replaces an invalid copy — it is never evicted by the OS.
+ *
+ * Files are keyed by stable identifiers (message id + derived extension) so a
+ * media file is never downloaded twice and never duplicated.
  *
  * The remote `mediaUrl` always remains available as a fallback. Rendering
  * callers should prefer `localUri` when present, otherwise `mediaUrl`.
  *
  * Web is unsupported (no native FileSystem) — all functions there return null
- * and callers naturally fall back to the remote URL.
+ * / no-op and callers naturally fall back to the remote URL.
  */
 
 import { Platform } from 'react-native';
+import type { File as FSFile, Directory as FSDirectory } from 'expo-file-system';
 
-// expo-file-system is native-only. On web the import would fail at runtime, so
-// we lazy-load it inside each function and bail out on web.
-type FileSystemModule = typeof import('expo-file-system/legacy');
+// expo-file-system is native-only. On web the module would not behave, so we
+// lazy-load it inside each function and bail out on web.
+type FsModule = typeof import('expo-file-system');
 
-let _fs: FileSystemModule | null | undefined;
+let _fs: FsModule | null | undefined;
 
-async function fs(): Promise<FileSystemModule | null> {
+async function fs(): Promise<FsModule | null> {
   if (Platform.OS === 'web') return null;
   if (_fs === undefined) {
     try {
-      _fs = await import('expo-file-system/legacy');
+      _fs = await import('expo-file-system');
     } catch (e) {
       console.warn('[chat-media] expo-file-system unavailable:', e);
       _fs = null;
@@ -37,24 +47,34 @@ async function fs(): Promise<FileSystemModule | null> {
 const MEDIA_DIR_NAME = 'chat-media';
 
 /** Root directory holding per-room media subdirectories. */
-function mediaRoot(documentDirectory: string): string {
-  const root = documentDirectory.replace(/\/+$/, '');
-  return root.endsWith(MEDIA_DIR_NAME) ? root : `${root}/${MEDIA_DIR_NAME}`;
+function mediaRoot(fs: FsModule): FSDirectory {
+  return new fs.Directory(fs.Paths.document, MEDIA_DIR_NAME);
 }
 
 /** Per-room directory: <root>/<chatRoomId>/ */
-function roomDir(documentDirectory: string, chatRoomId: string): string {
-  return `${mediaRoot(documentDirectory)}${sanitize(chatRoomId)}`;
+function roomDir(fs: FsModule, chatRoomId: string): FSDirectory {
+  return new fs.Directory(mediaRoot(fs), sanitize(chatRoomId));
 }
 
 /** Final file path: <root>/<chatRoomId>/<messageId>.<ext> */
-function filePath(documentDirectory: string, chatRoomId: string, messageId: string, ext: string): string {
-  return `${roomDir(documentDirectory, chatRoomId)}/${sanitize(messageId)}.${ext}`;
+function filePath(fs: FsModule, chatRoomId: string, messageId: string, ext: string): FSFile {
+  return new fs.File(roomDir(fs, chatRoomId), `${sanitize(messageId)}.${ext}`);
 }
 
 /** Replace path separators so a malicious id can't escape the room dir. */
 function sanitize(id: string): string {
   return (id ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+/** Create the per-room directory if it does not exist yet (idempotent). */
+function ensureDir(fs: FsModule, dir: FSDirectory): void {
+  try {
+    if (!dir.exists) {
+      dir.create({ intermediates: true, idempotent: true });
+    }
+  } catch (e) {
+    console.warn('[chat-media] ensureDir failed:', e);
+  }
 }
 
 /**
@@ -109,19 +129,6 @@ function mimeToExt(mime: string): string | null {
   return map[m] ?? null;
 }
 
-async function ensureDir(path: string): Promise<void> {
-  const mod = await fs();
-  if (!mod) return;
-  try {
-    const info = await mod.getInfoAsync(path);
-    if (!info.exists) {
-      await mod.makeDirectoryAsync(path, { intermediates: true });
-    }
-  } catch (e) {
-    console.warn('[chat-media] ensureDir failed:', e);
-  }
-}
-
 /**
  * Persist the local file for an OUTBOUND message (sent from this device).
  * Copies the picker/recorder's temporary `sourceUri` into the room's media
@@ -138,21 +145,20 @@ export async function persistLocalMedia(
 ): Promise<string | null> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId || !sourceUri) return null;
-  const docDir = mod.documentDirectory;
-  if (!docDir) return null;
 
   const ext = extForMedia(opts.mime, sourceUri, opts.mediaType);
-  const dest = filePath(docDir, chatRoomId, messageId, ext);
+  const dest = filePath(mod, chatRoomId, messageId, ext);
 
   try {
-    await ensureDir(roomDir(docDir, chatRoomId));
-    const info = await mod.getInfoAsync(dest);
-    if (info.exists) {
-      // Already stored — keep the existing file.
-      return dest;
+    ensureDir(mod, roomDir(mod, chatRoomId));
+    if (dest.exists) {
+      // Already stored — keep the existing file (never duplicate).
+      return dest.uri;
     }
-    await mod.copyAsync({ from: sourceUri, to: dest });
-    return dest;
+    const src = new mod.File(sourceUri);
+    if (!src.exists) return null;
+    src.copy(dest);
+    return dest.uri;
   } catch (e) {
     console.warn('[chat-media] persistLocalMedia failed:', e);
     return null;
@@ -174,19 +180,18 @@ export async function downloadRoomMedia(
 ): Promise<string | null> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId || !remoteUrl) return null;
-  const docDir = mod.documentDirectory;
-  if (!docDir) return null;
 
   const ext = extForMedia(opts.mime, remoteUrl, opts.mediaType);
-  const dest = filePath(docDir, chatRoomId, messageId, ext);
+  const dest = filePath(mod, chatRoomId, messageId, ext);
 
   try {
-    await ensureDir(roomDir(docDir, chatRoomId));
-    const info = await mod.getInfoAsync(dest);
-    if (info.exists) return dest;
+    ensureDir(mod, roomDir(mod, chatRoomId));
+    if (dest.exists) return dest.uri;
 
-    const res = await mod.downloadAsync(remoteUrl, dest);
-    return res?.uri ?? dest;
+    // idempotent: true so a concurrent/duplicate download overwrites instead
+    // of failing with DestinationAlreadyExists.
+    const output = await mod.File.downloadFileAsync(remoteUrl, dest, { idempotent: true });
+    return output.uri ?? dest.uri;
   } catch (e) {
     console.warn('[chat-media] downloadRoomMedia failed:', e);
     return null;
@@ -206,8 +211,8 @@ export async function localMediaExists(localUri: string): Promise<boolean> {
   const mod = await fs();
   if (!mod || !localUri) return false;
   try {
-    const info = await mod.getInfoAsync(localUri);
-    return !!info.exists;
+    const f = new mod.File(localUri);
+    return f.exists;
   } catch {
     return false;
   }
@@ -224,9 +229,6 @@ export async function resolveLocalMedia(
 ): Promise<string | null> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId) return null;
-  const docDir = mod.documentDirectory;
-  if (!docDir) return null;
-
 
   // Probe the most likely extension(s). extForMedia gives the preferred one;
   // also try a couple of common alternatives in case the original mime/url
@@ -238,11 +240,13 @@ export async function resolveLocalMedia(
   if (opts.mediaType === 'video') { candidates.add('mp4'); candidates.add('mov'); }
   if (opts.mediaType === 'audio') { candidates.add('m4a'); candidates.add('mp3'); }
 
+  const dir = roomDir(mod, chatRoomId);
+  if (!dir.exists) return null;
+
   for (const ext of candidates) {
-    const dest = filePath(docDir, chatRoomId, messageId, ext);
+    const dest = filePath(mod, chatRoomId, messageId, ext);
     try {
-      const info = await mod.getInfoAsync(dest);
-      if (info.exists) return dest;
+      if (dest.exists) return dest.uri;
     } catch {
       // try next candidate
     }
@@ -252,8 +256,9 @@ export async function resolveLocalMedia(
 
 /**
  * Delete the local media file for a single message (any extension) inside a
- * room. Used on delete-for-me / delete-for-everyone so the local replica
- * doesn't keep orphaned files for messages the user no longer sees.
+ * room. Used on delete-for-me / delete-for-everyone and on server-directed
+ * context removals so the local replica doesn't keep orphaned files for
+ * messages the user no longer sees.
  *
  * Because the file extension isn't always known at delete time, this scans the
  * room directory and removes any file whose name starts with `<messageId>.`.
@@ -265,20 +270,18 @@ export async function deleteRoomMedia(
 ): Promise<void> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId) return;
-  const docDir = mod.documentDirectory;
-  if (!docDir) return;
 
-  const dir = roomDir(docDir, chatRoomId);
+  const dir = roomDir(mod, chatRoomId);
   try {
-    const info = await mod.getInfoAsync(dir);
-    if (!info.exists) return;
+    if (!dir.exists) return;
     const target = sanitize(messageId);
-    const entries = await mod.readDirectoryAsync(dir);
-    for (const name of entries) {
-      // sanitize() strips dots from the id, so `<messageId>.<ext>` is the
-      // only file shape — a startsWith match is exact, never a prefix collision.
-      if (name.startsWith(`${target}.`)) {
-        await mod.deleteAsync(`${dir}/${name}`, { idempotent: true });
+    const entries = dir.list();
+    for (const entry of entries) {
+      if (entry instanceof mod.File && entry.name.startsWith(`${target}.`)) {
+        // sanitize() strips dots from the id, so `<messageId>.<ext>` is the
+        // only file shape — a startsWith match is exact, never a prefix
+        // collision.
+        entry.delete();
       }
     }
   } catch (e) {
@@ -294,15 +297,12 @@ export async function deleteRoomMedia(
 export async function clearRoomMedia(chatRoomId: string): Promise<void> {
   const mod = await fs();
   if (!mod || !chatRoomId) return;
-  const docDir = mod.documentDirectory;
-  if (!docDir) return;
 
-  const dir = roomDir(docDir, chatRoomId);
+  const dir = roomDir(mod, chatRoomId);
   try {
-    const info = await mod.getInfoAsync(dir);
-    if (!info.exists) return;
+    if (!dir.exists) return;
     // Remove the whole per-room directory and its contents.
-    await mod.deleteAsync(dir, { idempotent: true });
+    dir.delete();
   } catch (e) {
     console.warn('[chat-media] clearRoomMedia failed:', e);
   }

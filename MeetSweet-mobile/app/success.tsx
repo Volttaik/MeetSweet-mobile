@@ -66,11 +66,11 @@ export default function SuccessScreen() {
         </Animated.View>
 
         <Animated.Text style={[styles.title, titleStyle]}>
-          Account Created
+          Email Verified
         </Animated.Text>
 
         <Animated.Text style={[styles.subtitle, subtitleStyle]}>
-          You're all set. Taking you to sign in…
+          Your account is verified. Taking you to sign in…
         </Animated.Text>
       </View>
     </MsScreenBackground>

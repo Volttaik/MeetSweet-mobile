@@ -5,7 +5,6 @@ import React, {
   useEffect,
 } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
@@ -153,30 +152,11 @@ const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(function OTPInput(
     transform: [{ translateX: shakeX.value }],
   }));
 
-  // Check clipboard for auto-paste code
-  useEffect(() => {
-    let isMounted = true;
-    async function checkClipboard() {
-      try {
-        if (value.length < length) {
-          const text = await Clipboard.getStringAsync();
-          const cleaned = (text || '').replace(/[^0-9]/g, '');
-          if (cleaned.length === length && isMounted) {
-            onChange(cleaned);
-            try {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch {}
-            onComplete?.(cleaned);
-          }
-        }
-      } catch {}
-    }
-    checkClipboard();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
+  // NOTE: no clipboard auto-paste here. Reading the clipboard on mount used to
+  // prepopulate the field with a stale/random 6-digit value before the user
+  // typed anything — the verification screen must always start empty. SMS code
+  // autofill still works through the system (textContentType="oneTimeCode" /
+  // autoComplete="one-time-code"), which is a user-initiated OS feature.
   const getDigits = (): string[] => {
     const arr: string[] = [];
     for (let i = 0; i < length; i++) arr.push(value[i] ?? '');

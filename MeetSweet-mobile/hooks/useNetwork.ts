@@ -5,11 +5,11 @@
  *   online       — reachable, normal latency
  *   slow         — reachable but degraded (high probe latency)
  *   reconnecting — healthy probe received after a sustained outage
- *   offline      — genuinely disconnected for ~1 minute (not a momentary blip)
+ *   offline      — genuinely disconnected for ~10 minutes (not a momentary blip)
  *
  * Behaviour rules (grounded in real probe results, not arbitrary timers):
  *   • A single failed probe/request is tolerated — it does NOT flip to offline.
- *   • "offline" only appears after ~2 minutes of continuous failure.
+ *   • "offline" only appears after ~10 minutes of continuous failure.
  *   • "slow" requires TWO consecutive high-latency probes — one slow sample
  *     alone is treated as a blip, so the banner doesn't flicker.
  *   • High-latency-but-successful probes report "slow" only once sustained.
@@ -43,10 +43,18 @@ type Listener = (s: NetworkState) => void;
 
 /** Probe latency at/above this is treated as "slow internet". */
 const SLOW_LATENCY_MS = 2500;
-/** Consecutive slow probes required before reporting "slow". */
-const SLOW_STREAK_REQUIRED = 2;
-/** Sustained failure window before the app reports "offline" (~2 minutes). */
-const OFFLINE_GRACE_MS = 120_000;
+/**
+ * Consecutive slow probes required before reporting "slow". With 30s probe
+ * intervals, this requires approximately 5 minutes of sustained high latency
+ * before the "Slow connection" banner appears.
+ */
+const SLOW_STREAK_REQUIRED = 10;
+/**
+ * Sustained failure window before the app reports "offline" (~10 minutes).
+ * A brief interruption is tolerated; only a prolonged outage triggers the
+ * offline state.
+ */
+const OFFLINE_GRACE_MS = 600_000;
 
 const PROBE_INTERVALS: Record<NetworkStatus, number> = {
   online: 30_000,

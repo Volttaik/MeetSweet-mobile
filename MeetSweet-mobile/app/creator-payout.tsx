@@ -7,11 +7,11 @@
  *   3. Enter withdrawal amount → request withdrawal
  *   4. See withdrawal history with status tracking
  *
- * Backend placeholders (define for backend team):
- *   GET  /api/payments/balance               → { balance, pendingWithdrawals, availableForWithdrawal }
- *   POST /api/payments/save-bank-details      { bankName, accountNumber, accountName } → { success }
- *   POST /api/payments/withdraw               { amount, bankDetails } → { success, withdrawalId, status }
- *   GET  /api/payments/withdrawal-history     → { withdrawals: [...] }
+ * Backend routes:
+ *   GET  /api/creator/wallet/balance               → { balance, pendingWithdrawals, availableForWithdrawal }
+ *   POST /api/creator/wallet/bank-details          { bankName, accountNumber, accountName } → { success }
+ *   POST /api/creator/wallet/withdraw              { amount, bankDetails } → { success, withdrawalId, status }
+ *   GET  /api/creator/wallet/withdrawals           → { withdrawals: [...] }
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import {

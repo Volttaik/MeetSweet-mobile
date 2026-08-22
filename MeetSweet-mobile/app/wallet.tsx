@@ -8,8 +8,7 @@
  *   4. Custom amount input
  *
  * Backend routes:
- *   GET  /api/wallet                              → { balance }
- *   GET  /api/transactions?limit=N                → { transactions: [...] }
+ *   GET  /api/wallet                              → { balance, transactions: [...] }
  *   POST /api/payments/initiate-paystack { amount }   → { transactionId, accountNumber, bankName, amount }
  *   POST /api/payments/verify-paystack { transactionId } → { success, amountAdded, newBalance }
  */
@@ -17,6 +16,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -30,6 +30,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   ArrowLeft,
+  CaretDown,
+  CaretUp,
   CheckCircle,
   Clock,
   Copy,
@@ -68,9 +70,16 @@ function formatTime(iso: string): string {
 }
 
 // Transaction types that represent money IN (credits) vs money OUT (debits).
-// Creator earning types (subscription_earn / album_unlock_earn) are credits too,
-// otherwise a creator's wallet would show their earnings as a debit.
-const INCOMING_TYPES = new Set(['credit', 'subscription_earn', 'album_unlock_earn']);
+// Creator earning types (subscription_earn / album_unlock_earn) and referral
+// rewards (referral_reward, +₦200 into the wallet) are credits too, otherwise
+// a creator's wallet would show their earnings/rewards as a debit.
+const INCOMING_TYPES = new Set([
+  'credit',
+  'deposit', // legacy deposit rows
+  'subscription_earn',
+  'album_unlock_earn',
+  'referral_reward',
+]);
 function isIncoming(type: string): boolean {
   return INCOMING_TYPES.has(type);
 }
@@ -80,6 +89,36 @@ function statusLabel(status: string): string {
   if (status === 'failed' || status === 'reversed') return 'Failed';
   if (status === 'processing') return 'Processing';
   return 'Pending';
+}
+
+// ─── Single transaction row ───────────────────────────────────────────────────
+
+function TransactionRow({ tx, first }: { tx: Transaction; first?: boolean }) {
+  return (
+    <View>
+      {!first && <View style={styles.txDivider} />}
+      <View style={styles.txRow}>
+        <View style={styles.txLeft}>
+          <Text style={styles.txDesc}>{tx.description}</Text>
+          <Text style={styles.txDate}>{formatTime(tx.createdAt)}</Text>
+        </View>
+        <View style={styles.txRight}>
+          <Text style={[
+            styles.txAmount,
+            isIncoming(tx.type) ? styles.txCredit : styles.txDebit,
+          ]}>
+            {isIncoming(tx.type) ? '+' : '-'}{formatNaira(tx.amount)}
+          </Text>
+          <Text style={[
+            styles.txStatus,
+            tx.status === 'success' || tx.status === 'completed' ? styles.txStatusSuccess : tx.status === 'failed' || tx.status === 'reversed' ? styles.txStatusFailed : styles.txStatusPending,
+          ]}>
+            {statusLabel(tx.status)}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 // ─── Quick-amount chip ────────────────────────────────────────────────────────
@@ -412,6 +451,8 @@ export default function WalletScreen() {
   const [verifyState, setVerifyState]     = useState<VerifyState>('idle');
   const [addedAmount, setAddedAmount]     = useState(0);
   const [newBalance, setNewBalance]       = useState(0);
+  // Collapsible transaction list: two most recent by default, expandable to all.
+  const [transactionsExpanded, setTransactionsExpanded] = useState(false);
 
   const loadWallet = () => {
     setLoadingWallet(true);
@@ -555,10 +596,10 @@ export default function WalletScreen() {
             <Text style={styles.balanceHint}>Your Naira balance for subscriptions</Text>
           </LinearGradient>
 
-          {/* Transaction history */}
+          {/* Recent transactions — two by default, expandable to all */}
           {!loadingWallet && (
             <>
-              <Text style={styles.sectionTitle}>Transaction History</Text>
+              <Text style={styles.sectionTitle}>Recent Transactions</Text>
               {walletError ? (
                 <View style={styles.transactions}>
                   <MsEmptyState
@@ -577,31 +618,44 @@ export default function WalletScreen() {
                 </View>
               ) : (
               <View style={styles.transactions}>
-                {transactions.slice(0, 10).map((tx, idx) => (
-                  <View key={tx.id}>
-                    {idx > 0 && <View style={styles.txDivider} />}
-                    <View style={styles.txRow}>
-                      <View style={styles.txLeft}>
-                        <Text style={styles.txDesc}>{tx.description}</Text>
-                        <Text style={styles.txDate}>{formatTime(tx.createdAt)}</Text>
-                      </View>
-                      <View style={styles.txRight}>
-                        <Text style={[
-                          styles.txAmount,
-                          isIncoming(tx.type) ? styles.txCredit : styles.txDebit,
-                        ]}>
-                          {isIncoming(tx.type) ? '+' : '-'}{formatNaira(tx.amount)}
-                        </Text>
-                        <Text style={[
-                          styles.txStatus,
-                          tx.status === 'success' || tx.status === 'completed' ? styles.txStatusSuccess : tx.status === 'failed' || tx.status === 'reversed' ? styles.txStatusFailed : styles.txStatusPending,
-                        ]}>
-                          {statusLabel(tx.status)}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
+                {transactions.slice(0, 2).map((tx, i) => (
+                  <TransactionRow key={tx.id} tx={tx} first={i === 0} />
                 ))}
+
+                {/* Expanded list — bounded height, scrolls independently so the
+                    Add Money controls below stay visible without scrolling
+                    through every transaction. */}
+                {transactionsExpanded && transactions.length > 2 && (
+                  <ScrollView
+                    style={styles.txExpandedScroll}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {transactions.slice(2).map((tx) => (
+                      <TransactionRow key={tx.id} tx={tx} />
+                    ))}
+                  </ScrollView>
+                )}
+
+                {transactions.length > 2 && (
+                  <>
+                    <View style={styles.txDivider} />
+                    <TouchableOpacity
+                      style={styles.txToggleBtn}
+                      onPress={() => setTransactionsExpanded((v) => !v)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.txToggleLabel}>
+                        {transactionsExpanded
+                          ? 'Collapse'
+                          : `View all (${transactions.length})`}
+                      </Text>
+                      {transactionsExpanded
+                        ? <CaretUp size={14} color={T.TEXT_2} weight="bold" />
+                        : <CaretDown size={14} color={T.TEXT_2} weight="bold" />}
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
               )}
             </>
@@ -770,6 +824,14 @@ const styles = StyleSheet.create({
   txStatusSuccess: { color: T.SUCCESS },
   txStatusFailed: { color: T.ERROR },
   txStatusPending: { color: T.TEXT_3 },
+  txExpandedScroll: { maxHeight: 260 },
+  txToggleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12,
+  },
+  txToggleLabel: {
+    color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 12,
+  },
 
   addSection: {
     flexDirection: 'row', alignItems: 'center',

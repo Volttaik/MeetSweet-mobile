@@ -240,6 +240,11 @@ export default function AlbumScreen() {
     setConfirmVisible(true);
   };
 
+  const handleShare = () => {
+    if (!album) return;
+    setShareVisible(true);
+  };
+
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
@@ -313,7 +318,7 @@ export default function AlbumScreen() {
             </Pressable>
           </View>
           {/* Share button */}
-          <Pressable style={styles.shareButton} onPress={() => setShareVisible(true)} accessibilityLabel="Share album">
+          <Pressable style={styles.shareButton} onPress={handleShare} accessibilityLabel="Share album">
             <ShareNetwork size={18} color={T.TEXT} />
           </Pressable>
 
@@ -383,12 +388,6 @@ export default function AlbumScreen() {
                 <Text style={styles.statLabel}>Naira</Text>
               </View>
             )}
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>
-                {album.requiresPurchase ? 'Purchase' : 'Free'}
-              </Text>
-              <Text style={styles.statLabel}>access</Text>
-            </View>
           </View>
         </View>
 

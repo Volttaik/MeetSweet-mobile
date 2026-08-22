@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useAnimatedStyle,
@@ -90,6 +90,19 @@ export default function ShortsScreen() {
   const { startId } = useLocalSearchParams<{ startId?: string }>();
   const { user } = useAuth();
   const listRef = useRef<FlatList>(null);
+  const navigation = useNavigation();
+  // Track screen focus to prevent background playback. When the screen
+  // loses focus (user navigates away), all Shorts must stop playing.
+  const [screenFocused, setScreenFocused] = useState(true);
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => setScreenFocused(true));
+    const unsubscribeBlur = navigation.addListener('blur', () => setScreenFocused(false));
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation]);
 
   const [shorts, setShorts]     = useState<Short[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -255,7 +268,7 @@ export default function ShortsScreen() {
         renderItem={({ item, index }) => (
           <ShortPage
             item={item}
-            active={index === activeIndex}
+            active={screenFocused && index === activeIndex}
             prebuffer={Math.abs(index - activeIndex) === 1}
             topInset={insets.top}
             bottomInset={insets.bottom}

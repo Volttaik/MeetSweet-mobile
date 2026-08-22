@@ -1,10 +1,12 @@
 /**
  * MsMediaCard — premium media message card.
  *
- * Images:
+ * Images / GIFs:
+ *  • Rendered with expo-image (native, animated-GIF support) using the
+ *    persistent local file first (localUri) and the remote URL as fallback
  *  • Natural aspect ratio from onLoad dimensions
  *  • Skeleton shimmer while loading
- *  • Smooth Animated fade-in on load
+ *  • Smooth fade-in on load
  *  • 5px rounded corners
  *  • Soft shadow
  *  • Tap → fullscreen (handled by parent)
@@ -20,13 +22,13 @@ import React, { useCallback, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  Image,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Play, ArrowClockwise, Image as ImageIcon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
@@ -95,6 +97,15 @@ export function MsMediaCard({ message, position, onPress, onLongPress }: Props) 
   const hasThumb = !isVideo && !!imageUri;
   const videoDur = message.msAudioDuration ?? 0;
 
+  // Animated GIF detection — from the file type / mime / extension. GIFs are
+  // rendered as compact image bubbles with expo-image (animation preserved,
+  // local file after first download).
+  const isGif = !isVideo && (
+    message.msFileType === 'gif' ||
+    message.msMimeType === 'image/gif' ||
+    /\.gif($|\?)/i.test(imageUri)
+  );
+
   // Natural image dimensions
   const [imgW, setImgW] = useState<number>(MAX_CARD_W);
   const [imgH, setImgH] = useState<number>(DEFAULT_H);
@@ -143,7 +154,7 @@ export function MsMediaCard({ message, position, onPress, onLongPress }: Props) 
       onLongPress={onLongPress}
       style={[s.container, isOwn ? s.containerRight : s.containerLeft]}
       android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
-      accessibilityLabel={isVideo ? 'Video message. Tap to play.' : 'Image message. Tap to view.'}
+      accessibilityLabel={isVideo ? 'Video message. Tap to play.' : isGif ? 'Animated GIF message. Tap to view.' : 'Image message. Tap to view.'}
       accessibilityRole="button"
     >
       <View
@@ -176,25 +187,25 @@ export function MsMediaCard({ message, position, onPress, onLongPress }: Props) 
             <DurationBadge secs={videoDur} />
           </View>
         ) : (
-          /* ── Image: shimmer → fade-in ────────────────────────────────────── */
+          /* ── Image / GIF: shimmer → fade-in (expo-image animates GIFs) ─── */
           <>
             {loading && (
               <View style={[s.shimmerWrap, { width: imgW, height: imgH }]} pointerEvents="none">
                 <Shimmer width={imgW} height={imgH} />
               </View>
             )}
-            <Animated.Image
-              key={retryKey}
-              source={{ uri: imageUri }}
-              style={[
-                { width: imgW, height: imgH },
-                { opacity: error ? 0 : fadeAnim },
-              ]}
-              onLoad={handleLoad as any}
-              onError={handleError}
-              resizeMode="contain"
-              accessibilityLabel="Photo"
-            />
+            <Animated.View style={{ opacity: error ? 0 : fadeAnim }}>
+              <ExpoImage
+                key={retryKey}
+                source={{ uri: imageUri }}
+                style={{ width: imgW, height: imgH }}
+                contentFit="contain"
+                transition={120}
+                onLoad={handleLoad as any}
+                onError={handleError}
+                accessibilityLabel={isGif ? 'Animated GIF' : 'Photo'}
+              />
+            </Animated.View>
           </>
         )}
 

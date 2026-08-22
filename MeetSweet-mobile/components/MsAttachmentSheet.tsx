@@ -1,6 +1,10 @@
 /**
  * MsAttachmentSheet — media-selection action sheet.
  *
+ * GIFs are picked through the photo library like any image; the MIME type is
+ * derived from the asset (or its file name) so an animated GIF uploads as
+ * image/gif and renders as an animated bubble.
+ *
  * Deep-black, high-contrast bottom sheet. Solid surface (no glass / no blur /
  * no translucent backdrop effects). Smooth spring slide-up and timing slide-
  * down. Safe-area aware and stable across keyboard open/close and light/dark
@@ -35,6 +39,26 @@ import { MsPressable } from '@/components/MsPressable';
 import { dialogs } from '@/components/MsGlobalDialogs';
 
 const { height: SCREEN_H } = Dimensions.get('window');
+
+/**
+ * Resolve a reliable MIME type for a picked image asset. expo-image-picker
+ * reports mimeType on Android but often leaves it null on iOS, where the file
+ * extension is the only hint (e.g. .gif must be image/gif, not image/jpeg).
+ */
+function mimeFromAsset(asset: {
+  mimeType?: string | null;
+  fileName?: string | null;
+  type?: string | null;
+}): string {
+  const explicit = asset.mimeType;
+  if (explicit && explicit !== 'image/jpeg') return explicit;
+  const name = (asset.fileName ?? '').toLowerCase();
+  if (name.endsWith('.gif')) return 'image/gif';
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.webp')) return 'image/webp';
+  if (name.endsWith('.heic')) return 'image/heic';
+  return asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
+}
 
 export interface AttachmentResult {
   type: 'image' | 'video' | 'audio' | 'document';
@@ -71,8 +95,8 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
       onResult({
         type: 'image',
         uri: asset.uri,
-        mimeType: asset.mimeType ?? 'image/jpeg',
-        fileName: asset.fileName ?? 'photo.jpg',
+        mimeType: mimeFromAsset(asset),
+        fileName: asset.fileName ?? (mimeFromAsset(asset) === 'image/gif' ? 'photo.gif' : 'photo.jpg'),
         fileSize: asset.fileSize,
       });
     }
@@ -123,8 +147,8 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
       onResult({
         type: 'image',
         uri: asset.uri,
-        mimeType: asset.mimeType ?? 'image/jpeg',
-        fileName: asset.fileName ?? 'photo.jpg',
+        mimeType: mimeFromAsset(asset),
+        fileName: asset.fileName ?? (mimeFromAsset(asset) === 'image/gif' ? 'photo.gif' : 'photo.jpg'),
         fileSize: asset.fileSize,
       });
     }

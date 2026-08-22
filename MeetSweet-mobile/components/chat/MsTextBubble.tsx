@@ -14,10 +14,40 @@
  * fights the parent for percentage calculations.
  */
 import React from 'react';
-import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Check, Checks, Clock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
+
+// ── URL detection ─────────────────────────────────────────────────────────────
+
+const URL_RE = /https?:\/\/[\w\-]+(\.[\w\-]+)+[\w\-.,@?^=%&:/~+#]*|www\.[\w\-]+(\.[\w\-]+)+[\w\-.,@?^=%&:/~+#]*/gi;
+
+/**
+ * Parse a string into segments of plain text and tappable links.
+ * Returns an array of { text, isLink, url } objects.
+ */
+function parseLinks(text: string): Array<{ text: string; isLink: boolean; url?: string }> {
+  if (!text) return [];
+  const segments: Array<{ text: string; isLink: boolean; url?: string }> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((match = URL_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), isLink: false });
+    }
+    const raw = match[0];
+    // Ensure the URL has a protocol for linking
+    const url = raw.startsWith('http') ? raw : `https://${raw}`;
+    segments.push({ text: raw, isLink: true, url });
+    lastIndex = match.index + raw.length;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), isLink: false });
+  }
+  return segments;
+}
 
 // ── Bubble colours (ash-shadow gray, never pink) ───────────────────────────────
 const BG_OWN   = '#28282F'; // outgoing — slightly elevated dark gray
@@ -71,7 +101,21 @@ export function MsTextBubble({
         ) : (
           <>
             <Text style={[styles.text, isOwn ? styles.textOwn : styles.textOther]}>
-              {message.text}
+              {parseLinks(message.text ?? '').map((seg, i) =>
+                seg.isLink ? (
+                  <Text
+                    key={i}
+                    style={[styles.textLink, isOwn ? styles.textLinkOwn : styles.textLinkOther]}
+                    onPress={() => {
+                      if (seg.url) Linking.openURL(seg.url).catch(() => {});
+                    }}
+                  >
+                    {seg.text}
+                  </Text>
+                ) : (
+                  <Text key={i}>{seg.text}</Text>
+                )
+              )}
             </Text>
             {message.msCaption ? (
               <Text style={[styles.caption, isOwn ? styles.captionOwn : styles.captionOther]}>
@@ -197,6 +241,9 @@ const styles = StyleSheet.create({
   },
   textOwn:   { color: '#FFFFFF' },
   textOther: { color: T.TEXT },
+  textLink: { textDecorationLine: 'underline' },
+  textLinkOwn: { color: '#7CB8FF' },
+  textLinkOther: { color: '#60A5FA' },
 
   caption: {
     fontSize: 12,

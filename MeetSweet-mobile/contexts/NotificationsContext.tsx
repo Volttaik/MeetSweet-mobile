@@ -26,6 +26,7 @@ import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
 import { getChatRoomList } from '@/services/room-service';
+import { pushOnce, whenNavigatorReady } from '@/lib/nav';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWallet } from '@/contexts/WalletContext';
 
@@ -126,6 +127,21 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
 
 // ─── Route notification tap to the right screen ──────────────────────────────
 
+/**
+ * Navigate from a notification tap. Two guards prevent the "post opens but is
+ * non-interactive" failure:
+ *   1. whenNavigatorReady — a tap can fire while the app is still cold-starting
+ *      (the root Redirect to (tabs) is settling) or resuming from background;
+ *      pushing during that window mounts the screen on an inconsistent stack,
+ *      leaving it rendered but dead to touches. The gate defers the push until
+ *      the navigator is marked ready.
+ *   2. pushOnce — the same tap can be delivered to BOTH the response listener
+ *      and the cold-start handler; the dedupe prevents double-stacking.
+ */
+function navigate(href: Parameters<typeof router.push>[0]) {
+  whenNavigatorReady(() => pushOnce(href as any));
+}
+
 function handleNotificationTap(notification: Notifications.Notification) {
   const data = (notification.request.content.data ?? {}) as Record<string, string>;
 
@@ -139,37 +155,37 @@ function handleNotificationTap(notification: Notifications.Notification) {
   // message / dm → open the chat room
   if (type === 'message' || type === 'dm' || chatRoomId) {
     if (chatRoomId) {
-      router.push(`/chat-room/${chatRoomId}`);
+      navigate(`/chat-room/${chatRoomId}`);
       return;
     }
   }
 
   // wallet / payout → open wallet
   if (type === 'wallet' || type === 'payout' || type === 'payment' || type === 'purchase' || type === 'referral_reward') {
-    router.push('/wallet');
+    navigate('/wallet');
     return;
   }
 
   // subscribe / creator → open profile
   if (type === 'subscribe' || type === 'creator' || type === 'subscription') {
     if (actorId) {
-      router.push(`/creator/${actorId}`);
+      navigate(`/creator/${actorId}`);
       return;
     }
   }
 
-  // new_post → route by content_type using content_id
-  if (type === 'new_post' || contentId) {
+  // new_post / mention → route by content_type using content_id
+  if (type === 'new_post' || type === 'mention' || contentId) {
     const id = contentId ?? postId;
     if (id) {
       if (contentType === 'video') {
-        router.push(`/videos/${id}`);
+        navigate(`/videos/${id}`);
       } else if (contentType === 'short') {
-        router.push({ pathname: '/shorts', params: { startId: id } });
+        navigate({ pathname: '/shorts', params: { startId: id } } as any);
       } else if (contentType === 'album') {
-        router.push(`/album/${id}`);
+        navigate(`/album/${id}`);
       } else {
-        router.push(`/post/${id}`);
+        navigate(`/post/${id}`);
       }
       return;
     }
@@ -178,13 +194,13 @@ function handleNotificationTap(notification: Notifications.Notification) {
   // like / comment → route by content_type using post_id
   if (postId) {
     if (contentType === 'video') {
-      router.push(`/videos/${postId}`);
+      navigate(`/videos/${postId}`);
     } else if (contentType === 'short') {
-      router.push({ pathname: '/shorts', params: { startId: postId } });
+      navigate({ pathname: '/shorts', params: { startId: postId } } as any);
     } else if (contentType === 'album') {
-      router.push(`/album/${postId}`);
+      navigate(`/album/${postId}`);
     } else {
-      router.push(`/post/${postId}`);
+      navigate(`/post/${postId}`);
     }
     return;
   }
@@ -253,11 +269,15 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
 
   // ── 2. Register the token with the backend once a session exists ─────────────────────────────────
+  // The registration key is (user, token): a REINSTALL (or cleared app data)
+  // produces a fresh device token for the same user, and that new token must
+  // be registered too — otherwise pushes keep going to the old, dead token.
   useEffect(() => {
     if (!isAuthenticated || !user?.id || !pushToken) return;
-    if (lastRegisteredUser.current === user.id) return;
+    const regKey = `${user.id}:${pushToken}`;
+    if (lastRegisteredUser.current === regKey) return;
 
-    lastRegisteredUser.current = user.id;
+    lastRegisteredUser.current = regKey;
     registerPushTokenToBackend(pushToken, Platform.OS);
   }, [isAuthenticated, user?.id, pushToken]);
 

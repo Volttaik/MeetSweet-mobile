@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS user_settings (
   dark_mode INTEGER NOT NULL DEFAULT 1,
   data_saver INTEGER NOT NULL DEFAULT 0,
   autoplay_media INTEGER NOT NULL DEFAULT 1,
-  biometric_login INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

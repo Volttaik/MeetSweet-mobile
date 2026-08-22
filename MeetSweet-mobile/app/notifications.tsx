@@ -82,7 +82,7 @@ function notificationMessage(n: Notification): string {
     follow: 'started following you',
     subscribe: 'just subscribed to you',
     new_post: 'posted something new',
-    mention: 'mentioned you',
+    mention: 'tagged you in a post',
     message: 'sent you a message',
     payment: 'sent you a payment',
     withdrawal: 'updated your withdrawal',

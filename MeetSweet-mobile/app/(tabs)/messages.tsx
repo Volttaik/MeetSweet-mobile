@@ -44,6 +44,7 @@ import { ApiError } from '@/services/api';
 import { getCreatorMessagingSettings } from '@/services/subscriptions';
 import {
   cacheChatRooms,
+  getCachedChatRooms,
 } from '@/services/chat-cache';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
@@ -381,20 +382,33 @@ export default function MessagesScreen() {
     async (showRefresh = false) => {
       if (showRefresh) setRefreshing(true);
 
-      // The SERVER is the source of truth for the chat list — never paint the
-      // local cache first. This guarantees the list belongs to the CURRENT
-      // authenticated account: a previous account's rooms can never flash in
-      // after logout → login (the cache is cleared on account switch, and it
-      // is not read here at all).
+      const tab = activeTab === 'Archived' ? 'archived' : 'all';
+
+      // Cache-first paint: render the previously-synced conversation list
+      // immediately so opening Messages is instant and works offline. The
+      // cache is namespaced per user (chat-cache/<userId>/rooms.json), so a
+      // different account can never render the previous user's rooms. When
+      // cached rooms exist, skip the shimmer entirely — the server sync
+      // below reconciles silently in the background.
+      if (activeTab === 'All') {
+        try {
+          const cached = await getCachedChatRooms(user?.id);
+          if (cached.length > 0) {
+            setChatRooms(sortRooms(cached));
+            setListShimmerVisible(false);
+          }
+        } catch {
+          // Cache read failure is non-fatal — fall through to the network.
+        }
+      }
+
       try {
-        const tab = activeTab === 'Archived' ? 'archived' : 'all';
         const data = await getChatRoomList(tab);
         setChatRooms(sortRooms(data.chatRooms));
         reportNetworkSuccess();
-        // Mirror the server list to local storage (offline media-only reads
-        // never use it as the render source).
+        // Mirror the server list to local storage so the next open is instant.
         if (activeTab === 'All') {
-          cacheChatRooms(data.chatRooms).catch(() => {});
+          cacheChatRooms(data.chatRooms, user?.id).catch(() => {});
         }
       } catch {
         reportNetworkError();
@@ -403,7 +417,7 @@ export default function MessagesScreen() {
         setRefreshing(false);
       }
     },
-    [activeTab],
+    [activeTab, user?.id],
   );
 
   useEffect(() => {
@@ -449,7 +463,7 @@ export default function MessagesScreen() {
             for (const room of data.chatRooms) map.set(room.chatRoomId, room);
             return sortRooms(Array.from(map.values()));
           });
-          cacheChatRooms(data.chatRooms).catch(() => {});
+          cacheChatRooms(data.chatRooms, user?.id).catch(() => {});
         })
         .catch(() => {});
     }, 15_000);

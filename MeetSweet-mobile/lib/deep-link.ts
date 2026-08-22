@@ -97,11 +97,27 @@ export function getInitialShareToken(): Promise<string | null> {
         const wasAlreadyResolved = initialReferralCode !== undefined;
         initialReferralCode = referralCode;
         resolveInitialReferral(referralCode);
-        // A referral link can be tapped while MeetSweet is already running.
-        // Route straight to registration instead of leaving the user on the
-        // current screen.
+        // Warm-start referral link: if the app was already running, we need
+        // to check session awareness. Import here to avoid circular deps.
         if (wasAlreadyResolved) {
-          setTimeout(() => router.replace({ pathname: '/register', params: { referral: referralCode } }), 0);
+          // Dynamic import to avoid circular dependency with AuthContext
+          import('@/lib/session-storage').then(({ getAccessToken }) => {
+            getAccessToken().then((token) => {
+              if (token) {
+                // User is already logged in — show alert and stay on current screen
+                const { Alert } = require('react-native');
+                Alert.alert(
+                  'Already a member',
+                  'You already have a MeetSweet account.',
+                );
+              } else {
+                // Not logged in — go to registration with referral
+                router.replace({ pathname: '/register', params: { referral: referralCode } });
+              }
+            });
+          }).catch(() => {
+            router.replace({ pathname: '/register', params: { referral: referralCode } });
+          });
         }
       }
     });

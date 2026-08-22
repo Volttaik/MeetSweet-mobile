@@ -24,7 +24,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { WalletProvider } from '@/contexts/WalletContext';
-import { BiometricLockProvider } from '@/contexts/BiometricLockContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { MsOfflineBanner } from '@/components/MsOfflineBanner';
@@ -32,6 +31,7 @@ import { MsToastHost } from '@/components/MsToast';
 import { MsGlobalDialogsHost } from '@/components/MsGlobalDialogs';
 import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
 import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
+import { markNavigatorReady } from '@/lib/nav';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { T } from '@/constants/theme';
 import { enableGlobalScreenProtection } from '@/lib/screen-protection';
@@ -93,6 +93,15 @@ function HapticsGate() {
 }
 
 function RootLayoutNav() {
+  // Signal that the navigator has settled AFTER the initial route resolution
+  // (index → Redirect → (tabs)/welcome) so navigation fired from notification
+  // taps or deep links never races the cold-start redirect — a push during
+  // that window can leave the target screen rendered but non-interactive.
+  useEffect(() => {
+    const t = setTimeout(() => markNavigatorReady(), 0);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <Stack
       screenOptions={{
@@ -116,14 +125,6 @@ function RootLayoutNav() {
       <Stack.Screen name="verify-email" />
       <Stack.Screen name="two-factor" options={{ gestureEnabled: false }} />
       <Stack.Screen name="success" options={{ gestureEnabled: false, animation: 'fade' }} />
-
-      {/* Legacy screens (kept for compatibility) */}
-      <Stack.Screen name="get-started" />
-      <Stack.Screen name="create-account" />
-      <Stack.Screen name="create-password" />
-      <Stack.Screen name="profile-setup" />
-      <Stack.Screen name="complete-registration" />
-      <Stack.Screen name="verification" />
 
       {/* Auth → App transition */}
       <Stack.Screen name="home" options={{ gestureEnabled: false, animation: 'fade' }} />
@@ -195,7 +196,6 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <AuthProvider>
                   <WalletProvider>
-                  <BiometricLockProvider>
                     <NotificationsProvider>
                       <PostActionsProvider>
                         <GlobalScreenProtection />
@@ -207,7 +207,6 @@ export default function RootLayout() {
                         <HapticsGate />
                       </PostActionsProvider>
                     </NotificationsProvider>
-                  </BiometricLockProvider>
                   </WalletProvider>
                 </AuthProvider>
               </KeyboardProvider>

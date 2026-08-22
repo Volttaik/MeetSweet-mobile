@@ -31,7 +31,6 @@ import {
   Dimensions,
   Easing,
   FlatList,
-  Image,
   Modal,
   PanResponder,
   Platform,
@@ -50,6 +49,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as ExpoClipboard from 'expo-clipboard';
+import { Image as ExpoImage } from 'expo-image';
 
 import {
   Chat,
@@ -75,7 +75,11 @@ import {
 import { MsChatHeaderMenu } from '@/components/chat/MsChatHeaderMenu';
 import { MsChatSearch }     from '@/components/chat/MsChatSearch';
 import { MsChatBgPicker }   from '@/components/chat/MsChatBgPicker';
-import type { ChatBackground } from '@/components/chat/MsChatBgPicker';
+import {
+  getChatBackground,
+  setChatBackground as persistChatBackground,
+  type ChatBackground,
+} from '@/services/chat-background';
 
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -174,8 +178,18 @@ function realMessageId(m: { _id: string; msServerId?: string }): string {
  * Turn a server-confirmed message into the object that replaces the optimistic
  * one WITHOUT changing its list key: `_id` stays the temp id (so the bubble
  * never remounts → no send flash), while `id`/`msServerId` carry the real id.
+ *
+ * `fallbackReply` is the reply preview captured on the optimistic message.
+ * The send response may omit the resolved reply (the backend resolves
+ * reply_to only when it can look the quoted message up), so the local reply
+ * relationship is preserved — the "Replying to…" quote must never disappear
+ * after send or require a leave/re-enter to reappear.
  */
-function finalizeTemp(confirmed: MsMessage, tempId: string): MsMessage {
+function finalizeTemp(
+  confirmed: MsMessage,
+  tempId: string,
+  fallbackReply?: MsMessage['replyMessage'],
+): MsMessage {
   return {
     ...confirmed,
     _id: tempId,
@@ -183,6 +197,7 @@ function finalizeTemp(confirmed: MsMessage, tempId: string): MsMessage {
     msServerId: confirmed.id || tempId,
     pending: false,
     sent: true,
+    replyMessage: confirmed.replyMessage ?? fallbackReply,
   };
 }
 
@@ -367,6 +382,23 @@ export default function ChatScreen() {
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [showBgPicker,   setShowBgPicker]   = useState(false);
   const [chatBackground, setChatBackground] = useState<ChatBackground>({ type: 'default' });
+  // Restore the persisted background for this (user, room) — survives leaving
+  // the chat and app restarts. Keyed by the current user so a different
+  // account on the same device never inherits the previous user's background.
+  useEffect(() => {
+    if (!chatRoomId) return;
+    getChatBackground(chatRoomId, user?.id)
+      .then((bg) => setChatBackground(bg))
+      .catch(() => {});
+  }, [chatRoomId, user?.id]);
+  const handleBgSelect = useCallback((bg: ChatBackground) => {
+    // Apply immediately (the wallpaper re-renders on the next frame) and
+    // persist so it survives leaving the chat / app restart.
+    setChatBackground(bg);
+    if (chatRoomId) {
+      persistChatBackground(chatRoomId, user?.id, bg).catch(() => {});
+    }
+  }, [chatRoomId, user?.id]);
 
   // ── Ensure each media message has a persistent local file ────────────────
   // For every message with a remote mediaUrl:
@@ -386,6 +418,7 @@ export default function ChatScreen() {
   // when a room page contains many media messages.
   const ensureMediaLocal = useCallback(async (roomMsgs: RoomMessage[]) => {
     if (!chatRoomId) return;
+    const uid = user?.id ?? '';
     const idOf = (msg: MsMessage) => String(msg.msServerId ?? msg._id);
 
     const mediaPatch = (m: RoomMessage, local: string): Partial<MsMessage> => {
@@ -441,7 +474,7 @@ export default function ChatScreen() {
         // File was removed out-of-band — mark unavailable locally and fall
         // through to the download path so it can be recovered.
         m.localUri = null;
-        setCachedMessageLocalUri(chatRoomId, id, null).catch(() => {});
+        setCachedMessageLocalUri(chatRoomId, id, null, uid).catch(() => {});
       }
 
       // (b) No (valid) localUri — try to resolve an existing local file
@@ -459,7 +492,7 @@ export default function ChatScreen() {
       }
       if (local) {
         m.localUri = local;
-        setCachedMessageLocalUri(chatRoomId, id, local).catch(() => {});
+        setCachedMessageLocalUri(chatRoomId, id, local, uid).catch(() => {});
         patches.push({ id, patch: mediaPatch(m, local) });
       } else {
         // Download failed — mark so the UI can show a retry affordance.
@@ -468,7 +501,7 @@ export default function ChatScreen() {
     }
 
     applyPatches(patches);
-  }, [chatRoomId]);
+  }, [chatRoomId, user?.id]);
 
   // ── Sync this user's context (contextId + contextAuth membership) ──────
   // The server is authoritative. Before displaying server-fetched messages,
@@ -508,7 +541,7 @@ export default function ChatScreen() {
       if (Array.isArray(snapshot)) {
         const keep = new Set<string>(snapshot);
         for (const m of serverMessages) keep.add(m.id);
-        const cached = await getCachedMessages(chatRoomId).catch(() => []);
+        const cached = await getCachedMessages(chatRoomId, uid).catch(() => []);
         const stale = cached.filter((m) => !keep.has(m.id)).map((m) => m.id);
         if (stale.length) {
           await applyContextAuthRemovals(chatRoomId, uid, stale).catch(() => {});
@@ -521,33 +554,72 @@ export default function ChatScreen() {
   );
 
   // ── Load messages ─────────────────────────────────────────────────────
+  // Cache-first: the local FileSystem replica is the INSTANT presentation
+  // layer. On the initial open we render previously downloaded messages and
+  // media immediately, then synchronize with the server silently in the
+  // background — no shimmer, no network wait, no visible reconstruction.
+  // The shimmer only ever shows when there is genuinely no local
+  // representation (a conversation never opened before).
   const loadMessages = useCallback(async (before?: string) => {
     if (!chatRoomId) return;
+    const uid = user?.id ?? '';
+
+    // ── Cache-first paint (initial open only) ────────────────────────────
+    if (!before) {
+      try {
+        const cached = await getCachedMessages(chatRoomId, uid).catch(() => []);
+        if (cached.length > 0) {
+          setMessages(
+            cached
+              .filter((m: RoomMessage) => !m.isDeleted)
+              .map((m: RoomMessage) => toMsMessage(m, uid))
+              .sort(byNewestFirst),
+          );
+          // Local content is on screen — never show the loading shimmer.
+          setLoading(false);
+          // Resolve/persist local media for cached messages that have a
+          // remote URL but no local file yet (recovery after a failed
+          // download, or media that was never fetched).
+          ensureMediaLocal(cached).catch(() => {});
+        }
+      } catch {
+        // ignore — fall through to the server fetch below
+      }
+    }
+
     try {
-      // The SERVER is the source of truth for message text. No cache-first
-      // paint: the message area shows the loading shimmer until the current
-      // account's messages arrive, so a previous account's cached messages can
-      // never render for the wrong user.
+      // The SERVER is the source of truth for message text: fetch, mirror the
+      // context membership, and reconcile with what was painted from cache.
       const result = await getRoomMessages(chatRoomId, before ? { before } : undefined);
-      // Mirror the server's context/membership into SQLite and remove any
-      // messages the server says no longer belong to this user's context.
+      // Mirror the server's context/membership into the local cache and
+      // remove any messages the server says no longer belong to this user's
+      // context (their local rows AND media are cleaned up).
       const removedIds = new Set(
         before ? [] : await syncRoomContext(result.messages).catch(() => []),
       );
       const msgs = result.messages
         .filter((m: RoomMessage) => !removedIds.has(m.id))
-        .map((m: RoomMessage) => toMsMessage(m, user?.id ?? ''))
+        .map((m: RoomMessage) => toMsMessage(m, uid))
         .sort(byNewestFirst);
       if (before) {
+        // Pagination: prepend the older page to the existing list.
         setMessages((prev) => (Chat.prepend as any)(prev, msgs));
-        await cacheMessages(chatRoomId, result.messages).catch(() => {});
+        await cacheMessages(chatRoomId, result.messages, uid).catch(() => {});
       } else {
+        // Initial load: MERGE the server page with whatever is already on
+        // screen (cache-first paint + any optimistic sends), dropping
+        // server-removed messages. Nothing already visible is torn down.
         setMessages((prev) => {
-          // Drop server-removed messages from the rendered list as well.
-          if (!removedIds.size) return msgs;
-          return [...msgs, ...prev.filter((m) => !removedIds.has(realMessageId(m)))];
+          const merged = new Map<string, MsMessage>();
+          for (const m of prev) {
+            if (!removedIds.has(realMessageId(m))) {
+              merged.set(realMessageId(m), m);
+            }
+          }
+          for (const m of msgs) merged.set(realMessageId(m), m);
+          return Array.from(merged.values()).sort(byNewestFirst);
         });
-        await cacheMessages(chatRoomId, result.messages).catch(() => {});
+        await cacheMessages(chatRoomId, result.messages, uid).catch(() => {});
         // Seed the change marker with the newest message id so the next poll
         // only asks for what's actually new ("messages after #N").
         if (result.messages[0]?.id) {
@@ -559,8 +631,9 @@ export default function ChatScreen() {
       // Persist media for any message that has a remote URL but no local file.
       ensureMediaLocal(result.messages).catch(() => {});
     } catch {
-      // Server is the source of truth — on failure we simply leave the empty
-      // shimmer state; cached text is never used to populate the UI.
+      // Network failure: if a cache-first paint already happened, the
+      // previously downloaded content stays visible (offline browsing). If
+      // nothing was cached, the empty state shows with the shimmer faded.
     } finally {
       setLoading(false);
     }
@@ -616,6 +689,10 @@ export default function ChatScreen() {
             image: freshMsg.image ?? m.image,
             video: freshMsg.video ?? m.video,
             audio: freshMsg.audio ?? m.audio,
+            // Never drop the local reply relationship when the incremental
+            // payload omits it (e.g. the server couldn't resolve the quoted
+            // message) — the quote must stay visible.
+            replyMessage: freshMsg.replyMessage ?? m.replyMessage,
           };
         }
         return m;
@@ -629,7 +706,7 @@ export default function ChatScreen() {
         updated = [...newOnes, ...updated];
       }
 
-      cacheMessages(chatRoomId, fresh).catch(() => {});
+      cacheMessages(chatRoomId, fresh, user?.id).catch(() => {});
       return updated;
     });
 
@@ -719,7 +796,7 @@ export default function ChatScreen() {
         }
       } catch {
         // Fall back to local cache — stale but better than nothing
-        const cached = await getCachedChatRooms().catch(() => []);
+        const cached = await getCachedChatRooms(user?.id).catch(() => []);
         const room = cached.find((r) => r.chatRoomId === chatRoomId);
         if (room?.isMuted !== undefined) setIsMuted(Boolean(room.isMuted));
         if (room?.otherUser?.id) {
@@ -821,7 +898,7 @@ export default function ChatScreen() {
         await updateCachedMessage(chatRoomId, editId, {
           body: newText,
           isEdited: true,
-        }).catch(() => {});
+        }, user?.id).catch(() => {});
       } catch {
         // Revert the visible + cached state — the server did not confirm.
         setMessages((prev) =>
@@ -836,34 +913,6 @@ export default function ChatScreen() {
 
     const tempId = `temp_${Date.now()}`;
     const now = new Date();
-
-    // ── Sticker (emoji sent as text) ─────────────────────────────────────────
-    if (payload.sticker) {
-      const optimistic: MsMessage = {
-        _id: tempId,
-        id: tempId,
-        chatRoomId: chatRoomId ?? '',
-        messageType: 'text',
-        text: payload.sticker,
-        createdAt: now,
-        user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
-        sent: false,
-        pending: true,
-      };
-      setMessages((prev) => Chat.append(prev, [optimistic]));
-      try {
-        const res = await sendToRoom(payload.sticker);
-        const confirmed = toMsMessage(res.message, user?.id ?? '');
-        setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? finalizeTemp(confirmed, tempId) : m),
-        );
-      } catch {
-        setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
-        );
-      }
-      return;
-    }
 
     // ── Text message ─────────────────────────────────────────────────────────
     if (payload.text) {
@@ -890,7 +939,7 @@ export default function ChatScreen() {
               },
             }
           : undefined,
-      };
+      } as any;
       setMessages((prev) => Chat.append(prev, [optimistic]));
       setReplyMessage(null);
       setInputText('');
@@ -899,8 +948,14 @@ export default function ChatScreen() {
           replyToId: capturedReply ? String(capturedReply._id) : undefined,
         });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
+        // Pass the optimistic reply preview as the fallback so the quote stays
+        // visible even if the send response omits the resolved reply.
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? finalizeTemp(confirmed, tempId) : m),
+          prev.map((m) =>
+            m._id === tempId
+              ? finalizeTemp(confirmed, tempId, optimistic.replyMessage)
+              : m,
+          ),
         );
       } catch {
         setMessages((prev) =>
@@ -966,7 +1021,7 @@ export default function ChatScreen() {
           ),
         );
         if (localAudio) {
-          setCachedMessageLocalUri(chatRoomId, String(res.message.id), localAudio).catch(() => {});
+          setCachedMessageLocalUri(chatRoomId, String(res.message.id), localAudio, user?.id).catch(() => {});
         }
       } catch {
         setMessages((prev) =>
@@ -1061,7 +1116,7 @@ export default function ChatScreen() {
           ),
         );
         if (localAudio) {
-          setCachedMessageLocalUri(chatRoomId, String(res.message.id), localAudio).catch(() => {});
+          setCachedMessageLocalUri(chatRoomId, String(res.message.id), localAudio, user?.id).catch(() => {});
         }
       } catch {
         setMessages((prev) =>
@@ -1103,7 +1158,8 @@ export default function ChatScreen() {
     try {
       setUploadingMedia(true);
       const mime =
-        mediaType === 'image' ? 'image/jpeg'
+        mediaType === 'image'
+          ? (confirmed.mimeType?.startsWith('image/') ? confirmed.mimeType : 'image/jpeg')
         : mediaType === 'video' ? 'video/mp4'
         : (confirmed.mimeType || 'application/octet-stream');
       const uploaded = await uploadMedia(uri, mime);
@@ -1147,7 +1203,7 @@ export default function ChatScreen() {
         ),
       );
       if (localFile) {
-        setCachedMessageLocalUri(chatRoomId, String(res.message.id), localFile).catch(() => {});
+        setCachedMessageLocalUri(chatRoomId, String(res.message.id), localFile, user?.id).catch(() => {});
       }
     } catch {
       setMessages((prev) =>
@@ -1194,7 +1250,7 @@ export default function ChatScreen() {
       // For 'me' the other participant's context is untouched; for 'everyone'
       // the backend updated both contexts and the other client syncs via poll.
       const uid = user?.id ?? '';
-      await removeCachedMessage(chatRoomId, id).catch(() => {});
+      await removeCachedMessage(chatRoomId, id, uid).catch(() => {});
       if (uid) {
         await applyContextAuthRemovals(chatRoomId, uid, [id]).catch(() => {});
       }
@@ -1291,7 +1347,7 @@ export default function ChatScreen() {
           try {
             await deleteChatRoom(chatRoomId);
             const uid = user?.id ?? '';
-            await removeCachedRoom(chatRoomId).catch(() => {});
+            await removeCachedRoom(chatRoomId, user?.id).catch(() => {});
             if (uid) {
               await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
             }
@@ -1323,7 +1379,7 @@ export default function ChatScreen() {
             if (uid) {
               await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
             } else {
-              await clearCachedMessages(chatRoomId).catch(() => {});
+              await clearCachedMessages(chatRoomId, user?.id).catch(() => {});
             }
             await clearRoomMedia(chatRoomId).catch(() => {});
           } catch {
@@ -1405,7 +1461,7 @@ export default function ChatScreen() {
           // with this specific messageId.
           updateCachedMessage(chatRoomId, msgId, {
             reactions: serverReactions,
-          }).catch(() => {});
+          }, user?.id).catch(() => {});
         }
       }).catch(() => {
         // Already optimistically updated — revert on failure
@@ -1494,7 +1550,7 @@ export default function ChatScreen() {
             : m,
         ),
       );
-      setCachedMessageLocalUri(chatRoomId, id, local).catch(() => {});
+      setCachedMessageLocalUri(chatRoomId, id, local, user?.id).catch(() => {});
       openUri(local);
     } else {
       // Download failed — surface a retry affordance and try the remote URL
@@ -1725,7 +1781,7 @@ export default function ChatScreen() {
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.fill, { backgroundColor: T.BG }]}>
-      <MsChatBackground />
+      <MsChatBackground background={chatBackground} />
       <StatusBar barStyle="light-content" />
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
@@ -1763,6 +1819,7 @@ export default function ChatScreen() {
       {/* ── Chat search bar (slides in below header) ─────────────────────── */}
       <MsChatSearch
         visible={showChatSearch}
+        topOffset={insets.top + 58}
         messages={messagesWithReactions as any}
         onClose={() => setShowChatSearch(false)}
         onJump={(msgId) => scrollToMessage(String(msgId))}
@@ -1942,12 +1999,12 @@ export default function ChatScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Full-resolution image */}
+          {/* Full-resolution image (expo-image animates GIFs) */}
           {inlineAttachment && (inlineAttachment.type === 'image' || inlineAttachment.type === 'video') && (
-            <Image
+            <ExpoImage
               source={{ uri: inlineAttachment.uri }}
               style={styles.imgPreviewImg}
-              resizeMode="contain"
+              contentFit="contain"
             />
           )}
 
@@ -1994,7 +2051,7 @@ export default function ChatScreen() {
       <MsChatBgPicker
         visible={showBgPicker}
         current={chatBackground}
-        onSelect={(bg) => setChatBackground(bg)}
+        onSelect={handleBgSelect}
         onClose={() => setShowBgPicker(false)}
       />
 
@@ -2385,10 +2442,10 @@ function FullscreenImageViewer({ uri, onClose, isOwn }: { uri: string; onClose: 
           ]}
           {...panResponder.panHandlers}
         >
-          <Image
+          <ExpoImage
             source={{ uri }}
             style={{ width: SCREEN.width, height: SCREEN.height * 0.85 }}
-            resizeMode="contain"
+            contentFit="contain"
             accessibilityLabel="Full screen image"
           />
         </Animated.View>

@@ -1,17 +1,26 @@
 /**
- * MsChatBackground — subtle premium chat wallpaper.
+ * MsChatBackground — chat wallpaper presentation layer.
  *
- * Very dark base with a barely-visible repeating MeetSweet logo motif.
- * The "MS" heart-inspired mark tiles across the background at ~4% opacity.
- * Rendered as pointerEvents="none" so it never blocks touches.
+ * Renders the currently selected ChatBackground (passed from the chat screen,
+ * which persists it per user+room). Pure presentation: it sits UNDER the
+ * message list and is pointerEvents="none" so it never blocks touches, media,
+ * replies, scrolling, or the input bar.
+ *
+ *   default  → dark base + repeating MeetSweet logo motif (subtle premium tile)
+ *   color    → solid fill
+ *   gradient → two-stop linear gradient (expo-linear-gradient)
+ *   image    → custom photo, cover-fit with a dark overlay for contrast
  */
 import React, { memo } from 'react';
 import { StyleSheet, View, Dimensions } from 'react-native';
-import Svg, { Path, G } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Image as ExpoImage } from 'expo-image';
+import Svg, { Path } from 'react-native-svg';
+import type { ChatBackground } from '@/services/chat-background';
 
 const { width: W, height: H } = Dimensions.get('window');
 
-// Tile size for the repeating logo mark
+// Tile size for the repeating logo mark (default background only)
 const TILE = 72;
 const COLS = Math.ceil(W / TILE) + 1;
 const ROWS = Math.ceil(H / TILE) + 1;
@@ -52,9 +61,9 @@ function LogoMark({ size = 28, opacity = 0.045 }: { size?: number; opacity?: num
   );
 }
 
-export const MsChatBackground = memo(function MsChatBackground() {
+function DefaultWallpaper() {
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <>
       {/* Base fill */}
       <View style={s.base} />
 
@@ -87,6 +96,49 @@ export const MsChatBackground = memo(function MsChatBackground() {
       <View style={s.vignetteBottom} pointerEvents="none" />
       <View style={s.vignetteLeft}   pointerEvents="none" />
       <View style={s.vignetteRight}  pointerEvents="none" />
+    </>
+  );
+}
+
+export const MsChatBackground = memo(function MsChatBackground({
+  background,
+}: {
+  background?: ChatBackground;
+}) {
+  const bg = background ?? { type: 'default' as const };
+
+  let content: React.ReactNode;
+  if (bg.type === 'color') {
+    content = <View style={[StyleSheet.absoluteFill, { backgroundColor: bg.value }]} />;
+  } else if (bg.type === 'gradient') {
+    content = (
+      <LinearGradient
+        colors={bg.value}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.7, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+    );
+  } else if (bg.type === 'image') {
+    content = (
+      <>
+        <ExpoImage
+          source={{ uri: bg.uri }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          transition={150}
+        />
+        {/* Dark overlay keeps message bubbles readable over any photo */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+      </>
+    );
+  } else {
+    content = <DefaultWallpaper />;
+  }
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {content}
     </View>
   );
 });

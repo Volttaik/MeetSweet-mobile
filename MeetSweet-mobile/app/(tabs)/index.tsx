@@ -13,7 +13,6 @@ import { Bell, Compass, MagnifyingGlass, MonitorPlay } from 'phosphor-react-nati
 import { router, useFocusEffect } from 'expo-router';
 import { pushOnce } from '@/lib/nav';
 import { T } from '@/constants/theme';
-import { MsAvatar } from '@/components/MsAvatar';
 import { MsCreatorCard } from '@/components/MsCreatorCard';
 import { getCreators } from '@/services/creators';
 import { MsWalletBadge } from '@/components/MsWalletBadge';
@@ -338,9 +337,6 @@ export default function HomeScreen() {
     }
   }, [isOnline, userId]);
 
-  const initials = user?.name
-    ? user.name.split(' ').map((w) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('')
-    : 'U';
   const walletBalance = useWalletBalance();
 
   return (
@@ -378,9 +374,6 @@ export default function HomeScreen() {
               <MonitorPlay size={20} color={T.TEXT} />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity style={styles.avatarBtn} activeOpacity={0.75} onPress={() => router.push('/(tabs)/profile')}>
-            <MsAvatar size={34} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -485,13 +478,11 @@ const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 14 },
   topAppNameRow: { flexDirection: 'row', alignItems: 'baseline' },
-  // Slightly smaller than before so the profile picture gets more breathing
-  // room; "Meet" uses the primary text colour and "Sweet" the rose accent.
+  // "Meet" uses the primary text colour and "Sweet" the rose accent.
   topAppName: { fontFamily: T.FONT.bold, fontSize: 17, letterSpacing: -0.5 },
   topAppNameMeet: { color: T.TEXT },
   topAppNameSweet: { color: T.ROSE },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  avatarBtn: { marginLeft: 4 },
   iconBtn: {
     width: 38, height: 38, borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center',

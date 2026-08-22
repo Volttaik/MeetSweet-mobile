@@ -66,10 +66,6 @@ export type LoginResult =
   | { requiresTwoFactor: false }
   | { requiresTwoFactor: true; challengeToken: string };
 
-export interface GoogleLoginResult {
-  isNewUser: boolean;
-}
-
 interface AuthState {
   user: User | null;
   accessToken: string | null;
@@ -79,7 +75,6 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login: (data: LoginData) => Promise<LoginResult>;
-  googleLogin: (idToken: string, referralCode?: string) => Promise<GoogleLoginResult>;
   completeTwoFactorLogin: (challengeToken: string, code: string) => Promise<void>;
   register: (data: RegisterData) => Promise<{ userId: string }>;
   logout: () => Promise<void>;
@@ -312,40 +307,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { requiresTwoFactor: false };
   }, []);
 
-  const googleLogin = useCallback(async (idToken: string, referralCode?: string): Promise<GoogleLoginResult> => {
-    await clearSessionStorage().catch(() => {});
-    await clearChatCache().catch(() => {});
-
-    const result = await apiFetch<{
-      access_token?: string;
-      refresh_token?: string;
-      user?: unknown;
-      is_new_user?: boolean;
-    }>('/auth/google', {
-      method: 'POST',
-      body: JSON.stringify({
-        id_token: idToken,
-        referral_code: referralCode,
-      }),
-    });
-
-    if (!result.access_token || !result.refresh_token) {
-      throw new Error('Google authentication failed: no session token returned');
-    }
-
-    const user = normalizeUser(result.user);
-    await saveSessionTokens(result.access_token, result.refresh_token, user);
-    setState({
-      user,
-      accessToken: result.access_token,
-      isLoading: false,
-      isAuthenticated: true,
-    });
-
-    finalizePendingAvatar(user.email).catch(() => {});
-    return { isNewUser: Boolean(result.is_new_user) };
-  }, []);
-
   const completeTwoFactorLogin = useCallback(async (challengeToken: string, code: string) => {
     const result = await apiFetch<{
       access_token: string;
@@ -439,7 +400,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, googleLogin, completeTwoFactorLogin, register, logout, refreshUser, updateUser }}>
+    <AuthContext.Provider value={{ ...state, login, completeTwoFactorLogin, register, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

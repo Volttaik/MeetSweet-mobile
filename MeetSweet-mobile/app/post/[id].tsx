@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -92,14 +93,37 @@ export default function PostDetailScreen() {
         </Pressable>
       </View>
 
-      {/* Post content — full size (no squishing). Comments open as the same
-          bottom sheet used by Shorts/Video, with swipe-down dismissal. */}
-      <MsPostCard
-        post={post}
-        currentUserId={user?.id}
-        onAuthorPress={() => router.push(`/creator/${post.author.username}`)}
-        onCommentsPress={() => setCommentsVisible(true)}
-      />
+      {/* Post content — scrollable so long captions / tall media are fully
+          reachable, and the media opens the same fullscreen viewer the feed
+          uses (image → /post-media, video → /videos/:id). Comments open as the
+          same bottom sheet used by Shorts/Video, with swipe-down dismissal. */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 32 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <MsPostCard
+          post={post}
+          currentUserId={user?.id}
+          onAuthorPress={() => router.push(`/creator/${post.author.username}`)}
+          onCommentsPress={() => setCommentsVisible(true)}
+          onMediaPress={() => {
+            if (post.mediaType === 'video') {
+              router.push(`/videos/${post.id}`);
+            } else if (post.mediaUrl) {
+              router.push({
+                pathname: '/post-media',
+                params: {
+                  uri: post.mediaUrl,
+                  type: 'image',
+                  postId: post.id,
+                  aspectRatio: post.width && post.height ? String(post.width / post.height) : '',
+                },
+              });
+            }
+          }}
+        />
+      </ScrollView>
 
       {/* Comments — the shared Shorts/Video comment sheet (layout, scrolling,
           keyboard behaviour, swipe-down dismissal, input, rendering). */}

@@ -37,7 +37,6 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { savePendingAvatar } from '@/lib/pending-avatar';
 import { clearPendingReferralCode, getPendingReferralCode, lookupReferral, savePendingReferralCode, type ReferralReferrer } from '@/services/referrals';
-import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -325,7 +324,7 @@ const Step1 = React.memo(function Step1({
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {/* Country code selector */}
               <TouchableOpacity
-                style={[styles.inputWrapper, { width: 80, justifyContent: 'center', gap: 4, paddingHorizontal: 12 }]}
+                style={[styles.inputWrapper, { width: 90, justifyContent: 'center', gap: 4, paddingHorizontal: 12 }]}
                 onPress={() => setShowCountryPicker(true)}
                 activeOpacity={0.7}
               >
@@ -333,22 +332,25 @@ const Step1 = React.memo(function Step1({
                 <Text style={{ fontSize: 13, fontFamily: 'Poppins_500Medium', color: '#FFFFFF' }}>{country.code}</Text>
               </TouchableOpacity>
 
-              {/* Phone digits input */}
-              <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.phone}>
-                <TextInput
-                  ref={phoneRef}
-                  placeholder="Phone number"
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
-                  textContentType="telephoneNumber"
-                  returnKeyType="next"
-                  onSubmitEditing={() => dobRef.current?.focus()}
-                  value={data.phone}
-                  onChangeText={(v) => { onChange({ phone: v.replace(/\D/g, '').slice(0, 15) }); setErrors((e) => ({ ...e, phone: '' })); }}
-                  style={styles.input}
-                  placeholderTextColor="rgba(255,255,255,0.18)"
-                />
-              </InputRow>
+              {/* Phone digits input — flex:1 keeps the row full-width so it
+                  never collapses into the tiny circular pill seen before. */}
+              <View style={{ flex: 1 }}>
+                <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.phone}>
+                  <TextInput
+                    ref={phoneRef}
+                    placeholder="Phone number"
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
+                    returnKeyType="next"
+                    onSubmitEditing={() => dobRef.current?.focus()}
+                    value={data.phone}
+                    onChangeText={(v) => { onChange({ phone: v.replace(/\D/g, '').slice(0, 15) }); setErrors((e) => ({ ...e, phone: '' })); }}
+                    style={styles.input}
+                    placeholderTextColor="rgba(255,255,255,0.18)"
+                  />
+                </InputRow>
+              </View>
             </View>
             <FieldErr msg={errors.phone} />
           </View>
@@ -654,7 +656,6 @@ export default function RegisterScreen() {
       if (!code) return;
       await savePendingReferralCode(code);
       // Keep the raw normalized code available immediately so a user can
-      // choose Google before the referrer lookup finishes.
       if (!cancelled) setReferralCode(code.trim().toUpperCase());
       try {
         const resolved = await lookupReferral(code);
@@ -794,19 +795,7 @@ export default function RegisterScreen() {
         {/* Step bar */}
         <StepBar current={step} />
 
-        {step === 1 && (
-          <View style={styles.googleSection}>
-            <Text style={styles.orLabel}>OR</Text>
-            <GoogleSignInButton
-              referralCode={referralCode ?? referralParam ?? undefined}
-              onError={setRegisterError}
-              onSuccess={async ({ isNewUser }) => {
-                await clearPendingReferralCode();
-                router.replace(isNewUser ? '/new-user-welcome' : '/(tabs)');
-              }}
-            />
-          </View>
-        )}
+
 
         {/* Animated step content */}
         <Animated.View style={[contentStyle, { width: '100%' }]}>
@@ -1056,18 +1045,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  // Buttons
-  googleSection: {
-    gap: 10,
-    marginTop: -6,
-  },
-  orLabel: {
-    color: 'rgba(255,255,255,0.3)',
-    fontFamily: 'Poppins_500Medium',
-    fontSize: 11,
-    letterSpacing: 1.5,
-    textAlign: 'center',
-  },
   referralNotice: {
     backgroundColor: 'rgba(196,90,114,0.12)',
     borderWidth: 1,

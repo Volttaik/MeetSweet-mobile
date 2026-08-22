@@ -1,7 +1,7 @@
-import { Redirect } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { Alert, View, ActivityIndicator } from 'react-native';
 import { getInitialReferralCode, getInitialShareToken } from '@/lib/deep-link';
 
 export default function Index() {
@@ -39,6 +39,21 @@ export default function Index() {
   }
 
   if (referralCode) {
+    // Session-aware referral links: if the user is already logged in,
+    // do NOT allow them to create another account through a referral link.
+    if (isAuthenticated) {
+      Alert.alert(
+        'Already a member',
+        'You already have a MeetSweet account.',
+        [
+          {
+            text: 'OK',
+            onPress: () => router.replace('/(tabs)'),
+          },
+        ],
+      );
+      return <Redirect href="/(tabs)" />;
+    }
     return <Redirect href={{ pathname: '/register', params: { referral: referralCode } }} />;
   }
 

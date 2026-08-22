@@ -3,15 +3,14 @@
  *
  * Layout
  * ──────
- *   Empty  : [Sticker] [Input Pill] [Attach] [Camera] [Mic]
- *   Typing : [Sticker] [Input Pill] [Attach] [Camera→0] [Send]
+ *   Empty  : [Input Pill] [Attach] [Camera] [Mic]
+ *   Typing : [Input Pill] [Attach] [Camera→0] [Send]
  *
  * Composer staging model
  * ──────────────────────
  * NOTHING sends automatically. The input is the central holding area.
- * • Emoji        → inserted into text field (never auto-send)
- * • Sticker img  → staged above input as thumbnail (press send to dispatch)
- * • GIF          → staged above input as thumbnail (press send to dispatch)
+ * • Emoji        → typed with the system emoji keyboard (no custom picker)
+ * • GIF          → picked from the photo library, staged above input as thumbnail
  * • Voice note   → compact playback bar above input (press send to dispatch)
  * • Image/Video  → thumbnail above input; pen icon → full MsAttachmentPreview
  * • Document     → file chip above input (press send to dispatch)
@@ -19,8 +18,6 @@
  * Keyboard behaviour
  * ──────────────────
  * • Tracks keyboard height via Keyboard events.
- * • Sticker panel open → keyboard dismissed; panel fills same height.
- * • Focusing input while panel is open → panel closes.
  */
 
 import React, {
@@ -50,7 +47,6 @@ import {
   ArrowUp,
   Camera,
   File,
-  Keyboard as KeyboardIcon,
   Lock,
   Microphone,
   PaperPlaneRight,
@@ -58,9 +54,7 @@ import {
   Pause,
   PencilSimple,
   Play,
-  SmileySticker,
   Square,
-  Sticker,
   X,
 } from 'phosphor-react-native';
 import { Audio } from 'expo-av';
@@ -68,9 +62,6 @@ import * as Haptics from 'expo-haptics';
 import { T } from '@/constants/theme';
 import type { ReplyMessage } from '@kesha-antonov/react-native-chat';
 import type { MsMessage } from '@/types/chat-message';
-import { MsComposerPanel } from './MsComposerPanel';
-import { MsStickerPicker } from './MsStickerPicker';
-import type { PanelTab } from './MsComposerPanel';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -97,11 +88,6 @@ export interface AttachmentSendPayload extends InlineAttachment {
 export interface SendPayload {
   text?: string;
   voice?: PendingVoice;
-  /** Emoji character (text message) */
-  sticker?: string;
-  /** GIF or image sticker URL */
-  gifUrl?: string;
-  gifTitle?: string;
 }
 
 type RecordingState = 'idle' | 'active' | 'locked';
@@ -113,7 +99,6 @@ const LOCK_THRESHOLD_Y   = -52;
 const CANCEL_THRESHOLD_X = -72;
 const ICON_ANIM_MS       = 180;
 const WAVEFORM_BARS      = 16;
-const DEFAULT_PANEL_H    = 300;
 const MAX_REC_SECS       = 300; // 5 minutes
 const WARN_AT_SECS       = 270; // 4 minutes 30 seconds
 
@@ -445,8 +430,6 @@ interface Props {
   onAttachPress?: () => void;
   onCameraPress?: () => void;
   disabled?: boolean;
-  /** @deprecated — use internal panel */
-  onEmojiPress?: () => void;
 
   // ── Inline attachment staging (image/video/doc from picker) ──────────────
   /** Pending media attachment to preview above the input */
@@ -486,10 +469,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   const hasText    = text.trim().length > 0;
   const hasContent = hasText || !!pendingVoice || !!inlineAttachment;
 
-  // ── Panel state ────────────────────────────────────────────────────────────
-  const [activePanel, setActivePanel] = useState<PanelTab | 'none'>('none');
-  const [panelHeight, setPanelHeight] = useState(DEFAULT_PANEL_H);
-  const [stickerPickerVisible, setStickerPickerVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   // ── Keyboard tracking ─────────────────────────────────────────────────────
@@ -499,43 +478,11 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const showSub = Keyboard.addListener(showEvt, (e) => {
-      if (e.endCoordinates.height > 100) setPanelHeight(e.endCoordinates.height);
-      setKeyboardVisible(true);
-    });
+    const showSub = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
     const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
 
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
-
-  const openPanel = useCallback((tab: PanelTab) => {
-    Keyboard.dismiss();
-    setActivePanel(tab);
-  }, []);
-
-  const closePanel = useCallback(() => setActivePanel('none'), []);
-
-  const handleStickerBtnPress = useCallback(() => {
-    // Close emoji panel if open, then show sticker picker
-    if (activePanel !== 'none') {
-      closePanel();
-    }
-    setStickerPickerVisible(true);
-  }, [activePanel, closePanel]);
-
-  const handleStickerSend = useCallback((sticker: string) => {
-    // Insert sticker as text (emoji)
-    onChangeText(text + sticker);
-    setStickerPickerVisible(false);
-  }, [text, onChangeText]);
-
-  const handleStickerPickerClose = useCallback(() => {
-    setStickerPickerVisible(false);
-  }, []);
-
-  const handleInputFocus = useCallback(() => {
-    if (activePanel !== 'none') closePanel();
-  }, [activePanel, closePanel]);
 
   // ── Mic ↔ Send spring animation ────────────────────────────────────────────
   const sendAnim = useRef(new Animated.Value(hasContent ? 1 : 0)).current;
@@ -880,21 +827,11 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     onChangeText('');
   }, [text, inlineAttachment, pendingVoice, onSend, onChangeText, onSendWithAttachment, animateSendPress]);
 
-  // ── Emoji → insert into text (NOT send) ───────────────────────────────────
-  const handleEmojiInsert = useCallback((emoji: string) => {
-    onChangeText(text + emoji);
-    // Keep panel open so user can add more emoji
-  }, [text, onChangeText]);
-
   function fmtSecs(s: number) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
-  const panelIsOpen = activePanel !== 'none';
-  // Sticker button uses Sticker icon (separate from emoji)
-  const stickerBtnIcon = <Sticker size={22} color={T.TEXT_2} weight="regular" />;
-
-  const bottomInset = (!keyboardVisible && !panelIsOpen) ? insets.bottom : 0;
+  const bottomInset = !keyboardVisible ? insets.bottom : 0;
 
   // ── LOCKED state ───────────────────────────────────────────────────────────
   if (recState === 'locked') {
@@ -1048,13 +985,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       {/* ── Input row ────────────────────────────────────────────────────── */}
       <View style={s.row}>
 
-        {/* Left: Sticker / Keyboard toggle */}
-        {recState === 'idle' ? (
-          <IconBtn style={s.sideBtn} onPress={handleStickerBtnPress} disabled={disabled}>
-            {stickerBtnIcon}
-          </IconBtn>
-        ) : <View style={s.sideBtn} />}
-
         {/* Input pill */}
         {recState === 'active' ? (
           <View style={[s.pill, s.pillRec, recWarning && s.pillRecWarn]}>
@@ -1080,7 +1010,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
               ref={inputRef}
               value={text}
               onChangeText={onChangeText}
-              onFocus={handleInputFocus}
               placeholder={isEditing ? 'Edit message…' : 'Message…'}
               placeholderTextColor={T.TEXT_3}
               style={s.input}
@@ -1191,21 +1120,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         </View>
       </View>
 
-      {/* ── Emoji panel ───────────────────────────────────────────────────── */}
-      <MsComposerPanel
-        isOpen={panelIsOpen}
-        panelHeight={panelHeight}
-        activeTab="emoji"
-        onTabChange={setActivePanel}
-        onEmojiPress={handleEmojiInsert}
-      />
-
-      {/* ── Sticker picker ────────────────────────────────────────────────── */}
-      <MsStickerPicker
-        visible={stickerPickerVisible}
-        onSend={handleStickerSend}
-        onClose={handleStickerPickerClose}
-      />
     </View>
   );
 });

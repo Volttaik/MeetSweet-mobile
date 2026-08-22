@@ -54,7 +54,6 @@ import { MsAvatar } from '@/components/MsAvatar';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
-import { useBiometricLock } from '@/contexts/BiometricLockContext';
 import {
   deleteAccount,
   getPrivacySettings,
@@ -73,12 +72,6 @@ import {
   enableTwoFactor,
   disableTwoFactor,
 } from '@/services/security';
-import {
-  checkBiometricSupport,
-  authenticateBiometric,
-  isBiometricEnabled,
-  setBiometricEnabled as persistBiometricEnabled,
-} from '@/lib/biometric';
 import {
   isHapticsEnabled as getHapticsEnabled,
   loadHapticsPreference,
@@ -295,6 +288,7 @@ interface PrivacyPrefs {
   readReceipts: boolean;
   typingIndicator: boolean;
   profileVisibility: 'everyone' | 'subscribers' | 'nobody';
+  messagePerm: 'everyone' | 'subscribers' | 'nobody';
   mentionPerm: boolean;
   tagPerm: boolean;
 }
@@ -314,6 +308,7 @@ const PRIVACY_DEFAULTS: PrivacyPrefs = {
   readReceipts: true,
   typingIndicator: true,
   profileVisibility: 'everyone',
+  messagePerm: 'everyone',
   mentionPerm: true,
   tagPerm: true,
 };
@@ -438,7 +433,7 @@ const rs = StyleSheet.create({
   },
   rowText: { flex: 1 },
   rowLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
-  rowSub: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2, marginTop: 3, lineHeight: 18 },
+  rowSub: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 3, lineHeight: 17 },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1034,31 +1029,30 @@ const sess = StyleSheet.create({
 
 // ─── MODAL: Profile Visibility ────────────────────────────────────────────────
 
-function ProfileVisibilityModal({
+function ChoiceModal({
   visible,
   onClose,
+  title,
   value,
   onChange,
+  options,
 }: {
   visible: boolean;
   onClose: () => void;
+  title: string;
   value: string;
   onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
+  options: Array<{ value: 'everyone' | 'subscribers' | 'nobody'; label: string; sub: string }>;
 }) {
-  const options: Array<{ value: 'everyone' | 'subscribers' | 'nobody'; label: string; sub: string }> = [
-    { value: 'everyone', label: 'Everyone', sub: 'Anyone can see your profile' },
-    { value: 'subscribers', label: 'Subscribers only', sub: 'Only your subscribers can see your full profile' },
-    { value: 'nobody', label: 'Nobody', sub: 'Your profile is completely private' },
-  ];
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Profile Visibility">
+    <BottomSheet visible={visible} onClose={onClose} title={title}>
       <View style={{ gap: 0 }}>
         {options.map((opt, i) => (
           <React.Fragment key={opt.value}>
             {i > 0 && <Divider />}
             <TouchableOpacity
               style={[rs.row, { justifyContent: 'space-between' }]}
-              onPress={() => { onChange(opt.value); onClose(); toast.success('Visibility updated'); }}
+              onPress={() => { onChange(opt.value); onClose(); toast.success('Preference updated'); }}
               activeOpacity={0.7}
             >
               <View style={{ flex: 1 }}>
@@ -1071,6 +1065,44 @@ function ProfileVisibilityModal({
         ))}
       </View>
     </BottomSheet>
+  );
+}
+
+function ProfileVisibilityModal(props: {
+  visible: boolean;
+  onClose: () => void;
+  value: string;
+  onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
+}) {
+  return (
+    <ChoiceModal
+      {...props}
+      title="Profile Visibility"
+      options={[
+        { value: 'everyone', label: 'Everyone', sub: 'Anyone can see your profile' },
+        { value: 'subscribers', label: 'Subscribers only', sub: 'Only your subscribers can see your full profile' },
+        { value: 'nobody', label: 'Nobody', sub: 'Your profile is completely private' },
+      ]}
+    />
+  );
+}
+
+function MessagePermModal(props: {
+  visible: boolean;
+  onClose: () => void;
+  value: string;
+  onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
+}) {
+  return (
+    <ChoiceModal
+      {...props}
+      title="Who Can Message Me"
+      options={[
+        { value: 'everyone', label: 'Everyone', sub: 'Anyone can start a conversation with you' },
+        { value: 'subscribers', label: 'Subscribers only', sub: 'Only active subscribers can message you' },
+        { value: 'nobody', label: 'Nobody', sub: 'No one can message you' },
+      ]}
+    />
   );
 }
 
@@ -1321,6 +1353,9 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
       await sendTwoFactorCode();
       setCodeSent(true);
       setCode('');
+      // Transition to the setup phase so the user sees the verification
+      // code input field after the email is sent.
+      setPhase('setup');
       toast.success('Code sent to your email');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to send the code');
@@ -1490,13 +1525,12 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout, updateUser, isAuthenticated, isLoading } = useAuth();
-  const { refreshLockState } = useBiometricLock();
 
   // Modal open state
   const [modal, setModal] = useState<
     | 'editProfile' | 'username' | 'email' | 'phone'
     | 'changePassword' | 'activeSessions'
-    | 'profileVisibility' | 'mentionPerm'
+    | 'profileVisibility' | 'messagePerm' | 'mentionPerm'
     | 'help' | 'bug' | 'contact' | 'about'
     | 'twoFactor'
     | null
@@ -1511,7 +1545,6 @@ export default function SettingsScreen() {
   // Notification prefs
   const [notif, setNotif] = useState<NotifPrefs>(NOTIF_DEFAULTS);
   // Security prefs
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   // General prefs
   const [hapticsEnabled, setHapticsEnabled] = useState(getHapticsEnabled());
@@ -1532,6 +1565,7 @@ export default function SettingsScreen() {
           readReceipts: p.read_receipts ?? PRIVACY_DEFAULTS.readReceipts,
           typingIndicator: p.typing_indicator ?? PRIVACY_DEFAULTS.typingIndicator,
           profileVisibility: p.profile_visibility ?? PRIVACY_DEFAULTS.profileVisibility,
+          messagePerm: p.message_perm ?? PRIVACY_DEFAULTS.messagePerm,
           mentionPerm: p.allow_mentions ?? PRIVACY_DEFAULTS.mentionPerm,
           tagPerm: p.allow_tags ?? PRIVACY_DEFAULTS.tagPerm,
         });
@@ -1558,9 +1592,8 @@ export default function SettingsScreen() {
     });
   }, [user?.id]);
 
-  // ── Security: biometric lock + 2FA status ─────────────────────────────────
+  // ── Security: 2FA status ─────────────────────────────────────────────────
   useEffect(() => {
-    isBiometricEnabled().then(setBiometricEnabled).catch(() => {});
     getTwoFactorStatus()
       .then((s) => setTwoFactorEnabled(s.enabled))
       .catch(() => {});
@@ -1577,31 +1610,6 @@ export default function SettingsScreen() {
     toast.success(value ? 'Vibrations enabled' : 'Vibrations disabled');
   }, []);
 
-  const handleBiometricToggle = useCallback(async (value: boolean) => {
-    if (value) {
-      const support = await checkBiometricSupport();
-      if (!support.available || !support.enrollable) {
-        toast.error('No enrolled biometrics found on this device');
-        return;
-      }
-      const ok = await authenticateBiometric('Enable biometric lock');
-      if (!ok) {
-        toast.error('Biometric authentication cancelled');
-        return;
-      }
-      await persistBiometricEnabled(true);
-      setBiometricEnabled(true);
-      toast.success('Biometric lock enabled');
-    } else {
-      await persistBiometricEnabled(false);
-      setBiometricEnabled(false);
-      toast.success('Biometric lock disabled');
-    }
-    // Sync the lock provider immediately so a disable takes effect right away
-    // (no stale biometric prompt) and an enable arms the gate for next launch.
-    refreshLockState();
-  }, [refreshLockState]);
-
   // Maps UI privacy key → API field
   const privacyApiMap = useCallback((key: keyof PrivacyPrefs, value: any): Record<string, any> => {
     switch (key) {
@@ -1610,6 +1618,7 @@ export default function SettingsScreen() {
       case 'readReceipts': return { read_receipts: value };
       case 'typingIndicator': return { typing_indicator: value };
       case 'profileVisibility': return { profile_visibility: value };
+      case 'messagePerm': return { message_perm: value };
       case 'mentionPerm': return { allow_mentions: value };
       case 'tagPerm': return { allow_tags: value };
       default: return {};
@@ -1787,6 +1796,12 @@ export default function SettingsScreen() {
             onPress={() => setModal('profileVisibility')}
           />
           <Divider />
+          <Row
+            label="Who Can Message Me"
+            sub={privacy.messagePerm === 'everyone' ? 'Everyone' : privacy.messagePerm === 'subscribers' ? 'Subscribers only' : 'Nobody'}
+            onPress={() => setModal('messagePerm')}
+          />
+          <Divider />
           <ToggleRow
             label="Allow Mentions"
             sub="Let others mention you in posts"
@@ -1805,13 +1820,6 @@ export default function SettingsScreen() {
         {/* ── SECURITY ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Security" />
         <View style={rs.section}>
-          <ToggleRow
-            label="Biometric Lock"
-            sub="Require Face ID or fingerprint to open the app"
-            value={biometricEnabled}
-            onValueChange={handleBiometricToggle}
-          />
-          <Divider />
           <Row
             label="Two-Factor Authentication"
             sub={twoFactorEnabled ? 'On' : 'Add an extra login step'}
@@ -1916,6 +1924,12 @@ export default function SettingsScreen() {
         onClose={() => setModal(null)}
         value={privacy.profileVisibility}
         onChange={setP('profileVisibility')}
+      />
+      <MessagePermModal
+        visible={modal === 'messagePerm'}
+        onClose={() => setModal(null)}
+        value={privacy.messagePerm}
+        onChange={setP('messagePerm')}
       />
       <SupportModal visible={modal === 'help'} onClose={() => setModal(null)} type="help" />
       <SupportModal visible={modal === 'bug'} onClose={() => setModal(null)} type="bug" />

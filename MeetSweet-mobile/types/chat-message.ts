@@ -152,6 +152,7 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
     messageType: mediaType,
     msMediaType: mediaType,
     fileType: m.fileType || m.file_type || null,
+    msFileType: m.fileType || m.file_type || null,
     isVoiceNote,
     msIsVoiceNote: isVoiceNote,
     mediaUrl,
