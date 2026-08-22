@@ -1,5 +1,5 @@
 /**
- * Chat Room local media storage — Expo FileSystem (current SDK 54 API).
+ * Chat Room local media storage — Expo FileSystem (current Expo SDK API).
  *
  * Every media message in a Chat Room is persisted as a local file on the
  * device, structured so media cannot collide between rooms:

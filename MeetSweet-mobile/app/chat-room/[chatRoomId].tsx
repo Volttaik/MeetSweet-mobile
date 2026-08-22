@@ -27,7 +27,6 @@ import React, {
 } from 'react';
 import {
   Animated,
-  AppState,
   Dimensions,
   Easing,
   FlatList,
@@ -86,6 +85,7 @@ import { MsAvatar } from '@/components/MsAvatar';
 
 import { MsAttachmentSheet } from '@/components/MsAttachmentSheet';
 import type { AttachmentResult } from '@/components/MsAttachmentSheet';
+import { MsGifPicker, type GiphyPickResult } from '@/components/chat/MsGifPicker';
 import { MsAttachmentPreview } from '@/components/MsAttachmentPreview';
 import type { PendingAttachment, ConfirmedAttachment } from '@/components/MsAttachmentPreview';
 import { MsUserProfileSheet } from '@/components/MsUserProfileSheet';
@@ -106,11 +106,8 @@ import {
   clearChatRoom,
   deleteChatRoom,
   toggleRoomReaction,
-  checkRoomChanges,
   muteChatRoom,
   deriveFileType,
-  broadcastTyping,
-  clearTyping,
   normalizeMessage,
   type RoomMessage,
 } from '@/services/room-service';
@@ -276,11 +273,17 @@ export default function ChatScreen() {
       replyToId: opts?.replyToId,
       fileType: opts?.fileType,
       isVoiceNote: opts?.isVoiceNote,
+      clientMessageId: opts?.clientMessageId,
     });
   }, [chatRoomId]);
 
   // ── Message state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<MsMessage[]>([]);
+
+  const createClientMessageId = useCallback(
+    () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`,
+    [],
+  );
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -379,6 +382,8 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuVisible]);
   const [showAttach, setShowAttach] = useState(false);
+  // Sticker sheet opened directly from the composer's sticker button.
+  const [showStickers, setShowStickers] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
   const [inlineAttachment, setInlineAttachment] = useState<InlineAttachment | null>(null);
@@ -575,8 +580,16 @@ export default function ChatScreen() {
       // cached message for this room that is NOT in the snapshot (and isn't in
       // the just-fetched server page) is no longer part of this context and is
       // removed from the local replica. This keeps SQLite mirroring the server.
+      //
+      // IMPORTANT: only reconcile against a NON-EMPTY snapshot. An empty array
+      // means either (a) the server genuinely has no visible messages (all
+      // deletions still arrive via removedMessageIds, so nothing leaks) or (b)
+      // an older server build that always returned [] — treating that as an
+      // authoritative snapshot would wipe the entire cached conversation on
+      // every sync. Deletions are handled explicitly by removedMessageIds, so
+      // skipping reconciliation on an empty snapshot is always safe.
       const snapshot = ctx.contextAuth.messageIds;
-      if (Array.isArray(snapshot)) {
+      if (Array.isArray(snapshot) && snapshot.length > 0) {
         const keep = new Set<string>(snapshot);
         for (const m of serverMessages) keep.add(m.id);
         const cached = await getCachedMessages(chatRoomId, uid).catch(() => []);
@@ -592,14 +605,11 @@ export default function ChatScreen() {
   );
 
   // ── Load messages ─────────────────────────────────────────────────────
-  // LOCAL-FIRST: the local persistent store (SQLite) is the presentation
-  // layer. Opening a conversation NEVER fetches the conversation's history
-  // from the server — the network is used only for background synchronization
-  // (the incremental changes poll below) and for explicit pagination when the
-  // user scrolls up. New messages arrive via the poll; restorations of
-  // previously-downloaded history happen ONLY through the explicit "Load Chat
-  // History" action in the Chat menu. No shimmer, no network wait, no
-  // visible reconstruction.
+  // LOCAL-FIRST: cached messages are painted before any network work. A room
+  // with no local representation performs one normal history request to seed
+  // the cache; subsequent opens do not fetch history just to render it. Live
+  // changes are delivered by SweetSocket and older pages are explicit scroll
+  // pagination.
   const loadMessages = useCallback(async (before?: string) => {
     if (!chatRoomId) return;
     const uid = user?.id ?? '';
@@ -618,18 +628,7 @@ export default function ChatScreen() {
           // Local content is on screen — never show the loading shimmer.
           setLoading(false);
           setShowShimmer(false);
-          // Seed the incremental poll marker from the newest locally-cached
-          // message's TIMESTAMP (the server compares `since` against
-          // created_at) so the background poll only asks for what's actually
-          // new — never re-downloading already-cached history.
-          const newest = [...cached]
-            .filter((m: RoomMessage) => !m.isDeleted)
-            .sort(
-              (a, b) =>
-                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-            )[0];
-          if (newest?.createdAt) pollMarkerRef.current = newest.createdAt;
-          // Background synchronization — ALL silent, NO full history fetch:
+          // Background maintenance is silent; rendering does not wait for it:
           // 1) mirror the server's context membership (removals/deletions),
           // 2) resolve/persist local media for cached messages missing a
           //    local file (recovery after a failed download), 3) mark read.
@@ -641,16 +640,23 @@ export default function ChatScreen() {
       } catch {
         // ignore — fall through to the fresh empty state below
       }
-      // No local representation of this conversation (first-ever open on this
-      // device, or the cache was wiped). Show the fresh empty state — do NOT
-      // fetch the conversation's history from the server. Previous
-      // conversations are restored only through the explicit "Load Chat
-      // History" action in the Chat menu. The poll marker is seeded with
-      // "now" so messages that arrive WHILE the user is viewing (new
-      // messages, not history) still synchronize in the background.
-      pollMarkerRef.current = new Date().toISOString();
-      setShowShimmer(false);
-      setLoading(false);
+      // First open on this device: seed the local replica once. Subsequent
+      // opens render from SQLite and do not fetch history merely to paint it.
+      setShowShimmer(true);
+      try {
+        const result = await getRoomMessages(chatRoomId);
+        const fresh = result.messages.filter((m: RoomMessage) => !m.isDeleted);
+        setMessages(fresh.map((m: RoomMessage) => toMsMessage(m, uid)).sort(byNewestFirst));
+        setHasMore(result.hasMore ?? false);
+        await cacheMessages(chatRoomId, result.messages, uid).catch(() => {});
+        ensureMediaLocal(fresh).catch(() => {});
+        markRoomRead(chatRoomId).catch(() => {});
+      } catch {
+        // Keep the empty local view available while offline.
+      } finally {
+        setShowShimmer(false);
+        setLoading(false);
+      }
       return;
     }
 
@@ -675,16 +681,17 @@ export default function ChatScreen() {
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
-  // ── Merge incoming messages (shared by the realtime socket + poll) ──────
-  // Both the WebSocket and the changes-poll fallback funnel fresh messages
-  // through here: mirror the context membership, reconcile into the visible
-  // list (dropping server-removed messages), persist to SQLite, resolve media.
-  const handleIncomingMessages = useCallback(async (fresh: RoomMessage[]) => {
+  // ── Merge incoming messages from SweetSocket ─────────────────────────
+  // Live events reconcile into the visible list, persist to SQLite, and
+  // resolve media without a follow-up history request.
+  const handleIncomingMessages = useCallback(async (fresh: RoomMessage[], persist = true) => {
     if (!fresh?.length) return;
     const uid = user?.id ?? '';
 
-    // Sync context auth removals if any
-    const removedIds = new Set(await syncRoomContext(fresh).catch(() => []));
+    // Realtime events are already authorized by SweetSocket. Context membership
+    // is synchronized on local hydration and explicit history operations; do not
+    // perform an HTTP context read for every live event.
+    const removedIds = new Set<string>();
     const incomingMap = new Map<string, MsMessage>();
     for (const m of fresh) {
       incomingMap.set(String(m.id), toMsMessage(m, uid));
@@ -706,9 +713,10 @@ export default function ChatScreen() {
             ...m,
             ...freshMsg,
             localUri: m.localUri ?? freshMsg.localUri ?? null,
-            image: freshMsg.image ?? m.image,
-            video: freshMsg.video ?? m.video,
-            audio: freshMsg.audio ?? m.audio,
+            image: m.image ?? freshMsg.image,
+            video: m.video ?? freshMsg.video,
+            audio: m.audio ?? freshMsg.audio,
+            msMediaStatus: m.msMediaStatus === 'local' ? 'local' : freshMsg.msMediaStatus,
             // Never drop the local reply relationship when the incremental
             // payload omits it (e.g. the server couldn't resolve the quoted
             // message) — the quote must stay visible.
@@ -730,7 +738,16 @@ export default function ChatScreen() {
       //    HTTP confirmation resolves — dedupe so no visible duplicate forms.
       updated = dedupeMessages(updated);
 
-      cacheMessages(chatRoomId, fresh, uid).catch(() => {});
+      // 5. Deterministic ordering: the list is inverted (newest first), so it
+      //    must be sorted by createdAt desc after every merge. Relying on
+      //    "prepend the new ones" alone puts an incoming message with an older
+      //    timestamp (clock skew, re-delivered history, edit payloads) in the
+      //    wrong position. Server timestamps are authoritative; the optimistic
+      //    temp messages they confirm keep their key, so this only fixes
+      //    position, never identity.
+      updated = updated.sort(byNewestFirst);
+
+      if (persist) cacheMessages(chatRoomId, fresh, uid).catch(() => {});
       return updated;
     });
 
@@ -738,44 +755,10 @@ export default function ChatScreen() {
     ensureMediaLocal(fresh).catch(() => {});
   }, [chatRoomId, user?.id, ensureMediaLocal, syncRoomContext]);
 
-  // ── Poll fallback (incremental changes, ONLY when the socket is down) ──
-  // The WebSocket is the primary realtime path; this poll keeps working when
-  // it is unavailable (offline, unsupported network, server without WS).
-  const pollMarkerRef = useRef<string | null>(null);
-  const pollActiveRef = useRef(true);
-
-  const pollRoom = useCallback(async () => {
-    if (!chatRoomId || !pollActiveRef.current) return;
-    const changes = await checkRoomChanges(chatRoomId, pollMarkerRef.current).catch(() => null);
-    if (!changes) return;
-
-    // ── Typing state (fallback) ────────────────────────────────────────
-    const typingUsers = changes.typing ?? [];
-    const otherIsTyping = typingUsers.some((id) => id !== user?.id);
-    setIsTyping(otherIsTyping);
-
-    // Always adopt the server's marker (a fresh timestamp) — even when this
-    // check found nothing — so the next poll only asks for what arrived since
-    // the last check. This keeps the marker self-healing: it never stays
-    // stale, which would otherwise re-download or miss content.
-    pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
-    if (!changes.changed) return;
-    await handleIncomingMessages(changes.messages ?? []);
-  }, [chatRoomId, user?.id, pollActiveRef, handleIncomingMessages]);
-
-  useEffect(() => {
-    if (!chatRoomId) return;
-    const interval = setInterval(() => {
-      // The realtime socket is the primary path — only poll when it's down.
-      if (realtime.isOpen()) return;
-      void pollRoom();
-    }, 10_000);
-    return () => clearInterval(interval);
-  }, [chatRoomId, pollRoom]);
-
-  // ── Realtime (WebSocket) — live channel for this conversation ──────────
+  // ── Realtime (SweetSocket) — live channel for this conversation ─────────
   // Messages, typing, recording, read receipts, reactions and presence arrive
-  // instantly over the socket. The poll above is the fallback.
+  // over the single application-wide connection. HTTP is reserved for
+  // explicit history pagination and durable mutations.
   useEffect(() => {
     if (!chatRoomId) return;
     const channel = `chat:${chatRoomId}`;
@@ -788,7 +771,22 @@ export default function ChatScreen() {
       if (!msg?.id) return;
       // A delivered message from the other user clears their typing indicator.
       if (msg.sender?.id && msg.sender.id !== user?.id) setIsTyping(false);
-      void handleIncomingMessages([msg]);
+      void handleIncomingMessages([msg], (event.payload as { status?: string })?.status !== 'accepted');
+    });
+    const offAck = realtime.on(REALTIME_EVENT.chatMessageAck, (event) => {
+      const raw = (event.payload as { message?: unknown })?.message;
+      if (!raw) return;
+      const msg = normalizeMessage(raw);
+      if (msg?.id) void handleIncomingMessages([msg]);
+    });
+    const offFailed = realtime.on(REALTIME_EVENT.chatMessageFailed, (event) => {
+      const payload = event.payload as { clientMessageId?: string; error?: string };
+      if (!payload.clientMessageId) return;
+      setMessages((prev) => prev.map((m) =>
+        m._id === payload.clientMessageId || m.msServerId === payload.clientMessageId
+          ? { ...m, pending: false, sent: false, status: 'failed' as const }
+          : m,
+      ));
     });
     const offUpdated = realtime.on(REALTIME_EVENT.chatMessageUpdated, (event) => {
       const p = event.payload as { messageId?: string; body?: string; isEdited?: boolean };
@@ -869,7 +867,7 @@ export default function ChatScreen() {
 
     return () => {
       realtime.unsubscribe(channel);
-      offMessage(); offUpdated(); offDeleted();
+      offMessage(); offAck(); offFailed(); offUpdated(); offDeleted();
       offTypingStart(); offTypingStop();
       offRecStart(); offRecStop(); offRead(); offReaction(); offPresence();
       announce(false);
@@ -877,23 +875,20 @@ export default function ChatScreen() {
   }, [chatRoomId, user?.id, handleIncomingMessages]);
 
   // ── Typing broadcast (client → server) ──────────────────────────────────
-  // When the user types, fire a debounced "I'm typing" broadcast. Prefers the
-  // realtime socket (ephemeral relay — instant, no DB write); falls back to
-  // the HTTP endpoint when the socket is unavailable.
+  // When the user types, fire a debounced ephemeral event over the shared
+  // SweetSocket connection. No database or HTTP change-check is involved.
   const sendTypingBroadcast = useCallback(() => {
     if (!chatRoomId) return;
-    const sent = realtime.relay(`chat:${chatRoomId}`, REALTIME_EVENT.chatTypingStarted, {
+    realtime.relay(`chat:${chatRoomId}`, REALTIME_EVENT.chatTypingStarted, {
       userId: user?.id,
     });
-    if (!sent) broadcastTyping(chatRoomId);
   }, [chatRoomId, user?.id]);
 
   const sendTypingStop = useCallback(() => {
     if (!chatRoomId) return;
-    const sent = realtime.relay(`chat:${chatRoomId}`, REALTIME_EVENT.chatTypingStopped, {
+    realtime.relay(`chat:${chatRoomId}`, REALTIME_EVENT.chatTypingStopped, {
       userId: user?.id,
     });
-    if (!sent) clearTyping(chatRoomId);
   }, [chatRoomId, user?.id]);
 
   useEffect(() => {
@@ -927,20 +922,6 @@ export default function ChatScreen() {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [chatRoomId, sendTypingStop]);
-
-  // ── Pause polling while the app is backgrounded; resume on foreground ────
-  // Avoids hitting the server every 10s while the chat isn't visible. On
-  // resume we fire one immediate poll so freshly-arrived messages show up
-  // without waiting for the next tick.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      const active = state === 'active';
-      if (active === pollActiveRef.current) return;
-      pollActiveRef.current = active;
-      if (active) pollRoom().catch(() => {});
-    });
-    return () => sub.remove();
-  }, [pollRoom]);
 
   // ── Resolve the other participant FROM THE ROOM (not navigation params) ──
   useEffect(() => {
@@ -1084,7 +1065,7 @@ export default function ChatScreen() {
       return;
     }
 
-    const tempId = `temp_${Date.now()}`;
+    const tempId = createClientMessageId();
     const now = new Date();
 
     // ── Text message ─────────────────────────────────────────────────────────
@@ -1119,8 +1100,15 @@ export default function ChatScreen() {
       try {
         const res = await sendToRoom(payload.text, undefined, undefined, {
           replyToId: capturedReply ? String(capturedReply._id) : undefined,
+          clientMessageId: tempId,
         });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
+        // The HTTP response is the authoritative server confirmation — persist
+        // it into SQLite IMMEDIATELY, independent of the WebSocket echo or the
+        // changes-poll. Relying on the echo alone meant a message could vanish
+        // on re-entry whenever the echo was missed (socket down, reconnect
+        // gap): local durability must not depend on realtime delivery.
+        cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
         // Pass the optimistic reply preview as the fallback so the quote stays
         // visible even if the send response omits the resolved reply.
         setMessages((prev) =>
@@ -1169,9 +1157,13 @@ export default function ChatScreen() {
           audioDuration: duration,
           isVoiceNote: true,
           fileType: 'm4a',
+          clientMessageId: tempId,
         });
         // Server returns media_type: null for audio — preserve local audio metadata.
         const confirmed = toMsMessage(res.message, user?.id ?? '');
+        // Authoritative server confirmation — persist the message row NOW (see
+        // the text path for why local durability must not depend on the echo).
+        cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
         // Persist the original local recording into the room's media dir.
         const localAudio = await persistLocalMedia(chatRoomId, String(res.message.id), uri, {
           mime: 'audio/m4a',
@@ -1186,8 +1178,8 @@ export default function ChatScreen() {
                   msIsVoiceNote: true,
                   msFileType: 'm4a',
                   msMediaStatus: 'local' as const,
-                  localUri: null,
-                  audio: uri,
+                  localUri: localAudio ?? uri,
+                  audio: localAudio ?? uri,
                   msAudioDuration: duration,
                 }
               : m,
@@ -1211,7 +1203,7 @@ export default function ChatScreen() {
     setPendingAttachment(null);
     if (!chatRoomId) return;
     const { uri, type: attachType } = confirmed;
-    const tempId = `temp_${Date.now()}`;
+    const tempId = createClientMessageId();
     const now = new Date();
 
     // ── Voice / audio from MsAttachmentPreview ────────────────────────────
@@ -1260,12 +1252,16 @@ export default function ChatScreen() {
             fileType: optimistic.msFileType ?? undefined,
             fileName: isVoiceNote ? undefined : confirmed.fileName,
             mimeType: mime,
+            clientMessageId: tempId,
           },
         );
         // Server sends back media_type: null for audio. Preserve the local
         // audio metadata so the bubble renders correctly (voice waveform OR
         // audio file card) regardless of the server's media_type.
         const conf = toMsMessage(res.message, user?.id ?? '');
+        // Authoritative server confirmation — persist the message row NOW (see
+        // the text path for why local durability must not depend on the echo).
+        cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
         // Persist the original local audio file into the room's media dir.
         const localAudio = await persistLocalMedia(chatRoomId, String(res.message.id), uri, {
           mime: mime,
@@ -1281,8 +1277,8 @@ export default function ChatScreen() {
                   msFileType: optimistic.msFileType,
                   msMediaStatus: 'local' as const,
                   msFileName: isVoiceNote ? undefined : (conf.msFileName ?? confirmed.fileName),
-                  localUri: null,
-                  audio: uri,
+                  localUri: localAudio ?? uri,
+                  audio: localAudio ?? uri,
                   msAudioDuration: duration,
                 }
               : m,
@@ -1305,8 +1301,9 @@ export default function ChatScreen() {
     // GIF is a media-first type: the picker returns type 'gif' with an
     // animated asset; it uploads as image/gif, persists as a .gif local file
     // (animation survives caching), and renders as a compact animated bubble.
-    const mediaType = attachType as 'image' | 'video' | 'gif' | 'document';
+    const mediaType = attachType as 'image' | 'video' | 'gif' | 'sticker' | 'document';
     const isGif = mediaType === 'gif';
+    const isSticker = mediaType === 'sticker';
     // FILE TYPE for this message — derived from the attachment's MIME/filename
     // so the Auth Tree carries the on-disk format alongside the message type.
     const sendFileType =
@@ -1321,14 +1318,14 @@ export default function ChatScreen() {
       text: confirmed.caption ?? '',
       createdAt: now,
       user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
-      image: (mediaType === 'image' || isGif) ? uri : undefined,
+      image: (mediaType === 'image' || isGif || isSticker) ? uri : undefined,
       video: mediaType === 'video' ? uri : undefined,
       msMediaType: mediaType as MsMessage['msMediaType'],
       msFileType: sendFileType,
       msMediaStatus: 'local',
       msFileName: mediaType === 'document' ? confirmed.fileName : undefined,
       msFileSize: mediaType === 'document' ? confirmed.fileSize : undefined,
-      msMimeType: (mediaType === 'document' || isGif) ? confirmed.mimeType : undefined,
+      msMimeType: (mediaType === 'document' || isGif || isSticker) ? confirmed.mimeType : undefined,
       sent: false,
       pending: true,
     };
@@ -1339,9 +1336,14 @@ export default function ChatScreen() {
         mediaType === 'image'
           ? (confirmed.mimeType?.startsWith('image/') ? confirmed.mimeType : 'image/jpeg')
         : isGif ? (confirmed.mimeType || 'image/gif')
+        : isSticker ? (confirmed.mimeType || 'image/webp')
         : mediaType === 'video' ? 'video/mp4'
         : (confirmed.mimeType || 'application/octet-stream');
-      const uploaded = await uploadMedia(uri, mime, isGif ? 'photo.gif' : undefined);
+      const uploaded = await uploadMedia(
+        uri,
+        mime,
+        isGif ? confirmed.fileName : isSticker ? confirmed.fileName : confirmed.fileName,
+      );
         const res = await sendToRoom(
           confirmed.caption,
           uploaded.url,
@@ -1351,9 +1353,16 @@ export default function ChatScreen() {
             fileName: confirmed.fileName,
             fileSize: confirmed.fileSize,
             mimeType: mime,
+            clientMessageId: tempId,
           },
         );
       const conf = toMsMessage(res.message, user?.id ?? '');
+      // Authoritative server confirmation — persist the message row NOW (see
+      // the text path for why local durability must not depend on the echo).
+      // Without this, a confirmed image could vanish on re-entry whenever the
+      // socket echo was missed — the exact "image disappears / only appears
+      // after another text message" bug.
+      cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
       // Persist the original local picker file into the room's media dir
       // instead of discarding the temporary URI.
       const localFile = await persistLocalMedia(chatRoomId, String(res.message.id), uri, {
@@ -1371,9 +1380,9 @@ export default function ChatScreen() {
                 ...finalizeTemp(conf, tempId),
                 msFileType: sendFileType,
                 msMediaStatus: 'local' as const,
-                localUri: null,
-                image: (mediaType === 'image' || isGif) ? uri : conf.image,
-                video: mediaType === 'video' ? uri : conf.video,
+                localUri: localFile ?? uri,
+                image: (mediaType === 'image' || isGif || isSticker) ? (localFile ?? uri) : conf.image,
+                video: mediaType === 'video' ? (localFile ?? uri) : conf.video,
                 msFileName: mediaType === 'document' ? (conf.msFileName ?? confirmed.fileName) : conf.msFileName,
                 msFileSize: mediaType === 'document' ? (conf.msFileSize ?? confirmed.fileSize) : conf.msFileSize,
                 msMimeType: mediaType === 'document' ? (conf.msMimeType ?? mime) : conf.msMimeType,
@@ -1622,8 +1631,8 @@ export default function ChatScreen() {
       return { ...prev, [msgId]: next };
     });
 
-    // Persist to backend — tempId messages (optimistic) have no real ID yet
-    if (!msgId.startsWith('temp_')) {
+    // Persist only messages that already have a durable server identity.
+    if (!msg.pending && !msgId.startsWith('msg_')) {
       toggleRoomReaction(chatRoomId, msgId, emoji).then((result) => {
         // Sync server reaction state
         if (result?.reactions) {
@@ -1772,23 +1781,26 @@ export default function ChatScreen() {
     // Text retry — only requires the text body.
     if (!isMedia) {
       if (!failedMsg.text) return;
-      const tempId = `temp_${Date.now()}`;
+      const clientMessageId = failedMsg.msServerId ?? failedMsg._id;
       setMessages((prev) =>
         prev.map((m) =>
           m._id === failedMsg._id
-            ? { ...m, _id: tempId, pending: true, sent: false }
+            ? { ...m, pending: true, sent: false }
             : m,
         ),
       );
       try {
-        const res = await sendToRoom(failedMsg.text);
+        const res = await sendToRoom(failedMsg.text, undefined, undefined, {
+          clientMessageId,
+          replyToId: failedMsg.replyToId ?? undefined,
+        });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? finalizeTemp(confirmed, tempId) : m),
+          prev.map((m) => m._id === failedMsg._id ? finalizeTemp(confirmed, failedMsg._id, failedMsg.replyMessage) : m),
         );
       } catch {
         setMessages((prev) =>
-          prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+          prev.map((m) => m._id === failedMsg._id ? { ...m, pending: false, sent: false } : m),
         );
       }
       return;
@@ -1804,11 +1816,11 @@ export default function ChatScreen() {
       : mediaType === 'audio' ? failedMsg.audio
       : null;
 
-    const tempId = `temp_${Date.now()}`;
+    const clientMessageId = failedMsg.msServerId ?? failedMsg._id;
     setMessages((prev) =>
       prev.map((m) =>
         m._id === failedMsg._id
-          ? { ...m, _id: tempId, pending: true, sent: false }
+          ? { ...m, pending: true, sent: false }
           : m,
       ),
     );
@@ -1841,6 +1853,9 @@ export default function ChatScreen() {
           fileSize: failedMsg.msFileSize ?? undefined,
           mimeType: mime ?? undefined,
           audioDuration: failedMsg.msAudioDuration ?? undefined,
+          fileType: failedMsg.msFileType ?? undefined,
+          isVoiceNote: failedMsg.msIsVoiceNote,
+          clientMessageId,
         },
       );
       const conf = toMsMessage(res.message, user?.id ?? '');
@@ -1848,9 +1863,9 @@ export default function ChatScreen() {
       // with the local file immediately, matching the original send path.
       setMessages((prev) =>
         prev.map((m) =>
-          m._id === tempId
+          m._id === failedMsg._id
             ? {
-                ...finalizeTemp(conf, tempId),
+                ...finalizeTemp(conf, failedMsg._id, failedMsg.replyMessage),
                 msMediaType: (mediaType ?? conf.msMediaType) as MsMessage['msMediaType'],
                 localUri: failedMsg.localUri ?? conf.localUri ?? null,
                 image: (mediaType === 'image' || mediaType === 'gif') ? (failedMsg.localUri ?? conf.image ?? undefined) : conf.image,
@@ -1862,7 +1877,7 @@ export default function ChatScreen() {
       );
     } catch {
       setMessages((prev) =>
-        prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+        prev.map((m) => m._id === failedMsg._id ? { ...m, pending: false, sent: false } : m),
       );
     } finally {
       setUploadingMedia(false);
@@ -1888,29 +1903,82 @@ export default function ChatScreen() {
     });
   }, []);
 
-  // ── Sticker pick — send the emoji immediately as a sticker message ─────────────
-  // A single-emoji text message renders as a floating large-emoji sticker
-  // (MsChatBubble → isSticker). Sending through handleSend keeps the same
-  // optimistic path as any text message: instant, server-confirmed in the
-  // background, persisted in the local cache, available on reopen.
-  const handleStickerPick = useCallback((emoji: string) => {
+  const handleNativeStickerPick = useCallback((picked: GiphyPickResult) => {
+    setShowStickers(false);
+    setInlineAttachment({
+      type: 'sticker',
+      uri: picked.uri,
+      mimeType: picked.mimeType,
+      fileName: picked.fileName,
+      fileSize: picked.fileSize,
+    });
+  }, []);
+
+  // Legacy text stickers remain readable for old cached/emitted content. New
+  // selections are binary GIPHY media and use the attachment pipeline.
+  const sendSticker = useCallback(async (emoji: string) => {
+    if (!chatRoomId || isBlocked) return;
+    const tempId = createClientMessageId();
+    const now = new Date();
+    const optimistic: MsMessage = {
+      _id: tempId,
+      id: tempId,
+      chatRoomId,
+      messageType: 'sticker',
+      text: emoji,
+      createdAt: now,
+      user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
+      msMediaType: 'sticker',
+      msStickerImage: true,
+      sent: false,
+      pending: true,
+    } as any;
+    setMessages((prev) => (Chat.append as any)(prev, [optimistic]));
+    try {        const res = await sendToRoom(emoji, undefined, 'sticker', { clientMessageId: tempId });
+      const confirmed = toMsMessage(res.message, user?.id ?? '');
+      // Authoritative server confirmation — persist the row now (same
+      // durability rule as every other send path).
+      cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id === tempId
+            ? { ...finalizeTemp(confirmed, tempId), messageType: 'sticker' as const, msMediaType: 'sticker' as const, msStickerImage: true }
+            : m,
+        ),
+      );
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
+      );
+    }
+  }, [chatRoomId, isBlocked, user?.id, sendToRoom]);
+
+  const handleStickerPick = useCallback((result: AttachmentResult) => {
     setShowAttach(false);
-    handleSend({ text: emoji });
-  }, [handleSend]);
+    handleAttachmentResult(result);
+  }, [handleAttachmentResult]);
 
   // ── Send with inline attachment — upload and dispatch ────────────────────────
   const handleSendWithAttachment = useCallback(async (payload: AttachmentSendPayload) => {
-    setInlineAttachment(null);
-    // Re-use the confirmed attachment flow with the payload data
-    await handleAttachmentConfirmed({
-      uri: payload.uri,
-      type: payload.type,
-      mimeType: payload.mimeType,
-      fileName: payload.fileName,
-      fileSize: payload.fileSize,
-      duration: payload.duration,
-      caption: payload.caption,
-    });
+    // Keep the staged attachment + send button VISIBLE while the upload runs
+    // (the optimistic bubble is appended immediately by
+    // handleAttachmentConfirmed). Clearing inlineAttachment here would flip
+    // `hasContent` to false mid-upload — the mic would replace the send
+    // button and the composer would look broken for the whole upload. It is
+    // cleared only when the send settles (success or failure).
+    try {
+      await handleAttachmentConfirmed({
+        uri: payload.uri,
+        type: payload.type,
+        mimeType: payload.mimeType,
+        fileName: payload.fileName,
+        fileSize: payload.fileSize,
+        duration: payload.duration,
+        caption: payload.caption,
+      });
+    } finally {
+      setInlineAttachment(null);
+    }
   }, [handleAttachmentConfirmed]);
 
   // ── Merge local reactions into messages ───────────────────────────────────────
@@ -1925,6 +1993,31 @@ export default function ChatScreen() {
   );
 
   const currentUserId = user?.id ?? '';
+
+  // ── Stable input-bar callbacks ──────────────────────────────────────────────
+  // MsChatInputBar is memoized, so every prop MUST be referentially stable
+  // between renders. Passing inline arrows here would re-render the entire
+  // composer on EVERY realtime message / poll / keystroke — the source of the
+  // "attaching an image makes the composer laggy and unstable" bug. All
+  // handlers below are hoisted into useCallback and reused in renderInputToolbar.
+  const onClearReplyPress = useCallback(() => setReplyMessage(null), []);
+  const onCancelEditPress = useCallback(() => {
+    setEditingMsg(null);
+    setInputText('');
+  }, []);
+  const onAttachPress = useCallback(() => setShowAttach(true), []);
+  const onStickerPress = useCallback(() => setShowStickers(true), []);
+  const onRemoveInlineAttachment = useCallback(() => setInlineAttachment(null), []);
+  const onEditInlineAttachment = useCallback(() => setShowInlineImagePreview(true), []);
+  const onRecordingStateChange = useCallback((recording: boolean) => {
+    if (!chatRoomId) return;      // Realtime: the other participant sees the recording state immediately
+
+    // (ephemeral, no DB write). No HTTP fallback — recording is purely live
+    // state.
+    realtime.relay(`chat:${chatRoomId}`, recording
+      ? REALTIME_EVENT.chatRecordingStarted
+      : REALTIME_EVENT.chatRecordingStopped, { userId: user?.id });
+  }, [chatRoomId, user?.id]);
 
   // Scroll the chat to a specific message by id (best-effort). Used when the
   // user taps a quoted-reply preview or a search match to locate the original.
@@ -2137,25 +2230,19 @@ export default function ChatScreen() {
             onSend={handleSend}
             onVoiceReady={handleVoiceReady}
             replyMessage={replyMessage}
-            onClearReply={() => setReplyMessage(null)}
+            onClearReply={onClearReplyPress}
             editingMessage={editingMsg}
-            onCancelEdit={() => { setEditingMsg(null); setInputText(''); }}
-            onAttachPress={() => setShowAttach(true)}
+            onCancelEdit={onCancelEditPress}
+            onAttachPress={onAttachPress}
             onCameraPress={handleCameraPress}
-            disabled={uploadingMedia || isBlocked}
+            onStickerPress={onStickerPress}
+            disabled={isBlocked}
+            sending={uploadingMedia}
             inlineAttachment={inlineAttachment}
-            onRemoveInlineAttachment={() => setInlineAttachment(null)}
-            onEditInlineAttachment={() => setShowInlineImagePreview(true)}
+            onRemoveInlineAttachment={onRemoveInlineAttachment}
+            onEditInlineAttachment={onEditInlineAttachment}
             onSendWithAttachment={handleSendWithAttachment}
-            onRecordingStateChange={(recording) => {
-              if (!chatRoomId) return;
-              // Realtime: the other participant sees the recording state
-              // immediately (ephemeral, no DB write). No HTTP fallback —
-              // recording is purely live state.
-              realtime.relay(`chat:${chatRoomId}`, recording
-                ? REALTIME_EVENT.chatRecordingStarted
-                : REALTIME_EVENT.chatRecordingStopped, { userId: user?.id });
-            }}
+            onRecordingStateChange={onRecordingStateChange}
           />
         )}
 
@@ -2165,14 +2252,20 @@ export default function ChatScreen() {
       />
 
       {/* ── Attachment sheet ─────────────────────────────────────────────────── */}
-      {showAttach && (
-        <MsAttachmentSheet
-          visible={showAttach}
-          onClose={() => setShowAttach(false)}
-          onResult={handleAttachmentResult}
-          onSticker={handleStickerPick}
-        />
-      )}
+      <MsAttachmentSheet
+        visible={showAttach}
+        onClose={() => setShowAttach(false)}
+        onResult={handleAttachmentResult}
+        onSticker={handleStickerPick}
+      />
+
+      {/* ── Native GIPHY sticker dialog opened from the composer button ──────── */}
+      <MsGifPicker
+        visible={showStickers}
+        kind="sticker"
+        onClose={() => setShowStickers(false)}
+        onPick={handleNativeStickerPick}
+      />
 
       {/* ── Attachment preview (legacy modal for voice/audio previews) ─────────── */}
       {pendingAttachment && (
@@ -2205,7 +2298,7 @@ export default function ChatScreen() {
           </TouchableOpacity>
 
           {/* Full-resolution image (expo-image animates GIFs) */}
-          {inlineAttachment && (inlineAttachment.type === 'image' || inlineAttachment.type === 'video') && (
+          {inlineAttachment && (inlineAttachment.type === 'image' || inlineAttachment.type === 'video' || inlineAttachment.type === 'gif' || inlineAttachment.type === 'sticker') && (
             <ExpoImage
               source={{ uri: inlineAttachment.uri }}
               style={styles.imgPreviewImg}

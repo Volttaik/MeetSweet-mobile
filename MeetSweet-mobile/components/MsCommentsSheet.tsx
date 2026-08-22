@@ -57,7 +57,6 @@ import {
   likeRoomComment,
   unlikeRoomComment,
   getRoomCommentReplies,
-  checkCommentRoomChanges,
   type CommentRoomComment,
 } from '@/services/comment-room-service';
 import { realtime, REALTIME_EVENT } from '@/services/realtime';
@@ -174,7 +173,6 @@ export function useComments(postId: string) {
   const [loadingMore, setLoadingMore] = useState(false);
   // Realtime: authoritative comment count for the post, updated live by events.
   const [liveCommentCount, setLiveCommentCount] = useState<number | null>(null);
-  const pollMarkerRef = useRef<string | null>(null);
 
   const refresh = useCallback(async (isPullToRefresh = false) => {
     if (isPullToRefresh) setIsRefreshing(true);
@@ -213,7 +211,6 @@ export function useComments(postId: string) {
         return merged.filter((c) => (seen.has(c.id) ? false : !!seen.add(c.id)));
       });
       setHasMore(res.hasMore);
-      pollMarkerRef.current = res.comments[0]?.id ?? null;
     } catch {
       setError('Could not load comments.');
     } finally {
@@ -247,25 +244,8 @@ export function useComments(postId: string) {
     refresh();
   }, [refresh]);
 
-  // Poll active comment room for updates (fallback — skipped while the
-  // realtime socket is connected; the WebSocket is the primary live path).
-  useEffect(() => {
-    if (!commentRoomId) return;
-    const interval = setInterval(async () => {
-      if (realtime.isOpen()) return;
-      const changes = await checkCommentRoomChanges(commentRoomId, pollMarkerRef.current).catch(() => null);
-      if (!changes || !changes.changed) return;
-      pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
-      const fresh = changes.comments;
-      if (!fresh?.length) return;
-      setComments((prev) => {
-        const existingIds = new Set(prev.map((c) => c.id));
-        const newOnes = fresh.map(toLocalComment).filter((c) => !existingIds.has(c.id));
-        return newOnes.length ? [...newOnes, ...prev] : prev;
-      });
-    }, 10_000);
-    return () => clearInterval(interval);
-  }, [commentRoomId]);
+  // SweetSocket owns live comment updates. HTTP remains for initial hydration,
+  // pagination, pull-to-refresh, and explicit mutations.
 
   // Realtime: live comments for this post (comment room id == post id). New,
   // edited and deleted comments propagate instantly to everyone viewing the

@@ -60,9 +60,9 @@ import {
   deleteRoomComment,
   likeRoomComment,
   unlikeRoomComment,
-  checkCommentRoomChanges,
   type CommentRoomComment,
 } from '@/services/comment-room-service';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -254,7 +254,6 @@ export function MsCommentRoomPanel({
   const [replyingTo, setReplyingTo] = useState<CommentRoomComment | null>(null);
   const [sending, setSending] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const pollMarkerRef = useRef<string | null>(null);
 
   // Push/reduce animation: when the panel opens, the post content above is
   // pushed upward (translateY) and its visible height reduced (scaleY).
@@ -333,7 +332,6 @@ export function MsCommentRoomPanel({
         const seen = new Set<string>();
         return merged.filter((c) => (seen.has(c.id) ? false : !!seen.add(c.id)));
       });
-      pollMarkerRef.current = res.comments[0]?.id ?? null;
       setLoadError('');
     } catch {
       setLoadError('Could not load comments');
@@ -346,26 +344,36 @@ export function MsCommentRoomPanel({
     loadComments();
   }, [loadComments]);
 
-  // Poll ONLY this Comment Room (incremental change marker, serverless).
-  // New comments appear without manual refresh. No typing indicators.
+  // SweetSocket is the live transport for this comment room. HTTP is used
+  // only for initial hydration and explicit mutations.
   useEffect(() => {
     if (!commentRoomId) return;
-    const interval = setInterval(async () => {
-      const changes = await checkCommentRoomChanges(
-        commentRoomId,
-        pollMarkerRef.current,
-      ).catch(() => null);
-      if (!changes || !changes.changed) return;
-      pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
-      const fresh = changes.comments;
-      if (!fresh?.length) return;
-      setComments((prev) => {
-        const existingIds = new Set(prev.map((c) => c.id));
-        const newOnes = fresh.filter((c) => !existingIds.has(c.id));
-        return newOnes.length ? [...newOnes, ...prev] : prev;
-      });
-    }, 10_000);
-    return () => clearInterval(interval);
+    const channel = `post:${commentRoomId}`;
+    realtime.subscribe(channel);
+    const offCreated = realtime.on(REALTIME_EVENT.postCommentCreated, (event) => {
+      const payload = event.payload as { comment?: CommentRoomComment };
+      if (!payload.comment?.id) return;
+      setComments((prev) => prev.some((item) => item.id === payload.comment!.id)
+        ? prev
+        : [payload.comment!, ...prev]);
+    });
+    const offUpdated = realtime.on(REALTIME_EVENT.postCommentUpdated, (event) => {
+      const payload = event.payload as { commentId?: string; body?: string; replyCount?: number };
+      if (!payload.commentId) return;
+      setComments((prev) => prev.map((item) => item.id === payload.commentId
+        ? { ...item, body: payload.body ?? item.body, replyCount: payload.replyCount ?? item.replyCount }
+        : item));
+    });
+    const offDeleted = realtime.on(REALTIME_EVENT.postCommentDeleted, (event) => {
+      const payload = event.payload as { commentId?: string };
+      if (payload.commentId) setComments((prev) => prev.filter((item) => item.id !== payload.commentId));
+    });
+    return () => {
+      realtime.unsubscribe(channel);
+      offCreated();
+      offUpdated();
+      offDeleted();
+    };
   }, [commentRoomId]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -464,7 +472,6 @@ export function MsCommentRoomPanel({
       const next = [result.comment, ...comments];
       const seen = new Set<string>();
       setComments(next.filter((c) => (seen.has(c.id) ? false : !!seen.add(c.id))));
-      pollMarkerRef.current = result.comment.id ?? pollMarkerRef.current;
       setDraft('');
       setReplyingTo(null);
     } catch {

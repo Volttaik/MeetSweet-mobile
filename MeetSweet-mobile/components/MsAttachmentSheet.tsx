@@ -1,9 +1,9 @@
 /**
- * MsAttachmentSheet — media-selection action sheet.
+ * MsAttachmentSheet — media-selection action sheet, 4-column grid.
  *
- * GIFs are picked through the photo library like any image; the MIME type is
- * derived from the asset (or its file name) so an animated GIF uploads as
- * image/gif and renders as an animated bubble.
+ * GIFs and stickers use the official native GIPHY SDK. They are separate
+ * content types and both return binary media attachments; neither uses the
+ * device emoji keyboard or the photo picker.
  *
  * Deep-black, high-contrast bottom sheet. Solid surface (no glass / no blur /
  * no translucent backdrop effects). Smooth spring slide-up and timing slide-
@@ -18,6 +18,7 @@ import {
   Dimensions,
   Easing,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -39,7 +40,7 @@ import {
 import { T } from '@/constants/theme';
 import { MsPressable } from '@/components/MsPressable';
 import { dialogs } from '@/components/MsGlobalDialogs';
-import { MsStickerSheet } from '@/components/chat/MsStickerSheet';
+import { MsGifPicker, type GiphyPickResult } from '@/components/chat/MsGifPicker';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -64,7 +65,7 @@ function mimeFromAsset(asset: {
 }
 
 export interface AttachmentResult {
-  type: 'image' | 'video' | 'audio' | 'document' | 'gif';
+  type: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -76,8 +77,8 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onResult: (result: AttachmentResult) => void;
-  /** Called when the user picks an emoji sticker — the parent sends it instantly. */
-  onSticker?: (emoji: string) => void;
+  /** Called when the user picks a native GIPHY sticker. */
+  onSticker?: (result: AttachmentResult) => void;
 }
 
 export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Props) {
@@ -182,41 +183,34 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
     }
   };
 
-  const [showStickers, setShowStickers] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
 
   const pickGif = async () => {
     onClose();
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      dialogs.alert({ title: 'Permission required', message: 'Please allow access to your photo library.' });
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
-    const mime = mimeFromAsset(asset);
-    const name = (asset.fileName ?? '').toLowerCase();
-    const isGif = mime === 'image/gif' || name.endsWith('.gif') || String(asset.uri).toLowerCase().endsWith('.gif');
-    if (!isGif) {
-      // The system picker can't filter to GIFs — guide the user instead of
-      // silently converting a static photo into a GIF-typed message.
-      dialogs.alert({
-        variant: 'info',
-        title: 'Pick a GIF',
-        message: 'Choose an animated GIF from your library to send a GIF message.',
-      });
-      return;
-    }
+    setShowGifPicker(true);
+  };
+
+  const handleGifPick = (picked: GiphyPickResult) => {
+    setShowGifPicker(false);
     onResult({
-      type: 'gif',
-      uri: asset.uri,
-      mimeType: mime,
-      fileName: asset.fileName ?? 'photo.gif',
-      fileSize: asset.fileSize,
+      type: picked.kind,
+      uri: picked.uri,
+      mimeType: picked.mimeType,
+      fileName: picked.fileName,
+      fileSize: picked.fileSize,
+    });
+  };
+
+  const handleStickerPick = (picked: GiphyPickResult) => {
+    setShowStickerPicker(false);
+    onSticker?.({
+      type: 'sticker',
+      uri: picked.uri,
+      mimeType: picked.mimeType,
+      fileName: picked.fileName,
+      fileSize: picked.fileSize,
     });
   };
 
@@ -246,17 +240,12 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
   const OPTIONS = [
     { icon: ImageIcon,     label: 'Photo',    color: '#4CAF82', onPress: pickImage    },
     { icon: GifIcon,       label: 'GIF',      color: '#FF4D8D', onPress: pickGif      },
-    { icon: SmileySticker, label: 'Sticker',  color: '#F59E0B', onPress: () => { onClose(); setShowStickers(true); } },
+    { icon: SmileySticker, label: 'Sticker',  color: '#F59E0B', onPress: () => { onClose(); setShowStickerPicker(true); } },
     { icon: Video,         label: 'Video',    color: '#9B6ECA', onPress: pickVideo    },
     { icon: Camera,        label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
     { icon: Waveform,      label: 'Audio',    color: '#FF9800', onPress: pickAudio    },
     { icon: File,          label: 'Document', color: '#2196F3', onPress: pickDocument },
   ];
-
-  const handleStickerPick = (emoji: string) => {
-    setShowStickers(false);
-    onSticker?.(emoji);
-  };
 
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(SCREEN_H)).current;
@@ -320,7 +309,11 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
         <View style={[s.surface, { paddingBottom }]}>
           <View style={s.handle} />
           <Text style={s.title}>Share</Text>
-          <View style={s.grid}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={s.grid}
+            style={s.gridScroll}
+          >
             {OPTIONS.map((opt) => (
               <MsPressable
                 key={opt.label}
@@ -334,14 +327,23 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
                 <Text style={s.itemLabel}>{opt.label}</Text>
               </MsPressable>
             ))}
-          </View>
+          </ScrollView>
         </View>
       </Animated.View>
 
-      {/* Emoji sticker picker — sends the picked emoji instantly as a sticker. */}
-      <MsStickerSheet
-        visible={showStickers}
-        onClose={() => setShowStickers(false)}
+      {/* Official native GIPHY GIF dialog. */}
+      <MsGifPicker
+        visible={showGifPicker}
+        kind="gif"
+        onClose={() => setShowGifPicker(false)}
+        onPick={handleGifPick}
+      />
+
+      {/* Official native GIPHY sticker dialog. */}
+      <MsGifPicker
+        visible={showStickerPicker}
+        kind="sticker"
+        onClose={() => setShowStickerPicker(false)}
         onPick={handleStickerPick}
       />
     </Modal>
@@ -386,23 +388,29 @@ const s = StyleSheet.create({
     marginBottom: 26,
     letterSpacing: 0.2,
   },
+  gridScroll: {
+    maxHeight: 260,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14,
     paddingBottom: 8,
   },
+  // Exactly 4 columns: each cell is 25% of the sheet width with consistent
+  // icon sizing, spacing and touch targets. Rows wrap; the sheet scrolls if
+  // there are ever more actions than fit on screen.
   item: {
-    width: '31%',
+    width: '25%',
     alignItems: 'center',
-    gap: 11,
+    gap: 10,
+    paddingVertical: 6,
   },
   // High-contrast icon tiles that pop against the black surface. Solid-ish tint
   // background + bright duotone icon keeps each action clearly legible.
   iconWrap: {
-    width: 66,
-    height: 66,
-    borderRadius: 20,
+    width: 62,
+    height: 62,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

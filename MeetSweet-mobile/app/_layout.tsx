@@ -196,8 +196,8 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <AuthProvider>
                   <WalletProvider>
-                    <NotificationsProvider>
-                      <PostActionsProvider>
+                    <PostActionsProvider>
+                      <NotificationsProvider>
                         <GlobalScreenProtection />
                         <AppServices />
                         <RootLayoutNav />
@@ -205,8 +205,8 @@ export default function RootLayout() {
                         <MsToastHost />
                         <MsGlobalDialogsHost />
                         <HapticsGate />
-                      </PostActionsProvider>
-                    </NotificationsProvider>
+                      </NotificationsProvider>
+                    </PostActionsProvider>
                   </WalletProvider>
                 </AuthProvider>
               </KeyboardProvider>

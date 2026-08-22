@@ -279,6 +279,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.isAuthenticated, state.user?.id]);
 
+  // SweetSocket is also a session boundary. If the server invalidates the
+  // session while the app is open, clear protected local state and leave the
+  // authenticated navigation stack immediately; do not let the UI continue
+  // rendering under a dead UID.
+  useEffect(() => {
+    const offExpired = realtime.on('auth:session:expired', () => {
+      clearAuth().finally(() => {
+        if (router.canDismiss()) router.dismissAll();
+        router.replace('/auth');
+      });
+    });
+    return offExpired;
+  }, [clearAuth]);
+
   const login = useCallback(async (data: LoginData): Promise<LoginResult> => {
     await clearSessionStorage().catch(() => {});
     // A fresh login starts a clean account scope. Wipe any chat cache left over

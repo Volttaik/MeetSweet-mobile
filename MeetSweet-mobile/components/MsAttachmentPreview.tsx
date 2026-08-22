@@ -60,7 +60,7 @@ function formatFileSize(bytes: number): string {
 export interface PendingAttachment {
   // 'gif' is supported as a media-first type (renders through the image path);
   // the preview modal renders it with expo-image which animates GIFs.
-  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif';
+  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif' | 'sticker';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -219,6 +219,8 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
     : attachment.type === 'audio' ? 'Audio'
     : attachment.type === 'document' ? 'Document'
     : attachment.type === 'video' ? 'Video'
+    : attachment.type === 'gif' ? 'GIF'
+    : attachment.type === 'sticker' ? 'Sticker'
     : 'Photo';
 
   return (

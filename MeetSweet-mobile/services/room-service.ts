@@ -37,8 +37,8 @@
  *   POST   /api/chat-rooms/:chatRoomId/messages            → { message: {...} }
  *   POST   /api/chat-rooms/:chatRoomId/read
  *   POST   /api/chat-rooms/:chatRoomId/clear
- *   GET    /api/chat-rooms/:chatRoomId/changes?since=<marker>
- *          → { changed, marker, messages?: [...] }
+ *
+ * Live message, typing, presence, and read events arrive through SweetSocket.
  *   DELETE /api/chat-rooms/:chatRoomId/messages/:messageId
  *   PATCH  /api/chat-rooms/:chatRoomId/messages/:messageId  { body }
  *   POST   /api/chat-rooms/:chatRoomId/messages/:messageId/reactions  { emoji }
@@ -57,8 +57,8 @@
  * working during the migration; context sync is additive, never required.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from './api';
+import { realtime } from './realtime';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ export interface ChatRoom {
   participants: RoomParticipant[];
   /** Change marker — backend increments this when room content changes. */
   updatedAt?: string;
-  /** Latest message id — used as an incremental marker for polling. */
+  /** Latest message id for local ordering and reconciliation. */
   lastMessageId?: string | null;
   /** Media type of the latest message (chat list contextual preview). */
   lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
@@ -165,17 +165,6 @@ export interface RoomMessage {
   } | null;
 }
 
-/** Incremental change-check result. */
-export interface RoomChanges {
-  changed: boolean;
-  /** Marker to pass back as `since` on the next check. */
-  marker: string | null;
-  /** New messages since the marker (only when `after` style fetch is used). */
-  messages?: RoomMessage[];
-  /** IDs of users currently typing in this room (server-reported). */
-  typing?: string[];
-}
-
 /**
  * contextAuth — the SERVER-CONTROLLED message membership map for one user's
  * context inside a room. This is NOT a room id, NOT a context id, and NOT a
@@ -224,6 +213,8 @@ export interface RoomContext {
 
 /** Payload for sending a message into a room. */
 export interface SendRoomMessagePayload {
+  /** Stable ID generated before rendering the optimistic message. */
+  clientMessageId?: string;
   body?: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
@@ -618,19 +609,17 @@ function normalizeRoomContext(raw: any, chatRoomId: string): RoomContext {
 }
 
 /**
- * GET messages for a room. `before` = older pagination cursor,
- * `after` = incremental fetch cursor (see checkRoomChanges).
- * GET /api/chat-rooms/:chatRoomId/messages?before=&after=
+ * GET messages for a room. `before` is the explicit older-history cursor.
+ * GET /api/chat-rooms/:chatRoomId/messages?before=
  */
 export async function getRoomMessages(
   chatRoomId: string,
-  opts?: { before?: string; after?: string },
+  opts?: { before?: string },
 ): Promise<{ messages: RoomMessage[]; hasMore: boolean }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
   const params: string[] = [];
   if (opts?.before) params.push(`before=${encodeURIComponent(opts.before)}`);
-  if (opts?.after) params.push(`after=${encodeURIComponent(opts.after)}`);
   const qs = params.length > 0 ? `?${params.join('&')}` : '';
   const raw = await apiFetch<{ messages: unknown[]; hasMore?: boolean; has_more?: boolean }>(
     `/chat-rooms/${encodeURIComponent(chatRoomId)}/messages${qs}`,
@@ -652,12 +641,42 @@ export async function sendRoomMessage(
 ): Promise<{ message: RoomMessage }> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
+
+  // Generate the identity before choosing the transport. Both SweetSocket and
+  // the HTTP fallback must send the same ID so reconnects/retries are
+  // idempotent even when the caller is an offline queue or older feature code.
+  const clientMessageId = payload.clientMessageId
+    ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+
+  // SweetSocket is the primary command path. HTTP remains the durable fallback
+  // for an offline/backgrounded socket and uses the same client ID, so a retry
+  // cannot create a second server message.
+  if (realtime.isOpen()) {
+    const ack = await realtime.emit('message.send', {
+      body: payload.body,
+      mediaUrl: payload.mediaUrl,
+      mediaType: payload.mediaType,
+      caption: payload.caption,
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
+      mimeType: payload.mimeType,
+      audioDuration: payload.audioDuration,
+      fileType: payload.fileType,
+      isVoiceNote: payload.isVoiceNote,
+      replyToId: payload.replyToId,
+    }, { channel: `chat:${chatRoomId}`, clientMessageId });
+    const eventMessage = ack.event?.payload?.message;
+    if (eventMessage) return { message: normalizeMessage(eventMessage) };
+    throw new Error(ack.error ?? 'SweetSocket did not return the persisted message');
+  }
+
   const raw = await apiFetch<{ message: unknown }>(
     `/chat-rooms/${encodeURIComponent(chatRoomId)}/messages`,
     {
       method: 'POST',
       headers: authHeader(token),
       body: JSON.stringify({
+        client_message_id: clientMessageId,
         body: payload.body,
         media_url: payload.mediaUrl,
         media_type: payload.mediaType,
@@ -702,36 +721,6 @@ export async function clearChatRoom(chatRoomId: string): Promise<void> {
     method: 'POST',
     headers: authHeader(token),
   });
-}
-
-/**
- * Lightweight change check for ONE room. Serverless philosophy: no typing
- * indicators, no presence, no live cursor — only the currently-viewed room is
- * polled, and only this cheap endpoint is hit. Returns whether new content
- * exists since the caller's marker (lastMessageId / updatedAt).
- * GET /api/chat-rooms/:chatRoomId/changes?since=<marker>
- */
-export async function checkRoomChanges(
-  chatRoomId: string,
-  marker: string | null,
-): Promise<RoomChanges> {
-  const token = await getToken();
-  if (!token) return { changed: false, marker };
-
-  const qs = marker ? `?since=${encodeURIComponent(marker)}` : '';
-  const raw = await apiFetch<RoomChanges & { has_changes?: boolean }>(
-    `/chat-rooms/${encodeURIComponent(chatRoomId)}/changes${qs}`,
-    { headers: authHeader(token) },
-  ).catch((): RoomChanges => ({ changed: false, marker }));
-
-  const changed = raw?.changed ?? (raw as { has_changes?: boolean }).has_changes ?? false;
-  const typingChanged = (raw as any)?.typing && (raw as any).typing.length > 0;
-  return {
-    changed: Boolean(changed) || typingChanged,
-    marker: raw?.marker ?? marker,
-    messages: raw?.messages ?? undefined,
-    typing: (raw as any)?.typing ?? undefined,
-  };
 }
 
 // ─── Room-scoped message lifecycle (per-message ops stay under the room) ──────
@@ -839,34 +828,6 @@ export async function deleteChatRoom(chatRoomId: string): Promise<void> {
     method: 'DELETE',
     headers: authHeader(token),
   });
-}
-
-// ─── Typing broadcast ───────────────────────────────────────────────────────
-
-/**
- * Broadcast "I'm typing" for a chat room.
- * POST /api/chat-rooms/:chatRoomId/typing
- */
-export async function broadcastTyping(chatRoomId: string): Promise<void> {
-  const token = await getToken();
-  if (!token) return;
-  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/typing`, {
-    method: 'POST',
-    headers: authHeader(token),
-  }).catch(() => {});
-}
-
-/**
- * Clear typing state for a room (user stopped typing / sent / left).
- * DELETE /api/chat-rooms/:chatRoomId/typing
- */
-export async function clearTyping(chatRoomId: string): Promise<void> {
-  const token = await getToken();
-  if (!token) return;
-  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/typing`, {
-    method: 'DELETE',
-    headers: authHeader(token),
-  }).catch(() => {});
 }
 
 // ─── Re-exported user search (room entry points use the same user search) ─────

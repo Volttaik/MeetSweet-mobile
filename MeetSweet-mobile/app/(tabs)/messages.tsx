@@ -56,6 +56,12 @@ import {
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
+import {
+  realtime,
+  REALTIME_EVENT,
+  type RealtimeEvent,
+} from '@/services/realtime';
+import { normalizeMessage } from '@/services/room-service';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -371,11 +377,9 @@ export default function MessagesScreen() {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  // Local-first: the chat list NEVER auto-fetches the user's conversation
-  // history from the backend. The 15s background poll (normal sync) only runs
-  // once local chat data exists — after an explicit "Load Chat History" or
-  // after the user starts using chats. Fresh installs stay fresh.
-  const localRoomsExistRef = useRef(false);
+  // Local-first: the chat list paints from its local replica. Live room
+  // metadata arrives over SweetSocket; HTTP is reserved for explicit refresh
+  // and historical restoration.
   const [showMenu, setShowMenu] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState<RestoreProgress | null>(null);
@@ -414,15 +418,13 @@ export default function MessagesScreen() {
           const cached = await getCachedChatRooms(user?.id);
           if (cached.length > 0) {
             setChatRooms(sortRooms(cached));
-            localRoomsExistRef.current = true;
             setListShimmerVisible(false);
           }
         } catch {
           // Cache read failure is non-fatal — fall through.
         }
-        // Normal open: no network request at all. The ONLY network paths for
-        // the All tab are an explicit pull-to-refresh (below) and the gated
-        // background sync poll.
+        // Normal open is local-only. The only network path for the All tab
+        // is an explicit pull-to-refresh.
         if (!showRefresh) {
           setLoading(false);
           setRefreshing(false);
@@ -438,7 +440,6 @@ export default function MessagesScreen() {
         reportNetworkSuccess();
         // Mirror the server list to local storage so the next open is instant.
         if (activeTab === 'All') {
-          if (data.chatRooms.length > 0) localRoomsExistRef.current = true;
           cacheChatRooms(data.chatRooms, user?.id).catch(() => {});
         }
       } catch {
@@ -463,49 +464,76 @@ export default function MessagesScreen() {
     load();
   }, [activeTab]);
 
-  // Refresh the chat list whenever the tab regains focus (e.g. returning from
-  // a chat after sending a message) so the latest message / unread badge shows
-  // immediately instead of waiting for the next 15s poll or a manual pull.
-  // Only fires on an actual unfocused → focused transition (not on tab switch
-  // while already focused, which would double-fetch with the activeTab effect).
   const isFocusedRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
-      if (!isFocusedRef.current && activeTab === 'All') {
-        load();
-      }
       isFocusedRef.current = true;
       return () => {
         isFocusedRef.current = false;
       };
-    }, [activeTab]),
+    }, []),
   );
 
-  // Lightweight room-metadata refresh — the chat list polls ONLY room metadata
-  // (other user, latest message, timestamp, unread count, chatRoomId), never
-  // downloading every room's messages. The poll is GATED on local chat data
-  // existing: a fresh install with no local conversations stays fresh (no
-  // automatic restoration of history). Once the user has restored history or
-  // started using chats, this runs as normal background synchronization — new
-  // rooms and new messages merge in silently.
+  // ── Realtime chat list (WebSocket) ───────────────────────────────────────
+  // The chat list is part of the unified realtime layer: when a new message
+  // arrives in ANY visible conversation, its preview, timestamp and ordering
+  // update IMMEDIATELY over the socket (no refresh or re-open required).
+  // Subscriptions are authorized server-side (chat:{roomId}
+  // membership only) and scoped to the rooms actually on screen.
+  const roomIdsRef = useRef<string[]>([]);
   useEffect(() => {
     if (activeTab !== 'All') return;
-    const interval = setInterval(() => {
-      if (!localRoomsExistRef.current) return;
-      getChatRoomList('all')
-        .then((data) => {
-          setChatRooms((prev) => {
-            const map = new Map(prev.map((r) => [r.chatRoomId, r]));
-            for (const room of data.chatRooms) map.set(room.chatRoomId, room);
-            return sortRooms(Array.from(map.values()));
-          });
-          cacheChatRooms(data.chatRooms, user?.id).catch(() => {});
-        })
-        .catch(() => {});
-    }, 15_000);
-    return () => clearInterval(interval);
-  }, [activeTab]);
+    // Resubscribe whenever the visible room set changes.
+    const ids = chatRooms.map((r) => r.chatRoomId).filter(Boolean);
+    const prev = roomIdsRef.current;
+    for (const id of ids) if (!prev.includes(id)) realtime.subscribe(`chat:${id}`);
+    for (const id of prev) if (!ids.includes(id)) realtime.unsubscribe(`chat:${id}`);
+    roomIdsRef.current = ids;
+  }, [activeTab, chatRooms]);
 
+  const applyRealtimeRoomEvent = useCallback((event: RealtimeEvent) => {
+    if (activeTab !== 'All') return;
+    // The server emits chat.message.created with `channel: chat:{roomId}` —
+    // resourceId is the MESSAGE id. Derive the room from the channel.
+    const roomId = String(event.channel ?? '').replace(/^chat:/, '');
+    if (!roomId) return;
+    const raw = (event.payload as { message?: unknown })?.message;
+    const msg = raw ? normalizeMessage(raw) : null;
+    const senderId = msg?.sender?.id ?? event.userId ?? '';
+    const mine = !!user?.id && senderId === user.id;
+
+    setChatRooms((prev) => {
+      const room = prev.find((r) => r.chatRoomId === roomId);
+      if (!room) return prev;
+      const updated: ChatRoom = {
+        ...room,
+        lastMessageBody: msg?.body ?? room.lastMessageBody,
+        lastMessageAt: msg?.createdAt ?? room.lastMessageAt,
+        lastMessageMediaType: (msg?.mediaType ?? room.lastMessageMediaType ?? null) as ChatRoom['lastMessageMediaType'],
+        lastMessageSenderId: senderId || room.lastMessageSenderId,
+        updatedAt: event.ts ?? room.updatedAt,
+        // Unread only counts messages from the OTHER participant AND only
+        // while the list is actually focused — if the user is inside the
+        // conversation right now (tab blurred), the chat screen marks the
+        // room read itself, so no unread bump here.
+        unreadCount: mine || !isFocusedRef.current ? room.unreadCount : room.unreadCount + 1,
+      };
+      const next = sortRooms(prev.map((r) => (r.chatRoomId === roomId ? updated : r)));
+      // Mirror to the local store so the next open is instant.
+      cacheChatRooms([updated], user?.id).catch(() => {});
+      return next;
+    });
+  }, [activeTab, user?.id]);
+
+  useEffect(() => {
+    if (activeTab !== 'All') return;
+    const offCreated = realtime.on(REALTIME_EVENT.chatMessageCreated, applyRealtimeRoomEvent);
+    const offNew = realtime.on(REALTIME_EVENT.chatMessageNew, applyRealtimeRoomEvent);
+    return () => { offCreated(); offNew(); };
+  }, [activeTab, applyRealtimeRoomEvent]);
+
+  // Room previews are updated by SweetSocket events. HTTP list loading remains
+  // an explicit user-directed hydration path.
   // ── "Load Chat History" — EXPLICIT restore ─────────────────────────────
   // The one and only path that fetches the user's previous conversations from
   // the backend. Local-first means normal Chat access never does this; this is
@@ -523,7 +551,6 @@ export default function MessagesScreen() {
       const cached = await getCachedChatRooms(user?.id).catch(() => []);
       if (cached.length > 0) {
         setChatRooms(sortRooms(cached));
-        localRoomsExistRef.current = true;
         setListShimmerVisible(false);
       }
       dialogs.alert({

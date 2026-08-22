@@ -54,6 +54,7 @@ import {
   Pause,
   PencilSimple,
   Play,
+  SmileySticker,
   Square,
   X,
 } from 'phosphor-react-native';
@@ -72,7 +73,7 @@ export interface PendingVoice {
 
 /** Inline attachment staged above the input before sending */
 export interface InlineAttachment {
-  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif';
+  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif' | 'sticker';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -353,11 +354,11 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
   onRemove,
   onEdit,
 }: {
-  attachment: InlineAttachment | { type: 'gif'; uri: string; title: string };
+  attachment: InlineAttachment;
   onRemove: () => void;
   onEdit?: () => void;
 }) {
-  const isMedia  = attachment.type === 'image' || attachment.type === 'video' || attachment.type === 'gif';
+  const isMedia  = attachment.type === 'image' || attachment.type === 'video' || attachment.type === 'gif' || attachment.type === 'sticker';
   const isDoc    = attachment.type === 'document';
   const fileName = (attachment as InlineAttachment).fileName ?? '';
   const fileSize = (attachment as InlineAttachment).fileSize;
@@ -367,7 +368,10 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
       {isMedia && (
         <View style={sa.mediaThumbnailWrap}>
           <Image
-            source={{ uri: attachment.uri }}
+            // Down-sample at decode time: a freshly-picked 12MP photo must
+            // not be decoded into a 48x48 box on the JS/UI thread — that
+            // stalls the whole composer. width/height are decode hints.
+            source={{ uri: attachment.uri, width: 96, height: 96 }}
             style={sa.mediaThumbnail}
             contentFit="cover"
             transition={120}
@@ -377,9 +381,9 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
               <Play size={12} color="#fff" weight="fill" />
             </View>
           )}
-          {attachment.type === 'gif' && (
+          {(attachment.type === 'gif' || attachment.type === 'sticker') && (
             <View style={sa.gifBadge}>
-              <Text style={sa.gifBadgeText}>GIF</Text>
+              <Text style={sa.gifBadgeText}>{attachment.type === 'gif' ? 'GIF' : 'STICKER'}</Text>
             </View>
           )}
         </View>
@@ -394,7 +398,9 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
       <View style={sa.mediaInfo}>
         <Text style={sa.mediaName} numberOfLines={1}>
           {attachment.type === 'gif'
-            ? ((attachment as any).title || 'GIF')
+            ? 'GIF'
+            : attachment.type === 'sticker'
+            ? 'Sticker'
             : attachment.type === 'image' ? 'Photo'
             : attachment.type === 'video' ? 'Video'
             : fileName}
@@ -429,7 +435,14 @@ interface Props {
   onCancelEdit?: () => void;
   onAttachPress?: () => void;
   onCameraPress?: () => void;
+  /** Opens the sticker picker directly from the composer row. */
+  onStickerPress?: () => void;
+  /** Hard-disable the whole composer (blocked room). */
   disabled?: boolean;
+  /** A media upload is in flight — disable ONLY the send button so the
+   *  composer stays responsive, while the staged attachment + send button
+   *  remain visible (no mid-upload mic swap). */
+  sending?: boolean;
 
   // ── Inline attachment staging (image/video/doc from picker) ──────────────
   /** Pending media attachment to preview above the input */
@@ -456,7 +469,9 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   onCancelEdit,
   onAttachPress,
   onCameraPress,
+  onStickerPress,
   disabled,
+  sending,
   inlineAttachment,
   onRemoveInlineAttachment,
   onEditInlineAttachment,
@@ -1030,6 +1045,13 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           </View>
         )}
 
+        {/* Sticker — opens the sticker picker directly (first-class media type) */}
+        {recState === 'idle' ? (
+          <IconBtn style={s.sideBtn} onPress={onStickerPress} disabled={disabled}>
+            <SmileySticker size={22} color={T.TEXT_2} />
+          </IconBtn>
+        ) : null}
+
         {/* Attach */}
         {recState === 'idle' ? (
           <IconBtn style={s.sideBtn} onPress={onAttachPress} disabled={disabled}>
@@ -1074,7 +1096,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
                 style={[s.rightBtn, s.actionBtn, isEditing && s.actionBtnEdit]}
                 onPress={handleSend}
                 activeOpacity={0.88}
-                disabled={!hasContent || disabled}
+                disabled={!hasContent || disabled || sending}
               >
                 <PaperPlaneRight size={20} color="#fff" weight="fill" />
               </TouchableOpacity>
@@ -1132,7 +1154,10 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root: { backgroundColor: T.BG },
+  // Transparent so the chat wallpaper (MsChatBackground) shows through the
+  // whole composer — message area AND input area share one background layer.
+  // Only the pill and floating preview chips stay opaque for readability.
+  root: { backgroundColor: 'transparent' },
 
   contextBar: {
     flexDirection: 'row',
@@ -1140,7 +1165,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 9,
     gap: 8,
-    backgroundColor: T.SURFACE_2,
+    // Translucent dark so reply/edit banners stay readable over any wallpaper
+    // while the background still shows through around them.
+    backgroundColor: 'rgba(12,12,15,0.72)',
   },
   contextBarText: {
     flex: 1,
@@ -1149,10 +1176,11 @@ const s = StyleSheet.create({
     color: T.TEXT_2,
   },
 
-  // Attachment staging bar
+  // Attachment staging bar — transparent so the wallpaper continues behind
+  // the staged-attachment chips.
   attachmentBarWrap: {
     overflow: 'hidden',
-    backgroundColor: T.BG,
+    backgroundColor: 'transparent',
   },
 
   row: {

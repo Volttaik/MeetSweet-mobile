@@ -25,7 +25,10 @@ async function executeAction(action: OfflineAction): Promise<void> {
       else await unbookmarkPost(action.postId);
       break;
     case 'send_message':
-      await sendRoomMessage(action.chatRoomId, { body: action.text });
+      await sendRoomMessage(action.chatRoomId, {
+        body: action.text,
+        clientMessageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`,
+      });
       break;
   }
 }

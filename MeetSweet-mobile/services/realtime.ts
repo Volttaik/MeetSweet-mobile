@@ -1,186 +1,227 @@
-/**
- * RealtimeClient — the mobile side of the unified WebSocket realtime layer.
- *
- * Connects to the existing backend's WebSocket endpoint (Fluid compute):
- *   wss://<api>/api/realtime?token=<access-token>
- *
- * Responsibilities:
- *   - authenticated connect (token from session storage; refreshed on 4401),
- *   - channel subscribe/unsubscribe with server-side authorization,
- *   - heartbeat (ping) so dead connections are detected and replaced,
- *   - automatic reconnect with exponential backoff (1s → 30s cap),
- *   - resubscribe + missed-event recovery on reconnect (outbox `sync`),
- *   - idempotent delivery: events are deduped by their server event id,
- *   - ephemeral relay (typing / recording / presence) when connected, with
- *     callers falling back to HTTP when the socket is unavailable.
- *
- * The database remains the source of truth: realtime events only NOTIFY the
- * app that something changed. Screens keep their REST/polling paths as a
- * fallback for when the socket is down.
- */
-
+import { AppState, type AppStateStatus } from 'react-native';
 import { getAccessToken, clearSessionStorage } from '@/lib/session-storage';
 import { getApiBase, refreshAccessToken } from '@/services/api';
+import { REALTIME_EVENT, REALTIME_EVENT_ALIASES } from '@/services/realtime-events';
+export { REALTIME_EVENT } from '@/services/realtime-events';
 
 export interface RealtimeEvent {
-  /** UUID — dedup key (idempotent delivery). */
   id: string;
-  /** Outbox sequence — null for ephemeral events. */
-  seq: number | null;
+  version?: 1;
+  seq?: number | null;
+  sequence?: number | null;
   type: string;
   channel: string;
-  ts: string;
+  ts?: string;
+  timestamp?: number;
   resourceId?: string;
+  resource_id?: string;
   userId?: string;
+  roomId?: string;
+  clientMessageId?: string;
   payload: Record<string, unknown>;
 }
 
-export type RealtimeStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
+export interface SweetSocketAck {
+  requestId: string;
+  command: string;
+  status: 'accepted' | 'persisted' | 'failed';
+  clientMessageId?: string;
+  event?: RealtimeEvent;
+  error?: string;
+}
+
+export type RealtimeStatus =
+  | 'idle'
+  | 'connecting'
+  | 'open'
+  | 'reconnecting'
+  | 'closed';
 
 type EventHandler = (event: RealtimeEvent) => void;
 type StatusHandler = (status: RealtimeStatus) => void;
+type AckHandler = (ack: SweetSocketAck) => void;
 
-export const REALTIME_EVENT = {
-  chatMessageCreated: 'chat.message.created',
-  chatMessageUpdated: 'chat.message.updated',
-  chatMessageDeleted: 'chat.message.deleted',
-  chatTypingStarted: 'chat.typing.started',
-  chatTypingStopped: 'chat.typing.stopped',
-  chatRecordingStarted: 'chat.recording.started',
-  chatRecordingStopped: 'chat.recording.stopped',
-  chatMessageRead: 'chat.message.read',
-  chatReactionUpdated: 'chat.reaction.updated',
-  chatPresenceUpdated: 'chat.presence.updated',
-  postCommentCreated: 'post.comment.created',
-  postCommentUpdated: 'post.comment.updated',
-  postCommentDeleted: 'post.comment.deleted',
-  postLikeUpdated: 'post.like.updated',
-  notificationCreated: 'notification.created',
-  subscriptionCountUpdated: 'subscription.count_updated',
-  walletUpdated: 'wallet.updated',
-  purchaseCompleted: 'purchase.completed',
-} as const;
+type PendingCommand = {
+  command: string;
+  resolve: (ack: SweetSocketAck) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
 
 const HEARTBEAT_MS = 25_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
-const DEDUP_CAP = 500;
+const COMMAND_TIMEOUT_MS = 45_000;
+const DEDUP_CAP = 2_000;
 const CLOSE_UNAUTHORIZED = 4401;
+const DEBUG = typeof __DEV__ !== 'undefined' && __DEV__;
 
 function wsUrl(token: string): string {
   const base = getApiBase().replace(/\/+$/, '');
-  // https://host/api → wss://host/api/realtime
   const wsBase = base.replace(/^http/, 'ws');
   return `${wsBase}/realtime?token=${encodeURIComponent(token)}`;
 }
 
-class RealtimeClient {
+function log(...args: unknown[]): void {
+  if (DEBUG) console.log('[SWEETSOCKET]', ...args);
+}
+
+function normalizedEvent(event: RealtimeEvent): RealtimeEvent {
+  return {
+    ...event,
+    seq: event.seq ?? event.sequence ?? null,
+    sequence: event.sequence ?? event.seq ?? null,
+    ts: event.ts ?? (event.timestamp ? new Date(event.timestamp).toISOString() : undefined),
+    timestamp: event.timestamp ?? (event.ts ? new Date(event.ts).getTime() : Date.now()),
+    resourceId: event.resourceId ?? event.resource_id,
+  };
+}
+
+class SweetSocketClient {
   private ws: WebSocket | null = null;
   private status: RealtimeStatus = 'idle';
   private manualClosed = false;
+  private suspended = false;
   private retryDelay = RECONNECT_BASE_MS;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private connectSeq = 0; // guards stale async connect flows
-
-  /** Channels the app wants (re-subscribed after every reconnect). */
-  private desiredChannels = new Set<string>();
-  /** Channels the server has confirmed (subscribed). */
-  private activeChannels = new Set<string>();
-  /** Last outbox sequence seen — used to recover missed durable events. */
-  private lastSeq: number | null = null;
-
-  /** True once the server's `hello` (auth complete) has been received. */
+  private lifecycleSubscription: { remove: () => void } | null = null;
+  private connectSeq = 0;
+  private lastSequence: number | null = null;
   private helloReceived = false;
-
-  /** Event-id dedup (idempotent delivery). */
-  private seenIds = new Set<string>();
-
-  /** Pending (batched) subscription changes — flushed on the next tick. */
-  private pendingSub = new Set<string>();
-  private pendingUnsub = new Set<string>();
+  private reconnecting = false;
+  private desiredChannels = new Set<string>();
+  private activeChannels = new Set<string>();
+  private pendingSubscribe = new Set<string>();
+  private pendingUnsubscribe = new Set<string>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-
+  private seenIds = new Set<string>();
+  private pendingCommands = new Map<string, PendingCommand>();
   private typeHandlers = new Map<string, Set<EventHandler>>();
   private channelHandlers = new Map<string, Set<EventHandler>>();
+  private ackHandlers = new Set<AckHandler>();
   private statusHandlers = new Set<StatusHandler>();
 
-  // ── Lifecycle ────────────────────────────────────────────────────────────
-
   connect(): void {
-    if (this.status === 'connecting' || this.status === 'open') return;
+    this.suspended = false;
     this.manualClosed = false;
+    this.installLifecycleListener();
+    if (this.status === 'connecting' || this.status === 'open' || this.status === 'reconnecting') return;
     void this.open();
   }
 
-  /** Close for good (logout / app teardown). */
   disconnect(): void {
     this.manualClosed = true;
+    this.suspended = false;
     this.desiredChannels.clear();
     this.activeChannels.clear();
+    this.pendingSubscribe.clear();
+    this.pendingUnsubscribe.clear();
+    this.clearTimers();
+    this.lifecycleSubscription?.remove();
+    this.lifecycleSubscription = null;
+    const ws = this.ws;
+    this.ws = null;
+    this.rejectPending(new Error('SweetSocket disconnected'));
+    this.setStatus('closed');
+    try { ws?.close(1000, 'manual'); } catch { /* ignore */ }
+  }
+
+  /** Suspend the transport while iOS/Android backgrounds the app. */
+  suspend(): void {
+    this.suspended = true;
     this.clearTimers();
     const ws = this.ws;
     this.ws = null;
+    try { ws?.close(1000, 'background'); } catch { /* ignore */ }
     this.setStatus('closed');
-    try {
-      ws?.close(1000, 'manual');
-    } catch {
-      // ignore
-    }
   }
 
-  isOpen(): boolean {
-    return this.status === 'open';
+  resume(): void {
+    if (this.manualClosed) return;
+    this.suspended = false;
+    this.connect();
   }
 
-  getStatus(): RealtimeStatus {
-    return this.status;
-  }
-
-  // ── Subscriptions ────────────────────────────────────────────────────────
+  isOpen(): boolean { return this.status === 'open' && this.helloReceived; }
+  getStatus(): RealtimeStatus { return this.status; }
 
   subscribe(channel: string): void {
+    if (!channel) return;
     this.desiredChannels.add(channel);
-    this.pendingSub.add(channel);
-    this.pendingUnsub.delete(channel);
+    this.pendingSubscribe.add(channel);
+    this.pendingUnsubscribe.delete(channel);
     this.scheduleFlush();
   }
 
   unsubscribe(channel: string): void {
     this.desiredChannels.delete(channel);
     this.activeChannels.delete(channel);
-    this.pendingUnsub.add(channel);
-    this.pendingSub.delete(channel);
+    this.pendingSubscribe.delete(channel);
+    this.pendingUnsubscribe.add(channel);
     this.scheduleFlush();
   }
 
-  /** Relay an EPHEMERAL event (typing/recording/presence) to an authorized channel. */
-  relay(channel: string, eventType: string, payload?: Record<string, unknown>): boolean {
+  /** Send an application command and resolve when the server acknowledges it. */
+  emit(
+    command: string,
+    payload: Record<string, unknown> = {},
+    options: { channel?: string; clientMessageId?: string } = {},
+  ): Promise<SweetSocketAck> {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return new Promise<SweetSocketAck>((resolve, reject) => {
+      if (!this.isOpen()) {
+        reject(new Error('SweetSocket is not connected'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.pendingCommands.delete(requestId);
+        reject(new Error(`SweetSocket command timed out: ${command}`));
+      }, COMMAND_TIMEOUT_MS);
+      this.pendingCommands.set(requestId, { command, resolve, reject, timer });
+      this.sendJson({
+        type: 'command',
+        requestId,
+        command,
+        channel: options.channel,
+        clientMessageId: options.clientMessageId,
+        payload,
+      });
+    });
+  }
+
+  /** Explicit name for feature code that prefers command terminology. */
+  command = this.emit.bind(this);
+
+  relay(channel: string, eventType: string, payload: Record<string, unknown> = {}): boolean {
     if (!this.isOpen()) return false;
     this.sendJson({ type: 'relay', channel, eventType, payload });
     return true;
   }
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
-
   on(type: string, handler: EventHandler): () => void {
-    let set = this.typeHandlers.get(type);
-    if (!set) {
-      set = new Set();
-      this.typeHandlers.set(type, set);
+    let handlers = this.typeHandlers.get(type);
+    if (!handlers) {
+      handlers = new Set();
+      this.typeHandlers.set(type, handlers);
     }
-    set.add(handler);
-    return () => set!.delete(handler);
+    handlers.add(handler);
+    return () => handlers?.delete(handler);
   }
 
   onChannel(channel: string, handler: EventHandler): () => void {
-    let set = this.channelHandlers.get(channel);
-    if (!set) {
-      set = new Set();
-      this.channelHandlers.set(channel, set);
+    let handlers = this.channelHandlers.get(channel);
+    if (!handlers) {
+      handlers = new Set();
+      this.channelHandlers.set(channel, handlers);
     }
-    set.add(handler);
-    return () => set!.delete(handler);
+    handlers.add(handler);
+    return () => handlers?.delete(handler);
+  }
+
+  onAck(handler: AckHandler): () => void {
+    this.ackHandlers.add(handler);
+    return () => this.ackHandlers.delete(handler);
   }
 
   onStatus(handler: StatusHandler): () => void {
@@ -189,81 +230,66 @@ class RealtimeClient {
     return () => this.statusHandlers.delete(handler);
   }
 
-  // ── Internals ────────────────────────────────────────────────────────────
-
   private setStatus(status: RealtimeStatus): void {
     if (this.status === status) return;
     this.status = status;
-    this.statusHandlers.forEach((h) => {
-      try {
-        h(status);
-      } catch {
-        // handler errors must never break the client
-      }
+    this.statusHandlers.forEach((handler) => {
+      try { handler(status); } catch { /* listener isolation */ }
+    });
+  }
+
+  private installLifecycleListener(): void {
+    if (this.lifecycleSubscription) return;
+    this.lifecycleSubscription = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') this.resume();
+      else if (state === 'background' || state === 'inactive') this.suspend();
     });
   }
 
   private async open(): Promise<void> {
+    if (this.manualClosed || this.suspended) return;
     const flow = ++this.connectSeq;
-    this.setStatus('connecting');
+    const wasReconnect = this.reconnecting || this.lastSequence !== null;
+    this.setStatus(wasReconnect ? 'reconnecting' : 'connecting');
+    log(wasReconnect ? 'reconnecting' : 'connecting');
 
     const token = await getAccessToken();
-    if (!token) {
-      this.scheduleReconnect();
+    if (!token || flow !== this.connectSeq || this.manualClosed || this.suspended) {
+      if (!this.manualClosed && !this.suspended) this.scheduleReconnect();
       return;
     }
 
     let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl(token));
-    } catch {
-      this.scheduleReconnect();
-      return;
-    }
+    try { ws = new WebSocket(wsUrl(token)); }
+    catch { this.scheduleReconnect(); return; }
     if (flow !== this.connectSeq) return;
     this.ws = ws;
 
     ws.onopen = () => {
       if (flow !== this.connectSeq) return;
       this.retryDelay = RECONNECT_BASE_MS;
-      this.setStatus('open');
-      // Subscriptions are sent only AFTER the server's `hello` (auth done) —
-      // the server also buffers pre-auth frames, so nothing is ever dropped.
       this.helloReceived = false;
+      this.setStatus('open');
       this.startHeartbeat();
+      log('socket open');
     };
-
     ws.onmessage = (event) => {
-      let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(String(event.data)) as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      this.handleServerMessage(msg);
+      try { this.handleServerMessage(JSON.parse(String(event.data)) as Record<string, unknown>); }
+      catch { log('invalid server frame'); }
     };
-
-    ws.onerror = () => {
-      // onclose follows — reconnect there.
-    };
-
+    ws.onerror = () => log('socket error');
     ws.onclose = (event) => {
       if (flow !== this.connectSeq) return;
       this.stopHeartbeat();
       this.activeChannels.clear();
       this.ws = null;
-
-      if (this.manualClosed) return;
-
-      // Token expired/invalid — refresh once, then reconnect.
+      this.helloReceived = false;
+      if (this.manualClosed || this.suspended) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
-        void (async () => {
-          const fresh = await refreshAccessToken();
-          if (!fresh) {
-            await clearSessionStorage().catch(() => {});
-          }
+        void refreshAccessToken().then(async (fresh) => {
+          if (!fresh) await clearSessionStorage().catch(() => {});
           this.scheduleReconnect();
-        })();
+        });
         return;
       }
       this.scheduleReconnect();
@@ -271,12 +297,12 @@ class RealtimeClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.manualClosed) return;
+    if (this.manualClosed || this.suspended || this.retryTimer) return;
+    this.reconnecting = true;
     this.setStatus('reconnecting');
-    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.emitLifecycle(REALTIME_EVENT.connectionReconnecting);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      this.setStatus('idle');
       void this.open();
     }, this.retryDelay);
     this.retryDelay = Math.min(this.retryDelay * 2, RECONNECT_MAX_MS);
@@ -284,136 +310,178 @@ class RealtimeClient {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
-      this.sendJson({ type: 'ping' });
-    }, HEARTBEAT_MS);
+    this.heartbeatTimer = setInterval(() => this.sendJson({ type: 'ping' }), HEARTBEAT_MS);
   }
-
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
   }
-
   private clearTimers(): void {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.flushTimer) clearTimeout(this.flushTimer);
     this.retryTimer = null;
     this.heartbeatTimer = null;
+    this.flushTimer = null;
   }
 
-  /** Batch subscribe/unsubscribe changes into a single frame per tick. */
   private scheduleFlush(): void {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      this.flushPending();
+      this.flushSubscriptions();
     }, 0);
   }
 
-  private flushPending(): void {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
+  private flushSubscriptions(): void {
+    if (!this.isOpen()) return;
+    if (this.pendingSubscribe.size) {
+      this.sendJson({ type: 'subscribe', channels: [...this.pendingSubscribe] });
+      this.pendingSubscribe.clear();
     }
-    // Only send once the connection is authenticated (hello received).
-    if (!this.isOpen() || !this.helloReceived) return;
-    if (this.pendingSub.size > 0) {
-      this.sendJson({ type: 'subscribe', channels: [...this.pendingSub] });
-      this.pendingSub.clear();
-    }
-    if (this.pendingUnsub.size > 0) {
-      this.sendJson({ type: 'unsubscribe', channels: [...this.pendingUnsub] });
-      this.pendingUnsub.clear();
+    if (this.pendingUnsubscribe.size) {
+      this.sendJson({ type: 'unsubscribe', channels: [...this.pendingUnsubscribe] });
+      this.pendingUnsubscribe.clear();
     }
   }
 
-  private sendJson(msg: object): void {
+  private sendJson(frame: object): void {
     if (this.ws && this.status === 'open') {
-      try {
-        this.ws.send(JSON.stringify(msg));
-      } catch {
-        // Socket mid-close — ignore; reconnect will resubscribe.
-      }
+      try { this.ws.send(JSON.stringify(frame)); }
+      catch { /* close handler schedules reconnect */ }
     }
   }
 
-  private handleServerMessage(msg: Record<string, unknown>): void {
-    switch (msg.type) {
+  private handleServerMessage(message: Record<string, unknown>): void {
+    switch (message.type) {
+      case 'auth': {
+        const state = message.state as string;
+        if (state === 'session_expired' || state === 'logout') {
+          this.desiredChannels.clear();
+          this.activeChannels.clear();
+          this.pendingSubscribe.clear();
+          this.pendingUnsubscribe.clear();
+          this.emitLifecycle(REALTIME_EVENT.authSessionExpired);
+          void clearSessionStorage().catch(() => {});
+          this.manualClosed = true;
+          try { this.ws?.close(CLOSE_UNAUTHORIZED, 'Session expired'); } catch { /* ignore */ }
+        }
+        return;
+      }
+      case 'connection': {
+        const state = message.state as string;
+        if (state === 'authenticated') log('authenticated');
+        if (state === 'ready') log('ready');
+        return;
+      }
       case 'hello': {
-        const seq = typeof msg.seq === 'number' ? msg.seq : null;
-        if (seq != null && (this.lastSeq == null || seq > this.lastSeq)) {
-          this.lastSeq = seq;
-        }
-        // Auth complete: (re)subscribe every desired channel (a fresh
-        // connection after reconnect has an empty server-side subscription
-        // set), then recover any missed durable events since the last seq.
+        const sequence = typeof message.sequence === 'number' ? message.sequence : null;
         this.helloReceived = true;
-        for (const c of this.desiredChannels) this.pendingSub.add(c);
-        this.flushPending();
-        if (this.lastSeq != null) {
-          this.sendJson({ type: 'sync', since: this.lastSeq });
+        for (const channel of this.desiredChannels) this.pendingSubscribe.add(channel);
+        this.flushSubscriptions();
+        // The hello value is a baseline only on the first connection. On a
+        // reconnect, retain the last received sequence so the server replays
+        // everything after the client's real cursor.
+        const shouldReplay = this.reconnecting;
+        if (this.lastSequence === null) this.lastSequence = sequence;
+        if (shouldReplay) this.sendJson({ type: 'sync', since: this.lastSequence ?? 0 });
+        if (this.reconnecting) {
+          this.reconnecting = false;
+          log('reconnected');
+          this.emitLifecycle(REALTIME_EVENT.connectionReconnected);
         }
         return;
       }
-      case 'pong':
-        return;
       case 'subscribed': {
-        const channels = Array.isArray(msg.channels) ? (msg.channels as string[]) : [];
-        channels.forEach((c) => this.activeChannels.add(c));
+        for (const channel of (message.channels as string[] | undefined) ?? []) this.activeChannels.add(channel);
+        log('subscribed', message.channels);
         return;
       }
-      case 'unsubscribed':
-        return;
-      case 'synced':
-        return;
-      case 'error':
-        // Server-side protocol errors are non-fatal; log for debugging.
-        console.warn('[realtime] server error:', msg.code, msg.message);
-        return;
+      case 'unsubscribed': return;
+      case 'pong': return;
+      case 'synced': log('resync complete'); return;
+      case 'ack': this.handleAck(message); return;
       case 'event': {
-        const event = msg.event as RealtimeEvent;
-        if (!event || typeof event.id !== 'string') return;
-        // Idempotent delivery: drop duplicates by event id.
-        if (this.seenIds.has(event.id)) return;
-        this.seenIds.add(event.id);
-        if (this.seenIds.size > DEDUP_CAP) {
-          const oldest = this.seenIds.values().next().value;
-          if (oldest) this.seenIds.delete(oldest);
-        }
-        if (typeof event.seq === 'number') {
-          this.lastSeq = event.seq;
-        }
-        this.dispatch(event);
+        const event = normalizedEvent(message.event as RealtimeEvent);
+        this.handleEvent(event);
         return;
       }
-      default:
-        return;
+      case 'error': log('server error', message.code, message.message); return;
+      default: return;
     }
+  }
+
+  private handleAck(raw: Record<string, unknown>): void {
+    const ack: SweetSocketAck = {
+      requestId: String(raw.requestId ?? ''),
+      command: String(raw.command ?? ''),
+      status: raw.status === 'failed' ? 'failed' : raw.status === 'persisted' ? 'persisted' : 'accepted',
+      clientMessageId: typeof raw.clientMessageId === 'string' ? raw.clientMessageId : undefined,
+      event: raw.event ? normalizedEvent(raw.event as RealtimeEvent) : undefined,
+      error: typeof raw.error === 'string' ? raw.error : undefined,
+    };
+    this.ackHandlers.forEach((handler) => {
+      try { handler(ack); } catch { /* listener isolation */ }
+    });
+    const pending = this.pendingCommands.get(ack.requestId);
+    if (!pending) return;
+    // Resolve only terminal acknowledgements. The accepted ack is still
+    // available to global listeners but does not end the command promise.
+    if (ack.status === 'accepted') return;
+    clearTimeout(pending.timer);
+    this.pendingCommands.delete(ack.requestId);
+    if (ack.status === 'failed') pending.reject(new Error(ack.error ?? 'SweetSocket command failed'));
+    else pending.resolve(ack);
+  }
+
+  private handleEvent(event: RealtimeEvent): void {
+    // Advance the cursor even when a durable replay is a duplicate of an event
+    // that arrived live before the disconnect. Otherwise every reconnect would
+    // request that same already-seen event forever.
+    const sequence = event.sequence ?? event.seq ?? null;
+    if (typeof sequence === 'number' && (this.lastSequence === null || sequence > this.lastSequence)) this.lastSequence = sequence;
+    if (!event.id || this.seenIds.has(event.id)) return;
+    this.seenIds.add(event.id);
+    if (this.seenIds.size > DEDUP_CAP) {
+      const oldest = this.seenIds.values().next().value;
+      if (oldest) this.seenIds.delete(oldest);
+    }
+    log('received', event.type, event.channel);
+    this.dispatch(event);
   }
 
   private dispatch(event: RealtimeEvent): void {
-    const byType = this.typeHandlers.get(event.type);
-    if (byType) {
-      byType.forEach((h) => {
-        try {
-          h(event);
-        } catch {
-          // handler errors must never break the client
-        }
-      });
+    const types = [event.type, ...(REALTIME_EVENT_ALIASES[event.type] ?? [])];
+    const handlers = new Set<EventHandler>();
+    for (const type of types) {
+      this.typeHandlers.get(type)?.forEach((handler) => handlers.add(handler));
     }
-    const byChannel = this.channelHandlers.get(event.channel);
-    if (byChannel) {
-      byChannel.forEach((h) => {
-        try {
-          h(event);
-        } catch {
-          // handler errors must never break the client
-        }
-      });
+    handlers.forEach((handler) => { try { handler(event); } catch { /* listener isolation */ } });
+    const channelHandlers = this.channelHandlers.get(event.channel);
+    channelHandlers?.forEach((handler) => { try { handler(event); } catch { /* listener isolation */ } });
+  }
+
+  private emitLifecycle(type: string): void {
+    const event: RealtimeEvent = normalizedEvent({
+      id: `${type}:${Date.now()}`,
+      type,
+      channel: '',
+      userId: '',
+      payload: {},
+      timestamp: Date.now(),
+    });
+    this.dispatch(event);
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pendingCommands.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
     }
+    this.pendingCommands.clear();
   }
 }
 
-/** Singleton — one connection for the whole app. */
-export const realtime = new RealtimeClient();
+export const sweetSocket = new SweetSocketClient();
+/** Compatibility export. There is exactly one transport singleton. */
+export const realtime = sweetSocket;

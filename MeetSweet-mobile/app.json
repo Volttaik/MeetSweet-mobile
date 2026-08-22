@@ -110,7 +110,9 @@
         }
       ],
       "expo-secure-store",
-      "react-native-video"
+      "react-native-video",
+      "@giphy/react-native-sdk",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,

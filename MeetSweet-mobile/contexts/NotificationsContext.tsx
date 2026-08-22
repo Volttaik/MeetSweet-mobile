@@ -3,8 +3,8 @@
  *
  * Responsibilities:
  * 1. Register for device/Expo push notifications (permissions + token → live backend)
- * 2. Poll the /notifications endpoint for unread count
- * 3. Poll /chat-rooms for total unread message count
+ * 2. Hydrate unread counts once per authenticated session
+ * 3. Apply notification/message events from SweetSocket to local badge state
  * 4. Surface notifUnread + messageUnread counts app-wide (for badges)
  * 5. Handle foreground notification display without hijacking navigation
  * 6. Route user on explicit notification tap to the target destination
@@ -30,6 +30,7 @@ import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { usePostActions } from '@/contexts/PostActionsContext';
 
 const LAST_HANDLED_NOTIF_KEY = '@ms_last_handled_notif_id';
 
@@ -213,17 +214,15 @@ function handleNotificationTap(notification: Notifications.Notification) {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS = 30_000; // 30 s
-
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuth();
-  const { refreshWallet } = useWallet();
+  const { refreshWallet, setBalance } = useWallet();
+  const { markLiked, setCommentCount } = usePostActions();
   const [notifUnread, setNotifUnread] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
   const [pushToken, setPushToken] = useState<string | null>(null);
 
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastRegisteredUser = useRef<string | null>(null);
   const lastHandledResponseId = useRef<string | null>(null);
   const notifListenerRef = useRef<Notifications.EventSubscription | null>(null);
@@ -282,34 +281,23 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     registerPushTokenToBackend(pushToken, Platform.OS);
   }, [isAuthenticated, user?.id, pushToken]);
 
-  // ── Polling ───────────────────────────────────────────────────────────────
+  // ── Initial durable hydration ────────────────────────────────────────────
+  // SweetSocket owns subsequent badge updates. This one request establishes
+  // the baseline after login; reconnect replay handles events after that.
   useEffect(() => {
     if (!isAuthenticated) {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       setNotifUnread(0);
       setMessageUnread(0);
       lastRegisteredUser.current = null;
       return;
     }
-
-    fetchCounts(); // immediate first fetch
-    // Poll is the FALLBACK — while the realtime socket is connected, live
-    // events (notification.created / wallet.updated) drive the badge instead.
-    pollTimerRef.current = setInterval(() => {
-      if (realtime.isOpen()) return;
-      fetchCounts();
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    };
+    fetchCounts();
   }, [isAuthenticated, fetchCounts]);
 
   // ── Realtime: private user channel ───────────────────────────────────────
   // Notification rows (written server-side through the single createNotification
   // choke point) arrive instantly on the socket: the badge updates live, and
-  // confirmed wallet changes trigger a balance refresh. The 30s poll above is
-  // the fallback when the socket is unavailable.
+  // confirmed wallet changes trigger a balance refresh.
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
     const channel = `user:${user.id}`;
@@ -324,14 +312,29 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         setNotifUnread((n) => n + 1);
       }
     });
-    const offWallet = realtime.on(REALTIME_EVENT.walletUpdated, () => {
-      // Server-confirmed balance change — refresh the (authoritative) wallet.
-      refreshWallet().catch(() => {});
+    const applyWallet = (event: import('@/services/realtime').RealtimeEvent) => {
+      const p = event.payload as { balance?: number; newBalance?: number };
+      const balance = p.balance ?? p.newBalance;
+      if (typeof balance === 'number') setBalance(balance);
+      else refreshWallet().catch(() => {});
+    };
+    const offWallet = realtime.on(REALTIME_EVENT.walletUpdated, applyWallet);
+    const offBalance = realtime.on(REALTIME_EVENT.balanceUpdated, applyWallet);
+
+    const offLike = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
+      const p = event.payload as { postId?: string; likeCount?: number; liked?: boolean };
+      const postId = p.postId ?? event.resourceId;
+      if (postId && typeof p.likeCount === 'number') markLiked(postId, Boolean(p.liked), p.likeCount);
+    });
+    const offComment = realtime.on(REALTIME_EVENT.postCommentCreated, (event) => {
+      const p = event.payload as { commentCount?: number };
+      const postId = event.channel.replace(/^post:/, '');
+      if (postId && typeof p.commentCount === 'number') setCommentCount(postId, p.commentCount);
     });
 
     return () => {
       realtime.unsubscribe(channel);
-      offNotif(); offWallet();
+      offNotif(); offWallet(); offBalance(); offLike(); offComment();
     };
   }, [isAuthenticated, user?.id, refreshWallet]);
 

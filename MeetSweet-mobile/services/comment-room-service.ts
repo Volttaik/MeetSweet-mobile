@@ -13,8 +13,8 @@
  *        → { comments: [...], has_more }
  *   POST /api/comment-rooms/:commentRoomId/comments
  *        → { comment: {...} }   (body: { body })
- *   GET  /api/comment-rooms/:commentRoomId/comments/changes?since=<marker>
- *        → { changed, marker, comments?: [...] }
+ *   SweetSocket delivers comment:created/updated/deleted events to subscribed
+ *        post channels; HTTP is reserved for initial and historical retrieval.
  *   PUT  /api/posts/:postId/comments-enabled   { enabled }   (post owner only)
  *
  * The Comment Room is NEVER deleted when comments are disabled — it stays
@@ -24,7 +24,6 @@
  * post endpoint returns comment_room_id). Mobile never guesses or derives it.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from './api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,12 +56,6 @@ export interface CommentRoom {
   commentCount: number;
   /** Change marker — increments when comments change. */
   updatedAt?: string;
-}
-
-export interface CommentRoomChanges {
-  changed: boolean;
-  marker: string | null;
-  comments?: CommentRoomComment[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -207,32 +200,6 @@ export async function getRoomCommentReplies(
     // Fallback: return empty array if backend endpoint is not implemented
     return { replies: [] };
   }
-}
-
-/**
- * Lightweight change check for ONE Comment Room. Poll ONLY the currently
- * viewed room — never every post. "New comments appear without manual refresh."
- * GET /api/comment-rooms/:commentRoomId/comments/changes?since=<marker>
- */
-export async function checkCommentRoomChanges(
-  commentRoomId: string,
-  marker: string | null,
-): Promise<CommentRoomChanges> {
-  const token = await getToken();
-  if (!token) return { changed: false, marker };
-  const qs = marker ? `?since=${encodeURIComponent(marker)}` : '';
-  const raw = await apiFetch<
-    CommentRoomChanges & { has_changes?: boolean }
-  >(
-    `/comment-rooms/${encodeURIComponent(commentRoomId)}/comments/changes${qs}`,
-    { headers: authHeader(token) },
-  ).catch((): CommentRoomChanges => ({ changed: false, marker }));
-  const changed = raw?.changed ?? (raw as { has_changes?: boolean }).has_changes ?? false;
-  return {
-    changed: Boolean(changed),
-    marker: raw?.marker ?? marker,
-    comments: raw?.comments ?? undefined,
-  };
 }
 
 /**

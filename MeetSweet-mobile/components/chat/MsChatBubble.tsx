@@ -38,14 +38,6 @@ const SCREEN_W   = Dimensions.get('window').width;
 // Fixed pixel max-width avoids percentage-of-percentage sizing bugs
 const MAX_BUBBLE = SCREEN_W * 0.84;
 
-// Detects if a string is composed entirely of emoji characters (1–4 of them).
-const EMOJI_RE = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F){1,4}$/u;
-function isStickerText(text: string): boolean {
-  const t = text.trim();
-  if (!t || t.length > 16) return false;
-  return EMOJI_RE.test(t);
-}
-
 function formatTime(date: Date | number): string {
   const d = typeof date === 'number' ? new Date(date) : date;
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -115,9 +107,10 @@ export function MsChatBubble({
   const isDeleted = msg.msIsDeleted  ?? false;
   const isFailed  = msg.sent === false && msg.pending === false;
 
-  // Sticker: text-only, no media, matches emoji pattern
+  // Stickers are explicit message types. Plain Unicode emoji remains a normal
+  // text message and must never be silently reclassified as a sticker.
   const isSticker = !isDeleted && !hasAudio && !hasImage && !hasVideo && !hasDoc
-    && isStickerText(msg.text ?? '');
+    && (msg.messageType === 'sticker' || msg.msMediaType === 'sticker');
 
   // Image sticker: sticker media messages (mediaType 'sticker') render as a
   // floating image (no card background) — same as the legacy msStickerImage path.
@@ -355,7 +348,7 @@ const styles = StyleSheet.create({
 
   mediaWrap: { position: 'relative' },
 
-  // Sticker: large emoji, no background
+  // Explicit text sticker: large emoji, no background
   stickerWrap: {
     paddingVertical: 6,
     paddingHorizontal: 4,
