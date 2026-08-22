@@ -18,10 +18,13 @@ import {
   Plus,
   MagnifyingGlass,
   X,
+  DotsThreeVertical,
   Image,
   VideoCamera,
   Microphone,
   Paperclip,
+  Sparkle,
+  SmileySticker,
   type Icon,
 } from 'phosphor-react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -46,6 +49,10 @@ import {
   cacheChatRooms,
   getCachedChatRooms,
 } from '@/services/chat-cache';
+import {
+  restoreChatHistory,
+  type RestoreProgress,
+} from '@/services/chat-restore';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
@@ -116,9 +123,11 @@ function ChatRoomRow({
   const isOtherOnline = item.otherUser?.isOnline === true;
 
   // Contextual preview label per feature doc §1.2 (media messages show vector
-  // icons + labels: Photo, Video, Voice message, Document).
+  // icons + labels: Photo, GIF, Sticker, Video, Voice message, Document).
   const previewLabel = (() => {
     if (item.lastMessageMediaType === 'image') return 'Photo';
+    if (item.lastMessageMediaType === 'gif') return 'GIF';
+    if (item.lastMessageMediaType === 'sticker') return 'Sticker';
     if (item.lastMessageMediaType === 'video') return 'Video';
     if (item.lastMessageMediaType === 'audio') return 'Voice message';
     if (item.lastMessageMediaType === 'document') return 'Document';
@@ -126,6 +135,8 @@ function ChatRoomRow({
   })();
   const PreviewIcon: Icon | null =
     item.lastMessageMediaType === 'image' ? Image :
+    item.lastMessageMediaType === 'gif' ? Sparkle :
+    item.lastMessageMediaType === 'sticker' ? SmileySticker :
     item.lastMessageMediaType === 'video' ? VideoCamera :
     item.lastMessageMediaType === 'audio' ? Microphone :
     item.lastMessageMediaType === 'document' ? Paperclip : null;
@@ -360,6 +371,14 @@ export default function MessagesScreen() {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Local-first: the chat list NEVER auto-fetches the user's conversation
+  // history from the backend. The 15s background poll (normal sync) only runs
+  // once local chat data exists — after an explicit "Load Chat History" or
+  // after the user starts using chats. Fresh installs stay fresh.
+  const localRoomsExistRef = useRef(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState<RestoreProgress | null>(null);
 
   // ── List shimmer — crossfades into the real conversation list instead of
   // hard-cutting, so the chat list transition is stable (no flash/rearrange).
@@ -384,30 +403,42 @@ export default function MessagesScreen() {
 
       const tab = activeTab === 'Archived' ? 'archived' : 'all';
 
-      // Cache-first paint: render the previously-synced conversation list
-      // immediately so opening Messages is instant and works offline. The
-      // cache is namespaced per user (chat-cache/<userId>/rooms.json), so a
-      // different account can never render the previous user's rooms. When
-      // cached rooms exist, skip the shimmer entirely — the server sync
-      // below reconciles silently in the background.
+      // LOCAL-FIRST: the All tab paints exclusively from the local persistent
+      // store — never from the backend. The cache is namespaced per user
+      // (SQLite chat_rooms_cache, keyed by user_id), so a different account
+      // can never render the previous user's rooms. Opening Messages is
+      // instant, works offline, and a fresh install stays fresh (empty state)
+      // instead of silently restoring the entire conversation history.
       if (activeTab === 'All') {
         try {
           const cached = await getCachedChatRooms(user?.id);
           if (cached.length > 0) {
             setChatRooms(sortRooms(cached));
+            localRoomsExistRef.current = true;
             setListShimmerVisible(false);
           }
         } catch {
-          // Cache read failure is non-fatal — fall through to the network.
+          // Cache read failure is non-fatal — fall through.
+        }
+        // Normal open: no network request at all. The ONLY network paths for
+        // the All tab are an explicit pull-to-refresh (below) and the gated
+        // background sync poll.
+        if (!showRefresh) {
+          setLoading(false);
+          setRefreshing(false);
+          return;
         }
       }
 
+      // Explicit refresh (pull-to-refresh / Archived tab): fetch the latest
+      // room metadata and mirror it locally so the next open stays instant.
       try {
         const data = await getChatRoomList(tab);
         setChatRooms(sortRooms(data.chatRooms));
         reportNetworkSuccess();
         // Mirror the server list to local storage so the next open is instant.
         if (activeTab === 'All') {
+          if (data.chatRooms.length > 0) localRoomsExistRef.current = true;
           cacheChatRooms(data.chatRooms, user?.id).catch(() => {});
         }
       } catch {
@@ -423,7 +454,7 @@ export default function MessagesScreen() {
   useEffect(() => {
     // Never wipe already-available rooms — clearing the list on every tab
     // switch is what caused the "show → disappear → loader → re-render" flash.
-    // `load()` paints the cached list immediately (All) then revalidates, so the
+    // `load()` paints the cached list immediately (All, local-only), so the
     // existing conversations stay on screen instead of being torn down.
     if (activeTab !== 'All') {
       setChatRooms([]);
@@ -452,10 +483,15 @@ export default function MessagesScreen() {
 
   // Lightweight room-metadata refresh — the chat list polls ONLY room metadata
   // (other user, latest message, timestamp, unread count, chatRoomId), never
-  // downloading every room's messages.
+  // downloading every room's messages. The poll is GATED on local chat data
+  // existing: a fresh install with no local conversations stays fresh (no
+  // automatic restoration of history). Once the user has restored history or
+  // started using chats, this runs as normal background synchronization — new
+  // rooms and new messages merge in silently.
   useEffect(() => {
     if (activeTab !== 'All') return;
     const interval = setInterval(() => {
+      if (!localRoomsExistRef.current) return;
       getChatRoomList('all')
         .then((data) => {
           setChatRooms((prev) => {
@@ -469,6 +505,47 @@ export default function MessagesScreen() {
     }, 15_000);
     return () => clearInterval(interval);
   }, [activeTab]);
+
+  // ── "Load Chat History" — EXPLICIT restore ─────────────────────────────
+  // The one and only path that fetches the user's previous conversations from
+  // the backend. Local-first means normal Chat access never does this; this is
+  // a deliberate user action (Chat menu) and may take time, so a progress
+  // overlay is shown while it runs. Everything fetched is persisted locally
+  // (SQLite) so future opens are instant and local-only.
+  const handleLoadChatHistory = useCallback(async () => {
+    setShowMenu(false);
+    if (restoring) return;
+    setRestoring(true);
+    setRestoreProgress(null);
+    try {
+      const result = await restoreChatHistory(user?.id, (p) => setRestoreProgress(p));
+      // Repaint from the local store — restored conversations are now local.
+      const cached = await getCachedChatRooms(user?.id).catch(() => []);
+      if (cached.length > 0) {
+        setChatRooms(sortRooms(cached));
+        localRoomsExistRef.current = true;
+        setListShimmerVisible(false);
+      }
+      dialogs.alert({
+        variant: 'success',
+        title: 'Chat history restored',
+        message:
+          result.rooms > 0
+            ? `Restored ${result.rooms} conversation${result.rooms === 1 ? '' : 's'} locally.`
+            : 'No previous conversations found on this account.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      dialogs.alert({
+        variant: 'error',
+        title: 'Could not restore chat history',
+        message: message || 'Please try again.',
+      });
+    } finally {
+      setRestoring(false);
+      setRestoreProgress(null);
+    }
+  }, [restoring, user?.id]);
 
   const filtered = searchText.trim()
     ? chatRooms.filter(
@@ -521,13 +598,22 @@ export default function MessagesScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
-        <TouchableOpacity
-          style={styles.iconBtn}
-          activeOpacity={0.7}
-          onPress={() => setShowNewMsg(true)}
-        >
-          <PencilSimple size={18} color={T.TEXT} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            activeOpacity={0.7}
+            onPress={() => setShowMenu(true)}
+          >
+            <DotsThreeVertical size={18} color={T.TEXT} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            activeOpacity={0.7}
+            onPress={() => setShowNewMsg(true)}
+          >
+            <PencilSimple size={18} color={T.TEXT} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search */}
@@ -648,6 +734,37 @@ export default function MessagesScreen() {
         actions={menuRoom ? roomActions(menuRoom) : []}
         onClose={() => setMenuRoom(null)}
       />
+
+      {/* Chat menu — explicit "Load Chat History" restore (the ONLY path
+          that fetches previous conversations from the backend) */}
+      <MsActionSheet
+        visible={showMenu}
+        title="Messages"
+        subtitle="Restore previous conversations to this device"
+        actions={[
+          {
+            label: 'Load Chat History',
+            onPress: handleLoadChatHistory,
+          },
+        ]}
+        onClose={() => setShowMenu(false)}
+      />
+
+      {/* Restore-in-progress overlay — the user explicitly asked for this, so
+          a progress state is appropriate here (normal chat access is instant). */}
+      <Modal visible={restoring} transparent animationType="fade">
+        <View style={styles.restoreOverlay}>
+          <View style={styles.restoreCard}>
+            <Spinner size="sm" color={T.ACCENT as any} />
+            <Text style={styles.restoreTitle}>Restoring chat history…</Text>
+            <Text style={styles.restoreSub}>
+              {restoreProgress
+                ? `${restoreProgress.done} of ${restoreProgress.total} conversations`
+                : 'Fetching your conversations from the server…'}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -660,6 +777,38 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 12,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  restoreOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restoreCard: {
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: 280,
+  },
+  restoreTitle: {
+    fontSize: 15,
+    fontFamily: T.FONT.semibold,
+    color: T.TEXT,
+    textAlign: 'center',
+  },
+  restoreSub: {
+    fontSize: 13,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT_2,
+    textAlign: 'center',
   },
   title: { fontSize: 22, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
   iconBtn: {

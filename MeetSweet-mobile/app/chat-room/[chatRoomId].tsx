@@ -111,8 +111,10 @@ import {
   deriveFileType,
   broadcastTyping,
   clearTyping,
+  normalizeMessage,
   type RoomMessage,
 } from '@/services/room-service';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { ApiError } from '@/services/api';
 import { blockUser, unblockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
@@ -172,6 +174,33 @@ function formatDateLabel(d: Date): string {
  */
 function realMessageId(m: { _id: string; msServerId?: string }): string {
   return String(m.msServerId ?? m._id);
+}
+
+/**
+ * Drop duplicate bubbles that share a server message id, preferring the
+ * non-pending (server-confirmed) copy and the copy keyed by its real id. This
+ * guards against realtime/poll delivery racing the send confirmation: the
+ * socket can deliver a sender's own confirmed message before the HTTP
+ * confirmation resolves, which would otherwise leave a visible duplicate.
+ */
+function dedupeMessages(msgs: MsMessage[]): MsMessage[] {
+  const byId = new Map<string, MsMessage>();
+  for (const m of msgs) {
+    const key = realMessageId(m);
+    const existing = byId.get(key);
+    if (!existing) {
+      byId.set(key, m);
+      continue;
+    }
+    const existingPending = existing.pending !== false;
+    const mPending = m.pending !== false;
+    const existingCanonical = existing._id === key;
+    const mCanonical = m._id === key;
+    if (existingPending && !mPending) { byId.set(key, m); continue; }
+    if (!existingPending && mPending) continue;
+    if (!existingCanonical && mCanonical) { byId.set(key, m); continue; }
+  }
+  return Array.from(byId.values());
 }
 
 /**
@@ -238,7 +267,7 @@ export default function ChatScreen() {
     return sendRoomMessage(chatRoomId, {
       body,
       mediaUrl,
-      mediaType: (mediaType as 'image' | 'video' | 'audio' | 'document' | null | undefined),
+      mediaType: (mediaType as 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null | undefined),
       caption: opts?.caption,
       fileName: opts?.fileName,
       fileSize: opts?.fileSize,
@@ -256,6 +285,8 @@ export default function ChatScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  // Realtime: the other participant is recording a voice note.
+  const [isRecording, setIsRecording] = useState(false);
 
   // ── Typing debounce ref ────────────────────────────────────────────────────
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -287,20 +318,25 @@ export default function ChatScreen() {
   const menuOpacityAnim = useRef(new Animated.Value(0)).current;
 
   // ── Message-area shimmer — the chat UI (header, input bar, all controls)
-  // renders immediately; ONLY the conversation region shows a shimmer while
-  // messages load. When data arrives the shimmer fades out cleanly instead of
-  // unmounting with a hard cut.
+  // renders immediately; ONLY the conversation region may show a skeleton,
+  // and only when there is genuinely NO cached conversation to paint (first
+  // open of a room, or after a cache wipe). Once a conversation has been
+  // loaded, reopening renders the cached messages instantly with NO shimmer
+  // at all — not even one frame — while the server syncs in the background
+  // (loadMessages' cache-first paint sets showShimmer(false) synchronously).
+  // When the shimmer IS shown (uncached first open), it fades out cleanly on
+  // arrival instead of unmounting with a hard cut.
   const shimmerOpacity = useRef(new Animated.Value(1)).current;
-  const [shimmerVisible, setShimmerVisible] = useState(true);
+  const [showShimmer, setShowShimmer] = useState(false);
   useEffect(() => {
-    if (!loading) {
+    if (!loading && showShimmer) {
       Animated.timing(shimmerOpacity, {
         toValue: 0,
         duration: 240,
         useNativeDriver: true,
-      }).start(() => setShimmerVisible(false));
+      }).start(() => setShowShimmer(false));
     }
-  }, [loading, shimmerOpacity]);
+  }, [loading, showShimmer, shimmerOpacity]);
 
   // Ref to the Chat's FlatList so tapping a quoted reply can scroll to the
   // original message. The list is inverted (newest at bottom); scrollToMessage
@@ -426,7 +462,9 @@ export default function ChatScreen() {
       return {
         localUri: local,
         msMediaStatus: 'local' as const,
-        image: mediaType === 'image' ? local : undefined,
+        // gif / sticker carry their media in the image field — the local copy
+        // must patch it or cached animated GIFs would lose their source.
+        image: (mediaType === 'image' || mediaType === 'gif' || mediaType === 'sticker') ? local : undefined,
         video: mediaType === 'video' ? local : undefined,
         audio: mediaType === 'audio' ? local : undefined,
       };
@@ -554,17 +592,19 @@ export default function ChatScreen() {
   );
 
   // ── Load messages ─────────────────────────────────────────────────────
-  // Cache-first: the local FileSystem replica is the INSTANT presentation
-  // layer. On the initial open we render previously downloaded messages and
-  // media immediately, then synchronize with the server silently in the
-  // background — no shimmer, no network wait, no visible reconstruction.
-  // The shimmer only ever shows when there is genuinely no local
-  // representation (a conversation never opened before).
+  // LOCAL-FIRST: the local persistent store (SQLite) is the presentation
+  // layer. Opening a conversation NEVER fetches the conversation's history
+  // from the server — the network is used only for background synchronization
+  // (the incremental changes poll below) and for explicit pagination when the
+  // user scrolls up. New messages arrive via the poll; restorations of
+  // previously-downloaded history happen ONLY through the explicit "Load Chat
+  // History" action in the Chat menu. No shimmer, no network wait, no
+  // visible reconstruction.
   const loadMessages = useCallback(async (before?: string) => {
     if (!chatRoomId) return;
     const uid = user?.id ?? '';
 
-    // ── Cache-first paint (initial open only) ────────────────────────────
+    // ── Local-first initial open (no `before` cursor) ────────────────────
     if (!before) {
       try {
         const cached = await getCachedMessages(chatRoomId, uid).catch(() => []);
@@ -577,63 +617,57 @@ export default function ChatScreen() {
           );
           // Local content is on screen — never show the loading shimmer.
           setLoading(false);
-          // Resolve/persist local media for cached messages that have a
-          // remote URL but no local file yet (recovery after a failed
-          // download, or media that was never fetched).
+          setShowShimmer(false);
+          // Seed the incremental poll marker from the newest locally-cached
+          // message's TIMESTAMP (the server compares `since` against
+          // created_at) so the background poll only asks for what's actually
+          // new — never re-downloading already-cached history.
+          const newest = [...cached]
+            .filter((m: RoomMessage) => !m.isDeleted)
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+            )[0];
+          if (newest?.createdAt) pollMarkerRef.current = newest.createdAt;
+          // Background synchronization — ALL silent, NO full history fetch:
+          // 1) mirror the server's context membership (removals/deletions),
+          // 2) resolve/persist local media for cached messages missing a
+          //    local file (recovery after a failed download), 3) mark read.
+          syncRoomContext(cached).catch(() => {});
           ensureMediaLocal(cached).catch(() => {});
+          markRoomRead(chatRoomId).catch(() => {});
+          return;
         }
       } catch {
-        // ignore — fall through to the server fetch below
+        // ignore — fall through to the fresh empty state below
       }
+      // No local representation of this conversation (first-ever open on this
+      // device, or the cache was wiped). Show the fresh empty state — do NOT
+      // fetch the conversation's history from the server. Previous
+      // conversations are restored only through the explicit "Load Chat
+      // History" action in the Chat menu. The poll marker is seeded with
+      // "now" so messages that arrive WHILE the user is viewing (new
+      // messages, not history) still synchronize in the background.
+      pollMarkerRef.current = new Date().toISOString();
+      setShowShimmer(false);
+      setLoading(false);
+      return;
     }
 
+    // ── Explicit pagination (user scrolled up) — server fetch allowed ────
     try {
-      // The SERVER is the source of truth for message text: fetch, mirror the
-      // context membership, and reconcile with what was painted from cache.
-      const result = await getRoomMessages(chatRoomId, before ? { before } : undefined);
-      // Mirror the server's context/membership into the local cache and
-      // remove any messages the server says no longer belong to this user's
-      // context (their local rows AND media are cleaned up).
-      const removedIds = new Set(
-        before ? [] : await syncRoomContext(result.messages).catch(() => []),
-      );
+      const result = await getRoomMessages(chatRoomId, { before });
       const msgs = result.messages
-        .filter((m: RoomMessage) => !removedIds.has(m.id))
+        .filter((m: RoomMessage) => !m.isDeleted)
         .map((m: RoomMessage) => toMsMessage(m, uid))
         .sort(byNewestFirst);
-      if (before) {
-        // Pagination: prepend the older page to the existing list.
-        setMessages((prev) => (Chat.prepend as any)(prev, msgs));
-        await cacheMessages(chatRoomId, result.messages, uid).catch(() => {});
-      } else {
-        // Initial load: MERGE the server page with whatever is already on
-        // screen (cache-first paint + any optimistic sends), dropping
-        // server-removed messages. Nothing already visible is torn down.
-        setMessages((prev) => {
-          const merged = new Map<string, MsMessage>();
-          for (const m of prev) {
-            if (!removedIds.has(realMessageId(m))) {
-              merged.set(realMessageId(m), m);
-            }
-          }
-          for (const m of msgs) merged.set(realMessageId(m), m);
-          return Array.from(merged.values()).sort(byNewestFirst);
-        });
-        await cacheMessages(chatRoomId, result.messages, uid).catch(() => {});
-        // Seed the change marker with the newest message id so the next poll
-        // only asks for what's actually new ("messages after #N").
-        if (result.messages[0]?.id) {
-          pollMarkerRef.current = result.messages[0].id;
-        }
-      }
+      // Pagination: prepend the older page to the existing list.
+      setMessages((prev) => (Chat.prepend as any)(prev, msgs));
+      await cacheMessages(chatRoomId, result.messages, uid).catch(() => {});
       setHasMore(result.hasMore ?? false);
-      markRoomRead(chatRoomId).catch(() => {});
-      // Persist media for any message that has a remote URL but no local file.
       ensureMediaLocal(result.messages).catch(() => {});
     } catch {
-      // Network failure: if a cache-first paint already happened, the
-      // previously downloaded content stays visible (offline browsing). If
-      // nothing was cached, the empty state shows with the shimmer faded.
+      // Network failure: the already-rendered content stays visible.
     } finally {
       setLoading(false);
     }
@@ -641,33 +675,19 @@ export default function ChatScreen() {
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
-  // ── Poll ONLY the currently-viewed room (incremental, serverless) ──────
-  // Messages + typing indicators arrive via the same changes poll.
-  const pollMarkerRef = useRef<string | null>(null);
-  const pollActiveRef = useRef(true);
-
-  const pollRoom = useCallback(async () => {
-    if (!chatRoomId || !pollActiveRef.current) return;
-    const changes = await checkRoomChanges(chatRoomId, pollMarkerRef.current).catch(() => null);
-    if (!changes) return;
-
-    // ── Typing state ────────────────────────────────────────────────────
-    // The server always returns the current typing list; empty means nobody
-    // is typing. This is authoritative so a stale "Typing…" can't linger.
-    const typingUsers = changes.typing ?? [];
-    const otherIsTyping = typingUsers.some((id) => id !== user?.id);
-    setIsTyping(otherIsTyping);
-
-    if (!changes.changed) return;
-    pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
-    const fresh = changes.messages;
+  // ── Merge incoming messages (shared by the realtime socket + poll) ──────
+  // Both the WebSocket and the changes-poll fallback funnel fresh messages
+  // through here: mirror the context membership, reconcile into the visible
+  // list (dropping server-removed messages), persist to SQLite, resolve media.
+  const handleIncomingMessages = useCallback(async (fresh: RoomMessage[]) => {
     if (!fresh?.length) return;
+    const uid = user?.id ?? '';
 
     // Sync context auth removals if any
     const removedIds = new Set(await syncRoomContext(fresh).catch(() => []));
     const incomingMap = new Map<string, MsMessage>();
     for (const m of fresh) {
-      incomingMap.set(String(m.id), toMsMessage(m, user?.id ?? ''));
+      incomingMap.set(String(m.id), toMsMessage(m, uid));
     }
 
     setMessages((prev) => {
@@ -706,7 +726,11 @@ export default function ChatScreen() {
         updated = [...newOnes, ...updated];
       }
 
-      cacheMessages(chatRoomId, fresh, user?.id).catch(() => {});
+      // 4. Realtime can deliver a sender's own confirmed message before the
+      //    HTTP confirmation resolves — dedupe so no visible duplicate forms.
+      updated = dedupeMessages(updated);
+
+      cacheMessages(chatRoomId, fresh, uid).catch(() => {});
       return updated;
     });
 
@@ -714,21 +738,170 @@ export default function ChatScreen() {
     ensureMediaLocal(fresh).catch(() => {});
   }, [chatRoomId, user?.id, ensureMediaLocal, syncRoomContext]);
 
+  // ── Poll fallback (incremental changes, ONLY when the socket is down) ──
+  // The WebSocket is the primary realtime path; this poll keeps working when
+  // it is unavailable (offline, unsupported network, server without WS).
+  const pollMarkerRef = useRef<string | null>(null);
+  const pollActiveRef = useRef(true);
+
+  const pollRoom = useCallback(async () => {
+    if (!chatRoomId || !pollActiveRef.current) return;
+    const changes = await checkRoomChanges(chatRoomId, pollMarkerRef.current).catch(() => null);
+    if (!changes) return;
+
+    // ── Typing state (fallback) ────────────────────────────────────────
+    const typingUsers = changes.typing ?? [];
+    const otherIsTyping = typingUsers.some((id) => id !== user?.id);
+    setIsTyping(otherIsTyping);
+
+    // Always adopt the server's marker (a fresh timestamp) — even when this
+    // check found nothing — so the next poll only asks for what arrived since
+    // the last check. This keeps the marker self-healing: it never stays
+    // stale, which would otherwise re-download or miss content.
+    pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
+    if (!changes.changed) return;
+    await handleIncomingMessages(changes.messages ?? []);
+  }, [chatRoomId, user?.id, pollActiveRef, handleIncomingMessages]);
+
   useEffect(() => {
     if (!chatRoomId) return;
-    const interval = setInterval(pollRoom, 10_000);
+    const interval = setInterval(() => {
+      // The realtime socket is the primary path — only poll when it's down.
+      if (realtime.isOpen()) return;
+      void pollRoom();
+    }, 10_000);
     return () => clearInterval(interval);
   }, [chatRoomId, pollRoom]);
 
+  // ── Realtime (WebSocket) — live channel for this conversation ──────────
+  // Messages, typing, recording, read receipts, reactions and presence arrive
+  // instantly over the socket. The poll above is the fallback.
+  useEffect(() => {
+    if (!chatRoomId) return;
+    const channel = `chat:${chatRoomId}`;
+    realtime.subscribe(channel);
+
+    const offMessage = realtime.on(REALTIME_EVENT.chatMessageCreated, (event) => {
+      const raw = (event.payload as { message?: unknown })?.message;
+      if (!raw) return;
+      const msg = normalizeMessage(raw);
+      if (!msg?.id) return;
+      // A delivered message from the other user clears their typing indicator.
+      if (msg.sender?.id && msg.sender.id !== user?.id) setIsTyping(false);
+      void handleIncomingMessages([msg]);
+    });
+    const offUpdated = realtime.on(REALTIME_EVENT.chatMessageUpdated, (event) => {
+      const p = event.payload as { messageId?: string; body?: string; isEdited?: boolean };
+      if (!p.messageId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          realMessageId(m) === p.messageId
+            ? { ...m, text: p.body ?? m.text, msIsEdited: p.isEdited ?? m.msIsEdited }
+            : m,
+        ),
+      );
+      if (p.body !== undefined) {
+        updateCachedMessage(chatRoomId, p.messageId, { body: p.body, isEdited: true }, user?.id).catch(() => {});
+      }
+    });
+    const offDeleted = realtime.on(REALTIME_EVENT.chatMessageDeleted, (event) => {
+      const p = event.payload as { messageId?: string; scope?: string; userId?: string };
+      if (!p.messageId) return;
+      // delete-for-me only affects the actor; recall affects everyone.
+      const affectsMe = p.scope === 'everyone' || (p.scope === 'me' && p.userId === user?.id);
+      if (!affectsMe) return;
+      setMessages((prev) => prev.filter((m) => realMessageId(m) !== p.messageId));
+      removeCachedMessage(chatRoomId, p.messageId, user?.id).catch(() => {});
+      deleteRoomMedia(chatRoomId, p.messageId).catch(() => {});
+    });
+    const offTypingStart = realtime.on(REALTIME_EVENT.chatTypingStarted, (event) => {
+      const who = (event.payload as { userId?: string })?.userId;
+      if (who && who !== user?.id) setIsTyping(true);
+    });
+    const offTypingStop = realtime.on(REALTIME_EVENT.chatTypingStopped, (event) => {
+      const who = (event.payload as { userId?: string })?.userId;
+      if (!who || who !== user?.id) setIsTyping(false);
+    });
+    const offRecStart = realtime.on(REALTIME_EVENT.chatRecordingStarted, (event) => {
+      const who = (event.payload as { userId?: string })?.userId;
+      if (who && who !== user?.id) setIsRecording(true);
+    });
+    const offRecStop = realtime.on(REALTIME_EVENT.chatRecordingStopped, (event) => {
+      const who = (event.payload as { userId?: string })?.userId;
+      if (!who || who !== user?.id) setIsRecording(false);
+    });
+    const offRead = realtime.on(REALTIME_EVENT.chatMessageRead, (event) => {
+      const p = event.payload as { userId?: string; lastReadAt?: string };
+      if (!p.userId || p.userId === user?.id || !p.lastReadAt) return;
+      const readThrough = new Date(p.lastReadAt).getTime();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.user._id === user?.id && new Date(m.createdAt).getTime() <= readThrough
+            ? { ...m, received: true, status: 'read' as const }
+            : m,
+        ),
+      );
+    });
+    const offReaction = realtime.on(REALTIME_EVENT.chatReactionUpdated, (event) => {
+      const p = event.payload as {
+        messageId?: string;
+        reactions?: Array<{ emoji: string; userIds: string[] }>;
+      };
+      if (!p.messageId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          realMessageId(m) === p.messageId ? { ...m, reactions: p.reactions ?? m.reactions } : m,
+        ),
+      );
+    });
+    const offPresence = realtime.on(REALTIME_EVENT.chatPresenceUpdated, (event) => {
+      const p = event.payload as { userId?: string; online?: boolean };
+      if (!p.userId || p.userId === user?.id) return;
+      setOtherUser((prev) => (prev.id === p.userId ? { ...prev, isOnline: p.online ?? false } : prev));
+    });
+
+    // Presence: announce online while viewing this conversation (and offline
+    // on leave). Best-effort — the room-metadata fetch remains the fallback.
+    const announce = (online: boolean) => {
+      realtime.relay(channel, REALTIME_EVENT.chatPresenceUpdated, { userId: user?.id, online });
+    };
+    announce(true);
+
+    return () => {
+      realtime.unsubscribe(channel);
+      offMessage(); offUpdated(); offDeleted();
+      offTypingStart(); offTypingStop();
+      offRecStart(); offRecStop(); offRead(); offReaction(); offPresence();
+      announce(false);
+    };
+  }, [chatRoomId, user?.id, handleIncomingMessages]);
+
   // ── Typing broadcast (client → server) ──────────────────────────────────
-  // When the user types, fire a debounced "I'm typing" broadcast. Stop/clear
-  // when input becomes empty. Cleared on send and on unmount as well.
+  // When the user types, fire a debounced "I'm typing" broadcast. Prefers the
+  // realtime socket (ephemeral relay — instant, no DB write); falls back to
+  // the HTTP endpoint when the socket is unavailable.
+  const sendTypingBroadcast = useCallback(() => {
+    if (!chatRoomId) return;
+    const sent = realtime.relay(`chat:${chatRoomId}`, REALTIME_EVENT.chatTypingStarted, {
+      userId: user?.id,
+    });
+    if (!sent) broadcastTyping(chatRoomId);
+  }, [chatRoomId, user?.id]);
+
+  const sendTypingStop = useCallback(() => {
+    if (!chatRoomId) return;
+    const sent = realtime.relay(`chat:${chatRoomId}`, REALTIME_EVENT.chatTypingStopped, {
+      userId: user?.id,
+    });
+    if (!sent) clearTyping(chatRoomId);
+  }, [chatRoomId, user?.id]);
+
   useEffect(() => {
     if (!chatRoomId || isBlocked) return;
     if (inputText.trim().length === 0) {
       if (typingBroadcastRef.current) {
         typingBroadcastRef.current = false;
-        clearTyping(chatRoomId);
+        sendTypingStop();
       }
       return;
     }
@@ -736,24 +909,24 @@ export default function ChatScreen() {
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
       typingBroadcastRef.current = true;
-      broadcastTyping(chatRoomId);
+      sendTypingBroadcast();
     }, 250);
 
     return () => {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
-  }, [inputText, chatRoomId, isBlocked]);
+  }, [inputText, chatRoomId, isBlocked, sendTypingBroadcast, sendTypingStop]);
 
   // ── Clear typing on unmount (leaving the conversation) ────────────────────
   useEffect(() => {
     return () => {
       if (typingBroadcastRef.current) {
         typingBroadcastRef.current = false;
-        clearTyping(chatRoomId);
+        sendTypingStop();
       }
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
-  }, [chatRoomId]);
+  }, [chatRoomId, sendTypingStop]);
 
   // ── Pause polling while the app is backgrounded; resume on foreground ────
   // Avoids hitting the server every 10s while the chat isn't visible. On
@@ -1128,13 +1301,18 @@ export default function ChatScreen() {
       return;
     }
 
-    // ── Image / Video / Document ───────────────────────────────────────────
-    const mediaType = attachType as 'image' | 'video' | 'document';
+    // ── Image / GIF / Video / Document ──────────────────────────────────────
+    // GIF is a media-first type: the picker returns type 'gif' with an
+    // animated asset; it uploads as image/gif, persists as a .gif local file
+    // (animation survives caching), and renders as a compact animated bubble.
+    const mediaType = attachType as 'image' | 'video' | 'gif' | 'document';
+    const isGif = mediaType === 'gif';
     // FILE TYPE for this message — derived from the attachment's MIME/filename
     // so the Auth Tree carries the on-disk format alongside the message type.
     const sendFileType =
-      deriveFileType(confirmed.mimeType, confirmed.fileName) ??
-      (mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : null);
+      isGif ? 'gif'
+      : deriveFileType(confirmed.mimeType, confirmed.fileName) ??
+        (mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : null);
     const optimistic: MsMessage = {
       _id: tempId,
       id: tempId,
@@ -1143,14 +1321,14 @@ export default function ChatScreen() {
       text: confirmed.caption ?? '',
       createdAt: now,
       user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
-      image: mediaType === 'image' ? uri : undefined,
+      image: (mediaType === 'image' || isGif) ? uri : undefined,
       video: mediaType === 'video' ? uri : undefined,
       msMediaType: mediaType as MsMessage['msMediaType'],
       msFileType: sendFileType,
       msMediaStatus: 'local',
       msFileName: mediaType === 'document' ? confirmed.fileName : undefined,
       msFileSize: mediaType === 'document' ? confirmed.fileSize : undefined,
-      msMimeType: mediaType === 'document' ? confirmed.mimeType : undefined,
+      msMimeType: (mediaType === 'document' || isGif) ? confirmed.mimeType : undefined,
       sent: false,
       pending: true,
     };
@@ -1160,9 +1338,10 @@ export default function ChatScreen() {
       const mime =
         mediaType === 'image'
           ? (confirmed.mimeType?.startsWith('image/') ? confirmed.mimeType : 'image/jpeg')
+        : isGif ? (confirmed.mimeType || 'image/gif')
         : mediaType === 'video' ? 'video/mp4'
         : (confirmed.mimeType || 'application/octet-stream');
-      const uploaded = await uploadMedia(uri, mime);
+      const uploaded = await uploadMedia(uri, mime, isGif ? 'photo.gif' : undefined);
         const res = await sendToRoom(
           confirmed.caption,
           uploaded.url,
@@ -1193,7 +1372,7 @@ export default function ChatScreen() {
                 msFileType: sendFileType,
                 msMediaStatus: 'local' as const,
                 localUri: null,
-                image: mediaType === 'image' ? uri : conf.image,
+                image: (mediaType === 'image' || isGif) ? uri : conf.image,
                 video: mediaType === 'video' ? uri : conf.video,
                 msFileName: mediaType === 'document' ? (conf.msFileName ?? confirmed.fileName) : conf.msFileName,
                 msFileSize: mediaType === 'document' ? (conf.msFileSize ?? confirmed.fileSize) : conf.msFileSize,
@@ -1620,7 +1799,7 @@ export default function ChatScreen() {
     // re-upload from the local URI, then send.
     const localSrc = failedMsg.localUri ?? failedMsg.image ?? failedMsg.video ?? failedMsg.audio;
     const existingRemote =
-      mediaType === 'image' ? failedMsg.image
+      (mediaType === 'image' || mediaType === 'gif') ? failedMsg.image
       : mediaType === 'video' ? failedMsg.video
       : mediaType === 'audio' ? failedMsg.audio
       : null;
@@ -1641,6 +1820,7 @@ export default function ChatScreen() {
         if (!mime) {
           mime =
             mediaType === 'image' ? 'image/jpeg'
+            : mediaType === 'gif' ? 'image/gif'
             : mediaType === 'video' ? 'video/mp4'
             : mediaType === 'audio' ? 'audio/m4a'
             : 'application/octet-stream';
@@ -1673,7 +1853,7 @@ export default function ChatScreen() {
                 ...finalizeTemp(conf, tempId),
                 msMediaType: (mediaType ?? conf.msMediaType) as MsMessage['msMediaType'],
                 localUri: failedMsg.localUri ?? conf.localUri ?? null,
-                image: mediaType === 'image' ? (failedMsg.localUri ?? conf.image ?? undefined) : conf.image,
+                image: (mediaType === 'image' || mediaType === 'gif') ? (failedMsg.localUri ?? conf.image ?? undefined) : conf.image,
                 video: mediaType === 'video' ? (failedMsg.localUri ?? conf.video ?? undefined) : conf.video,
                 audio: mediaType === 'audio' ? (failedMsg.localUri ?? conf.audio ?? undefined) : conf.audio,
               }
@@ -1708,6 +1888,16 @@ export default function ChatScreen() {
     });
   }, []);
 
+  // ── Sticker pick — send the emoji immediately as a sticker message ─────────────
+  // A single-emoji text message renders as a floating large-emoji sticker
+  // (MsChatBubble → isSticker). Sending through handleSend keeps the same
+  // optimistic path as any text message: instant, server-confirmed in the
+  // background, persisted in the local cache, available on reopen.
+  const handleStickerPick = useCallback((emoji: string) => {
+    setShowAttach(false);
+    handleSend({ text: emoji });
+  }, [handleSend]);
+
   // ── Send with inline attachment — upload and dispatch ────────────────────────
   const handleSendWithAttachment = useCallback(async (payload: AttachmentSendPayload) => {
     setInlineAttachment(null);
@@ -1725,10 +1915,12 @@ export default function ChatScreen() {
 
   // ── Merge local reactions into messages ───────────────────────────────────────
   const messagesWithReactions = useMemo(() =>
-    messages.map((m) => ({
-      ...m,
-      reactions: localReactions[realMessageId(m)] ?? m.reactions ?? [],
-    })),
+    dedupeMessages(
+      messages.map((m) => ({
+        ...m,
+        reactions: localReactions[realMessageId(m)] ?? m.reactions ?? [],
+      })),
+    ),
     [messages, localReactions],
   );
 
@@ -1801,6 +1993,8 @@ export default function ChatScreen() {
             </Text>
             {isTyping ? (
               <Text style={[styles.headerUsername, { color: T.ACCENT }]}>Typing...</Text>
+            ) : isRecording ? (
+              <Text style={[styles.headerUsername, { color: T.ACCENT }]}>Recording voice note...</Text>
             ) : otherUser.isOnline ? (
               <Text style={[styles.headerUsername, { color: T.SUCCESS }]}>Online</Text>
             ) : otherUser.username ? (
@@ -1848,10 +2042,11 @@ export default function ChatScreen() {
            header, input bar, voice-note, attachment and all other controls
            render immediately; this skeleton sits BEHIND the Chat component
            (whose opaque input bar paints over its bottom edge), so only the
-           empty message list area shows the shimmer. It fades out cleanly
-           when the first messages arrive — no layout jump, no full-screen
-           spinner, no skeleton over buttons. ─────────────────────────────── */}
-      {shimmerVisible && (
+           empty message list area shows the shimmer. It only ever appears
+           when there is no cached conversation to paint (first open), and
+           fades out cleanly when the first messages arrive — no layout jump,
+           no full-screen spinner, no skeleton over buttons. ─────────────── */}
+      {showShimmer && (
         <Animated.View
           pointerEvents={loading ? 'auto' : 'none'}
           style={[
@@ -1952,6 +2147,15 @@ export default function ChatScreen() {
             onRemoveInlineAttachment={() => setInlineAttachment(null)}
             onEditInlineAttachment={() => setShowInlineImagePreview(true)}
             onSendWithAttachment={handleSendWithAttachment}
+            onRecordingStateChange={(recording) => {
+              if (!chatRoomId) return;
+              // Realtime: the other participant sees the recording state
+              // immediately (ephemeral, no DB write). No HTTP fallback —
+              // recording is purely live state.
+              realtime.relay(`chat:${chatRoomId}`, recording
+                ? REALTIME_EVENT.chatRecordingStarted
+                : REALTIME_EVENT.chatRecordingStopped, { userId: user?.id });
+            }}
           />
         )}
 
@@ -1966,6 +2170,7 @@ export default function ChatScreen() {
           visible={showAttach}
           onClose={() => setShowAttach(false)}
           onResult={handleAttachmentResult}
+          onSticker={handleStickerPick}
         />
       )}
 

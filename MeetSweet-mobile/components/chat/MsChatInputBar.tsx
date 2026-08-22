@@ -72,7 +72,7 @@ export interface PendingVoice {
 
 /** Inline attachment staged above the input before sending */
 export interface InlineAttachment {
-  type: 'image' | 'video' | 'audio' | 'voice' | 'document';
+  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -440,6 +440,8 @@ interface Props {
   onEditInlineAttachment?: () => void;
   /** Called when send is pressed while an inline attachment is staged */
   onSendWithAttachment?: (payload: AttachmentSendPayload) => void;
+  /** Realtime: called when voice recording starts (true) / stops (false). */
+  onRecordingStateChange?: (recording: boolean) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -459,6 +461,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   onRemoveInlineAttachment,
   onEditInlineAttachment,
   onSendWithAttachment,
+  onRecordingStateChange,
 }: Props) {
   const isEditing = !!editingMessage;
   const insets    = useSafeAreaInsets();
@@ -700,6 +703,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       syncState('active');
       setRecSeconds(0);
       startPulse();
+      onRecordingStateChange?.(true);
     } catch {/* permission denied or device error */}
   };
 
@@ -712,6 +716,7 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     syncState('idle');
     setRecSeconds(0);
     setRecWarning(false);
+    onRecordingStateChange?.(false);
     if (!rec) return;
     try {
       await rec.stopAndUnloadAsync();

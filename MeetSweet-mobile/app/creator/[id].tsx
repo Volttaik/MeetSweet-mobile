@@ -50,6 +50,7 @@ import {
   type CreatorProfileFull,
 } from '@/services/creators';
 import { useAuth } from '@/contexts/AuthContext';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import type { Post } from '@/services/posts';
 import type { AlbumCardData } from '@/services/albums';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -754,6 +755,27 @@ export default function CreatorProfileScreen() {
   const isOwnProfile = Boolean(
     currentUser && creatorFullProfile && currentUser.id === creatorFullProfile.userId,
   );
+
+  // Realtime: when the viewer IS the creator, live subscription events update
+  // the subscriber count / dashboard instantly (emitted server-side only after
+  // the confirmed DB transaction). The private user:{me} channel is
+  // authorized only for the account owner.
+  useEffect(() => {
+    if (!isOwnProfile || !currentUser?.id) return;
+    const channel = `user:${currentUser.id}`;
+    realtime.subscribe(channel);
+    const off = realtime.on(REALTIME_EVENT.subscriptionCountUpdated, (event) => {
+      const p = event.payload as { creatorId?: string; subscriberCount?: number };
+      if (p.creatorId !== creatorUUID) return;
+      if (typeof p.subscriberCount !== 'number') return;
+      setRealProfile((prev) => (prev ? { ...prev, subscriberCount: p.subscriberCount! } : prev));
+      setCreatorFullProfile((prev) => (prev ? { ...prev, subscriberCount: p.subscriberCount! } : prev));
+    });
+    return () => {
+      realtime.unsubscribe(channel);
+      off();
+    };
+  }, [isOwnProfile, currentUser?.id, creatorUUID]);
 
   // Creator-profile access model: the profile is subscriber-gated. When the
   // server reports content_locked (viewer not subscribed and not the owner),

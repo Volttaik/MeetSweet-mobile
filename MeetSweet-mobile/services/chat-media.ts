@@ -83,7 +83,7 @@ function ensureDir(fs: FsModule, dir: FSDirectory): void {
 export function extForMedia(
   mime: string | undefined | null,
   url: string | undefined | null,
-  mediaType: 'image' | 'video' | 'audio' | 'document' | null | undefined,
+  mediaType: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null | undefined,
 ): string {
   const byMime = mime ? mimeToExt(mime) : null;
   if (byMime) return byMime;
@@ -94,6 +94,8 @@ export function extForMedia(
   }
   switch (mediaType) {
     case 'image': return 'jpg';
+    case 'gif': return 'gif'; // animated — keep the gif container so animation survives caching
+    case 'sticker': return 'webp';
     case 'video': return 'mp4';
     case 'audio': return 'm4a';
     case 'document': return 'bin';
@@ -141,7 +143,7 @@ export async function persistLocalMedia(
   chatRoomId: string,
   messageId: string,
   sourceUri: string,
-  opts: { mime?: string | null; mediaType?: 'image' | 'video' | 'audio' | 'document' | null },
+  opts: { mime?: string | null; mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null },
 ): Promise<string | null> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId || !sourceUri) return null;
@@ -176,7 +178,7 @@ export async function downloadRoomMedia(
   chatRoomId: string,
   messageId: string,
   remoteUrl: string,
-  opts: { mime?: string | null; mediaType?: 'image' | 'video' | 'audio' | 'document' | null },
+  opts: { mime?: string | null; mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null },
 ): Promise<string | null> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId || !remoteUrl) return null;
@@ -225,7 +227,7 @@ export async function localMediaExists(localUri: string): Promise<boolean> {
 export async function resolveLocalMedia(
   chatRoomId: string,
   messageId: string,
-  opts: { mime?: string | null; mediaType?: 'image' | 'video' | 'audio' | 'document' | null; url?: string | null },
+  opts: { mime?: string | null; mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null; url?: string | null },
 ): Promise<string | null> {
   const mod = await fs();
   if (!mod || !chatRoomId || !messageId) return null;
@@ -237,6 +239,8 @@ export async function resolveLocalMedia(
   const preferred = extForMedia(opts.mime, opts.url, opts.mediaType);
   candidates.add(preferred);
   if (opts.mediaType === 'image') { candidates.add('jpg'); candidates.add('png'); }
+  if (opts.mediaType === 'gif') { candidates.add('gif'); candidates.add('png'); }
+  if (opts.mediaType === 'sticker') { candidates.add('webp'); candidates.add('png'); candidates.add('jpg'); }
   if (opts.mediaType === 'video') { candidates.add('mp4'); candidates.add('mov'); }
   if (opts.mediaType === 'audio') { candidates.add('m4a'); candidates.add('mp3'); }
 

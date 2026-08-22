@@ -856,3 +856,30 @@ NOTE: mobile typecheck could not run in this session (Expo `node_modules` were
 not installed); server `tsc --noEmit` passes. A device E2E of the
 1/3/4/5/10/25 MB+ matrix is still outstanding and needs the deployed server +
 `R2_PUBLIC_BASE_URL` set.
+
+**UNIFIED REALTIME (WebSocket) — implemented:** the app now has a unified
+WebSocket realtime layer. Client: `services/realtime.ts` (singleton; auth via
+`?token=`, reconnect with backoff, heartbeat, idempotent event dedup, missed-
+event recovery via outbox `sync`). Wired: chat (messages/typing/recording/
+read/reactions/presence), comments (`useComments`), post like counts, the
+notifications badge + wallet refresh, and own-profile subscriber counts. All
+existing polls remain as FALLBACKS and are skipped while the socket is open.
+Full protocol + server side documented in `Meetsweet/.agent/REALTIME.md`.
+Deploy note: WebSockets need Fluid compute (already in `vercel.json`).
+
+**REALTIME UPDATE:** cross-instance fan-out now uses a Redis Streams bus
+(`Meetsweet/server/lib/realtime/bus.ts`, XREAD BLOCK per the Vercel chat
+guide) that activates only when `REDIS_URL` is set — single-instance fallback
+otherwise. Chat message EDIT/DELETE are now realtime (`chat.message.updated`/
+`chat.message.deleted`); the server endpoints for them (previously missing,
+mobile calls were 404ing) now exist. Client subscriptions are batched and sent
+after `hello`; typing relays throttled server-side.
+
+**REDIS CONFIGURED (2026-08-22):** the bus accepts either `REDIS_URL`
+(wire-protocol `rediss://...`) or the Upstash REST pair
+(`UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`) — the wire URL is
+derived automatically (`bus.ts` `resolveRedisUrl()`). Live Upstash instance
+verified (PING/XADD/XREAD BLOCK OK); values stored in the server's local
+`.env` (gitignored) and in Vercel env vars. The `meetsweet:events` stream is
+capped at ~500 entries (MAXLEN trim) — Redis usage stays well under 1 MB.
+Server + mobile realtime work is pushed to both repos (see git log).

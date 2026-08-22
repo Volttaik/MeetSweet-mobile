@@ -120,12 +120,14 @@ export function MsMediaCard({ message, position, onPress, onLongPress }: Props) 
   const handleLoad = useCallback((e: { nativeEvent: { source: { width: number; height: number } } }) => {
     const { width: nw, height: nh } = e.nativeEvent.source;
     if (nw > 0 && nh > 0) {
-      // Fit width within MAX_CARD_W, let height follow natural aspect ratio
+      // Fit width within MAX_CARD_W, let height follow natural aspect ratio.
+      // Animated GIFs get a height cap so a tall GIF stays a compact bubble
+      // (contain fit letterboxes it — no cropping, animation preserved).
       const ratio = nh / nw;
       const fw    = Math.min(Math.max(nw, MIN_CARD_W), MAX_CARD_W);
       const fh    = Math.max(80, Math.round(fw * ratio));
       setImgW(fw);
-      setImgH(fh);
+      setImgH(isGif ? Math.min(fh, Math.round(MAX_CARD_W * 1.2)) : fh);
     }
     setLoading(false);
     Animated.timing(fadeAnim, {

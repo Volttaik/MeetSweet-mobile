@@ -58,7 +58,9 @@ function formatFileSize(bytes: number): string {
 }
 
 export interface PendingAttachment {
-  type: 'image' | 'video' | 'audio' | 'voice' | 'document';
+  // 'gif' is supported as a media-first type (renders through the image path);
+  // the preview modal renders it with expo-image which animates GIFs.
+  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif';
   uri: string;
   mimeType: string;
   fileName: string;

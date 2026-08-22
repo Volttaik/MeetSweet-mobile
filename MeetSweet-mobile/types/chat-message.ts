@@ -8,6 +8,8 @@
 export type MessageType =
   | 'text'
   | 'image'
+  | 'gif'
+  | 'sticker'
   | 'video'
   | 'audio'
   | 'voice'
@@ -107,6 +109,11 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
 
   const mediaType: MessageType =
     m.messageType || m.mediaType || m.media_type || (m.isVoiceNote ? 'voice' : m.image ? 'image' : m.video ? 'video' : m.audio ? 'audio' : 'text');
+  // gif / sticker are media-first types: they render through the image path
+  // (animated via expo-image for gif, floating for sticker) but keep their
+  // distinct mediaType so the model never degrades them to a generic image.
+  const isGifLike = mediaType === 'gif';
+  const isStickerLike = mediaType === 'sticker';
 
   const mediaUrl = m.mediaUrl || m.media_url || m.image || m.video || m.audio || null;
   const fileName = m.fileName || m.file_name || null;
@@ -171,7 +178,7 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
     msAudioDuration: audioDuration,
     caption,
     msCaption: caption,
-    msStickerImage: Boolean(m.msStickerImage || m.is_sticker),
+    msStickerImage: Boolean(m.msStickerImage || m.is_sticker || isStickerLike),
     reactions: Array.isArray(m.reactions) ? m.reactions : [],
     quotedMessage: replyMessage ?? undefined,
     replyMessage: replyMessage ?? undefined,
@@ -186,7 +193,9 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
     // Honest read state: only true when the backend reports the recipient has
     // read past this message (other member's last_read_at). Never assumed.
     received: Boolean(m.received ?? m.read ?? m.is_read ?? false),
-    image: mediaType === 'image' ? (m.localUri || mediaUrl) : undefined,
+    // gif + sticker carry their media in the image field so the bubble/media
+    // fullscreen paths resolve them without special-casing every consumer.
+    image: (mediaType === 'image' || isGifLike || isStickerLike) ? (m.localUri || mediaUrl) : undefined,
     video: mediaType === 'video' ? (m.localUri || mediaUrl) : undefined,
     audio: mediaType === 'audio' ? (m.localUri || mediaUrl) : undefined,
   };

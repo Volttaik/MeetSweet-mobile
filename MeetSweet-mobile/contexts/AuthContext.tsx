@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { apiFetch, ApiError, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
 import { clearChatCache } from '@/services/chat-cache';
+import { realtime } from '@/services/realtime';
 import { uploadMedia } from '@/services/media';
 import { peekPendingAvatar, clearPendingAvatar } from '@/lib/pending-avatar';
 import {
@@ -265,6 +266,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.remove();
     };
   }, [state.isAuthenticated, state.accessToken, fetchCurrentUser]);
+
+  // Unified realtime connection follows the auth session. The socket carries
+  // the current user's identity (token from session storage); on logout or
+  // account switch it is closed, and on login it reconnects with the new
+  // account's token. Screens subscribe to their channels separately.
+  useEffect(() => {
+    if (state.isAuthenticated && state.user?.id) {
+      realtime.connect();
+    } else {
+      realtime.disconnect();
+    }
+  }, [state.isAuthenticated, state.user?.id]);
 
   const login = useCallback(async (data: LoginData): Promise<LoginResult> => {
     await clearSessionStorage().catch(() => {});

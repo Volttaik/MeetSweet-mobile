@@ -60,6 +60,7 @@ import {
   checkCommentRoomChanges,
   type CommentRoomComment,
 } from '@/services/comment-room-service';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 
 export type { CommentRoomComment };
 
@@ -171,6 +172,8 @@ export function useComments(postId: string) {
   const [commentsEnabled, setCommentsEnabled] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Realtime: authoritative comment count for the post, updated live by events.
+  const [liveCommentCount, setLiveCommentCount] = useState<number | null>(null);
   const pollMarkerRef = useRef<string | null>(null);
 
   const refresh = useCallback(async (isPullToRefresh = false) => {
@@ -244,10 +247,12 @@ export function useComments(postId: string) {
     refresh();
   }, [refresh]);
 
-  // Poll active comment room for updates
+  // Poll active comment room for updates (fallback — skipped while the
+  // realtime socket is connected; the WebSocket is the primary live path).
   useEffect(() => {
     if (!commentRoomId) return;
     const interval = setInterval(async () => {
+      if (realtime.isOpen()) return;
       const changes = await checkCommentRoomChanges(commentRoomId, pollMarkerRef.current).catch(() => null);
       if (!changes || !changes.changed) return;
       pollMarkerRef.current = changes.marker ?? pollMarkerRef.current;
@@ -262,6 +267,47 @@ export function useComments(postId: string) {
     return () => clearInterval(interval);
   }, [commentRoomId]);
 
+  // Realtime: live comments for this post (comment room id == post id). New,
+  // edited and deleted comments propagate instantly to everyone viewing the
+  // post — no polling, no refresh.
+  useEffect(() => {
+    if (!commentRoomId) return;
+    const channel = `post:${commentRoomId}`;
+    realtime.subscribe(channel);
+
+    const offCreated = realtime.on(REALTIME_EVENT.postCommentCreated, (event) => {
+      const p = event.payload as { comment?: CommentRoomComment; commentCount?: number };
+      if (typeof p.commentCount === 'number') setLiveCommentCount(p.commentCount);
+      if (!p.comment?.id) return;
+      const local = toLocalComment(p.comment);
+      setComments((prev) => {
+        if (prev.some((c) => c.id === local.id)) return prev;
+        return [local, ...prev];
+      });
+    });
+    const offUpdated = realtime.on(REALTIME_EVENT.postCommentUpdated, (event) => {
+      const p = event.payload as { commentId?: string; body?: string; replyCount?: number };
+      if (!p.commentId) return;
+      setComments((prev) =>
+        prev.map((c) =>
+          c.id === p.commentId
+            ? { ...c, body: p.body ?? c.body, replyCount: p.replyCount ?? c.replyCount }
+            : c,
+        ),
+      );
+    });
+    const offDeleted = realtime.on(REALTIME_EVENT.postCommentDeleted, (event) => {
+      const p = event.payload as { commentId?: string; commentCount?: number };
+      if (typeof p.commentCount === 'number') setLiveCommentCount(p.commentCount);
+      if (!p.commentId) return;
+      setComments((prev) => prev.filter((c) => c.id !== p.commentId));
+    });
+    return () => {
+      realtime.unsubscribe(channel);
+      offCreated(); offUpdated(); offDeleted();
+    };
+  }, [commentRoomId]);
+
   return {
     comments,
     setComments,
@@ -272,6 +318,7 @@ export function useComments(postId: string) {
     loadMore,
     hasMore,
     loadingMore,
+    liveCommentCount,
     commentRoomId,
     commentsEnabled,
   };

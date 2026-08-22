@@ -12,7 +12,7 @@
  * unchanged.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -33,10 +33,13 @@ import {
   File,
   Camera,
   Waveform,
+  Gif as GifIcon,
+  SmileySticker,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPressable } from '@/components/MsPressable';
 import { dialogs } from '@/components/MsGlobalDialogs';
+import { MsStickerSheet } from '@/components/chat/MsStickerSheet';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -61,7 +64,7 @@ function mimeFromAsset(asset: {
 }
 
 export interface AttachmentResult {
-  type: 'image' | 'video' | 'audio' | 'document';
+  type: 'image' | 'video' | 'audio' | 'document' | 'gif';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -73,9 +76,11 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onResult: (result: AttachmentResult) => void;
+  /** Called when the user picks an emoji sticker — the parent sends it instantly. */
+  onSticker?: (emoji: string) => void;
 }
 
-export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
+export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Props) {
 
   const pickImage = async () => {
     onClose();
@@ -177,6 +182,44 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
     }
   };
 
+  const [showStickers, setShowStickers] = useState(false);
+
+  const pickGif = async () => {
+    onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      dialogs.alert({ title: 'Permission required', message: 'Please allow access to your photo library.' });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const mime = mimeFromAsset(asset);
+    const name = (asset.fileName ?? '').toLowerCase();
+    const isGif = mime === 'image/gif' || name.endsWith('.gif') || String(asset.uri).toLowerCase().endsWith('.gif');
+    if (!isGif) {
+      // The system picker can't filter to GIFs — guide the user instead of
+      // silently converting a static photo into a GIF-typed message.
+      dialogs.alert({
+        variant: 'info',
+        title: 'Pick a GIF',
+        message: 'Choose an animated GIF from your library to send a GIF message.',
+      });
+      return;
+    }
+    onResult({
+      type: 'gif',
+      uri: asset.uri,
+      mimeType: mime,
+      fileName: asset.fileName ?? 'photo.gif',
+      fileSize: asset.fileSize,
+    });
+  };
+
   const pickDocument = async () => {
     onClose();
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -201,12 +244,19 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
   };
 
   const OPTIONS = [
-    { icon: ImageIcon,  label: 'Photo',    color: '#4CAF82', onPress: pickImage    },
-    { icon: Video,      label: 'Video',    color: '#9B6ECA', onPress: pickVideo    },
-    { icon: Camera,     label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
-    { icon: Waveform,   label: 'Audio',    color: '#FF9800', onPress: pickAudio    },
-    { icon: File,       label: 'Document', color: '#2196F3', onPress: pickDocument },
+    { icon: ImageIcon,     label: 'Photo',    color: '#4CAF82', onPress: pickImage    },
+    { icon: GifIcon,       label: 'GIF',      color: '#FF4D8D', onPress: pickGif      },
+    { icon: SmileySticker, label: 'Sticker',  color: '#F59E0B', onPress: () => { onClose(); setShowStickers(true); } },
+    { icon: Video,         label: 'Video',    color: '#9B6ECA', onPress: pickVideo    },
+    { icon: Camera,        label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
+    { icon: Waveform,      label: 'Audio',    color: '#FF9800', onPress: pickAudio    },
+    { icon: File,          label: 'Document', color: '#2196F3', onPress: pickDocument },
   ];
+
+  const handleStickerPick = (emoji: string) => {
+    setShowStickers(false);
+    onSticker?.(emoji);
+  };
 
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(SCREEN_H)).current;
@@ -287,6 +337,13 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
           </View>
         </View>
       </Animated.View>
+
+      {/* Emoji sticker picker — sends the picked emoji instantly as a sticker. */}
+      <MsStickerSheet
+        visible={showStickers}
+        onClose={() => setShowStickers(false)}
+        onPick={handleStickerPick}
+      />
     </Modal>
   );
 }

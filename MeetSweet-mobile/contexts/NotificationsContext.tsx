@@ -26,6 +26,7 @@ import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
 import { getChatRoomList } from '@/services/room-service';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWallet } from '@/contexts/WalletContext';
@@ -292,12 +293,47 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
 
     fetchCounts(); // immediate first fetch
-    pollTimerRef.current = setInterval(fetchCounts, POLL_INTERVAL_MS);
+    // Poll is the FALLBACK — while the realtime socket is connected, live
+    // events (notification.created / wallet.updated) drive the badge instead.
+    pollTimerRef.current = setInterval(() => {
+      if (realtime.isOpen()) return;
+      fetchCounts();
+    }, POLL_INTERVAL_MS);
 
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [isAuthenticated, fetchCounts]);
+
+  // ── Realtime: private user channel ───────────────────────────────────────
+  // Notification rows (written server-side through the single createNotification
+  // choke point) arrive instantly on the socket: the badge updates live, and
+  // confirmed wallet changes trigger a balance refresh. The 30s poll above is
+  // the fallback when the socket is unavailable.
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    const channel = `user:${user.id}`;
+    realtime.subscribe(channel);
+
+    const offNotif = realtime.on(REALTIME_EVENT.notificationCreated, (event) => {
+      const p = event.payload as { notification?: { type?: string } };
+      const type = p.notification?.type;
+      if (type === 'message' || type === 'dm') {
+        setMessageUnread((n) => n + 1);
+      } else {
+        setNotifUnread((n) => n + 1);
+      }
+    });
+    const offWallet = realtime.on(REALTIME_EVENT.walletUpdated, () => {
+      // Server-confirmed balance change — refresh the (authoritative) wallet.
+      refreshWallet().catch(() => {});
+    });
+
+    return () => {
+      realtime.unsubscribe(channel);
+      offNotif(); offWallet();
+    };
+  }, [isAuthenticated, user?.id, refreshWallet]);
 
   // ── Notification listeners ─────────────────────────────────────────────────
   useEffect(() => {

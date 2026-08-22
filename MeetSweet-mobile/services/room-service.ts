@@ -98,7 +98,7 @@ export interface ChatRoom {
   /** Latest message id — used as an incremental marker for polling. */
   lastMessageId?: string | null;
   /** Media type of the latest message (chat list contextual preview). */
-  lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | null;
+  lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
   /** Sender id of the latest message (chat list "You:" prefix). */
   lastMessageSenderId?: string | null;
   /** User IDs currently typing in this room. */
@@ -116,9 +116,10 @@ export interface RoomMessage {
   body: string | null;
   mediaUrl: string | null;
   /** MESSAGE TYPE — how the item behaves as a message (image / video / audio /
-   *  document). This is the message category, NOT the on-disk file format.
-   *  The on-disk file format is `fileType`. */
-  mediaType: 'image' | 'video' | 'audio' | 'document' | null;
+   *  document / gif / sticker). This is the message category, NOT the on-disk
+   *  file format. The on-disk file format is `fileType`. gif = animated image
+   *  in a compact bubble; sticker = floating image with no bubble background. */
+  mediaType: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
   /** FILE TYPE — the actual stored file format (e.g. 'jpeg', 'png', 'mp4',
    *  'mov', 'mp3', 'm4a', 'pdf', 'docx', 'zip', ...). Derived from mimeType /
    *  mediaUrl so the renderer and storage layer never have to guess. null for
@@ -155,7 +156,7 @@ export interface RoomMessage {
   replyTo?: {
     id: string;
     body?: string | null;
-    mediaType?: 'image' | 'video' | 'audio' | 'document' | null;
+    mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
     /** Remote URL of the quoted message's media, when the server includes it.
      *  Used only for the reply-preview thumbnail. Optional because not every
      *  backend payload carries the quoted media URL. */
@@ -225,7 +226,7 @@ export interface RoomContext {
 export interface SendRoomMessagePayload {
   body?: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'audio' | 'document' | null;
+  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
   caption?: string;
   fileName?: string;
   fileSize?: number;
@@ -332,13 +333,18 @@ function normalizeChatRoom(raw: any): ChatRoom {
 
 function inferMediaType(raw: any): RoomMessage['mediaType'] {
   const explicit = raw.mediaType ?? raw.media_type;
-  if (explicit === 'image' || explicit === 'video' || explicit === 'audio' || explicit === 'document') {
+  if (
+    explicit === 'image' || explicit === 'video' || explicit === 'audio' ||
+    explicit === 'document' || explicit === 'gif' || explicit === 'sticker'
+  ) {
     return explicit;
   }
   const mediaUrl = raw.mediaUrl ?? raw.media_url ?? '';
   if (!mediaUrl) return null;
   const source = String(mediaUrl).toLowerCase().split('?')[0];
-  if (/\.(png|jpe?g|webp|gif|heic)$/.test(source)) return 'image';
+  // A .gif URL is a GIF message (animated), not a plain image.
+  if (/\.gif($|\?)/.test(source)) return 'gif';
+  if (/\.(png|jpe?g|webp|heic)$/.test(source)) return 'image';
   if (/\.(mp4|mov|m4v|webm|3gp|quicktime)$/.test(source)) return 'video';
   if (/\.(mp3|m4a|wav|ogg|oga)$/.test(source)) return 'audio';
   if (raw.type === 'media') return 'image';
@@ -399,7 +405,7 @@ export function deriveFileType(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeMessage(raw: any): RoomMessage {
+export function normalizeMessage(raw: any): RoomMessage {
   const mediaUrl = raw.mediaUrl ?? raw.media_url ?? null;
   const mimeType = raw.mimeType ?? raw.mime_type ?? undefined;
   const mediaType = inferMediaType(raw);

@@ -106,7 +106,10 @@ export function MsChatBubble({
   // Both share mediaType 'audio'; the Auth Tree's isVoiceNote flag decides.
   const isVoice   = mediaType === 'audio' && (msg.msIsVoiceNote ?? false);
   const hasAudio  = isVoice || mediaType === 'audio' || !!msg.audio;
-  const hasImage  = mediaType === 'image'    || (!!msg.image && mediaType !== 'video');
+  // gif messages are images (animated) — they route to MsMediaCard which
+  // detects the gif container and renders it as a compact animated bubble.
+  const hasImage  = mediaType === 'image' || mediaType === 'gif'
+    || (!!msg.image && mediaType !== 'video' && mediaType !== 'sticker');
   const hasVideo  = mediaType === 'video'    || (!!msg.video && mediaType !== 'image');
   const hasDoc    = mediaType === 'file' || (mediaType as string) === 'document';
   const isDeleted = msg.msIsDeleted  ?? false;
@@ -116,8 +119,9 @@ export function MsChatBubble({
   const isSticker = !isDeleted && !hasAudio && !hasImage && !hasVideo && !hasDoc
     && isStickerText(msg.text ?? '');
 
-  // Image sticker: sent from sticker panel as a floating image (no card background)
-  const isStickerImage = !isDeleted && !!msg.msStickerImage && !!msg.image;
+  // Image sticker: sticker media messages (mediaType 'sticker') render as a
+  // floating image (no card background) — same as the legacy msStickerImage path.
+  const isStickerImage = !isDeleted && (mediaType === 'sticker' || !!msg.msStickerImage) && !!msg.image;
 
   const replyMsg  = msg.replyMessage;
   const reactions = msg.reactions ?? [];
