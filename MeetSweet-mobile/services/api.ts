@@ -47,10 +47,15 @@ export function setSessionExpiredHandler(fn: () => void): void {
 
 /**
  * Refresh the access token once (single-flight).
- * Used by flows that bypass apiFetch (e.g. native file uploads via expo/fetch).
+ * Used by flows that bypass apiFetch (e.g. native file uploads via expo/fetch,
+ * and the realtime client on a 4401 close).
+ *
+ * `explicitToken` is a fallback ONLY for the window where the refresh token was
+ * just wiped from storage by a failed refresh path; normally the token is read
+ * from storage so a stale captured token can never race a newer one.
  */
-export async function refreshAccessToken(): Promise<string | null> {
-  return _refreshOnce();
+export async function refreshAccessToken(explicitToken?: string): Promise<string | null> {
+  return _refreshOnce(explicitToken);
 }
 
 // ── Token refresh state ───────────────────────────────────────────────────────
@@ -58,9 +63,12 @@ export async function refreshAccessToken(): Promise<string | null> {
 let _isRefreshing = false;
 let _refreshQueue: Array<(token: string | null) => void> = [];
 
-async function _doRefresh(): Promise<string | null> {
+async function _doRefresh(explicitToken?: string): Promise<string | null> {
   try {
-    const refreshToken = await getRefreshToken();
+    // Prefer the token currently in storage: it is always the most recently
+    // issued one. A captured token is only used when storage was just cleared.
+    const stored = await getRefreshToken();
+    const refreshToken = stored ?? explicitToken;
     if (!refreshToken) return null;
 
     const base = getApiBase();
@@ -92,15 +100,17 @@ async function _doRefresh(): Promise<string | null> {
   }
 }
 
-async function _refreshOnce(): Promise<string | null> {
+async function _refreshOnce(explicitToken?: string): Promise<string | null> {
   if (_isRefreshing) {
-    // Queue until the in-flight refresh resolves
+    // Queue until the in-flight refresh resolves. Every caller shares the ONE
+    // in-flight POST so two paths can never rotate the same refresh token
+    // concurrently (the server revokes the presented token on each refresh).
     return new Promise((resolve) => {
       _refreshQueue.push(resolve);
     });
   }
   _isRefreshing = true;
-  const token = await _doRefresh();
+  const token = await _doRefresh(explicitToken);
   _refreshQueue.forEach((cb) => cb(token));
   _refreshQueue = [];
   _isRefreshing = false;

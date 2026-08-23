@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { router } from 'expo-router';
-import { apiFetch, ApiError, setSessionExpiredHandler } from '@/services/api';
+import { apiFetch, ApiError, refreshAccessToken, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
 import { clearChatCache } from '@/services/chat-cache';
 import { realtime } from '@/services/realtime';
@@ -13,8 +13,6 @@ import {
   saveSessionUser,
   clearSessionStorage,
   getAccessToken,
-  updateAccessToken,
-  updateRefreshToken,
 } from '@/lib/session-storage';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -190,24 +188,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = normalizeUser((raw as any)?.user ?? raw);
-    setState((s) => ({ ...s, user }));
+    // apiFetch may have transparently refreshed an expired token and retried;
+    // re-read the stored token so state never holds a stale (now-rejected)
+    // access token that forces every subsequent request through another 401.
+    const freshToken = await getAccessToken().catch(() => null);
+    setState((s) => ({ ...s, user, accessToken: freshToken ?? token }));
     await saveSessionUser(user);
     return user;
   }, []);
 
   const doRefresh = useCallback(async (refreshToken: string) => {
-    const data = await apiFetch<{ access_token: string; refresh_token: string }>('/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    await updateAccessToken(data.access_token);
-    if (data.refresh_token) {
-      await updateRefreshToken(data.refresh_token);
-    }
-    const user = await fetchCurrentUser(data.access_token);
+    // Route through the SAME single-flight refresh used by apiFetch's 401
+    // retry and the realtime client's 4401 handler. The server rotates the
+    // refresh token on every use; two concurrent refreshes with the same token
+    // would make one fail with "revoked or expired" and tear the session down.
+    const fresh = await refreshAccessToken(refreshToken);
+    if (!fresh) throw new Error('Refresh failed');
+    const user = await fetchCurrentUser(fresh);
     setState({
       user,
-      accessToken: data.access_token,
+      accessToken: fresh,
       isLoading: false,
       isAuthenticated: true,
     });
