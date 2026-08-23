@@ -8,37 +8,29 @@
  * the backend deduplicates. All content (messages, media, read state, clear
  * state) belongs to the ROOM.
  *
- * FOUR IDENTIFIERS — never confuse them:
+ * IDENTIFIERS — never confuse them:
  *
  *   chatRoomId  — the permanent room (ROOM_123). ONE per user pair. Both users
  *                 share the same chatRoomId. Server-owned.
- *   contextId   — identifies ONE participant's context inside the room
- *                 (CONTEXT_A for USER_A, CONTEXT_B for USER_B in ROOM_123).
- *                 It does NOT contain messages and does NOT authorize them; it
- *                 only names the context. Server-owned, per (room, user).
- *   contextAuth — the SERVER-CONTROLLED message membership map for a context:
- *                 the set of messageIds currently belonging to that user's
- *                 context (CONTEXT_A → [MSG_001, MSG_002, ...]). NOT a room id,
- *                 NOT a context id, NOT a login token. Mobile only mirrors it.
  *   messageId   — identifies one exact message (MSG_001). Server-owned.
  *
- * REQUIRED BACKEND CONTRACT (backend is being migrated after mobile; see
- * docs/backend-requirements.md for the full request/response spec):
+ * REQUIRED BACKEND CONTRACT:
  *
  *   POST   /api/chat-rooms                     { participant_id }
- *          → { chat_room_id, created, context_id, participants, other_user, ... }
+ *          → { chat_room_id, created, participants, other_user, ... }
  *   GET    /api/chat-rooms?tab=all|archived    → { chat_rooms: [...] }
  *   GET    /api/chat-rooms/:chatRoomId         → { chat_room: {...} }
- *   GET    /api/chat-rooms/:chatRoomId/context?since=<marker>
- *          → { chat_room_id, context_id, context_auth:
- *               { message_ids?, removed_message_ids?, marker? } }
  *   GET    /api/chat-rooms/:chatRoomId/messages?before=&after=
  *          → { messages: [...], has_more }
  *   POST   /api/chat-rooms/:chatRoomId/messages            → { message: {...} }
  *   POST   /api/chat-rooms/:chatRoomId/read
  *   POST   /api/chat-rooms/:chatRoomId/clear
  *
- * Live message, typing, presence, and read events arrive through SweetSocket.
+ * Live message, typing, presence, and read events arrive through SweetSocket
+ * (messages:upsert/update/delete/reaction, typing:*, presence:*, message:read)
+ * and history over chat.history → history:set. There is NO per-open context
+ * membership call: Turso is the durable source and the socket keeps the screen
+ * current — WhatsApp-style. HTTP is the offline/recovery fallback.
  *   DELETE /api/chat-rooms/:chatRoomId/messages/:messageId
  *   PATCH  /api/chat-rooms/:chatRoomId/messages/:messageId  { body }
  *   POST   /api/chat-rooms/:chatRoomId/messages/:messageId/reactions  { emoji }
@@ -48,13 +40,6 @@
  *
  * Message POST body: { body, media_url, media_type, caption, file_name,
  *   file_size, mime_type, audio_duration, reply_to_id }
- *
- * The mobile app calls these room endpoints directly — there is NO fallback to
- * a conversation architecture. If the backend has not shipped a route yet, the
- * request fails loudly (surfaced to the user) rather than silently routing
- * around the room model. The context endpoint (/context) is the ONE exception:
- * it returns null when not yet shipped so the existing message flow keeps
- * working during the migration; context sync is additive, never required.
  */
 
 import { apiFetch } from './api';
@@ -76,11 +61,6 @@ export interface RoomParticipant {
 /** Chat Room row — used by the chat list and the chat header. */
 export interface ChatRoom {
   chatRoomId: string;
-  /** The current user's context id inside this room (CONTEXT_A / CONTEXT_B).
-   *  Server-assigned per (room, user); identifies the requesting participant's
-   *  context. The mobile app never generates it. null until the server returns
-   *  one. The OTHER participant has a different contextId in the same room. */
-  contextId?: string | null;
   lastMessageBody: string | null;
   lastMessageAt: string | null;
   createdAt: string;
@@ -109,10 +89,6 @@ export interface ChatRoom {
 export interface RoomMessage {
   id: string;
   chatRoomId: string;
-  /** The current user's context inside this room (CONTEXT_A / CONTEXT_B).
-   *  Server-assigned; identifies WHICH participant's context this message row
-   *  belongs to in the local replica. The mobile app never generates it. */
-  contextId?: string | null;
   body: string | null;
   mediaUrl: string | null;
   /** MESSAGE TYPE — how the item behaves as a message (image / video / audio /
@@ -165,52 +141,6 @@ export interface RoomMessage {
   } | null;
 }
 
-/**
- * contextAuth — the SERVER-CONTROLLED message membership map for one user's
- * context inside a room. This is NOT a room id, NOT a context id, and NOT a
- * login token. It is a reference index: the set of messageIds that currently
- * belong to this user's context (CONTEXT_A's tree of MSG_001/002/...).
- *
- * - `messageIds`: the full/snapshot membership (authoritative when present).
- * - `removedMessageIds`: incremental removals the server is telling the client
- *   to drop from the local replica (e.g. "remove MSG_002 from User A's context"
- *   on delete-for-me / delete-for-everyone / clear).
- * - `marker`: optional cursor for incremental sync of the membership itself.
- *
- * The mobile app must NEVER invent or modify the authoritative version of this
- * structure — it only mirrors the server's response into SQLite.
- */
-export interface ContextAuth {
-  /** Snapshot of messageIds currently in this context (when the server sends a
-   *  full membership list). */
-  messageIds?: string[];
-  /** Incremental removals to apply to the local replica. */
-  removedMessageIds?: string[];
-  /** Cursor for incremental membership sync; pass back on the next request. */
-  marker?: string | null;
-}
-
-/**
- * RoomContext — the requesting user's context inside a Chat Room.
- *
- *   chatRoomId  = ROOM_123   (the permanent room — shared by both users)
- *   contextId   = CONTEXT_A  (this user's context inside ROOM_123)
- *   userId      = USER_A     (the requesting participant)
- *   contextAuth = { messageIds: [MSG_001, MSG_002, ...] }
- *
- * The other participant (USER_B) has their OWN contextId (CONTEXT_B) and their
- * OWN contextAuth for the same ROOM_123. The local SQLite replica stores one
- * RoomContext per (chatRoomId, currentUserId) so the two participants' contexts
- * never collide on a shared device.
- */
-export interface RoomContext {
-  chatRoomId: string;
-  contextId: string | null;
-  userId: string;
-  contextAuth: ContextAuth;
-  updatedAt?: string | null;
-}
-
 /** Payload for sending a message into a room. */
 export interface SendRoomMessagePayload {
   /** Stable ID generated before rendering the optimistic message. */
@@ -257,7 +187,7 @@ function normalizeParticipant(raw: any): RoomParticipant {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeChatRoom(raw: any): ChatRoom {
+export function normalizeChatRoom(raw: any): ChatRoom {
   const source = raw?.chat_room ?? raw ?? {};
   const ou =
     source.other_user ??
@@ -277,12 +207,6 @@ function normalizeChatRoom(raw: any): ChatRoom {
       source.chatRoomId ??
       source.id ??
       '',
-    // Server-assigned context id for the REQUESTING user (this user's context
-    // inside the room). The other participant gets a different contextId.
-    contextId:
-      source.context_id ??
-      source.contextId ??
-      null,
     lastMessageBody:
       source.lastMessageBody ??
       source.last_message_body ??
@@ -403,9 +327,6 @@ export function normalizeMessage(raw: any): RoomMessage {
   return {
     id: raw.id,
     chatRoomId: raw.chatRoomId ?? raw.chat_room_id ?? '',
-    // The context this message belongs to in the requesting user's replica.
-    // Server-assigned; mobile never generates it.
-    contextId: raw.contextId ?? raw.context_id ?? null,
     body: raw.body ?? null,
     mediaUrl,
     mediaType,
@@ -536,79 +457,6 @@ export async function getChatRoom(chatRoomId: string): Promise<ChatRoom> {
 }
 
 /**
- * Fetch the requesting user's context for a room: contextId + contextAuth
- * (the server-controlled message membership map for THIS user's context).
- *
- *   GET /api/chat-rooms/:chatRoomId/context
- *     → { chat_room_id, context_id, context_auth: { message_ids?, removed_message_ids?, marker? } }
- *
- * This is what the server uses to say, for example, "remove MSG_002 from User
- * A's context". The mobile app mirrors the result into SQLite and removes the
- * referenced local message rows — it never invents or modifies the
- * authoritative membership.
- *
- * `since` is an optional membership cursor passed back from a previous
- * `contextAuth.marker` for incremental sync.
- *
- * Returns null when the backend has not shipped the endpoint yet (404/405) so
- * the existing message flow keeps working unchanged during the migration.
- */
-export async function getRoomContext(
-  chatRoomId: string,
-  since?: string | null,
-): Promise<RoomContext | null> {
-  const token = await getToken();
-  if (!token) return null;
-  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
-  try {
-    const raw = await apiFetch<Record<string, unknown>>(
-      `/chat-rooms/${encodeURIComponent(chatRoomId)}/context${qs}`,
-      { headers: authHeader(token) },
-    );
-    return normalizeRoomContext(raw, chatRoomId);
-  } catch (err: any) {
-    // Only degrade gracefully if endpoint is not found (404/405)
-    if (err?.status === 404 || err?.status === 405 || err?.statusCode === 404 || err?.statusCode === 405) {
-      return null;
-    }
-    // For network/auth failures, log warning and return null so message loading can proceed safely
-    console.warn('[room-service] getRoomContext request error:', err);
-    return null;
-  }
-}
-
-/** Parse the server's context payload into a RoomContext. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeRoomContext(raw: any, chatRoomId: string): RoomContext {
-  const auth =
-    raw?.context_auth ??
-    raw?.contextAuth ??
-    raw?.auth ??
-    {};
-  const messageIds =
-    auth.message_ids ??
-    auth.messageIds ??
-    (Array.isArray(auth) ? auth : undefined);
-  const removedMessageIds =
-    auth.removed_message_ids ??
-    auth.removedMessageIds ??
-    undefined;
-  return {
-    chatRoomId: raw?.chat_room_id ?? raw?.chatRoomId ?? chatRoomId,
-    contextId: raw?.context_id ?? raw?.contextId ?? null,
-    userId: raw?.user_id ?? raw?.userId ?? '',
-    contextAuth: {
-      messageIds: Array.isArray(messageIds) ? messageIds.map(String) : undefined,
-      removedMessageIds: Array.isArray(removedMessageIds)
-        ? removedMessageIds.map(String)
-        : undefined,
-      marker: auth.marker ?? null,
-    },
-    updatedAt: raw?.updated_at ?? raw?.updatedAt ?? null,
-  };
-}
-
-/**
  * GET messages for a room. `before` is the explicit older-history cursor.
  * GET /api/chat-rooms/:chatRoomId/messages?before=
  */
@@ -632,6 +480,38 @@ export async function getRoomMessages(
 }
 
 /**
+ * Fetch room history — socket-first, HTTP fallback.
+ *
+ * The canonical realtime path is the `chat.history` command over the
+ * persistent SweetSocket connection: the server reads durable history from
+ * Turso and answers with a `history:set` event (plus the command ack). The
+ * client merges the messages deterministically by id. HTTP GET /messages
+ * remains the fallback when the socket is unavailable (offline, backgrounded,
+ * recovery after a failed reconnect).
+ */
+export async function fetchRoomHistory(
+  chatRoomId: string,
+  opts?: { before?: string },
+): Promise<{ messages: RoomMessage[]; hasMore: boolean }> {
+  // STRICT TRANSPORT RULE: history comes over SweetSocket (chat.history →
+  // history:set) only — no silent HTTP GET /messages fallback. If the socket is
+  // unavailable this rejects visibly; the live screen surfaces that rather than
+  // swapping to the HTTP transport. (chat-restore.ts owns the explicit
+  // background restoration path via getRoomMessages.)
+  const ack = await realtime.emit(
+    'chat.history',
+    { before: opts?.before, limit: 30 },
+    { channel: `chat:${chatRoomId}` },
+  );
+  const payload = ack.event?.payload as { messages?: unknown[]; hasMore?: boolean } | undefined;
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  return {
+    messages: messages.map((m) => normalizeMessage(m)),
+    hasMore: payload?.hasMore === true,
+  };
+}
+
+/**
  * Send a message into a room. Messages store author + chatRoomId destination.
  * POST /api/chat-rooms/:chatRoomId/messages
  */
@@ -639,59 +519,31 @@ export async function sendRoomMessage(
   chatRoomId: string,
   payload: SendRoomMessagePayload,
 ): Promise<{ message: RoomMessage }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-
-  // Generate the identity before choosing the transport. Both SweetSocket and
-  // the HTTP fallback must send the same ID so reconnects/retries are
-  // idempotent even when the caller is an offline queue or older feature code.
+  // Generate a client-side identity for idempotent optimistic send. The server
+  // reconciles this clientMessageId into the authoritative server message id.
   const clientMessageId = payload.clientMessageId
     ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
 
-  // SweetSocket is the primary command path. HTTP remains the durable fallback
-  // for an offline/backgrounded socket and uses the same client ID, so a retry
-  // cannot create a second server message.
-  if (realtime.isOpen()) {
-    const ack = await realtime.emit('message.send', {
-      body: payload.body,
-      mediaUrl: payload.mediaUrl,
-      mediaType: payload.mediaType,
-      caption: payload.caption,
-      fileName: payload.fileName,
-      fileSize: payload.fileSize,
-      mimeType: payload.mimeType,
-      audioDuration: payload.audioDuration,
-      fileType: payload.fileType,
-      isVoiceNote: payload.isVoiceNote,
-      replyToId: payload.replyToId,
-    }, { channel: `chat:${chatRoomId}`, clientMessageId });
-    const eventMessage = ack.event?.payload?.message;
-    if (eventMessage) return { message: normalizeMessage(eventMessage) };
-    throw new Error(ack.error ?? 'SweetSocket did not return the persisted message');
-  }
-
-  const raw = await apiFetch<{ message: unknown }>(
-    `/chat-rooms/${encodeURIComponent(chatRoomId)}/messages`,
-    {
-      method: 'POST',
-      headers: authHeader(token),
-      body: JSON.stringify({
-        client_message_id: clientMessageId,
-        body: payload.body,
-        media_url: payload.mediaUrl,
-        media_type: payload.mediaType,
-        caption: payload.caption,
-        file_name: payload.fileName,
-        file_size: payload.fileSize,
-        mime_type: payload.mimeType,
-        audio_duration: payload.audioDuration,
-        file_type: payload.fileType,
-        is_voice_note: payload.isVoiceNote,
-        ...(payload.replyToId ? { reply_to_id: payload.replyToId } : {}),
-      }),
-    },
-  );
-  return { message: normalizeMessage(raw?.message ?? {}) };
+  // STRICT TRANSPORT RULE: SweetSocket is the ONLY send transport. If the
+  // socket is unavailable the send fails visibly (emit rejects) — we never
+  // silently fall back to HTTP POST /messages. Callers may route offline sends
+  // into an explicit outgoing queue that flushes over SweetSocket on reconnect.
+  const ack = await realtime.emit('message.send', {
+    body: payload.body,
+    mediaUrl: payload.mediaUrl,
+    mediaType: payload.mediaType,
+    caption: payload.caption,
+    fileName: payload.fileName,
+    fileSize: payload.fileSize,
+    mimeType: payload.mimeType,
+    audioDuration: payload.audioDuration,
+    fileType: payload.fileType,
+    isVoiceNote: payload.isVoiceNote,
+    replyToId: payload.replyToId,
+  }, { channel: `chat:${chatRoomId}`, clientMessageId });
+  const eventMessage = ack.event?.payload?.message;
+  if (eventMessage) return { message: normalizeMessage(eventMessage) };
+  throw new Error(ack.error ?? 'SweetSocket did not return the persisted message');
 }
 
 /**
@@ -699,14 +551,12 @@ export async function sendRoomMessage(
  * POST /api/chat-rooms/:chatRoomId/read
  */
 export async function markRoomRead(chatRoomId: string): Promise<void> {
-  const token = await getToken();
-  if (!token) return;
-  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/read`, {
-    method: 'POST',
-    headers: authHeader(token),
-  }).catch(() => {
-    // Read receipts are best-effort
-  });
+  // STRICT TRANSPORT RULE: read propagates over SweetSocket only. No HTTP /read
+  // fallback — if the socket is unavailable this rejects and the caller's
+  // catch handles it (read is best-effort; the store's local markRoomRead still
+  // zeroes the badge optimistically). The caller must never treat this as sent
+  // unless the socket path resolves.
+  await realtime.emit('chat.read', {}, { channel: `chat:${chatRoomId}` });
 }
 
 /**
@@ -715,12 +565,10 @@ export async function markRoomRead(chatRoomId: string): Promise<void> {
  * POST /api/chat-rooms/:chatRoomId/clear
  */
 export async function clearChatRoom(chatRoomId: string): Promise<void> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/clear`, {
-    method: 'POST',
-    headers: authHeader(token),
-  });
+  // STRICT TRANSPORT RULE: chat clearing propagates over SweetSocket only (the
+  // server persists cleared_at and emits a durable chat:clear). No HTTP /clear
+  // fallback.
+  await realtime.emit('chat.clear', {}, { channel: `chat:${chatRoomId}` });
 }
 
 // ─── Room-scoped message lifecycle (per-message ops stay under the room) ──────
@@ -745,15 +593,10 @@ export async function deleteRoomMessage(
   messageId: string,
   scope: 'me' | 'everyone' = 'me',
 ): Promise<void> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  await apiFetch(
-    `/chat-rooms/${encodeURIComponent(chatRoomId)}/messages/${messageId}?scope=${scope}`,
-    {
-      method: 'DELETE',
-      headers: authHeader(token),
-    },
-  );
+  // STRICT TRANSPORT RULE: deletion propagates over SweetSocket only. The
+  // server validates ownership/permission, persists, and broadcasts
+  // messages:delete. No HTTP DELETE fallback.
+  await realtime.emit('message.delete', { messageId, scope }, { channel: `chat:${chatRoomId}` });
 }
 
 /**
@@ -761,31 +604,27 @@ export async function deleteRoomMessage(
  * PATCH /api/chat-rooms/:chatRoomId/messages/:messageId
  */
 export async function editRoomMessage(chatRoomId: string, messageId: string, body: string): Promise<void> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  await apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/messages/${messageId}`, {
-    method: 'PATCH',
-    headers: authHeader(token),
-    body: JSON.stringify({ body }),
-  });
+  // STRICT TRANSPORT RULE: edits propagate over SweetSocket only (server
+  // validates author, persists is_edited, broadcasts messages:update). No HTTP
+  // PATCH fallback.
+  await realtime.emit('message.edit', { messageId, body }, { channel: `chat:${chatRoomId}` });
 }
 
 /**
  * Toggle a reaction on a room message.
- * POST /api/chat-rooms/:chatRoomId/messages/:messageId/reactions
+ *
+ * STRICT TRANSPORT RULE: reactions propagate over SweetSocket only (server
+ * persists + broadcasts messages:reaction). No HTTP POST fallback. Returns the
+ * authoritative reaction list from the command ack.
  */
 export async function toggleRoomReaction(
   chatRoomId: string,
   messageId: string,
   emoji: string,
 ): Promise<{ reactions: Array<{ emoji: string; userIds: string[] }> }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  return apiFetch(`/chat-rooms/${encodeURIComponent(chatRoomId)}/messages/${messageId}/reactions`, {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ emoji }),
-  });
+  const ack = await realtime.emit('message.reaction', { messageId, emoji }, { channel: `chat:${chatRoomId}` });
+  const reactions = (ack.event?.payload?.reactions ?? []) as Array<{ emoji: string; userIds: string[] }>;
+  return { reactions };
 }
 
 /**

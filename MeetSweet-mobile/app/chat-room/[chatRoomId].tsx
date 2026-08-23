@@ -32,7 +32,6 @@ import {
   FlatList,
   Modal,
   PanResponder,
-  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -90,15 +89,12 @@ import { MsAttachmentPreview } from '@/components/MsAttachmentPreview';
 import type { PendingAttachment, ConfirmedAttachment } from '@/components/MsAttachmentPreview';
 import { MsUserProfileSheet } from '@/components/MsUserProfileSheet';
 import { dialogs } from '@/components/MsGlobalDialogs';
-import { toast } from '@/components/MsToast';
 import type { ProfileSheetUser } from '@/components/MsUserProfileSheet';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getRoomMessages,
   getChatRoom,
-  getRoomContext,
   sendRoomMessage,
   deleteRoomMessage,
   editRoomMessage,
@@ -109,10 +105,11 @@ import {
   muteChatRoom,
   deriveFileType,
   normalizeMessage,
+  fetchRoomHistory,
   type RoomMessage,
 } from '@/services/room-service';
 import { realtime, REALTIME_EVENT } from '@/services/realtime';
-import { ApiError } from '@/services/api';
+import { sweetStore } from '@/services/sweet-store';
 import { blockUser, unblockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 import {
@@ -123,10 +120,6 @@ import {
   updateCachedMessage,
   getCachedChatRooms,
   setCachedMessageLocalUri,
-  cacheRoomContext,
-  getCachedRoomContext,
-  applyContextAuthRemovals,
-  clearCachedRoomContext,
   removeCachedRoom,
 } from '@/services/chat-cache';
 import {
@@ -235,7 +228,12 @@ function finalizeTemp(
 function byNewestFirst(a: MsMessage, b: MsMessage): number {
   const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
   const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
-  return tb - ta;
+  if (tb !== ta) return tb - ta;
+  // Deterministic tie-break for same-millisecond messages. The server orders
+  // ties by `id DESC`; we mirror that here so the client never wobbles between
+  // renders or reconnects, and convergences identically to the server's
+  // canonical order. Identity is only used for ordering, never produced here.
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -546,65 +544,14 @@ export default function ChatScreen() {
     applyPatches(patches);
   }, [chatRoomId, user?.id]);
 
-  // ── Sync this user's context (contextId + contextAuth membership) ──────
-  // The server is authoritative. Before displaying server-fetched messages,
-  // ask for the current user's context and mirror it into SQLite. If the
-  // server says "remove MSG_002 from this context", the local replica is
-  // updated (message row + membership entry) BEFORE rendering, so the UI
-  // never shows messages that no longer belong to this user's context.
-  // Returns the removed messageIds so the caller can drop them from the
-  // rendered list. No user-initiated action happens here — pure mirror.
-  const syncRoomContext = useCallback(
-    async (serverMessages: RoomMessage[]): Promise<string[]> => {
-      const uid = user?.id ?? '';
-      if (!chatRoomId || !uid) return [];
-      // Pass the cached marker so the server can return an incremental
-      // context diff (only removed/added ids since the last sync) instead of
-      // a full membership snapshot every time. Falls back to a full fetch when
-      // no marker is cached yet (first open, or after a cache wipe).
-      const cachedCtx = await getCachedRoomContext(chatRoomId, uid).catch(() => null);
-      const sinceMarker = cachedCtx?.contextAuth.marker ?? null;
-      const ctx = await getRoomContext(chatRoomId, sinceMarker).catch(() => null);
-      if (!ctx) {
-        // Backend hasn't shipped /context yet — nothing to mirror; the plain
-        // message fetch path remains the source of truth.
-        return [];
-      }
-      // Persist the authoritative contextId + membership for this user.
-      await cacheRoomContext(chatRoomId, uid, ctx).catch(() => {});
-      const removed = ctx.contextAuth.removedMessageIds ?? [];
-      if (removed.length) {
-        await applyContextAuthRemovals(chatRoomId, uid, removed).catch(() => {});
-      }
-      // If the server sent a full membership snapshot, reconcile: any locally
-      // cached message for this room that is NOT in the snapshot (and isn't in
-      // the just-fetched server page) is no longer part of this context and is
-      // removed from the local replica. This keeps SQLite mirroring the server.
-      //
-      // IMPORTANT: only reconcile against a NON-EMPTY snapshot. An empty array
-      // means either (a) the server genuinely has no visible messages (all
-      // deletions still arrive via removedMessageIds, so nothing leaks) or (b)
-      // an older server build that always returned [] — treating that as an
-      // authoritative snapshot would wipe the entire cached conversation on
-      // every sync. Deletions are handled explicitly by removedMessageIds, so
-      // skipping reconciliation on an empty snapshot is always safe.
-      const snapshot = ctx.contextAuth.messageIds;
-      if (Array.isArray(snapshot) && snapshot.length > 0) {
-        const keep = new Set<string>(snapshot);
-        for (const m of serverMessages) keep.add(m.id);
-        const cached = await getCachedMessages(chatRoomId, uid).catch(() => []);
-        const stale = cached.filter((m) => !keep.has(m.id)).map((m) => m.id);
-        if (stale.length) {
-          await applyContextAuthRemovals(chatRoomId, uid, stale).catch(() => {});
-          for (const id of stale) removed.push(id);
-        }
-      }
-      return removed;
-    },
-    [chatRoomId, user?.id],
-  );
-
   // ── Load messages ─────────────────────────────────────────────────────
+  // LOCAL-FIRST: cached messages are painted before any network work. A room
+  // with no local representation performs one normal history request to seed
+  // the cache; subsequent opens do not fetch history just to render it. Live
+  // changes (new/edit/delete/reaction/clear) are delivered by SweetSocket
+  // events and older pages are explicit scroll pagination — WhatsApp-style:
+  // Turso is the durable source, the socket keeps the screen current, and no
+  // separate context/membership API is consulted on open.
   // LOCAL-FIRST: cached messages are painted before any network work. A room
   // with no local representation performs one normal history request to seed
   // the cache; subsequent opens do not fetch history just to render it. Live
@@ -629,10 +576,10 @@ export default function ChatScreen() {
           setLoading(false);
           setShowShimmer(false);
           // Background maintenance is silent; rendering does not wait for it:
-          // 1) mirror the server's context membership (removals/deletions),
-          // 2) resolve/persist local media for cached messages missing a
-          //    local file (recovery after a failed download), 3) mark read.
-          syncRoomContext(cached).catch(() => {});
+          // 1) resolve/persist local media for cached messages missing a
+          //    local file (recovery after a failed download), 2) mark read.
+          // (Removals/deletions converge via SweetSocket messages:delete and
+          // chat:clear events — no context API.)
           ensureMediaLocal(cached).catch(() => {});
           markRoomRead(chatRoomId).catch(() => {});
           return;
@@ -642,9 +589,11 @@ export default function ChatScreen() {
       }
       // First open on this device: seed the local replica once. Subsequent
       // opens render from SQLite and do not fetch history merely to paint it.
+      // History comes over the persistent socket (chat.history → history:set)
+      // with an HTTP fallback; never a separate polling loop.
       setShowShimmer(true);
       try {
-        const result = await getRoomMessages(chatRoomId);
+        const result = await fetchRoomHistory(chatRoomId);
         const fresh = result.messages.filter((m: RoomMessage) => !m.isDeleted);
         setMessages(fresh.map((m: RoomMessage) => toMsMessage(m, uid)).sort(byNewestFirst));
         setHasMore(result.hasMore ?? false);
@@ -660,9 +609,9 @@ export default function ChatScreen() {
       return;
     }
 
-    // ── Explicit pagination (user scrolled up) — server fetch allowed ────
+    // ── Explicit pagination (user scrolled up) — socket history, HTTP fallback ──
     try {
-      const result = await getRoomMessages(chatRoomId, { before });
+      const result = await fetchRoomHistory(chatRoomId, { before });
       const msgs = result.messages
         .filter((m: RoomMessage) => !m.isDeleted)
         .map((m: RoomMessage) => toMsMessage(m, uid))
@@ -677,7 +626,7 @@ export default function ChatScreen() {
     } finally {
       setLoading(false);
     }
-  }, [chatRoomId, user?.id, ensureMediaLocal, syncRoomContext]);
+  }, [chatRoomId, user?.id, ensureMediaLocal]);
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
@@ -761,7 +710,7 @@ export default function ChatScreen() {
     if (fresh.some((m) => m.sender?.id && m.sender.id !== uid)) {
       markRoomRead(chatRoomId).catch(() => {});
     }
-  }, [chatRoomId, user?.id, ensureMediaLocal, syncRoomContext]);
+  }, [chatRoomId, user?.id, ensureMediaLocal]);
 
   // ── Realtime (SweetSocket) — live channel for this conversation ─────────
   // Messages, typing, recording, read receipts, reactions and presence arrive
@@ -866,12 +815,19 @@ export default function ChatScreen() {
       setOtherUser((prev) => (prev.id === p.userId ? { ...prev, isOnline: p.online ?? false } : prev));
     });
 
-    // Presence: announce online while viewing this conversation (and offline
-    // on leave). Best-effort — the room-metadata fetch remains the fallback.
-    const announce = (online: boolean) => {
-      realtime.relay(channel, REALTIME_EVENT.chatPresenceUpdated, { userId: user?.id, online });
+    // chat:open / chat:close — the server knows this user is actively viewing
+    // the room (drives presence, read receipts and future room subscription
+    // optimization). Presence is announced with the same open/close relay so
+    // the other participant's isOnline indicator stays live.
+    const announce = (open: boolean) => {
+      realtime.relay(channel, open ? REALTIME_EVENT.chatOpen : REALTIME_EVENT.chatClose, {
+        roomId: chatRoomId,
+        userId: user?.id,
+      });
+      realtime.relay(channel, REALTIME_EVENT.chatPresenceUpdated, { userId: user?.id, online: open });
     };
     announce(true);
+    sweetStore.setRoomFocused(chatRoomId);
 
     return () => {
       realtime.unsubscribe(channel);
@@ -879,6 +835,7 @@ export default function ChatScreen() {
       offTypingStart(); offTypingStop();
       offRecStart(); offRecStop(); offRead(); offReaction(); offPresence();
       announce(false);
+      sweetStore.setRoomFocused(null);
     };
   }, [chatRoomId, user?.id, handleIncomingMessages]);
 
@@ -1441,16 +1398,10 @@ export default function ChatScreen() {
 
     try {
       await deleteRoomMessage(chatRoomId, id, scope);
-      // Server confirmed — remove the message from this user's SQLite context
-      // (the row + the contextAuth membership entry) and from the visible list.
-      // For 'me' the other participant's context is untouched; for 'everyone'
-      // the backend updated both contexts and the other client receives the
-      // realtime message:deleted event.
-      const uid = user?.id ?? '';
-      await removeCachedMessage(chatRoomId, id, uid).catch(() => {});
-      if (uid) {
-        await applyContextAuthRemovals(chatRoomId, uid, [id]).catch(() => {});
-      }
+      // Server confirmed — remove the message locally and from the visible
+      // list. The socket messages:delete event syncs the OTHER side; no
+      // context membership API is involved.
+      await removeCachedMessage(chatRoomId, id, user?.id).catch(() => {});
       // Remove the local media file for this message so it doesn't linger
       // on disk after the user no longer sees the message.
       await deleteRoomMedia(chatRoomId, id).catch(() => {});
@@ -1543,11 +1494,8 @@ export default function ChatScreen() {
         if (chatRoomId) {
           try {
             await deleteChatRoom(chatRoomId);
-            const uid = user?.id ?? '';
             await removeCachedRoom(chatRoomId, user?.id).catch(() => {});
-            if (uid) {
-              await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
-            }
+            await clearCachedMessages(chatRoomId, user?.id).catch(() => {});
             await clearRoomMedia(chatRoomId).catch(() => {});
             router.back();
           } catch {
@@ -1567,17 +1515,12 @@ export default function ChatScreen() {
       confirmLabel: 'Clear All',
       destructive: true,
       onConfirm: async () => {
-        const uid = user?.id ?? '';
         if (chatRoomId) {
           try {
             await clearChatRoom(chatRoomId);
             setMessages([]);
             setLocalReactions({});
-            if (uid) {
-              await clearCachedRoomContext(chatRoomId, uid).catch(() => {});
-            } else {
-              await clearCachedMessages(chatRoomId, user?.id).catch(() => {});
-            }
+            await clearCachedMessages(chatRoomId, user?.id).catch(() => {});
             await clearRoomMedia(chatRoomId).catch(() => {});
           } catch {
             dialogs.alert({ variant: 'error', title: 'Could not clear chat room', message: 'Please try again.' });
@@ -1922,45 +1865,6 @@ export default function ChatScreen() {
       fileSize: picked.fileSize,
     });
   }, []);
-
-  // Legacy text stickers remain readable for old cached/emitted content. New
-  // selections are binary GIPHY media and use the attachment pipeline.
-  const sendSticker = useCallback(async (emoji: string) => {
-    if (!chatRoomId || isBlocked) return;
-    const tempId = createClientMessageId();
-    const now = new Date();
-    const optimistic: MsMessage = {
-      _id: tempId,
-      id: tempId,
-      chatRoomId,
-      messageType: 'sticker',
-      text: emoji,
-      createdAt: now,
-      user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
-      msMediaType: 'sticker',
-      msStickerImage: true,
-      sent: false,
-      pending: true,
-    } as any;
-    setMessages((prev) => (Chat.append as any)(prev, [optimistic]));
-    try {        const res = await sendToRoom(emoji, undefined, 'sticker', { clientMessageId: tempId });
-      const confirmed = toMsMessage(res.message, user?.id ?? '');
-      // Authoritative server confirmation — persist the row now (same
-      // durability rule as every other send path).
-      cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
-      setMessages((prev) =>
-        prev.map((m) =>
-          m._id === tempId
-            ? { ...finalizeTemp(confirmed, tempId), messageType: 'sticker' as const, msMediaType: 'sticker' as const, msStickerImage: true }
-            : m,
-        ),
-      );
-    } catch {
-      setMessages((prev) =>
-        prev.map((m) => m._id === tempId ? { ...m, pending: false, sent: false } : m),
-      );
-    }
-  }, [chatRoomId, isBlocked, user?.id, sendToRoom]);
 
   const handleStickerPick = useCallback((result: AttachmentResult) => {
     setShowAttach(false);

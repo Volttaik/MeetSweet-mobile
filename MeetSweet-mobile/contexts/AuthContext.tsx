@@ -5,6 +5,7 @@ import { apiFetch, ApiError, refreshAccessToken, setSessionExpiredHandler } from
 import { clearUserCache } from '@/lib/posts-db';
 import { clearChatCache } from '@/services/chat-cache';
 import { realtime } from '@/services/realtime';
+import { sweetStore } from '@/services/sweet-store';
 import { uploadMedia } from '@/services/media';
 import { peekPendingAvatar, clearPendingAvatar } from '@/lib/pending-avatar';
 import {
@@ -270,12 +271,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Unified realtime connection follows the auth session. The socket carries
   // the current user's identity (token from session storage); on logout or
   // account switch it is closed, and on login it reconnects with the new
-  // account's token. Screens subscribe to their channels separately.
+  // account's token. The SweetStore starts/ends with the same session so the
+  // canonical chat state is scoped to the signed-in account.
   useEffect(() => {
     if (state.isAuthenticated && state.user?.id) {
       realtime.connect();
+      sweetStore.start(state.user.id);
     } else {
       realtime.disconnect();
+      sweetStore.stop();
     }
   }, [state.isAuthenticated, state.user?.id]);
 

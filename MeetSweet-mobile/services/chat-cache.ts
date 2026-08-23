@@ -22,7 +22,6 @@
  *
  *   chat_rooms_cache     (user_id, chat_room_id, data, updated_at)
  *   chat_messages_cache  (user_id, chat_room_id, message_id, data, created_at)
- *   chat_contexts_cache  (user_id, chat_room_id, data)
  *   chat_drafts_cache    (user_id, chat_room_id, text)
  *   chat_auth_cache      (key, value)
  *
@@ -34,8 +33,7 @@
  */
 
 import { Platform } from 'react-native';
-import type { ChatRoom, RoomMessage, RoomContext, ContextAuth } from './room-service';
-import { deleteRoomMedia } from './chat-media';
+import type { ChatRoom, RoomMessage } from './room-service';
 
 // ─── Database singleton (same pattern as lib/posts-db.ts) ────────────────────
 
@@ -73,14 +71,6 @@ async function getDb(): Promise<SQLiteDatabase | null> {
       );
       CREATE INDEX IF NOT EXISTS idx_chat_messages_room_created
         ON chat_messages_cache (user_id, chat_room_id, created_at DESC);
-
-      -- Requesting user's context (contextId + contextAuth membership).
-      CREATE TABLE IF NOT EXISTS chat_contexts_cache (
-        user_id      TEXT NOT NULL,
-        chat_room_id TEXT NOT NULL,
-        data         TEXT NOT NULL,
-        PRIMARY KEY (user_id, chat_room_id)
-      );
 
       -- Per-room draft text.
       CREATE TABLE IF NOT EXISTS chat_drafts_cache (
@@ -178,22 +168,6 @@ async function migrateLegacyFileCache(db: SQLiteDatabase): Promise<void> {
                 `INSERT OR REPLACE INTO chat_messages_cache (user_id, chat_room_id, message_id, data, created_at)
                  VALUES (?, ?, ?, ?, ?)`,
                 [userId, roomId, m.id, JSON.stringify(m), new Date(m.createdAt ?? 0).getTime() || 0],
-              );
-            }
-          }
-        }
-
-        // contexts/<roomId>.json
-        const ctxDir = new fs.Directory(fs.Paths.document, 'chat-cache', userId, 'contexts');
-        if (ctxDir.exists) {
-          for (const cf of ctxDir.list()) {
-            if (!(cf instanceof fs.File)) continue;
-            const roomId = cf.name.replace(/\.json$/, '');
-            const ctx = readJson(cf);
-            if (ctx && typeof ctx === 'object') {
-              await db.runAsync(
-                `INSERT OR REPLACE INTO chat_contexts_cache (user_id, chat_room_id, data) VALUES (?, ?, ?)`,
-                [userId, roomId, JSON.stringify(ctx)],
               );
             }
           }
@@ -330,7 +304,6 @@ export async function clearChatCache(): Promise<void> {
     await db.execAsync(`
       DELETE FROM chat_rooms_cache;
       DELETE FROM chat_messages_cache;
-      DELETE FROM chat_contexts_cache;
       DELETE FROM chat_drafts_cache;
       DELETE FROM chat_auth_cache;
     `);
@@ -528,143 +501,6 @@ export async function removeCachedRoom(chatRoomId: string, userId?: string | nul
     );
   } catch (e) {
     console.warn('[chat-cache] removeCachedRoom error:', e);
-  }
-}
-
-// ─── Room context + contextAuth (per-user message membership) ────────────────
-
-/**
- * Persist the requesting user's context (contextId + contextAuth membership)
- * for a room. One row per (chatRoomId, userId) — the other participant has a
- * separate row. The membership map is stored as JSON; the mobile app NEVER
- * invents or modifies the authoritative version — it only mirrors what the
- * server returned via getRoomContext.
- */
-export async function cacheRoomContext(
-  chatRoomId: string,
-  userId: string,
-  ctx: RoomContext,
-): Promise<void> {
-  const db = await getDb();
-  if (!db || !chatRoomId || !userId) return;
-  try {
-    await db.runAsync(
-      `INSERT OR REPLACE INTO chat_contexts_cache (user_id, chat_room_id, data) VALUES (?, ?, ?)`,
-      [userId, chatRoomId, JSON.stringify(ctx)],
-    );
-  } catch (e) {
-    console.warn('[chat-cache] cacheRoomContext error:', e);
-  }
-}
-
-/**
- * Read the requesting user's cached context for a room. Returns null if no
- * context has been synced yet (e.g. backend has not shipped /context).
- */
-export async function getCachedRoomContext(
-  chatRoomId: string,
-  userId: string,
-): Promise<RoomContext | null> {
-  const db = await getDb();
-  if (!db || !chatRoomId || !userId) return null;
-  try {
-    const row = await db.getFirstAsync<{ data: string }>(
-      `SELECT data FROM chat_contexts_cache WHERE user_id = ? AND chat_room_id = ?`,
-      [userId, chatRoomId],
-    );
-    return parseData<RoomContext>(row);
-  } catch (e) {
-    console.warn('[chat-cache] getCachedRoomContext error:', e);
-    return null;
-  }
-}
-
-/**
- * Apply server-directed membership removals to the local replica.
- *
- * For each id in `removedMessageIds`: delete the matching message row AND its
- * local media file, and drop it from the cached contextAuth membership set.
- * This is the "remove MSG_002 from User A's context" path — the ROOM and the
- * other participant's context are untouched.
- *
- * No user-initiated action is performed here; this only mirrors server state.
- */
-export async function applyContextAuthRemovals(
-  chatRoomId: string,
-  userId: string,
-  removedMessageIds: string[],
-): Promise<void> {
-  if (!removedMessageIds.length) return;
-
-  // 1) Remove the message rows (and their local media) from the local replica.
-  for (const messageId of removedMessageIds) {
-    await removeCachedMessage(chatRoomId, messageId, userId);
-    // No orphaned media: the local file for a server-removed message is
-    // deleted so the device never accumulates files the user can no longer see.
-    await deleteRoomMedia(chatRoomId, messageId).catch(() => {});
-  }
-
-  // 2) Drop them from the cached membership set so the local contextAuth
-  //    mirrors the server's current view.
-  const db = await getDb();
-  if (!db) return;
-  try {
-    const row = await db.getFirstAsync<{ data: string }>(
-      `SELECT data FROM chat_contexts_cache WHERE user_id = ? AND chat_room_id = ?`,
-      [userId, chatRoomId],
-    );
-    const ctx = parseData<RoomContext>(row);
-    if (!ctx) return;
-    if (Array.isArray(ctx.contextAuth.messageIds)) {
-      const remove = new Set(removedMessageIds);
-      ctx.contextAuth.messageIds = ctx.contextAuth.messageIds.filter((id) => !remove.has(id));
-      await db.runAsync(
-        `UPDATE chat_contexts_cache SET data = ? WHERE user_id = ? AND chat_room_id = ?`,
-        [JSON.stringify(ctx), userId, chatRoomId],
-      );
-    }
-  } catch (e) {
-    console.warn('[chat-cache] applyContextAuthRemovals error:', e);
-  }
-}
-
-/**
- * Empty the requesting user's context membership for a room (clear-for-one
- * foundation). The ROOM still exists and the other participant is untouched;
- * only this user's local contextAuth becomes empty and local message rows +
- * media are dropped. NOT wired to any UI action yet — foundation only.
- */
-export async function clearCachedRoomContext(
-  chatRoomId: string,
-  userId: string,
-): Promise<void> {
-  const db = await getDb();
-  if (!db || !chatRoomId || !userId) return;
-
-  try {
-    await db.runAsync(
-      `DELETE FROM chat_messages_cache WHERE user_id = ? AND chat_room_id = ?`,
-      [userId, chatRoomId],
-    );
-  } catch (e) {
-    console.warn('[chat-cache] clearCachedRoomContext messages error:', e);
-  }
-
-  try {
-    const row = await db.getFirstAsync<{ data: string }>(
-      `SELECT data FROM chat_contexts_cache WHERE user_id = ? AND chat_room_id = ?`,
-      [userId, chatRoomId],
-    );
-    const ctx = parseData<RoomContext>(row);
-    if (ctx) {
-      ctx.contextAuth = { messageIds: [], marker: null };
-      await db.runAsync(
-        `UPDATE chat_contexts_cache SET data = ? WHERE user_id = ? AND chat_room_id = ?`,
-        [JSON.stringify(ctx), userId, chatRoomId],
-      );
-    }
-  } catch (e) {
-    console.warn('[chat-cache] clearCachedRoomContext context error:', e);
   }
 }
 

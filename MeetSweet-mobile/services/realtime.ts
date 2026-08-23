@@ -380,9 +380,16 @@ class SweetSocketClient {
         return;
       }
       case 'connection': {
+        // Baileys-style connection.update: the server announces each lifecycle
+        // transition (connected → authenticated → ready) explicitly, so UI can
+        // show a precise connection state instead of inferring it from auth
+        // frames. Re-emitted as a local lifecycle event for store/UI consumers.
         const state = message.state as string;
+        const reason = typeof message.reason === 'string' ? message.reason : undefined;
+        log('connection', state, reason ?? '');
         if (state === 'authenticated') log('authenticated');
         if (state === 'ready') log('ready');
+        this.emitLifecycle(REALTIME_EVENT.connectionUpdate, { state, reason });
         return;
       }
       case 'hello': {
@@ -472,13 +479,13 @@ class SweetSocketClient {
     channelHandlers?.forEach((handler) => { try { handler(event); } catch { /* listener isolation */ } });
   }
 
-  private emitLifecycle(type: string): void {
+  private emitLifecycle(type: string, payload: Record<string, unknown> = {}): void {
     const event: RealtimeEvent = normalizedEvent({
       id: `${type}:${Date.now()}`,
       type,
       channel: '',
       userId: '',
-      payload: {},
+      payload,
       timestamp: Date.now(),
     });
     this.dispatch(event);

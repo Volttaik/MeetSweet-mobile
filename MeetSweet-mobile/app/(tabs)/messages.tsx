@@ -27,7 +27,7 @@ import {
   SmileySticker,
   type Icon,
 } from 'phosphor-react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -56,12 +56,8 @@ import {
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
-import {
-  realtime,
-  REALTIME_EVENT,
-  type RealtimeEvent,
-} from '@/services/realtime';
-import { normalizeMessage } from '@/services/room-service';
+import { realtime } from '@/services/realtime';
+import { useSweetStore, sweetStore } from '@/services/sweet-store';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -374,7 +370,13 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<MsgTab>('All');
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
+  // ── SweetStore is the canonical chat-list state ─────────────────────────
+  // SweetSocket events (chats:upsert on the user channel, message events on
+  // subscribed chat channels) update the store; this screen just renders it.
+  // A NEW conversation arrives as a chats:upsert and appears WITHOUT any HTTP
+  // refetch. HTTP list loading remains an explicit refresh / restore path.
+  const { rooms: storeRooms, typingByRoom, presence, unreadByRoom } = useSweetStore();
+  const [archivedRooms, setArchivedRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   // Local-first: the chat list paints from its local replica. Live room
@@ -417,7 +419,7 @@ export default function MessagesScreen() {
         try {
           const cached = await getCachedChatRooms(user?.id);
           if (cached.length > 0) {
-            setChatRooms(sortRooms(cached));
+            sweetStore.hydrateRooms(cached);
             setListShimmerVisible(false);
           }
         } catch {
@@ -436,7 +438,11 @@ export default function MessagesScreen() {
       // room metadata and mirror it locally so the next open stays instant.
       try {
         const data = await getChatRoomList(tab);
-        setChatRooms(sortRooms(data.chatRooms));
+        if (activeTab === 'All') {
+          sweetStore.hydrateRooms(data.chatRooms);
+        } else {
+          setArchivedRooms(sortRooms(data.chatRooms));
+        }
         reportNetworkSuccess();
         // Mirror the server list to local storage so the next open is instant.
         if (activeTab === 'All') {
@@ -455,98 +461,45 @@ export default function MessagesScreen() {
   useEffect(() => {
     // Never wipe already-available rooms — clearing the list on every tab
     // switch is what caused the "show → disappear → loader → re-render" flash.
-    // `load()` paints the cached list immediately (All, local-only), so the
-    // existing conversations stay on screen instead of being torn down.
+    // The All tab paints from the SweetStore (already populated by the cache
+    // hydration), so the existing conversations stay on screen.
     if (activeTab !== 'All') {
-      setChatRooms([]);
+      setArchivedRooms([]);
       setLoading(true);
     }
     load();
   }, [activeTab]);
 
-  const isFocusedRef = useRef(true);
-  useFocusEffect(
-    useCallback(() => {
-      isFocusedRef.current = true;
-      return () => {
-        isFocusedRef.current = false;
-      };
-    }, []),
-  );
-
-  // ── Realtime chat list (WebSocket) ───────────────────────────────────────
-  // The chat list is part of the unified realtime layer: when a new message
-  // arrives in ANY visible conversation, its preview, timestamp and ordering
-  // update IMMEDIATELY over the socket (no refresh or re-open required).
-  // Subscriptions are authorized server-side (chat:{roomId}
-  // membership only) and scoped to the rooms actually on screen.
+  // ── Realtime chat list (SweetSocket → SweetStore) ────────────────────────
+  // The store is the canonical chat-list state: chats:upsert (user channel)
+  // brings NEW conversations in, message events patch previews, typing and
+  // presence arrive as ephemeral events — all without HTTP. The only reason
+  // this screen still subscribes to each visible room's chat channel is to
+  // receive typing/presence relays; the store listens for the rest on the
+  // user channel.
+  const visibleRooms = activeTab === 'All'
+    ? storeRooms.filter((r) => !r.isArchived)
+    : archivedRooms;
   const roomIdsRef = useRef<string[]>([]);
   useEffect(() => {
-    if (activeTab !== 'All') return;
     // Resubscribe whenever the visible room set changes.
-    const ids = chatRooms.map((r) => r.chatRoomId).filter(Boolean);
+    const ids = visibleRooms.map((r) => r.chatRoomId).filter(Boolean);
     const prev = roomIdsRef.current;
     for (const id of ids) if (!prev.includes(id)) realtime.subscribe(`chat:${id}`);
     for (const id of prev) if (!ids.includes(id)) realtime.unsubscribe(`chat:${id}`);
     roomIdsRef.current = ids;
-  }, [activeTab, chatRooms]);
+  }, [visibleRooms]);
 
-  const applyRealtimeRoomEvent = useCallback((event: RealtimeEvent) => {
-    if (activeTab !== 'All') return;
-    // The server emits chat.message.created with `channel: chat:{roomId}` —
-    // resourceId is the MESSAGE id. Derive the room from the channel.
-    const roomId = String(event.channel ?? '').replace(/^chat:/, '');
-    if (!roomId) return;
-    const raw = (event.payload as { message?: unknown })?.message;
-    const msg = raw ? normalizeMessage(raw) : null;
-    const senderId = msg?.sender?.id ?? event.userId ?? '';
-    const mine = !!user?.id && senderId === user.id;
-
-    setChatRooms((prev) => {
-      const room = prev.find((r) => r.chatRoomId === roomId);
-      if (!room) return prev;
-      const updated: ChatRoom = {
-        ...room,
-        lastMessageBody: msg?.body ?? room.lastMessageBody,
-        lastMessageAt: msg?.createdAt ?? room.lastMessageAt,
-        lastMessageMediaType: (msg?.mediaType ?? room.lastMessageMediaType ?? null) as ChatRoom['lastMessageMediaType'],
-        lastMessageSenderId: senderId || room.lastMessageSenderId,
-        updatedAt: event.ts ?? room.updatedAt,
-        // Unread only counts messages from the OTHER participant AND only
-        // while the list is actually focused — if the user is inside the
-        // conversation right now (tab blurred), the chat screen marks the
-        // room read itself, so no unread bump here.
-        unreadCount: mine || !isFocusedRef.current ? room.unreadCount : room.unreadCount + 1,
-      };
-      const next = sortRooms(prev.map((r) => (r.chatRoomId === roomId ? updated : r)));
-      // Mirror to the local store so the next open is instant.
-      cacheChatRooms([updated], user?.id).catch(() => {});
-      return next;
-    });
-  }, [activeTab, user?.id]);
-
-  useEffect(() => {
-    if (activeTab !== 'All') return;
-    const offCreated = realtime.on(REALTIME_EVENT.chatMessageCreated, applyRealtimeRoomEvent);
-    const offNew = realtime.on(REALTIME_EVENT.chatMessageNew, applyRealtimeRoomEvent);
-    // A `message:read` naming the CURRENT user as reader means the room was
-    // opened (or an incoming message arrived while it was open) — zero that
-    // room's local unread badge so the list never shows a phantom count for a
-    // conversation the user has actually read.
-    const offRead = realtime.on(REALTIME_EVENT.chatMessageRead, (event) => {
-      const roomId = String(event.channel ?? '').replace(/^chat:/, '');
-      if (!roomId) return;
-      const p = event.payload as { userId?: string };
-      if (!p.userId || p.userId !== user?.id) return;
-      setChatRooms((prev) =>
-        prev.map((r) => (r.chatRoomId === roomId ? { ...r, unreadCount: 0 } : r)),
-      );
-    });
-    return () => { offCreated(); offNew(); offRead(); };
-  }, [activeTab, user?.id, applyRealtimeRoomEvent]);
-
-  // Room previews are updated by SweetSocket events. HTTP list loading remains
-  // an explicit user-directed hydration path.
+  // Decorate rooms with live store state (typing + presence + unread) so the
+  // rows render ephemeral signals that never touch the database.
+  const decoratedRooms = visibleRooms.map((r) => ({
+    ...r,
+    typingUserIds: typingByRoom[r.chatRoomId] ?? r.typingUserIds,
+    unreadCount: unreadByRoom[r.chatRoomId] ?? r.unreadCount ?? 0,
+    otherUser: r.otherUser
+      ? { ...r.otherUser, isOnline: presence[r.otherUser.id] ?? r.otherUser.isOnline }
+      : r.otherUser,
+  }));
   // ── "Load Chat History" — EXPLICIT restore ─────────────────────────────
   // The one and only path that fetches the user's previous conversations from
   // the backend. Local-first means normal Chat access never does this; this is
@@ -563,7 +516,7 @@ export default function MessagesScreen() {
       // Repaint from the local store — restored conversations are now local.
       const cached = await getCachedChatRooms(user?.id).catch(() => []);
       if (cached.length > 0) {
-        setChatRooms(sortRooms(cached));
+        sweetStore.hydrateRooms(cached);
         setListShimmerVisible(false);
       }
       dialogs.alert({
@@ -588,21 +541,20 @@ export default function MessagesScreen() {
   }, [restoring, user?.id]);
 
   const filtered = searchText.trim()
-    ? chatRooms.filter(
+    ? decoratedRooms.filter(
         (c) =>
           c.otherUser.name.toLowerCase().includes(searchText.toLowerCase()) ||
           c.otherUser.username.toLowerCase().includes(searchText.toLowerCase()),
       )
-    : chatRooms;
+    : decoratedRooms;
 
-  // Long-press room actions
+  // Long-press room actions — every mutation is mirrored into the SweetStore
+  // so the list updates immediately and stays in sync with the server.
   const roomActions = (room: ChatRoom): ActionItem[] => [
     {
       label: 'Mark as Read',
       onPress: () => {
-        setChatRooms((prev) =>
-          prev.map((c) => (c.chatRoomId === room.chatRoomId ? { ...c, unreadCount: 0 } : c)),
-        );
+        sweetStore.markRoomRead(room.chatRoomId);
         markRoomRead(room.chatRoomId).catch(() => {});
       },
     },
@@ -610,11 +562,11 @@ export default function MessagesScreen() {
       label: room.isArchived ? 'Unarchive' : 'Archive',
       onPress: async () => {
         const next = !room.isArchived;
-        setChatRooms((prev) => prev.filter((c) => c.chatRoomId !== room.chatRoomId));
+        sweetStore.patchRoom(room.chatRoomId, { isArchived: next });
         try {
           await archiveChatRoom(room.chatRoomId, next);
         } catch {
-          setChatRooms((prev) => [...prev, { ...room, isArchived: next }]);
+          sweetStore.patchRoom(room.chatRoomId, { isArchived: room.isArchived });
         }
       },
     },
@@ -622,11 +574,11 @@ export default function MessagesScreen() {
       label: 'Delete',
       destructive: true,
       onPress: () => {
-        // Optimistic remove
-        setChatRooms((prev) => prev.filter((c) => c.chatRoomId !== room.chatRoomId));
+        // Optimistic remove from the store.
+        sweetStore.removeRoom(room.chatRoomId);
         deleteChatRoom(room.chatRoomId).catch(() => {
-          // If deletion fails restore the room
-          setChatRooms((prev) => [room, ...prev]);
+          // If deletion fails restore the room.
+          sweetStore.upsertRoom(room);
           dialogs.alert({ variant: 'error', title: 'Could not delete chat room', message: 'Please try again.' });
         });
       },
