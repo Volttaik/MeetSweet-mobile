@@ -43,6 +43,7 @@ import { MsActionSheet } from '@/components/MsActionSheet';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { uploadMedia } from '@/services/media';
 import { updateMe } from '@/services/users';
@@ -491,6 +492,27 @@ export default function ProfileScreen() {
   const [deleting,            setDeleting]            = useState(false);
 
   const gridItemSize = Math.floor((width - 2) / 3);
+
+  // ── Realtime (SweetSocket): own subscriber count stays live ───────────────
+  // When someone subscribes/cancels, the creator's connected devices update
+  // the count immediately — no pull-to-refresh needed on the profile tab.
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = `user:${user.id}`;
+    realtime.subscribe(channel);
+    const applyCount = (event: import('@/services/realtime').RealtimeEvent) => {
+      const p = event.payload as { creatorId?: string; subscriberCount?: number };
+      if (!p.creatorId || p.creatorId !== user.id) return;
+      if (typeof p.subscriberCount !== 'number') return;
+      updateUser({ subscriberCount: p.subscriberCount });
+    };
+    const offCount = realtime.on(REALTIME_EVENT.subscriptionCountUpdated, applyCount);
+    const offCancelled = realtime.on(REALTIME_EVENT.subscriptionCancelled, applyCount);
+    return () => {
+      realtime.unsubscribe(channel);
+      offCount(); offCancelled();
+    };
+  }, [user?.id, updateUser]);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 

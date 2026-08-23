@@ -764,16 +764,18 @@ export default function CreatorProfileScreen() {
     if (!isOwnProfile || !currentUser?.id) return;
     const channel = `user:${currentUser.id}`;
     realtime.subscribe(channel);
-    const off = realtime.on(REALTIME_EVENT.subscriptionCountUpdated, (event) => {
+    const applyCount = (event: import('@/services/realtime').RealtimeEvent) => {
       const p = event.payload as { creatorId?: string; subscriberCount?: number };
       if (p.creatorId !== creatorUUID) return;
       if (typeof p.subscriberCount !== 'number') return;
       setRealProfile((prev) => (prev ? { ...prev, subscriberCount: p.subscriberCount! } : prev));
       setCreatorFullProfile((prev) => (prev ? { ...prev, subscriberCount: p.subscriberCount! } : prev));
-    });
+    };
+    const offCount = realtime.on(REALTIME_EVENT.subscriptionCountUpdated, applyCount);
+    const offCancelled = realtime.on(REALTIME_EVENT.subscriptionCancelled, applyCount);
     return () => {
       realtime.unsubscribe(channel);
-      off();
+      offCount(); offCancelled();
     };
   }, [isOwnProfile, currentUser?.id, creatorUUID]);
 

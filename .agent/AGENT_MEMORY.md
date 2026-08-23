@@ -883,3 +883,45 @@ verified (PING/XADD/XREAD BLOCK OK); values stored in the server's local
 `.env` (gitignored) and in Vercel env vars. The `meetsweet:events` stream is
 capped at ~500 entries (MAXLEN trim) — Redis usage stays well under 1 MB.
 Server + mobile realtime work is pushed to both repos (see git log).
+
+**MESSAGING FINAL PASS (2026-08-22):**
+- Confirmed messages are now persisted to SQLite at CONFIRM TIME in every send
+  path (text/voice/image/video/gif/document/sticker) — durability no longer
+  depends on the WS echo or changes-poll. Fixes "image disappears on re-entry"
+  and "image only appears after another text message".
+- Stickers are now a first-class message type: `sendSticker` sends
+  `media_type: 'sticker'` + emoji body (NOT the text pipeline); `MsChatBubble`
+  renders any `messageType === 'sticker'` as a floating sticker.
+- Deterministic ordering: `handleIncomingMessages` re-sorts the merged list by
+  createdAt desc; server `listRoomMessages` now orders by `created_at, id`
+  (tie-break) both directions.
+- GIF: new real Tenor picker (`components/chat/MsGifPicker.tsx` +
+  `services/gifs.ts`) — search/trending, tap-to-download to cache, flows through
+  the normal attachment pipeline as `type: 'gif'`, `image/gif`. Enabled when
+  `EXPO_PUBLIC_TENOR_API_KEY` is set (add to .env.local). Without the key the
+  GIF button falls back to the photo library with `quality: 1.0` (Expo converts
+  GIFs to static on Android below quality 1.0). Android keyboard GIF/sticker
+  (commitContent) is NOT supported by RN TextInput in Expo Go — requires a
+  native build; documented in `Meetsweet/.agent/REALTIME.md`.
+
+**CHAT REFINEMENT PASS (2026-08-22):**
+- GIF provider is now GIPHY (Tenor fully removed — no Tenor code/keys remain).
+  The Giphy key is SERVER-side only: `GIPHY_API_KEY` env var on the server
+  (in Meetsweet/server/.env, gitignored) + new proxy `GET /api/gifs` (auth,
+  search/trending). Mobile `services/gifs.ts` calls the proxy via `authFetch`;
+  `MsGifPicker` is unchanged UI-wise. The GIF button ALWAYS opens the picker.
+- Sticker button restored in the composer row (SmileySticker icon next to
+  Paperclip) → opens MsStickerSheet directly (chat screen `showStickers` state
+  + stable `onStickerPress` callback). Stickers remain a first-class
+  `media_type: 'sticker'` message.
+- Chat background now covers the FULL chat screen below the dark header:
+  MsChatInputBar root/attachment-bar are transparent (pill + preview chips stay
+  opaque); reply/edit banners are translucent dark. Only the header stays dark.
+- Media picker (MsAttachmentSheet) redesigned to an exact 4-column grid
+  (25% cells, 62px icon tiles, consistent labels, ScrollView for overflow).
+- Alignment audit PASS: server buildMessage → WS payload → normalizeMessage →
+  toMsMessage `user._id` (sender id) → library position (user._id ===
+  message.user._id) → bubble isOwn. No padding/margin hacks needed.
+- WS/local-state architecture VERDICT: sound, no rewrite. WS events merge via
+  handleIncomingMessages (append+dedupe+sort, never replace); poll skipped
+  while socket open; the only setMessages([]) is the explicit Clear Chat flow.

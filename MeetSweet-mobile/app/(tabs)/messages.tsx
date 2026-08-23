@@ -94,7 +94,7 @@ function initials(name: string): string {
 /**
  * Deterministic chat-room ordering — newest activity first, with a stable
  * tie-break on chatRoomId so the list NEVER rearranges between cache, API,
- * and poll refreshes. Every code path that sets `chatRooms` MUST use this.
+ * and realtime refreshes. Every code path that sets `chatRooms` MUST use this.
  */
 function sortRooms(rooms: ChatRoom[]): ChatRoom[] {
   return [...rooms].sort((a, b) => {
@@ -529,8 +529,21 @@ export default function MessagesScreen() {
     if (activeTab !== 'All') return;
     const offCreated = realtime.on(REALTIME_EVENT.chatMessageCreated, applyRealtimeRoomEvent);
     const offNew = realtime.on(REALTIME_EVENT.chatMessageNew, applyRealtimeRoomEvent);
-    return () => { offCreated(); offNew(); };
-  }, [activeTab, applyRealtimeRoomEvent]);
+    // A `message:read` naming the CURRENT user as reader means the room was
+    // opened (or an incoming message arrived while it was open) — zero that
+    // room's local unread badge so the list never shows a phantom count for a
+    // conversation the user has actually read.
+    const offRead = realtime.on(REALTIME_EVENT.chatMessageRead, (event) => {
+      const roomId = String(event.channel ?? '').replace(/^chat:/, '');
+      if (!roomId) return;
+      const p = event.payload as { userId?: string };
+      if (!p.userId || p.userId !== user?.id) return;
+      setChatRooms((prev) =>
+        prev.map((r) => (r.chatRoomId === roomId ? { ...r, unreadCount: 0 } : r)),
+      );
+    });
+    return () => { offCreated(); offNew(); offRead(); };
+  }, [activeTab, user?.id, applyRealtimeRoomEvent]);
 
   // Room previews are updated by SweetSocket events. HTTP list loading remains
   // an explicit user-directed hydration path.

@@ -340,8 +340,15 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
   // ── Notification listeners ─────────────────────────────────────────────────
   useEffect(() => {
-    // Foreground: a notification arrives while the app is open
+    // Foreground: a notification arrives while the app is open. When the
+    // SweetSocket connection is live, the same notification also arrives as a
+    // durable `notification:new` socket event (and is replayed after a
+    // reconnect) — incrementing here TOO would double-count the badge. The
+    // push listener is therefore only the FALLBACK for the socket-down case
+    // (socket suspended in background / reconnecting), where the OS push is
+    // the only signal.
     notifListenerRef.current = Notifications.addNotificationReceivedListener((notification) => {
+      if (realtime.isOpen()) return;
       const data = notification.request.content.data as Record<string, string> | null;
       const type = data?.type ?? data?.content_type ?? '';
       if (type === 'message' || type === 'dm') {

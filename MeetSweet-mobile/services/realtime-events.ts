@@ -70,6 +70,8 @@ export const REALTIME_EVENT_ALIASES: Record<string, string[]> = {
   'recording.stop': ['voice:stop'],
   'presence.online': ['presence:online', 'presence:updated'],
   'presence.offline': ['presence:offline', 'presence:updated'],
+  'presence:online': ['presence:updated'],
+  'presence:offline': ['presence:updated'],
   'comment.created': ['comment:created'],
   'comment.updated': ['comment:updated'],
   'comment.deleted': ['comment:deleted'],

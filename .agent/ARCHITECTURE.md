@@ -102,7 +102,7 @@ logged-out so shared links resolve after login.
   the playing URL).
 - `MsComposer` — multiline composer; **Enter does not send** — the send button
   does (used by content detail + chat).
-- `MsCommentsSheet` / `MsCommentRoomPanel` — comment rooms.
+- `MsCommentsSheet` (`useComments`, `CommentsModal`, `CommentRow`) — comment rooms (realtime via SweetSocket).
 - `MsPostCard`, `MsFeedVideoCard`, `MsImageCard`, `MsAlbumCard`,
   `MsCreatorCard` — feed cards.
 - `OTPInput` — 6-box code entry (verify-email, 2FA, forgot-password).

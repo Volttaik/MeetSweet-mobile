@@ -260,7 +260,18 @@ class SweetSocketClient {
     }
 
     let ws: WebSocket;
-    try { ws = new WebSocket(wsUrl(token)); }
+    try {
+      // React Native's WebSocket accepts a third `options` argument carrying
+      // custom headers (the DOM type only knows two args, hence the cast). The
+      // server middleware rejects upgrade requests that lack the app id, so the
+      // header must travel on the socket handshake itself.
+      const NativeWebSocket = WebSocket as unknown as new (
+        url: string,
+        protocols?: string | string[] | null,
+        options?: { headers?: Record<string, string> },
+      ) => WebSocket;
+      ws = new NativeWebSocket(wsUrl(token), null, { headers: { 'X-Client-App-Id': 'meetsweet-mobile' } });
+    }
     catch { this.scheduleReconnect(); return; }
     if (flow !== this.connectSeq) return;
     this.ws = ws;

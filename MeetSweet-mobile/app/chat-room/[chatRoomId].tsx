@@ -165,7 +165,7 @@ function formatDateLabel(d: Date): string {
 }
 
 /**
- * Real message id for server operations (delete / react / poll reconciliation).
+ * Real message id for server operations (delete / react / reconciliation).
  * A confirmed optimistic message keeps its local `_id` (stable list key — no
  * remount/flash) but stores the real server id in `msServerId`.
  */
@@ -176,9 +176,9 @@ function realMessageId(m: { _id: string; msServerId?: string }): string {
 /**
  * Drop duplicate bubbles that share a server message id, preferring the
  * non-pending (server-confirmed) copy and the copy keyed by its real id. This
- * guards against realtime/poll delivery racing the send confirmation: the
- * socket can deliver a sender's own confirmed message before the HTTP
- * confirmation resolves, which would otherwise leave a visible duplicate.
+ * guards against realtime delivery racing the send confirmation: the socket
+ * can deliver a sender's own confirmed message before the HTTP confirmation
+ * resolves, which would otherwise leave a visible duplicate.
  */
 function dedupeMessages(msgs: MsMessage[]): MsMessage[] {
   const byId = new Map<string, MsMessage>();
@@ -753,6 +753,14 @@ export default function ChatScreen() {
 
     // Persist media for newly received messages.
     ensureMediaLocal(fresh).catch(() => {});
+
+    // The user is actively viewing this conversation, so a message from the
+    // other participant is read the moment it arrives — advance the server's
+    // last_read_at (drives the other side's read receipts) and keep the chat
+    // list's unread count honest. No polling: this is the realtime path.
+    if (fresh.some((m) => m.sender?.id && m.sender.id !== uid)) {
+      markRoomRead(chatRoomId).catch(() => {});
+    }
   }, [chatRoomId, user?.id, ensureMediaLocal, syncRoomContext]);
 
   // ── Realtime (SweetSocket) — live channel for this conversation ─────────
@@ -1104,10 +1112,10 @@ export default function ChatScreen() {
         });
         const confirmed = toMsMessage(res.message, user?.id ?? '');
         // The HTTP response is the authoritative server confirmation — persist
-        // it into SQLite IMMEDIATELY, independent of the WebSocket echo or the
-        // changes-poll. Relying on the echo alone meant a message could vanish
-        // on re-entry whenever the echo was missed (socket down, reconnect
-        // gap): local durability must not depend on realtime delivery.
+        // it into SQLite IMMEDIATELY, independent of the WebSocket echo.
+        // Relying on the echo alone meant a message could vanish on re-entry
+        // whenever the echo was missed (socket down, reconnect gap): local
+        // durability must not depend on realtime delivery.
         cacheMessages(chatRoomId, [res.message], user?.id ?? '').catch(() => {});
         // Pass the optimistic reply preview as the fallback so the quote stays
         // visible even if the send response omits the resolved reply.
@@ -1436,7 +1444,8 @@ export default function ChatScreen() {
       // Server confirmed — remove the message from this user's SQLite context
       // (the row + the contextAuth membership entry) and from the visible list.
       // For 'me' the other participant's context is untouched; for 'everyone'
-      // the backend updated both contexts and the other client syncs via poll.
+      // the backend updated both contexts and the other client receives the
+      // realtime message:deleted event.
       const uid = user?.id ?? '';
       await removeCachedMessage(chatRoomId, id, uid).catch(() => {});
       if (uid) {
@@ -1997,7 +2006,7 @@ export default function ChatScreen() {
   // ── Stable input-bar callbacks ──────────────────────────────────────────────
   // MsChatInputBar is memoized, so every prop MUST be referentially stable
   // between renders. Passing inline arrows here would re-render the entire
-  // composer on EVERY realtime message / poll / keystroke — the source of the
+  // composer on EVERY realtime message / keystroke — the source of the
   // "attaching an image makes the composer laggy and unstable" bug. All
   // handlers below are hoisted into useCallback and reused in renderInputToolbar.
   const onClearReplyPress = useCallback(() => setReplyMessage(null), []);

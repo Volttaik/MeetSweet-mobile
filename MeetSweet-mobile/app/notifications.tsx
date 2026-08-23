@@ -21,10 +21,12 @@ import {
   deleteNotification,
   markAllNotificationsRead,
   markNotificationRead,
+  normalizeNotification,
   type Notification,
 } from '@/services/notifications';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -168,7 +170,7 @@ function NotifGroup({
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -196,6 +198,46 @@ export default function NotificationsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // ── Realtime (SweetSocket): the list is live, not just the badge ─────────
+  // notification:new prepends the row, notification:read flips rows to read,
+  // and notification:deleted removes rows — all without refetching the list.
+  // The badge is owned by NotificationsContext (also subscribed); the two
+  // listeners are independent and do not double-apply.
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    const channel = `user:${user.id}`;
+    realtime.subscribe(channel);
+
+    const offNew = realtime.on(REALTIME_EVENT.notificationCreated, (event) => {
+      const raw = (event.payload as { notification?: unknown })?.notification;
+      if (!raw || typeof raw !== 'object') return;
+      const n = normalizeNotification(raw);
+      if (!n.id) return;
+      setNotifications((prev) => {
+        if (prev.some((x) => x.id === n.id)) return prev;
+        return [n, ...prev];
+      });
+    });
+    const offRead = realtime.on(REALTIME_EVENT.notificationRead, (event) => {
+      const p = event.payload as { notificationId?: string; all?: boolean };
+      setNotifications((prev) =>
+        p.all || !p.notificationId
+          ? prev.map((n) => ({ ...n, isRead: true, read: true }))
+          : prev.map((n) => (n.id === p.notificationId ? { ...n, isRead: true, read: true } : n)),
+      );
+    });
+    const offDeleted = realtime.on(REALTIME_EVENT.notificationDeleted, (event) => {
+      const p = event.payload as { notificationId?: string };
+      if (!p.notificationId) return;
+      setNotifications((prev) => prev.filter((n) => n.id !== p.notificationId));
+    });
+
+    return () => {
+      realtime.unsubscribe(channel);
+      offNew(); offRead(); offDeleted();
+    };
+  }, [isAuthenticated, user?.id]);
 
   const handlePress = async (n: Notification) => {
     if (!n.isRead) {
