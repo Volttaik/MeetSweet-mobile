@@ -105,6 +105,7 @@ export async function flushChatOutbox(): Promise<void> {
               fileType: item.payload.fileType,
               isVoiceNote: item.payload.isVoiceNote,
               replyToId: item.payload.replyToId,
+              participantId: item.payload.participantId,
             },
             {
               channel: `chat:${item.chatRoomId}`,

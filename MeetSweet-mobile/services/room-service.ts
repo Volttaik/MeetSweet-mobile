@@ -40,9 +40,26 @@
  *   fileSize, mimeType, audioDuration, replyToId }
  */
 
+import * as Crypto from 'expo-crypto';
 import { apiFetch } from './api';
 import { realtime } from './realtime';
 import { enqueueChatMessage } from './chat-outbox';
+
+/**
+ * Deterministic DM room id — byte-identical mirror of the server's
+ * deterministicDmRoomId (lib/services/chat-rooms.ts): sha256 of the
+ * lexicographically sorted user-id pair. Because the room for a pair is a pure
+ * function of the two ids, opening a chat needs ZERO network — no HTTP
+ * get-or-create, no socket resolve. The server materializes the room lazily on
+ * first send/history and adopts any legacy room to this canonical id.
+ */
+export async function deriveRoomId(a: string, b: string): Promise<string> {
+  const pair = [a, b].sort().join(':');
+  const hex = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, pair, {
+    encoding: Crypto.CryptoEncoding.HEX,
+  });
+  return `dm_${hex.slice(0, 32)}`;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -150,6 +167,12 @@ export interface SendRoomMessagePayload {
   clientMessageId?: string;
   /** Authenticated owner used to scope the persistent outbound queue. */
   userId?: string;
+  /**
+   * The other participant's user id. Lets the server resolve/materialize the
+   * canonical derived room lazily on first send — the client never needs an
+   * HTTP get-or-create to start a DM.
+   */
+  participantId?: string;
   body?: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | null;
@@ -437,35 +460,9 @@ function normalizeReplyTo(raw: any): RoomMessage['replyTo'] {
 
 // ─── Chat Room API ────────────────────────────────────────────────────────────
 
-/**
- * Open (or create) the chat room for a participant.
- * POST /api/chat-rooms { participant_id }
- * Backend returns the authoritative chatRoomId (existing OR new — one room per
- * pair, never duplicates). Mobile never generates the room ID.
- */
-export async function getOrCreateChatRoom(
-  participantId: string,
-): Promise<{ chatRoomId: string; created: boolean; chatRoom: ChatRoom }> {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
-  if (!participantId) {
-    throw new Error('A recipient user ID is required to open a chat room.');
-  }
-  const raw = await apiFetch<unknown>('/chat-rooms', {
-    method: 'POST',
-    headers: authHeader(token),
-    body: JSON.stringify({ participant_id: participantId }),
-  });
-  const chatRoom = normalizeChatRoom(raw);
-  if (!chatRoom.chatRoomId) {
-    throw new Error('Chat room was not created: the server returned no chat_room_id.');
-  }
-  return {
-    chatRoomId: chatRoom.chatRoomId,
-    created: (raw as { created?: boolean })?.created ?? true,
-    chatRoom,
-  };
-}
+// NOTE: room creation is now implicit — the client derives the canonical room
+// id locally (deriveRoomId) and the server materializes it lazily on first
+// send/history, so there is no HTTP get-or-create call anymore.
 
 /**
  * List chat rooms (chat list source). Lightweight metadata only — the backend
@@ -505,7 +502,7 @@ export async function getChatRoom(chatRoomId: string): Promise<ChatRoom> {
  */
 export async function fetchRoomHistory(
   chatRoomId: string,
-  opts?: { before?: string },
+  opts?: { before?: string; participantId?: string },
 ): Promise<{ messages: RoomMessage[]; hasMore: boolean }> {
   // STRICT TRANSPORT RULE: history comes over SweetSocket (chat.history →
   // history:set) only — no silent HTTP GET /messages fallback. If the socket is
@@ -514,7 +511,7 @@ export async function fetchRoomHistory(
   // explicit restoration path also uses this socket command.)
   const ack = await realtime.emit(
     'chat.history',
-    { before: opts?.before, limit: 30 },
+    { before: opts?.before, limit: 30, participantId: opts?.participantId },
     { channel: `chat:${chatRoomId}` },
   );
   const payload = ack.event?.payload as { messages?: unknown[]; hasMore?: boolean } | undefined;

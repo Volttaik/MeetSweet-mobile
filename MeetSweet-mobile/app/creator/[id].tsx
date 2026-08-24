@@ -33,8 +33,7 @@ import {
 import { blockUser, reportUser, searchUsers } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, cancelSubscription, getCreatorMessagingSettings } from '@/services/subscriptions';
-import { getOrCreateChatRoom, getChatRoomList, type ChatRoom } from '@/services/room-service';
-import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
+import { deriveRoomId } from '@/services/room-service';
 import { getCachedCreatorProfile, cacheCreatorProfile } from '@/lib/posts-db';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
@@ -678,42 +677,20 @@ export default function CreatorProfileScreen() {
         return;
       }
 
-      // Idempotent open — find any EXISTING room before ever creating one, so
-      // the user never sees "Creating chatroom…" for a room that already
-      // exists. Check the local cache first, then the canonical server list.
-      const matchesPeer = (r: ChatRoom) =>
-        Boolean(r.chatRoomId) &&
-        ((r.otherUser?.id && r.otherUser.id === creatorUserId) ||
-          r.participants.some((p) => p.id === creatorUserId));
-
-      const cachedRooms = await getCachedChatRooms(currentUser?.id).catch(() => []);
-      const cachedMatch = cachedRooms.find(matchesPeer);
-      if (cachedMatch?.chatRoomId) {
-        router.push({
-          pathname: '/chat-room/[chatRoomId]',
-          params: { chatRoomId: cachedMatch.chatRoomId },
-        });
-        return;
-      }
-
-      const serverRooms = await getChatRoomList('all').catch(() => ({ chatRooms: [] }));
-      const serverMatch = serverRooms.chatRooms.find(matchesPeer);
-      if (serverMatch?.chatRoomId) {
-        await cacheChatRooms(serverRooms.chatRooms, currentUser?.id).catch(() => {});
-        router.push({
-          pathname: '/chat-room/[chatRoomId]',
-          params: { chatRoomId: serverMatch.chatRoomId },
-        });
-        return;
-      }
-
-      // Genuinely no room exists — create one. Only now show the full-screen
-      // creation loader, since this is the only path that actually creates.
-      const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
-      await cacheChatRooms([chatRoom], currentUser?.id).catch(() => {});
+      // WhatsApp-style: the room id is a pure function of the two user ids, so
+      // no HTTP lookup/create is needed — derive it locally and open instantly.
+      // The server materializes the room lazily on first send/history and
+      // adopts any legacy room to this canonical id.
+      const chatRoomId = await deriveRoomId(currentUser?.id ?? '', creatorUserId);
       router.push({
         pathname: '/chat-room/[chatRoomId]',
-        params: { chatRoomId },
+        params: {
+          chatRoomId,
+          participantId: creatorUserId,
+          name: realProfile?.name ?? '',
+          username: realProfile?.username ?? creatorUsername,
+          avatarUrl: realProfile?.avatarUrl ?? '',
+        },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : '';

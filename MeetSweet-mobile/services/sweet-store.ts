@@ -28,7 +28,7 @@ import {
   type ChatRoom,
   type RoomMessage,
 } from '@/services/room-service';
-import { cacheChatRooms, cacheMessages, removeCachedRoom } from '@/services/chat-cache';
+import { cacheChatRooms, cacheMessages, rekeyCachedRoom, removeCachedRoom } from '@/services/chat-cache';
 import { useEffect, useState } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -86,6 +86,7 @@ class SweetStore {
       realtime.on(REALTIME_EVENT.chatsUpdate, (e) => this.onChatsUpdate(e)),
       realtime.on(REALTIME_EVENT.chatsDelete, (e) => this.onChatsDelete(e)),
       realtime.on(REALTIME_EVENT.chatClear, (e) => this.onChatClear(e)),
+      realtime.on(REALTIME_EVENT.roomMigrated, (e) => this.onRoomMigrated(e)),
       realtime.on(REALTIME_EVENT.chatTypingStarted, (e) => this.onTyping(e, true)),
       realtime.on(REALTIME_EVENT.chatTypingStopped, (e) => this.onTyping(e, false)),
       realtime.on(REALTIME_EVENT.chatPresenceUpdated, (e) => this.onPresence(e)),
@@ -287,6 +288,37 @@ class SweetStore {
       this.unread.set(roomId, 0);
       this.notify();
     }
+  }
+
+  /**
+   * room:migrated — a legacy pre-deterministic room was adopted to its
+   * canonical derived id. Re-key every piece of in-memory + persisted state
+   * keyed by the old id so the chat list never shows two entries for one
+   * conversation.
+   */
+  private onRoomMigrated(event: RealtimeEvent): void {
+    const p = event.payload as { roomId?: string; legacyRoomId?: string };
+    const fromId = p.legacyRoomId;
+    const toId = p.roomId;
+    if (!fromId || !toId || fromId === toId) return;
+
+    const room = this.rooms.get(fromId);
+    if (room) {
+      this.rooms.set(toId, { ...room, chatRoomId: toId });
+      this.rooms.delete(fromId);
+    }
+    if (this.unread.has(fromId)) {
+      this.unread.set(toId, this.unread.get(fromId) ?? 0);
+      this.unread.delete(fromId);
+    }
+    if (this.typing.has(fromId)) {
+      this.typing.set(toId, this.typing.get(fromId) ?? new Set<string>());
+      this.typing.delete(fromId);
+    }
+    if (this.currentUserId) {
+      rekeyCachedRoom(fromId, toId, this.currentUserId).catch(() => {});
+    }
+    this.notify();
   }
 
   private onTyping(event: RealtimeEvent, started: boolean): void {

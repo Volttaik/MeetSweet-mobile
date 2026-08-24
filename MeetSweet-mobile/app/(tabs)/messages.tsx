@@ -33,7 +33,7 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import {
   getChatRoomList,
-  getOrCreateChatRoom,
+  deriveRoomId,
   archiveChatRoom,
   deleteChatRoom,
   markRoomRead,
@@ -214,9 +214,11 @@ function ChatRoomRow({
 function NewMessageModal({
   visible,
   onClose,
+  currentUserId,
 }: {
   visible: boolean;
   onClose: () => void;
+  currentUserId: string;
 }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<RoomParticipant[]>([]);
@@ -243,19 +245,19 @@ function NewMessageModal({
     }, 300);
   };
 
-  const handleSelect = async (user: RoomParticipant) => {
+  const handleSelect = async (targetUser: RoomParticipant) => {
     try {
       // Check the recipient's current policy before opening a room. The
       // backend repeats this check, but doing it here prevents empty rooms and
       // gives the user a useful subscription/privacy explanation.
-      const access = await getCreatorMessagingSettings(user.id);
+      const access = await getCreatorMessagingSettings(targetUser.id);
       if (!access.can_message) {
         if (access.who_can_message === 'subscribers') {
           dialogs.alert({
             title: 'Subscription Required',
             message: 'You need to subscribe to this creator before sending a message.',
-            confirmLabel: user.isCreator ? 'View Creator' : 'OK',
-            onClose: user.isCreator ? () => router.push(`/creator/${user.username}`) : undefined,
+            confirmLabel: targetUser.isCreator ? 'View Creator' : 'OK',
+            onClose: targetUser.isCreator ? () => router.push(`/creator/${targetUser.username}`) : undefined,
           });
         } else {
           dialogs.alert({ title: 'Cannot Message', message: 'This user is not accepting messages right now.' });
@@ -263,19 +265,27 @@ function NewMessageModal({
         return;
       }
 
-      // Messaging is free — ask the backend to create/find the Chat Room.
-      const { chatRoomId } = await getOrCreateChatRoom(user.id);
+      // WhatsApp-style: the room id is a pure function of the two user ids, so
+      // no HTTP get-or-create is needed — derive it locally and open instantly.
+      // The server materializes the room lazily on first send/history.
+      const chatRoomId = await deriveRoomId(currentUserId, targetUser.id);
       onClose();
       setQ('');
       setResults([]);
       router.push({
         pathname: '/chat-room/[chatRoomId]',
-        params: { chatRoomId },
+        params: {
+          chatRoomId,
+          participantId: targetUser.id,
+          name: targetUser.name,
+          username: targetUser.username,
+          avatarUrl: targetUser.avatarUrl ?? '',
+        },
       });
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;
       const errorData = (apiError?.data as { data?: { username?: string; redirect_to?: string } } | undefined)?.data;
-      const redirectTarget = errorData?.username ?? user.username;
+      const redirectTarget = errorData?.username ?? targetUser.username;
       if (apiError?.code === 'subscription_required' && redirectTarget) {
         onClose();
         setQ('');
@@ -694,7 +704,7 @@ export default function MessagesScreen() {
         <Plus size={22} color="#000000" />
       </MsPressable>
 
-      <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} />
+      <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} currentUserId={user?.id ?? ''} />
 
       {/* Room long-press action sheet */}
       <MsActionSheet

@@ -433,3 +433,32 @@ export async function removeCachedRoom(chatRoomId: string, userId?: string | nul
     console.warn('[chat-cache] removeCachedRoom error:', e);
   }
 }
+
+/**
+ * Re-key a room and its messages to a new room id (room:migrated — a legacy
+ * pre-deterministic room adopted to its canonical derived id). Moves rows in
+ * place so the migrated conversation keeps its cached history and preview.
+ */
+export async function rekeyCachedRoom(
+  fromRoomId: string,
+  toRoomId: string,
+  userId?: string | null,
+): Promise<void> {
+  const db = await getDb();
+  if (!db || !fromRoomId || !toRoomId || fromRoomId === toRoomId) return;
+  const uid = userId || 'shared';
+  try {
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(
+        `UPDATE chat_messages_cache SET chat_room_id = ? WHERE user_id = ? AND chat_room_id = ?`,
+        [toRoomId, uid, fromRoomId],
+      );
+      await db.runAsync(
+        `UPDATE chat_rooms_cache SET chat_room_id = ? WHERE user_id = ? AND chat_room_id = ?`,
+        [toRoomId, uid, fromRoomId],
+      );
+    });
+  } catch (e) {
+    console.warn('[chat-cache] rekeyCachedRoom error:', e);
+  }
+}

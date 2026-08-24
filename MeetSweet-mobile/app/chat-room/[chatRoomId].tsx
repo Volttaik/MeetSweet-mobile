@@ -261,8 +261,19 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   // The screen is opened with ONLY a chatRoomId. The other participant's
   // identity is resolved from the room (getChatRoom) — never from navigation
-  // params.
-  const { chatRoomId: routeChatRoomId } = useLocalSearchParams<{ chatRoomId?: string }>();
+  // params. The one exception is a FRESH DM opened from a profile/search: the
+  // room row does not exist server-side yet (it materializes lazily on first
+  // send/history), so the opener passes the participant's profile so the
+  // header renders instantly and the socket has the participant id to resolve
+  // the derived room.
+  const { chatRoomId: routeChatRoomId, participantId: routeParticipantId, name: routeName, username: routeUsername, avatarUrl: routeAvatarUrl } =
+    useLocalSearchParams<{
+      chatRoomId?: string;
+      participantId?: string;
+      name?: string;
+      username?: string;
+      avatarUrl?: string;
+    }>();
   const [chatRoomId, setChatRoomId] = useState(routeChatRoomId ?? '');
   const { user } = useAuth();
 
@@ -292,8 +303,9 @@ export default function ChatScreen() {
       isVoiceNote: opts?.isVoiceNote,
       clientMessageId: opts?.clientMessageId,
       userId: user?.id,
+      participantId: routeParticipantId,
     });
-  }, [chatRoomId, user?.id]);
+  }, [chatRoomId, user?.id, routeParticipantId]);
 
   // ── Message state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<MsMessage[]>([]);
@@ -576,7 +588,12 @@ export default function ChatScreen() {
       // History comes over the persistent socket (chat.history → history:set)
       // with no HTTP realtime fallback and no polling loop.
       try {
-        const result = await fetchRoomHistory(chatRoomId);
+        const result = await fetchRoomHistory(chatRoomId, { participantId: routeParticipantId });
+        // The history resolve materialized the room server-side — (re)subscribe
+        // to the live channel so typing/recording/presence relay and provisional
+        // broadcasts flow. The mount-time subscribe happened before the room
+        // existed and was rejected; this one is authorized.
+        realtime.subscribe(`chat:${chatRoomId}`);
         const fresh = result.messages;
         setMessages(fresh.map((m: RoomMessage) => toMsMessage(m, uid)).sort(byNewestFirst));
         setHasMore(result.hasMore ?? false);
@@ -593,7 +610,7 @@ export default function ChatScreen() {
 
     // ── Explicit pagination (user scrolled up) — socket history ──
     try {
-      const result = await fetchRoomHistory(chatRoomId, { before });
+      const result = await fetchRoomHistory(chatRoomId, { before, participantId: routeParticipantId });
       const msgs = result.messages
         .map((m: RoomMessage) => toMsMessage(m, uid))
         .sort(byNewestFirst);
@@ -607,7 +624,7 @@ export default function ChatScreen() {
     } finally {
       setLoading(false);
     }
-  }, [chatRoomId, user?.id, ensureMediaLocal]);
+  }, [chatRoomId, user?.id, ensureMediaLocal, routeParticipantId]);
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
@@ -1027,7 +1044,10 @@ export default function ChatScreen() {
   // ── Resolve the other participant FROM THE ROOM (not navigation params) ──
   // Local-first: seed from the SQLite room cache immediately so the header
   // never flashes a placeholder identity, then overwrite with fresh server
-  // truth when the HTTP fetch resolves.
+  // truth when the HTTP fetch resolves. The sole exception is a FRESH DM
+  // opened from a profile/search — the room row does not exist server-side
+  // yet, so the opener's navigation params seed the header until the first
+  // send/history materializes the room.
   useEffect(() => {
     if (!chatRoomId) return;
     let cancelled = false;
@@ -1045,6 +1065,14 @@ export default function ChatScreen() {
           isOnline: cachedRoom.otherUser.isOnline ?? false,
         });
         if (cachedRoom.isMuted !== undefined) setIsMuted(Boolean(cachedRoom.isMuted));
+      } else if (routeParticipantId) {
+        // Fresh room — render the participant profile the opener passed.
+        setOtherUser({
+          id: routeParticipantId,
+          name: routeName || 'Chat',
+          username: routeUsername || '',
+          avatarUrl: routeAvatarUrl || null,
+        });
       }
 
       // 2. Fetch fresh server truth and overwrite (never downgrade the header).
@@ -1071,13 +1099,28 @@ export default function ChatScreen() {
           });
         }
       } catch {
-        // Cache already seeded — keep whatever local identity we have.
+        // Cache/params already seeded — keep whatever local identity we have.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [chatRoomId, user?.id]);
+  }, [chatRoomId, user?.id, routeParticipantId, routeName, routeUsername, routeAvatarUrl]);
+
+  // ── Adopt a migrated legacy room id ────────────────────────────────────────
+  // When the server adopts a pre-deterministic legacy room to its canonical
+  // derived id (first touch after deploy), this screen may be open keyed by the
+  // OLD id. Re-key to the canonical id so incoming events keep reconciling into
+  // the visible list instead of being dropped as a "different room".
+  useEffect(() => {
+    if (!routeChatRoomId) return;
+    return realtime.on('room:migrated', (event) => {
+      const payload = (event as { payload?: { roomId?: string; legacyRoomId?: string } })?.payload;
+      if (payload?.legacyRoomId === chatRoomId && payload.roomId && payload.roomId !== chatRoomId) {
+        setChatRoomId(payload.roomId);
+      }
+    });
+  }, [chatRoomId, routeChatRoomId]);
 
   // ── Hydrate block status from local store ───────────────────────────────────
   // The backend User/Room payloads don't expose "is this user blocked by me",
