@@ -27,7 +27,6 @@ import {
 } from '@/services/notifications';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,44 +201,6 @@ export default function NotificationsScreen() {
 
   // ── Realtime (SweetSocket): the list is live, not just the badge ─────────
   // notification:new prepends the row, notification:read flips rows to read,
-  // and notification:deleted removes rows — all without refetching the list.
-  // The badge is owned by NotificationsContext (also subscribed); the two
-  // listeners are independent and do not double-apply.
-  useEffect(() => {
-    if (!isAuthenticated || !user?.id) return;
-    const channel = `user:${user.id}`;
-    realtime.subscribe(channel);
-
-    const offNew = realtime.on(REALTIME_EVENT.notificationCreated, (event) => {
-      const raw = (event.payload as { notification?: unknown })?.notification;
-      if (!raw || typeof raw !== 'object') return;
-      const n = normalizeNotification(raw);
-      if (!n.id) return;
-      setNotifications((prev) => {
-        if (prev.some((x) => x.id === n.id)) return prev;
-        return [n, ...prev];
-      });
-    });
-    const offRead = realtime.on(REALTIME_EVENT.notificationRead, (event) => {
-      const p = event.payload as { notificationId?: string; all?: boolean };
-      setNotifications((prev) =>
-        p.all || !p.notificationId
-          ? prev.map((n) => ({ ...n, isRead: true, read: true }))
-          : prev.map((n) => (n.id === p.notificationId ? { ...n, isRead: true, read: true } : n)),
-      );
-    });
-    const offDeleted = realtime.on(REALTIME_EVENT.notificationDeleted, (event) => {
-      const p = event.payload as { notificationId?: string };
-      if (!p.notificationId) return;
-      setNotifications((prev) => prev.filter((n) => n.id !== p.notificationId));
-    });
-
-    return () => {
-      realtime.unsubscribe(channel);
-      offNew(); offRead(); offDeleted();
-    };
-  }, [isAuthenticated, user?.id]);
-
   const handlePress = async (n: Notification) => {
     if (!n.isRead) {
       setNotifications((prev) =>
@@ -250,18 +211,6 @@ export default function NotificationsScreen() {
     }
 
     const data = n.data || {};
-    const chatRoomId =
-      n.chatRoomId ||
-      data.chatRoomId ||
-      data.chat_room_id ||
-      (data.entity_type === 'chat_room' ? data.entity_id : undefined);
-    if (chatRoomId || n.type === 'message' || n.type === 'dm') {
-      if (chatRoomId) {
-        router.push(`/chat-room/${chatRoomId}`);
-        return;
-      }
-    }
-
     if (n.type === 'wallet' || n.type === 'payout' || n.type === 'payment' || n.type === 'purchase' || n.type === 'referral_reward') {
       router.push('/wallet');
       return;

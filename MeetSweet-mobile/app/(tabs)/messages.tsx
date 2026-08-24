@@ -1,24 +1,19 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   FlatList,
   Modal,
-  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Spinner } from 'heroui-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   PencilSimple,
-  Plus,
   MagnifyingGlass,
   X,
-  DotsThreeVertical,
   Image,
   VideoCamera,
   Microphone,
@@ -26,42 +21,43 @@ import {
   Sparkle,
   type Icon,
 } from 'phosphor-react-native';
-import { router } from 'expo-router';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
-import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
+import { MsActionSheet } from '@/components/MsActionSheet';
 import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
-import {
-  getChatRoomList,
-  getOrCreateChatRoom,
-  archiveChatRoom,
-  deleteChatRoom,
-  markRoomRead,
-  type ChatRoom,
-  type RoomParticipant,
-} from '@/services/room-service';
-import { searchUsers } from '@/services/users';
-import { ApiError } from '@/services/api';
-import { getCreatorMessagingSettings } from '@/services/subscriptions';
-import {
-  cacheChatRooms,
-  getCachedChatRooms,
-} from '@/services/chat-cache';
-import {
-  restoreChatHistory,
-  type RestoreProgress,
-} from '@/services/chat-restore';
-import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
-import { dialogs } from '@/components/MsGlobalDialogs';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
-import { useSweetStore, sweetStore } from '@/services/sweet-store';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MSG_TABS = ['All', 'Archived'] as const;
 type MsgTab = typeof MSG_TABS[number];
+
+// ─── UI-only room model ───────────────────────────────────────────────────────
+// The chat backend has been removed (clean slate). This is the visual shape the
+// list rows render from; the next messaging architecture will repopulate it.
+
+export interface ChatListParticipant {
+  id: string;
+  name: string;
+  username: string;
+  avatarUrl: string | null;
+  isOnline?: boolean;
+}
+
+export interface ChatListRoom {
+  chatRoomId: string;
+  lastMessageBody: string | null;
+  lastMessageAt: string | null;
+  createdAt: string;
+  isMuted: boolean;
+  isArchived: boolean;
+  unreadCount: number;
+  otherUser: ChatListParticipant;
+  lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
+  lastMessageSenderId?: string | null;
+  typingUserIds?: string[];
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -88,10 +84,9 @@ function initials(name: string): string {
 
 /**
  * Deterministic chat-room ordering — newest activity first, with a stable
- * tie-break on chatRoomId so the list NEVER rearranges between cache, API,
- * and realtime refreshes. Every code path that sets `chatRooms` MUST use this.
+ * tie-break on chatRoomId so the list NEVER rearranges between refreshes.
  */
-function sortRooms(rooms: ChatRoom[]): ChatRoom[] {
+function sortRooms(rooms: ChatListRoom[]): ChatListRoom[] {
   return [...rooms].sort((a, b) => {
     const ta = new Date(a.lastMessageAt ?? a.createdAt).getTime();
     const tb = new Date(b.lastMessageAt ?? b.createdAt).getTime();
@@ -104,22 +99,13 @@ function sortRooms(rooms: ChatRoom[]): ChatRoom[] {
 
 function ChatRoomRow({
   item,
-  onLongPress,
   currentUserId,
 }: {
-  item: ChatRoom;
-  onLongPress: (item: ChatRoom) => void;
+  item: ChatListRoom;
   currentUserId: string;
 }) {
   const isUnread = item.unreadCount > 0;
-  // Set when a long-press fires; suppresses the tap that may follow its
-  // release so a long-press NEVER opens the conversation (it only shows the
-  // action menu). Cleared shortly after the touch ends.
-  const suppressTapRef = useRef(false);
   const avatarUrl = item.otherUser?.avatarUrl as string | undefined;
-  // A participant with no display name must still render a stable identity —
-  // never a blank row or a bare "U" placeholder. Fall back to the username,
-  // then to a generic label, so initials always come from real text.
   const displayName = item.otherUser?.name
     || (item.otherUser?.username ? `@${item.otherUser.username}` : 'Chat');
 
@@ -157,34 +143,7 @@ function ChatRoomRow({
     <TouchableOpacity
       style={styles.convoRow}
       activeOpacity={0.7}
-      onPress={() => {
-        if (suppressTapRef.current) return;
-        // Pass the participant identity we already have so the chat header
-        // renders the real name/avatar immediately — no "U" → name flash.
-        router.push({
-          pathname: '/chat-room/[chatRoomId]',
-          params: {
-            chatRoomId: item.chatRoomId,
-            // Pass the same display identity the row shows (name, else @username)
-            // so the chat header avatar/name never render a bare "U" for a
-            // user who only has a username.
-            name: displayName,
-            username: item.otherUser?.username ?? '',
-            avatarUrl: item.otherUser?.avatarUrl ?? '',
-          },
-        });
-      }}
-      onLongPress={() => {
-        suppressTapRef.current = true;
-        onLongPress(item);
-      }}
-      onPressOut={() => {
-        // Release after a long-press must not navigate; clear the guard shortly
-        // after the touch ends so the next genuine tap still opens the chat.
-        setTimeout(() => {
-          suppressTapRef.current = false;
-        }, 150);
-      }}
+      onPress={() => {}}
       delayLongPress={350}
     >
       <MsAvatar
@@ -229,7 +188,7 @@ function ChatRoomRow({
   );
 }
 
-// ─── New message modal ────────────────────────────────────────────────────────
+// ─── New message modal (UI shell — backend removed) ───────────────────────────
 
 function NewMessageModal({
   visible,
@@ -239,84 +198,13 @@ function NewMessageModal({
   onClose: () => void;
 }) {
   const [q, setQ] = useState('');
-  const [results, setResults] = useState<RoomParticipant[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [creatingRoom, setCreatingRoom] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSearch = (text: string) => {
     setQ(text);
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (text.trim().length < 2) {
-      setResults([]);
-      return;
-    }
-    timerRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const data = await searchUsers(text.trim());
-        setResults(data as any);
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-  };
-
-  const handleSelect = async (user: RoomParticipant) => {
-    setCreatingRoom(true);
-    try {
-      // Check the recipient's current policy before opening a room. The
-      // backend repeats this check, but doing it here prevents empty rooms and
-      // gives the user a useful subscription/privacy explanation.
-      const access = await getCreatorMessagingSettings(user.id);
-      if (!access.can_message) {
-        setCreatingRoom(false);
-        if (access.who_can_message === 'subscribers') {
-          dialogs.alert({
-            title: 'Subscription Required',
-            message: 'You need to subscribe to this creator before sending a message.',
-            confirmLabel: user.isCreator ? 'View Creator' : 'OK',
-            onClose: user.isCreator ? () => router.push(`/creator/${user.username}`) : undefined,
-          });
-        } else {
-          dialogs.alert({ title: 'Cannot Message', message: 'This user is not accepting messages right now.' });
-        }
-        return;
-      }
-
-      // Messaging is free — ask the backend to create/find the Chat Room.
-      const { chatRoomId } = await getOrCreateChatRoom(user.id);
-      onClose();
-      setQ('');
-      setResults([]);
-      router.push({
-        pathname: '/chat-room/[chatRoomId]',
-        params: { chatRoomId },
-      });
-    } catch (error) {
-      const apiError = error instanceof ApiError ? error : null;
-      const errorData = (apiError?.data as { data?: { username?: string; redirect_to?: string } } | undefined)?.data;
-      const redirectTarget = errorData?.username ?? user.username;
-      if (apiError?.code === 'subscription_required' && redirectTarget) {
-        onClose();
-        setQ('');
-        setResults([]);
-        setCreatingRoom(false);
-        dialogs.alert({
-          title: 'Subscription Required',
-          message: 'Subscribe to this creator before sending a message.',
-          confirmLabel: 'View Creator',
-          onClose: () => router.push(`/creator/${redirectTarget}`),
-        });
-        return;
-      }
-      const message = error instanceof Error ? error.message : '';
-      dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
-    } finally {
-      setCreatingRoom(false);
-    }
+    // Messaging backend removed — no user search until the new architecture
+    // lands. The composer UI is preserved for that phase.
   };
 
   return (
@@ -339,32 +227,7 @@ function NewMessageModal({
             autoFocus
           />
         </View>
-        {searching ? (
-          <View style={{ paddingTop: 24, alignItems: 'center' }}>
-            <ActivityIndicator size="small" color={T.TEXT_3} />
-          </View>
-        ) : results.length > 0 ? (
-          <FlatList
-            data={results}
-            keyExtractor={(u) => u.id}
-            renderItem={({ item }) => {
-              const userAvatar = (item as any)?.avatarUrl as string | undefined;
-              return (
-                <TouchableOpacity
-                  style={styles.userRow}
-                  activeOpacity={0.7}
-                  onPress={() => handleSelect(item)}
-                >
-                  <MsAvatar size={42} initials={initials(item.name)} imageUri={userAvatar} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.userName}>{item.name}</Text>
-                    <Text style={styles.userHandle}>@{item.username}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            }}
-          />
-        ) : q.length >= 2 ? (
+        {q.length >= 2 ? (
           <MsEmptyState title="No users found" message={`No one matches "${q}"`} />
         ) : (
           <Text style={styles.modalHint}>Type at least 2 characters to search</Text>
@@ -372,7 +235,7 @@ function NewMessageModal({
       </View>
 
       {/* Full-screen Chat Room creation loader */}
-      <MsRoomCreationLoader visible={creatingRoom} />
+      <MsRoomCreationLoader visible={false} />
     </Modal>
   );
 }
@@ -383,27 +246,16 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<MsgTab>('All');
-  // ── SweetStore is the canonical chat-list state ─────────────────────────
-  // SweetSocket events (chats:upsert on the user channel, message events on
-  // subscribed chat channels) update the store; this screen just renders it.
-  // A NEW conversation arrives as a chats:upsert and appears WITHOUT any HTTP
-  // refetch. HTTP list loading remains an explicit refresh / restore path.
-  const { rooms: storeRooms, typingByRoom, presence, unreadByRoom } = useSweetStore();
-  const [archivedRooms, setArchivedRooms] = useState<ChatRoom[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  // Local-first: the chat list paints from its local replica. Live room
-  // metadata arrives over SweetSocket; HTTP is reserved for explicit refresh
-  // and historical restoration.
-  const [showMenu, setShowMenu] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [restoreProgress, setRestoreProgress] = useState<RestoreProgress | null>(null);
+  // UI-only chat list. The old chat backend has been removed; this stays empty
+  // until the next messaging architecture repopulates it.
+  const [rooms] = useState<ChatListRoom[]>([]);
+  const [loading] = useState(false);
 
   // ── List shimmer — crossfades into the real conversation list instead of
   // hard-cutting, so the chat list transition is stable (no flash/rearrange).
   const listShimmerOpacity = useRef(new Animated.Value(1)).current;
   const [listShimmerVisible, setListShimmerVisible] = useState(true);
-  useEffect(() => {
+  React.useEffect(() => {
     if (!loading) {
       Animated.timing(listShimmerOpacity, {
         toValue: 0,
@@ -414,212 +266,15 @@ export default function MessagesScreen() {
   }, [loading, listShimmerOpacity]);
   const [showNewMsg, setShowNewMsg] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [menuRoom, setMenuRoom] = useState<ChatRoom | null>(null);
 
-  const load = useCallback(
-    async (showRefresh = false, silent = false) => {
-      if (showRefresh) setRefreshing(true);
-
-      const tab = activeTab === 'Archived' ? 'archived' : 'all';
-
-      // LOCAL-FIRST: the All tab paints exclusively from the local persistent
-      // store — never from the backend. The cache is namespaced per user
-      // (SQLite chat_rooms_cache, keyed by user_id), so a different account
-      // can never render the previous user's rooms. Opening Messages is
-      // instant, works offline, and a fresh install stays fresh (empty state)
-      // instead of silently restoring the entire conversation history.
-      if (activeTab === 'All') {
-        // The silent post-reconnect reconciliation skips the cache hydration:
-        // the store is already live from the socket replay, so re-hydrating
-        // from disk would briefly regress the list to stale rows before the
-        // network result lands.
-        if (!silent) {
-          try {
-            const cached = await getCachedChatRooms(user?.id);
-            if (cached.length > 0) {
-              sweetStore.hydrateRooms(cached);
-              setListShimmerVisible(false);
-            }
-          } catch {
-            // Cache read failure is non-fatal — fall through.
-          }
-        }
-        // Normal open is local-only. The only network paths for the All tab
-        // are an explicit pull-to-refresh and the silent post-reconnect
-        // reconciliation (socket events already converge the list from the
-        // durable replay; this fetch covers events older than the outbox
-        // retention that the replay could not deliver).
-        if (!showRefresh && !silent) {
-          setLoading(false);
-          setRefreshing(false);
-          return;
-        }
-      }
-
-      // Explicit refresh (pull-to-refresh / Archived tab): fetch the latest
-      // room metadata and mirror it locally so the next open stays instant.
-      try {
-        const data = await getChatRoomList(tab);
-        if (activeTab === 'All') {
-          sweetStore.hydrateRooms(data.chatRooms);
-        } else {
-          setArchivedRooms(sortRooms(data.chatRooms));
-        }
-        reportNetworkSuccess();
-        // Mirror the server list to local storage so the next open is instant.
-        if (activeTab === 'All') {
-          cacheChatRooms(data.chatRooms, user?.id).catch(() => {});
-        }
-      } catch {
-        reportNetworkError();
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [activeTab, user?.id],
-  );
-
-  useEffect(() => {
-    // Never wipe already-available rooms — clearing the list on every tab
-    // switch is what caused the "show → disappear → loader → re-render" flash.
-    // The All tab paints from the SweetStore (already populated by the cache
-    // hydration), so the existing conversations stay on screen.
-    if (activeTab !== 'All') {
-      setArchivedRooms([]);
-      setLoading(true);
-    }
-    load();
-  }, [activeTab]);
-
-  // ── Realtime chat list (SweetSocket → SweetStore) ────────────────────────
-  // The store is the canonical chat-list state: chats:upsert (user channel)
-  // brings NEW conversations in, message events patch previews, typing and
-  // presence arrive as ephemeral events — all without HTTP. The only reason
-  // this screen still subscribes to each visible room's chat channel is to
-  // receive typing/presence relays; the store listens for the rest on the
-  // user channel.
-
-  // ── Reconnect reconciliation ─────────────────────────────────────────────
-  // When the socket comes back (fresh open after being closed, or a real
-  // reconnect after an outage), the durable replay converges the list from
-  // the store. One silent HTTP room-list refresh also runs so rooms whose
-  // events fell outside the outbox retention window still appear. This is a
-  // one-shot recovery fetch on reconnection — never a polling loop.
-  useEffect(() => {
-    const offReconnected = realtime.on(REALTIME_EVENT.connectionReconnected, () => {
-      if (activeTab !== 'All') return;
-      load(false, true).catch(() => {});
-    });
-    return offReconnected;
-  }, [activeTab, load]);
-  const visibleRooms = activeTab === 'All'
-    ? storeRooms.filter((r) => !r.isArchived)
-    : archivedRooms;
-  const roomIdsRef = useRef<string[]>([]);
-  useEffect(() => {
-    // Resubscribe whenever the visible room set changes.
-    const ids = visibleRooms.map((r) => r.chatRoomId).filter(Boolean);
-    const prev = roomIdsRef.current;
-    for (const id of ids) if (!prev.includes(id)) realtime.subscribe(`chat:${id}`);
-    for (const id of prev) if (!ids.includes(id)) realtime.unsubscribe(`chat:${id}`);
-    roomIdsRef.current = ids;
-  }, [visibleRooms]);
-
-  // Decorate rooms with live store state (typing + presence + unread) so the
-  // rows render ephemeral signals that never touch the database.
-  const decoratedRooms = visibleRooms.map((r) => ({
-    ...r,
-    typingUserIds: typingByRoom[r.chatRoomId] ?? r.typingUserIds,
-    unreadCount: unreadByRoom[r.chatRoomId] ?? r.unreadCount ?? 0,
-    otherUser: r.otherUser
-      ? { ...r.otherUser, isOnline: presence[r.otherUser.id] ?? r.otherUser.isOnline }
-      : r.otherUser,
-  }));
-  // ── "Load Chat History" — EXPLICIT restore ─────────────────────────────
-  // The one and only path that fetches the user's previous conversations from
-  // the backend. Local-first means normal Chat access never does this; this is
-  // a deliberate user action (Chat menu) and may take time, so a progress
-  // overlay is shown while it runs. Everything fetched is persisted locally
-  // (SQLite) so future opens are instant and local-only.
-  const handleLoadChatHistory = useCallback(async () => {
-    setShowMenu(false);
-    if (restoring) return;
-    setRestoring(true);
-    setRestoreProgress(null);
-    try {
-      const result = await restoreChatHistory(user?.id, (p) => setRestoreProgress(p));
-      // Repaint from the local store — restored conversations are now local.
-      const cached = await getCachedChatRooms(user?.id).catch(() => []);
-      if (cached.length > 0) {
-        sweetStore.hydrateRooms(cached);
-        setListShimmerVisible(false);
-      }
-      dialogs.alert({
-        variant: 'success',
-        title: 'Chat history restored',
-        message:
-          result.rooms > 0
-            ? `Restored ${result.rooms} conversation${result.rooms === 1 ? '' : 's'} locally.`
-            : 'No previous conversations found on this account.',
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      dialogs.alert({
-        variant: 'error',
-        title: 'Could not restore chat history',
-        message: message || 'Please try again.',
-      });
-    } finally {
-      setRestoring(false);
-      setRestoreProgress(null);
-    }
-  }, [restoring, user?.id]);
-
+  const visibleRooms = activeTab === 'All' ? rooms.filter((r) => !r.isArchived) : rooms;
   const filtered = searchText.trim()
-    ? decoratedRooms.filter(
+    ? visibleRooms.filter(
         (c) =>
           (c.otherUser.name || '').toLowerCase().includes(searchText.toLowerCase()) ||
           (c.otherUser.username || '').toLowerCase().includes(searchText.toLowerCase()),
       )
-    : decoratedRooms;
-
-  // Long-press room actions — every mutation is mirrored into the SweetStore
-  // so the list updates immediately and stays in sync with the server.
-  const roomActions = (room: ChatRoom): ActionItem[] => [
-    {
-      label: 'Mark as Read',
-      onPress: () => {
-        sweetStore.markRoomRead(room.chatRoomId);
-        markRoomRead(room.chatRoomId).catch(() => {});
-      },
-    },
-    {
-      label: room.isArchived ? 'Unarchive' : 'Archive',
-      onPress: async () => {
-        const next = !room.isArchived;
-        sweetStore.patchRoom(room.chatRoomId, { isArchived: next });
-        try {
-          await archiveChatRoom(room.chatRoomId, next);
-        } catch {
-          sweetStore.patchRoom(room.chatRoomId, { isArchived: room.isArchived });
-        }
-      },
-    },
-    {
-      label: 'Delete',
-      destructive: true,
-      onPress: () => {
-        // Optimistic remove from the store.
-        sweetStore.removeRoom(room.chatRoomId);
-        deleteChatRoom(room.chatRoomId).catch(() => {
-          // If deletion fails restore the room.
-          sweetStore.upsertRoom(room);
-          dialogs.alert({ variant: 'error', title: 'Could not delete chat room', message: 'Please try again.' });
-        });
-      },
-    },
-  ];
+    : visibleRooms;
 
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
@@ -627,13 +282,6 @@ export default function MessagesScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.iconBtn}
-            activeOpacity={0.7}
-            onPress={() => setShowMenu(true)}
-          >
-            <DotsThreeVertical size={18} color={T.TEXT} />
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconBtn}
             activeOpacity={0.7}
@@ -690,18 +338,11 @@ export default function MessagesScreen() {
           data={filtered}
           keyExtractor={(item) => item.chatRoomId}
           renderItem={({ item }) => (
-            <ChatRoomRow item={item} onLongPress={setMenuRoom} currentUserId={user?.id ?? ''} />
+            <ChatRoomRow item={item} currentUserId={user?.id ?? ''} />
           )}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => load(true)}
-              tintColor={T.TEXT}
-            />
-          }
           ListEmptyComponent={
             <MsEmptyState
               title={
@@ -728,9 +369,7 @@ export default function MessagesScreen() {
           <Animated.View
             pointerEvents={loading ? 'auto' : 'none'}
             style={[styles.listShimmerOverlay, { opacity: listShimmerOpacity }]}
-          >
-            <ActivityIndicator size="small" color={T.TEXT_3} />
-          </Animated.View>
+          />
         )}
       </View>
 
@@ -740,50 +379,14 @@ export default function MessagesScreen() {
         activeOpacity={0.85}
         onPress={() => setShowNewMsg(true)}
       >
-        <Plus size={22} color="#000000" />
+        <PencilSimple size={22} color="#000000" weight="fill" />
       </TouchableOpacity>
 
       <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} />
 
-      {/* Room long-press action sheet */}
-      <MsActionSheet
-        visible={!!menuRoom}
-        title={menuRoom?.otherUser.name}
-        subtitle={menuRoom ? `@${menuRoom.otherUser.username}` : undefined}
-        actions={menuRoom ? roomActions(menuRoom) : []}
-        onClose={() => setMenuRoom(null)}
-      />
-
-      {/* Chat menu — explicit "Load Chat History" restore (the ONLY path
-          that fetches previous conversations from the backend) */}
-      <MsActionSheet
-        visible={showMenu}
-        title="Messages"
-        subtitle="Restore previous conversations to this device"
-        actions={[
-          {
-            label: 'Load Chat History',
-            onPress: handleLoadChatHistory,
-          },
-        ]}
-        onClose={() => setShowMenu(false)}
-      />
-
-      {/* Restore-in-progress overlay — the user explicitly asked for this, so
-          a progress state is appropriate here (normal chat access is instant). */}
-      <Modal visible={restoring} transparent animationType="fade">
-        <View style={styles.restoreOverlay}>
-          <View style={styles.restoreCard}>
-            <Spinner size="sm" color={T.ACCENT as any} />
-            <Text style={styles.restoreTitle}>Restoring chat history…</Text>
-            <Text style={styles.restoreSub}>
-              {restoreProgress
-                ? `${restoreProgress.done} of ${restoreProgress.total} conversations`
-                : 'Fetching your conversations from the server…'}
-            </Text>
-          </View>
-        </View>
-      </Modal>
+      {/* Room long-press action sheet — backend removed; sheet kept for the next
+          architecture to wire into */}
+      <MsActionSheet visible={false} actions={[]} onClose={() => {}} />
     </View>
   );
 }
@@ -801,33 +404,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-  },
-  restoreOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  restoreCard: {
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.lg,
-    paddingHorizontal: 28,
-    paddingVertical: 24,
-    alignItems: 'center',
-    gap: 10,
-    maxWidth: 280,
-  },
-  restoreTitle: {
-    fontSize: 15,
-    fontFamily: T.FONT.semibold,
-    color: T.TEXT,
-    textAlign: 'center',
-  },
-  restoreSub: {
-    fontSize: 13,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_2,
-    textAlign: 'center',
   },
   title: { fontSize: 22, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4 },
   iconBtn: {
@@ -866,8 +442,6 @@ const styles = StyleSheet.create({
   tabChipActive: { backgroundColor: T.TEXT },
   tabChipLabel: { fontFamily: T.FONT.medium, fontSize: 13, color: T.TEXT_2 },
   tabChipLabelActive: { color: T.BG },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  // Opaque shimmer overlay that crossfades into the conversation list.
   listShimmerOverlay: {
     position: 'absolute',
     top: 0,
@@ -875,8 +449,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: T.BG,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   convoRow: {
     flexDirection: 'row',
@@ -952,13 +524,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 24,
   },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 12,
-  },
-  userName: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
-  userHandle: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2 },
 });

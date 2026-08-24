@@ -33,9 +33,7 @@ import {
 } from 'phosphor-react-native';
 import { blockUser, reportUser, searchUsers } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
-import { subscribe, cancelSubscription, getCreatorMessagingSettings } from '@/services/subscriptions';
-import { getOrCreateChatRoom, getChatRoomList, type ChatRoom } from '@/services/room-service';
-import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
+import { subscribe, cancelSubscription } from '@/services/subscriptions';
 import { getCachedCreatorProfile, cacheCreatorProfile } from '@/lib/posts-db';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
@@ -51,7 +49,6 @@ import {
   type CreatorProfileFull,
 } from '@/services/creators';
 import { useAuth } from '@/contexts/AuthContext';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import type { Post } from '@/services/posts';
 import type { AlbumCardData } from '@/services/albums';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
@@ -67,7 +64,6 @@ import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
-import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { wasOpenedViaShareLink } from '@/lib/deep-link';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -520,8 +516,7 @@ export default function CreatorProfileScreen() {
   // Subscription onboarding state
   const [showSubscriptionOnboarding, setShowSubscriptionOnboarding] = useState(false);
 
-  // Messaging restriction & subscription state
-  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
+  // Subscription state
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [currentTier, setCurrentTier] = useState<SubscribePlan | null>(null);
   const [subscribing, setSubscribing] = useState(false);
@@ -532,10 +527,6 @@ export default function CreatorProfileScreen() {
     title: string;
     message?: string;
   } | null>(null);
-  const [loadingMessaging, setLoadingMessaging] = useState(false);
-  // Full-screen Chat Room creation loader (subscription check + backend create).
-  const [creatingRoom, setCreatingRoom] = useState(false);
-
   // Full creator profile from /api/creators/:id
   const [creatorFullProfile, setCreatorFullProfile] = useState<CreatorProfileFull | null>(null);
 
@@ -558,19 +549,6 @@ export default function CreatorProfileScreen() {
       });
     });
   }, []);
-
-  // Fetch messaging settings on mount (subscription status comes from creator profile)
-  useEffect(() => {
-    const creatorId = creatorFullProfile?.userId;
-    if (!creatorId || !currentUser) return;
-    getCreatorMessagingSettings(creatorId)
-      .then((s) => {
-        // Only messaging policy comes from this endpoint. Subscription state is
-        // authoritative from applyProfile (getCreatorById, now authenticated).
-        setWhoCanMessage(s.who_can_message);
-      })
-      .catch(() => {});
-  }, [creatorFullProfile?.userId, currentUser?.id]);
 
   const handleSubscriptionOnboardingComplete = async () => {
     await completeOnboarding('subscription_onboarded');
@@ -616,132 +594,6 @@ export default function CreatorProfileScreen() {
     }
   };
 
-  // Handle message button based on messaging restrictions
-  const handleMessagePress = async () => {
-    // Can't message
-    if (whoCanMessage === 'none') {
-      dialogs.alert({ title: 'Cannot Message', message: 'This creator is not accepting messages right now.' });
-      return;
-    }
-
-    // Subscribers only and not subscribed — redirect to subscribe sheet
-    if (whoCanMessage === 'subscribers' && !isSubscribed) {
-      dialogs.alert({
-        title: 'Subscription Required',
-        message: 'You need to subscribe to send this creator a message.',
-        confirmLabel: 'Subscribe',
-        onClose: () => setSheetOpen(true),
-      });
-      return;
-    }
-
-    // Resolve user → subscription check → find-or-create room → navigate.
-    // The "Creating chatroom…" loader is shown ONLY when a room is genuinely
-    // created; existing rooms open directly. The frontend never generates the
-    // chatRoomId; the backend returns it.
-    setLoadingMessaging(true);
-    try {
-      const creatorUsername = (
-        realProfile?.username ??
-        creatorFullProfile?.username ??
-        creator?.handle ??
-        ''
-      ).replace(/^@/, '');
-      let creatorUserId = creatorFullProfile?.userId ?? '';
-
-      // Creator catalog entries and room participants are different
-      // backend records. Resolve the actual user through the same endpoint
-      // that powers the working New Message search flow.
-      if (creatorUsername.length >= 2) {
-        const result = await searchUsers(creatorUsername);
-        const exactMatch = result.find(
-          (candidate: { id: string; username: string }) => candidate.username.toLowerCase() === creatorUsername.toLowerCase(),
-        );
-        creatorUserId = exactMatch?.id ?? creatorUserId;
-      }
-      if (!creatorUserId) {
-        throw new Error('Could not resolve this creator as a messaging user.');
-      }
-
-      // Pass the participant identity with the navigation so the chat header
-      // renders the real name/avatar immediately instead of flashing "U".
-      const chatRoomParams = (roomId: string) => ({
-        chatRoomId: roomId,
-        name: realProfile?.name ?? '',
-        username: realProfile?.username ?? creatorUsername,
-        avatarUrl: realProfile?.avatarUrl ?? '',
-      });
-
-      // Re-check against the canonical participant UUID immediately before
-      // room creation. This handles stale profile state and makes this entry
-      // point obey the same policy as search and the backend.
-      const access = await getCreatorMessagingSettings(creatorUserId);
-      setWhoCanMessage(access.who_can_message);
-      if (!access.can_message) {
-        // Subscription required (or messaging disabled) — do NOT create a room.
-        // Route the user to the creator profile's subscribe sheet instead.
-        setCreatingRoom(false);
-        if (access.who_can_message === 'subscribers') {
-          dialogs.alert({
-            title: 'Subscription Required',
-            message: 'You need to subscribe to send this creator a message.',
-            confirmLabel: 'Subscribe',
-            onClose: () => setSheetOpen(true),
-          });
-        } else {
-          dialogs.alert({ title: 'Cannot Message', message: 'This creator is not accepting messages right now.' });
-        }
-        return;
-      }
-
-      // Idempotent open — find any EXISTING room before ever creating one, so
-      // the user never sees "Creating chatroom…" for a room that already
-      // exists. Check the local cache first, then the canonical server list.
-      const matchesPeer = (r: ChatRoom) =>
-        Boolean(r.chatRoomId) &&
-        ((r.otherUser?.id && r.otherUser.id === creatorUserId) ||
-          r.participants.some((p) => p.id === creatorUserId));
-
-      const cachedRooms = await getCachedChatRooms(currentUser?.id).catch(() => []);
-      const cachedMatch = cachedRooms.find(matchesPeer);
-      if (cachedMatch?.chatRoomId) {
-        router.push({
-          pathname: '/chat-room/[chatRoomId]',
-          params: chatRoomParams(cachedMatch.chatRoomId),
-        });
-        return;
-      }
-
-      const serverRooms = await getChatRoomList('all').catch(() => ({ chatRooms: [] }));
-      const serverMatch = serverRooms.chatRooms.find(matchesPeer);
-      if (serverMatch?.chatRoomId) {
-        await cacheChatRooms(serverRooms.chatRooms, currentUser?.id).catch(() => {});
-        router.push({
-          pathname: '/chat-room/[chatRoomId]',
-          params: chatRoomParams(serverMatch.chatRoomId),
-        });
-        return;
-      }
-
-      // Genuinely no room exists — create one. Only now show the full-screen
-      // creation loader, since this is the only path that actually creates.
-      setCreatingRoom(true);
-      const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
-      setCreatingRoom(false);
-      await cacheChatRooms([chatRoom], currentUser?.id).catch(() => {});
-      router.push({
-        pathname: '/chat-room/[chatRoomId]',
-        params: chatRoomParams(chatRoomId),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
-    } finally {
-      setLoadingMessaging(false);
-      setCreatingRoom(false);
-    }
-  };
-
   // ── Data sources ─────────────────────────────────────────────────────────────
   // Profile + posts data
   const reviewsQuery = useCreatorReviews(id);
@@ -767,28 +619,6 @@ export default function CreatorProfileScreen() {
   );
 
   // Realtime: when the viewer IS the creator, live subscription events update
-  // the subscriber count / dashboard instantly (emitted server-side only after
-  // the confirmed DB transaction). The private user:{me} channel is
-  // authorized only for the account owner.
-  useEffect(() => {
-    if (!isOwnProfile || !currentUser?.id) return;
-    const channel = `user:${currentUser.id}`;
-    realtime.subscribe(channel);
-    const applyCount = (event: import('@/services/realtime').RealtimeEvent) => {
-      const p = event.payload as { creatorId?: string; subscriberCount?: number };
-      if (p.creatorId !== creatorUUID) return;
-      if (typeof p.subscriberCount !== 'number') return;
-      setRealProfile((prev) => (prev ? { ...prev, subscriberCount: p.subscriberCount! } : prev));
-      setCreatorFullProfile((prev) => (prev ? { ...prev, subscriberCount: p.subscriberCount! } : prev));
-    };
-    const offCount = realtime.on(REALTIME_EVENT.subscriptionCountUpdated, applyCount);
-    const offCancelled = realtime.on(REALTIME_EVENT.subscriptionCancelled, applyCount);
-    return () => {
-      realtime.unsubscribe(channel);
-      offCount(); offCancelled();
-    };
-  }, [isOwnProfile, currentUser?.id, creatorUUID]);
-
   // Creator-profile access model: the profile is subscriber-gated. When the
   // server reports content_locked (viewer not subscribed and not the owner),
   // NO content may be shown here — header/subscribe only. The owner and
@@ -817,7 +647,6 @@ export default function CreatorProfileScreen() {
     setCreatorFullProfile(profile);
     setIsSubscribed(profile.subscribedToCreator);
     setCurrentTier(profile.subscriptionTier ?? null);
-    setWhoCanMessage(profile.whoCanMessage);
     setRealProfile({
       name:            profile.name,
       username:        profile.username,
@@ -1175,37 +1004,6 @@ export default function CreatorProfileScreen() {
           </View>
           )}
 
-          {/* Message button - shown when viewing another user's profile and not own profile */}
-          {!isOwnProfile && currentUser && currentUser.username !== (realProfile?.username ?? id) && (
-            <TouchableOpacity
-              style={[
-                styles.messageButton,
-                whoCanMessage === 'none' && styles.messageButtonDisabled,
-              ]}
-              onPress={handleMessagePress}
-              disabled={loadingMessaging || whoCanMessage === 'none'}
-              activeOpacity={0.85}
-            >
-              {loadingMessaging ? (
-                <Spinner size="sm" color="default" />
-              ) : whoCanMessage === 'none' ? (
-                <>
-                  <X size={16} color={T.TEXT_3} />
-                  <Text style={styles.messageBtnLabelDisabled}>Cannot Message</Text>
-                </>
-              ) : whoCanMessage === 'subscribers' && !isSubscribed ? (
-                <>
-                  <Lock size={16} color={T.ACCENT} />
-                  <Text style={styles.messageBtnLabelLocked}>Subscribe to Message</Text>
-                </>
-              ) : (
-                <>
-                  <ChatCircle size={16} color={T.BG} weight="fill" />
-                  <Text style={styles.messageBtnLabel}>Message</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
         </View>
 
         {/* ── Subscriber gate (unsubscribed viewer) ── */}
@@ -1652,8 +1450,6 @@ export default function CreatorProfileScreen() {
         onComplete={handleSubscriptionOnboardingComplete}
       />
 
-      {/* Full-screen Chat Room creation loader */}
-      <MsRoomCreationLoader visible={creatingRoom} />
     </View>
   );
 }

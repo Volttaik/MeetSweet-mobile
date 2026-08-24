@@ -57,7 +57,6 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsComposer } from '@/components/MsComposer';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { T } from '@/constants/theme';
 
@@ -81,18 +80,6 @@ export default function ContentDetailScreen() {
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
 
-  // Realtime: the post channel (post:{id}, subscribed by useComments) carries
-  // live like-count and comment-count updates — other users' likes and
-  // comments reflect immediately, no refresh.
-  useEffect(() => {
-    if (!id) return;
-    const offLike = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
-      if (event.resourceId !== id) return;
-      const p = event.payload as { liked?: boolean; likeCount?: number };
-      if (typeof p.likeCount === 'number') setLikeCount(p.likeCount);
-    });
-    return () => offLike();
-  }, [id]);
   useEffect(() => {
     if (liveCommentCount != null) setCommentCount(liveCommentCount);
   }, [liveCommentCount]);

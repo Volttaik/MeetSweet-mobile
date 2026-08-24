@@ -59,7 +59,6 @@ import {
   getRoomCommentReplies,
   type CommentRoomComment,
 } from '@/services/comment-room-service';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
 
 export type { CommentRoomComment };
 
@@ -244,48 +243,8 @@ export function useComments(postId: string) {
     refresh();
   }, [refresh]);
 
-  // SweetSocket owns live comment updates. HTTP remains for initial hydration,
-  // pagination, pull-to-refresh, and explicit mutations.
-
-  // Realtime: live comments for this post (comment room id == post id). New,
-  // edited and deleted comments propagate instantly to everyone viewing the
-  // post — no polling, no refresh.
   useEffect(() => {
     if (!commentRoomId) return;
-    const channel = `post:${commentRoomId}`;
-    realtime.subscribe(channel);
-
-    const offCreated = realtime.on(REALTIME_EVENT.postCommentCreated, (event) => {
-      const p = event.payload as { comment?: CommentRoomComment; commentCount?: number };
-      if (typeof p.commentCount === 'number') setLiveCommentCount(p.commentCount);
-      if (!p.comment?.id) return;
-      const local = toLocalComment(p.comment);
-      setComments((prev) => {
-        if (prev.some((c) => c.id === local.id)) return prev;
-        return [local, ...prev];
-      });
-    });
-    const offUpdated = realtime.on(REALTIME_EVENT.postCommentUpdated, (event) => {
-      const p = event.payload as { commentId?: string; body?: string; replyCount?: number };
-      if (!p.commentId) return;
-      setComments((prev) =>
-        prev.map((c) =>
-          c.id === p.commentId
-            ? { ...c, body: p.body ?? c.body, replyCount: p.replyCount ?? c.replyCount }
-            : c,
-        ),
-      );
-    });
-    const offDeleted = realtime.on(REALTIME_EVENT.postCommentDeleted, (event) => {
-      const p = event.payload as { commentId?: string; commentCount?: number };
-      if (typeof p.commentCount === 'number') setLiveCommentCount(p.commentCount);
-      if (!p.commentId) return;
-      setComments((prev) => prev.filter((c) => c.id !== p.commentId));
-    });
-    return () => {
-      realtime.unsubscribe(channel);
-      offCreated(); offUpdated(); offDeleted();
-    };
   }, [commentRoomId]);
 
   return {

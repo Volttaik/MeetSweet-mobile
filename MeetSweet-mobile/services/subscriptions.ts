@@ -44,17 +44,3 @@ export async function cancelSubscription(subscriptionId: string): Promise<{ canc
     { method: 'POST' },
   ).then((raw) => ({ cancelled: Boolean(raw?.cancelled ?? false) }));
 }
-
-export async function getCreatorMessagingSettings(creatorId: string): Promise<any> {
-  const token = await getAccessToken();
-  // Fallback shape must stay consistent with the real response so the
-  // messaging gate never silently blocks a user on a transient error.
-  // The backend still enforces restrictions on room creation/message send.
-  const fallback = { who_can_message: 'everyone', subscribed: false, can_message: true };
-  if (!token) return fallback;
-  try {
-    return await authFetch<any>(`/creators/${creatorId}/messaging-settings`, token);
-  } catch {
-    return fallback;
-  }
-}

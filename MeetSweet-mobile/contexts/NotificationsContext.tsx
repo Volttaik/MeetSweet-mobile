@@ -25,34 +25,21 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
-import { getChatRoomList } from '@/services/room-service';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
-import { getFocusedChatRoom } from '@/lib/chat-focus';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWallet } from '@/contexts/WalletContext';
-import { usePostActions } from '@/contexts/PostActionsContext';
 
 const LAST_HANDLED_NOTIF_KEY = '@ms_last_handled_notif_id';
 
 // ─── Notification display while the app is foregrounded ──────────────────────
-// The user is ACTIVELY VIEWING a conversation when the DM push arrives, the
-// realtime event already rendered it on screen — a native banner for the same
-// room is noise, so it is suppressed (badge still updates). Every other
-// notification displays normally.
 Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const data = (notification.request.content.data ?? {}) as Record<string, string>;
-    const roomId = data.chat_room_id ?? data.chatRoomId;
-    const viewingThisRoom = Boolean(roomId) && roomId === getFocusedChatRoom();
-    return {
-      shouldShowAlert: !viewingThisRoom,
-      shouldPlaySound: !viewingThisRoom,
-      shouldSetBadge: true,
-      shouldShowBanner: !viewingThisRoom,
-      shouldShowList: !viewingThisRoom,
-    };
-  },
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
 });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -60,8 +47,6 @@ Notifications.setNotificationHandler({
 interface NotificationsContextValue {
   /** Number of unread in-app notifications */
   notifUnread: number;
-  /** Total unread messages across all chat rooms */
-  messageUnread: number;
   /** Push notification permission status */
   permissionStatus: string | null;
   /** Device push token if registered */
@@ -76,7 +61,6 @@ interface NotificationsContextValue {
 
 const NotificationsContext = createContext<NotificationsContextValue>({
   notifUnread: 0,
-  messageUnread: 0,
   permissionStatus: null,
   pushToken: null,
   refresh: () => {},
@@ -112,7 +96,7 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
   }
 
   // Android needs a notification channel. The channel carries the in-app
-  // message chime (message-received.wav, bundled via the expo-notifications
+  // message chime (message_received.wav, bundled via the expo-notifications
   // plugin's `sounds` config) so native notifications sound on-brand instead
   // of the system default. Applies to builds — Expo Go ignores channel sounds.
   if (Platform.OS === 'android') {
@@ -121,7 +105,7 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#C45A72',
-      sound: 'message-received.wav',
+      sound: 'message_received.wav',
     }).catch(() => {});
   }
 
@@ -166,15 +150,6 @@ function handleNotificationTap(notification: Notifications.Notification) {
   const contentType = data.content_type ?? data.contentType ?? type;
   const contentId = data.content_id ?? data.contentId;
   const actorId = data.actor_id ?? data.actorId ?? data.username;
-  const chatRoomId = data.chat_room_id ?? data.chatRoomId;
-
-  // message / dm → open the chat room
-  if (type === 'message' || type === 'dm' || chatRoomId) {
-    if (chatRoomId) {
-      navigate(`/chat-room/${chatRoomId}`);
-      return;
-    }
-  }
 
   // wallet / payout → open wallet
   if (type === 'wallet' || type === 'payout' || type === 'payment' || type === 'purchase' || type === 'referral_reward') {
@@ -230,10 +205,8 @@ function handleNotificationTap(notification: Notifications.Notification) {
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuth();
-  const { refreshWallet, setBalance } = useWallet();
-  const { markLiked, setCommentCount } = usePostActions();
+  const { refreshWallet } = useWallet();
   const [notifUnread, setNotifUnread] = useState(0);
-  const [messageUnread, setMessageUnread] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState<string | null>(null);
   const [pushToken, setPushToken] = useState<string | null>(null);
 
@@ -242,26 +215,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const notifListenerRef = useRef<Notifications.EventSubscription | null>(null);
   const responseListenerRef = useRef<Notifications.EventSubscription | null>(null);
 
-  // ── Fetch both counts ──────────────────────────────────────────────────────
+  // ── Fetch the unread count ───────────────────────────────────────────────
   const fetchCounts = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
-      const [notifResult, msgResult] = await Promise.allSettled([
-        getNotifications(1),
-        getChatRoomList('all'),
-      ]);
-
-      if (notifResult.status === 'fulfilled') {
-        setNotifUnread(notifResult.value.unreadCount);
-      }
-
-      if (msgResult.status === 'fulfilled') {
-        const total = msgResult.value.chatRooms.reduce(
-          (sum, c) => sum + (c.unreadCount ?? 0),
-          0,
-        );
-        setMessageUnread(total);
-      }
+      const notifResult = await getNotifications(1);
+      setNotifUnread(notifResult.unreadCount);
     } catch {
       // Non-fatal — badge just stays stale
     }
@@ -301,56 +260,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     if (!isAuthenticated) {
       setNotifUnread(0);
-      setMessageUnread(0);
       lastRegisteredUser.current = null;
       return;
     }
     fetchCounts();
   }, [isAuthenticated, fetchCounts]);
 
-  // ── Realtime: private user channel ───────────────────────────────────────
-  // Notification rows (written server-side through the single createNotification
-  // choke point) arrive instantly on the socket: the badge updates live, and
-  // confirmed wallet changes trigger a balance refresh.
-  useEffect(() => {
-    if (!isAuthenticated || !user?.id) return;
-    const channel = `user:${user.id}`;
-    realtime.subscribe(channel);
 
-    const offNotif = realtime.on(REALTIME_EVENT.notificationCreated, (event) => {
-      const p = event.payload as { notification?: { type?: string } };
-      const type = p.notification?.type;
-      if (type === 'message' || type === 'dm') {
-        setMessageUnread((n) => n + 1);
-      } else {
-        setNotifUnread((n) => n + 1);
-      }
-    });
-    const applyWallet = (event: import('@/services/realtime').RealtimeEvent) => {
-      const p = event.payload as { balance?: number; newBalance?: number };
-      const balance = p.balance ?? p.newBalance;
-      if (typeof balance === 'number') setBalance(balance);
-      else refreshWallet().catch(() => {});
-    };
-    const offWallet = realtime.on(REALTIME_EVENT.walletUpdated, applyWallet);
-    const offBalance = realtime.on(REALTIME_EVENT.balanceUpdated, applyWallet);
-
-    const offLike = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
-      const p = event.payload as { postId?: string; likeCount?: number; liked?: boolean };
-      const postId = p.postId ?? event.resourceId;
-      if (postId && typeof p.likeCount === 'number') markLiked(postId, Boolean(p.liked), p.likeCount);
-    });
-    const offComment = realtime.on(REALTIME_EVENT.postCommentCreated, (event) => {
-      const p = event.payload as { commentCount?: number };
-      const postId = event.channel.replace(/^post:/, '');
-      if (postId && typeof p.commentCount === 'number') setCommentCount(postId, p.commentCount);
-    });
-
-    return () => {
-      realtime.unsubscribe(channel);
-      offNotif(); offWallet(); offBalance(); offLike(); offComment();
-    };
-  }, [isAuthenticated, user?.id, refreshWallet]);
 
   // ── Notification listeners ─────────────────────────────────────────────────
   useEffect(() => {
@@ -362,14 +278,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     // (socket suspended in background / reconnecting), where the OS push is
     // the only signal.
     notifListenerRef.current = Notifications.addNotificationReceivedListener((notification) => {
-      if (realtime.isOpen()) return;
       const data = notification.request.content.data as Record<string, string> | null;
       const type = data?.type ?? data?.content_type ?? '';
-      if (type === 'message' || type === 'dm') {
-        setMessageUnread((n) => n + 1);
-      } else {
-        setNotifUnread((n) => n + 1);
-      }
+      setNotifUnread((n) => n + 1);
       if (data?.wallet || type === 'wallet' || type === 'payment' || type === 'referral_reward') {
         // WalletProvider owns the balance; this makes a foreground reward or
         // payment reflect in the header without waiting for a restart.
@@ -454,7 +365,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     <NotificationsContext.Provider
       value={{
         notifUnread,
-        messageUnread,
         permissionStatus,
         pushToken,
         refresh,

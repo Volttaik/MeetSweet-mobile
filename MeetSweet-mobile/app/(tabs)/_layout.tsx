@@ -279,13 +279,10 @@ const sheetStyles = StyleSheet.create({
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const insets = useSafeAreaInsets();
   const [createSheetVisible, setCreateSheetVisible] = useState(false);
-  const { notifUnread, messageUnread } = useNotifications();
+  const { notifUnread } = useNotifications();
 
   // Inject live badge counts into the visual tab definitions
-  const tabsWithBadges: VisualTab[] = VISUAL_TABS.map((tab) => {
-    if (tab.routeName === 'messages') return { ...tab, badge: messageUnread > 0 ? messageUnread : undefined };
-    return tab;
-  });
+  const tabsWithBadges: VisualTab[] = VISUAL_TABS.map((tab) => tab);
 
   const handlePress = useCallback(
     (tab: VisualTab) => {

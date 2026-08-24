@@ -28,7 +28,6 @@ import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWallet } from '@/contexts/WalletContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { realtime, REALTIME_EVENT, type RealtimeEvent } from '@/services/realtime';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
   ArrowLeft,
@@ -475,43 +474,6 @@ export default function WalletScreen() {
 
   // SweetSocket is the live source for wallet and transaction changes. The
   // initial GET above hydrates history; these handlers patch only the affected
-  // balance/transaction row and never reload the wallet screen.
-  useEffect(() => {
-    if (!user?.id) return;
-    const channel = `user:${user.id}`;
-    realtime.subscribe(channel);
-    const applyTransaction = (event: RealtimeEvent) => {
-      const p = event.payload as {
-        transactionId?: string;
-        amount?: number;
-        type?: Transaction['type'];
-        status?: Transaction['status'];
-        description?: string;
-        createdAt?: string;
-      };
-      if (!p.transactionId) return;
-      setTransactions((prev) => {
-        const next: Transaction = {
-          id: p.transactionId!,
-          type: p.type ?? 'credit',
-          amount: Math.abs(Number(p.amount ?? 0)),
-          description: p.description ?? 'Wallet transaction',
-          status: p.status ?? (event.type === REALTIME_EVENT.transactionFailed ? 'failed' : 'completed'),
-          createdAt: p.createdAt ?? new Date().toISOString(),
-        };
-        return [next, ...prev.filter((tx) => tx.id !== next.id)];
-      });
-    };
-    const offCreated = realtime.on(REALTIME_EVENT.transactionCreated, applyTransaction);
-    const offUpdated = realtime.on(REALTIME_EVENT.transactionUpdated, applyTransaction);
-    const offCompleted = realtime.on(REALTIME_EVENT.transactionCompleted, applyTransaction);
-    const offFailed = realtime.on(REALTIME_EVENT.transactionFailed, applyTransaction);
-    return () => {
-      realtime.unsubscribe(channel);
-      offCreated(); offUpdated(); offCompleted(); offFailed();
-    };
-  }, [user?.id]);
-
   const effectiveAmount = isCustom
     ? Math.max(0, parseInt(customAmount.replace(/\D/g, ''), 10) || 0)
     : selectedAmount;

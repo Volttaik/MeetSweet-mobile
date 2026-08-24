@@ -3,9 +3,6 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { router } from 'expo-router';
 import { apiFetch, ApiError, refreshAccessToken, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
-import { clearChatCache } from '@/services/chat-cache';
-import { realtime } from '@/services/realtime';
-import { sweetStore } from '@/services/sweet-store';
 import { uploadMedia } from '@/services/media';
 import { peekPendingAvatar, clearPendingAvatar } from '@/lib/pending-avatar';
 import {
@@ -157,9 +154,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (currentUserId) {
       await clearUserCache(currentUserId).catch(() => {});
     }
-    // Chat cache is shared across accounts — clear it so the next login never
-    // exposes the previous user's private conversations.
-    await clearChatCache().catch(() => {});
     setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
   }, [state.user?.id]);
 
@@ -169,9 +163,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setSessionExpiredHandler(async () => {
       await clearSessionStorage();
-      // Chat cache is shared across accounts — wipe it so a session that expires
-      // (rather than a clean logout) can never leak the prior user's messages.
-      await clearChatCache().catch(() => {});
       setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
       // Pop every authenticated screen off the stack (so Back can never return
       // to protected screens) and show the Login screen directly.
@@ -268,40 +259,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state.isAuthenticated, state.accessToken, fetchCurrentUser]);
 
-  // Unified realtime connection follows the auth session. The socket carries
-  // the current user's identity (token from session storage); on logout or
-  // account switch it is closed, and on login it reconnects with the new
-  // account's token. The SweetStore starts/ends with the same session so the
-  // canonical chat state is scoped to the signed-in account.
-  useEffect(() => {
-    if (state.isAuthenticated && state.user?.id) {
-      realtime.connect();
-      sweetStore.start(state.user.id);
-    } else {
-      realtime.disconnect();
-      sweetStore.stop();
-    }
-  }, [state.isAuthenticated, state.user?.id]);
-
-  // SweetSocket is also a session boundary. If the server invalidates the
-  // session while the app is open, clear protected local state and leave the
-  // authenticated navigation stack immediately; do not let the UI continue
-  // rendering under a dead UID.
-  useEffect(() => {
-    const offExpired = realtime.on('auth:session:expired', () => {
-      clearAuth().finally(() => {
-        if (router.canDismiss()) router.dismissAll();
-        router.replace('/auth');
-      });
-    });
-    return offExpired;
-  }, [clearAuth]);
-
   const login = useCallback(async (data: LoginData): Promise<LoginResult> => {
     await clearSessionStorage().catch(() => {});
-    // A fresh login starts a clean account scope. Wipe any chat cache left over
-    // from a prior user (e.g. session-expired → login as a different account).
-    await clearChatCache().catch(() => {});
 
     const result = await apiFetch<{
       access_token?: string;

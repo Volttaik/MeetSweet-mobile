@@ -37,7 +37,6 @@ import { dialogs } from '@/components/MsGlobalDialogs';
 import { toast } from '@/components/MsToast';
 import { setCommentsEnabled } from '@/services/comment-room-service';
 import { usePostActions } from '@/contexts/PostActionsContext';
-import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { tapLight, tapMedium, tapHeavy } from '@/lib/haptics';
 import { useAuth } from '@/contexts/AuthContext';
@@ -338,30 +337,6 @@ export function MsPostCard({
 
   const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
   const isLocked = Boolean(locked ?? post.isLocked ?? post.is_locked);
-
-  // ── Realtime: live like counts for this post (feeds update in place) ────
-  // Subscribing to post:{id} while this card is mounted lets other users'
-  // likes/unlikes reflect immediately without a refresh or poll. The viewer's
-  // own liked state is preserved — only the authoritative count is applied.
-  const likedRef = useRef(liked);
-  useEffect(() => {
-    likedRef.current = liked;
-  }, [liked]);
-  useEffect(() => {
-    const channel = `post:${post.id}`;
-    realtime.subscribe(channel);
-    const off = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
-      if (event.resourceId !== post.id) return;
-      const p = event.payload as { likeCount?: number };
-      if (typeof p.likeCount !== 'number') return;
-      markLiked(post.id, likedRef.current, p.likeCount);
-      updateCachedPost(post.id, userId, { likeCount: p.likeCount }).catch(() => {});
-    });
-    return () => {
-      realtime.unsubscribe(channel);
-      off();
-    };
-  }, [post.id, markLiked, userId]);
 
   const handleLike = async () => {
     if (liking) return;

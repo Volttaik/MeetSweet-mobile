@@ -15,7 +15,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Post } from '@/services/posts';
-import type { ChatRoom } from '@/services/room-service';
 import type { User } from '@/contexts/AuthContext';
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
@@ -343,70 +342,11 @@ export async function getCachedCreatorProfile(
   }
 }
 
-// ─── Chat Rooms cache (for messages list) ────────────────────────────────────
-
-const ROOM_LIST_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-export async function cacheChatRoomsList(
-  userId: string,
-  rooms: ChatRoom[],
-): Promise<void> {
-  const db  = await getDb();
-  const now = Date.now();
-  if (db) {
-    try {
-      await db.withTransactionAsync(async () => {
-        for (const c of rooms) {
-          await db.runAsync(
-            `INSERT OR REPLACE INTO cache_metadata (key, value, expires_at) VALUES (?, ?, ?)`,
-            [metaKey(userId, `room_${c.chatRoomId}`), JSON.stringify(c), now + 7 * 24 * 60 * 60 * 1000],
-          );
-        }
-        await db.runAsync(
-          `INSERT OR REPLACE INTO cache_metadata (key, value, expires_at) VALUES (?, ?, ?)`,
-          [metaKey(userId, 'room_list'), JSON.stringify(rooms.map((c) => c.chatRoomId)), now + ROOM_LIST_TTL_MS],
-        );
-      });
-    } catch {}
-  } else {
-    await AsyncStorage.setItem(`@ms_chat_rooms_${userId}`, JSON.stringify(rooms));
-  }
-}
-
-export async function getCachedChatRoomsList(userId: string): Promise<ChatRoom[]> {
-  const db = await getDb();
-  if (db) {
-    try {
-      const indexRow = await db.getFirstAsync<{ value: string; expires_at: number }>(
-        'SELECT value, expires_at FROM cache_metadata WHERE key = ?',
-        [metaKey(userId, 'room_list')],
-      );
-      if (!indexRow || Date.now() > indexRow.expires_at) return [];
-      const ids: string[] = JSON.parse(indexRow.value);
-      const rooms: ChatRoom[] = [];
-      for (const id of ids) {
-        const row = await db.getFirstAsync<{ value: string }>(
-          'SELECT value FROM cache_metadata WHERE key = ?',
-          [metaKey(userId, `room_${id}`)],
-        );
-        if (row) rooms.push(JSON.parse(row.value) as ChatRoom);
-      }
-      return rooms;
-    } catch {
-      return [];
-    }
-  } else {
-    const raw = await AsyncStorage.getItem(`@ms_chat_rooms_${userId}`);
-    return raw ? JSON.parse(raw) : [];
-  }
-}
-
 // ─── Offline queue ────────────────────────────────────────────────────────────
 
 export type OfflineAction =
   | { type: 'like_post';    postId: string; liked: boolean }
-  | { type: 'save_post';    postId: string; saved: boolean }
-  | { type: 'send_message'; chatRoomId: string; text: string; tempId: string };
+  | { type: 'save_post';    postId: string; saved: boolean };
 
 export async function enqueueOfflineAction(
   action: OfflineAction,
@@ -488,7 +428,6 @@ export async function clearUserCache(userId: string): Promise<void> {
       (k) =>
         k.startsWith(`@ms_posts_${userId}_`) ||
         k.startsWith(`@ms_user_${userId}_`) ||
-        k === `@ms_chat_rooms_${userId}` ||
         k === `@ms_offline_queue_${userId}`,
     );
     if (userKeys.length > 0) await AsyncStorage.multiRemove(userKeys);

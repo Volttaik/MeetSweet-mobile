@@ -32,7 +32,6 @@ import { MsGlobalDialogsHost } from '@/components/MsGlobalDialogs';
 import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
 import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
 import { markNavigatorReady } from '@/lib/nav';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { soundService } from '@/services/sound-service';
 import { T } from '@/constants/theme';
 import { enableGlobalScreenProtection } from '@/lib/screen-protection';
@@ -67,8 +66,6 @@ function GlobalScreenProtection() {
 }
 
 function AppServices() {
-  // Drain offline queue whenever network is restored
-  useOfflineQueue();
   // Load the persisted haptics preference so the very first haptic call is
   // gated correctly (and triggers the one-time enable/disable prompt if the
   // user hasn't chosen yet).
