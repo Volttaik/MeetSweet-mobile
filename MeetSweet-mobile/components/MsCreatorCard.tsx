@@ -5,8 +5,7 @@
  * passed as props — no fake/hardcoded data is generated internally.
  */
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Users, SealCheck } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -50,7 +49,7 @@ export function MsCreatorCard({
 
   if (variant === 'compact') {
     return (
-      <MsPressable style={styles.compact} onPress={onPress}>
+      <TouchableOpacity style={styles.compact} activeOpacity={0.75} onPress={onPress}>
         <MsAvatar
           size={58}
           initials={avatarInitials}
@@ -64,12 +63,12 @@ export function MsCreatorCard({
           {creator.isVerified && <SealCheck size={12} color={T.TEXT} weight="fill" />}
         </View>
         <Text style={styles.compactHandle} numberOfLines={1}>{creator.handle}</Text>
-      </MsPressable>
+      </TouchableOpacity>
     );
   }
 
   return (
-    <MsPressable style={styles.featured} onPress={onPress}>
+    <TouchableOpacity style={styles.featured} activeOpacity={0.75} onPress={onPress}>
       {/* Top row: avatar + online status */}
       <View style={styles.featuredTop}>
         <MsAvatar
@@ -114,13 +113,14 @@ export function MsCreatorCard({
       ) : null}
 
       {/* Subscribe button */}
-      <MsPressable
+      <TouchableOpacity
         style={styles.subscribeBtn}
+        activeOpacity={0.8}
         onPress={onSubscribe ?? onPress}
       >
         <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
-      </MsPressable>
-    </MsPressable>
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   compactName: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
     textAlign: 'center',
@@ -145,14 +145,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   compactHandle: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
     textAlign: 'center',
   },
 
   featured: {
-    width: 155,
+    width: 170,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     borderWidth: 1,
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   featuredName: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
     marginTop: 2,
@@ -199,15 +199,15 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   featuredHandle: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
   },
   featuredBio: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
-    lineHeight: 16,
+    lineHeight: 18,
     marginTop: 3,
   },
   metrics: {
@@ -225,25 +225,25 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metricText: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: T.FONT.medium,
     color: T.TEXT_2,
   },
   priceText: {
-    fontSize: 9,
+    fontSize: 10,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
   },
   subscribeBtn: {
     marginTop: 8,
-    height: 30,
+    height: 32,
     borderRadius: T.RADIUS.pill,
     backgroundColor: T.TEXT,
     alignItems: 'center',
     justifyContent: 'center',
   },
   subscribeBtnLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: T.FONT.semibold,
     color: T.BG,
   },

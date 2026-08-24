@@ -53,9 +53,6 @@ export const REALTIME_EVENT = {
   chatClear: 'chat:clear',
   chatHistory: 'chat:history',
   historySet: 'history:set',
-  // A legacy pre-deterministic room was adopted to its canonical derived id;
-  // re-key local state from legacyRoomId → roomId.
-  roomMigrated: 'room:migrated',
 
   // ── Ephemeral state ───────────────────────────────────────────────────────
   chatTypingStarted: 'typing:start',

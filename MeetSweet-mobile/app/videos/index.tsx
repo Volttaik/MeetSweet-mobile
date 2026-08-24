@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { ArrowLeft, ChatCircle, Clock, Heart, ShareNetwork } from 'phosphor-react-native';
 import { MsTierBadge } from '@/components/MsTierBadge';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,7 +34,7 @@ export default function VideosFeedScreen() {
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable style={styles.iconButton} onPress={() => router.back()} accessibilityLabel="Go back"><ArrowLeft size={20} color={T.TEXT} /></Pressable>
+        <Pressable style={styles.iconButton} onPress={() => goBack()} accessibilityLabel="Go back"><ArrowLeft size={20} color={T.TEXT} /></Pressable>
         <View style={styles.heading}><Text style={styles.eyebrow}>LONG-FORM</Text><Text style={styles.title}>Videos</Text></View>
         <Pressable style={styles.shortsButton} onPress={() => router.push('/shorts')}><Text style={styles.shortsLabel}>Shorts</Text></Pressable>
       </View>

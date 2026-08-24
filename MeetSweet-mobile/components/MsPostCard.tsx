@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -49,6 +49,10 @@ const SPRING_PRESS  = { damping: 14, stiffness: 380, mass: 1 };
 const SPRING_BOUNCE = { damping: 10, stiffness: 320, mass: 1 };
 const SPRING_HEART  = { damping: 8,  stiffness: 260, mass: 1 };
 
+// Explore feed cards render media at a fixed portrait ratio (4:5) so they read
+// noticeably larger than the Home feed's natural/square cards.
+const POST_CARD_TALL_RATIO = 4 / 5;
+
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -57,7 +61,7 @@ function formatCount(n: number): string {
 
 /**
  * Duration badge label — always from the backend's real media metadata
- * (viewPost.durationSecs), never guessed or hardcoded client-side.
+ * (post.durationSecs), never guessed or hardcoded client-side.
  * Returns null when no duration is known so no fake badge is rendered.
  */
 function fmtDuration(secs: number | null | undefined): string | null {
@@ -121,7 +125,8 @@ function ScalePressable({
 
   return (
     <Animated.View style={[animStyle, style]}>
-      <MsPressable
+      <TouchableOpacity
+        activeOpacity={1}
         onPress={handlePress}
         onLongPress={onLongPress}
         onPressIn={() => {
@@ -133,7 +138,7 @@ function ScalePressable({
         delayLongPress={400}
       >
         {children}
-      </MsPressable>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -183,14 +188,15 @@ function ActionButton({
 
   return (
     <Animated.View style={animStyle}>
-      <MsPressable
+      <TouchableOpacity
         style={[baseActionStyles.btn, style]}
         onPress={onPress}
+        activeOpacity={1}
         onPressIn={() => { scale.value = withSpring(0.82, SPRING_PRESS); }}
         onPressOut={() => { scale.value = withSpring(1, SPRING_BOUNCE); }}
       >
         {children}
-      </MsPressable>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -248,21 +254,26 @@ interface MsPostCardProps {
    * free = no badge (public/Explore content).
    * subscriber = Subscriber pill badge.
    * subscriber_plus = Subscriber+ pill badge.
-   * Omit to derive from viewPost.tier.
+   * Omit to derive from post.tier.
    */
   tier?: ContentTier;
   /**
    * Force the card into a locked state (subscriber-gated content). When true,
    * media is replaced by a lock overlay + subscribe CTA. Defaults to deriving
-   * from viewPost.isLocked / viewPost.is_locked.
+   * from post.isLocked / post.is_locked.
    */
   locked?: boolean;
   /** Called when the user taps the locked content's subscribe CTA. */
   onSubscribe?: () => void;
+  /**
+   * Taller media (portrait 4:5 instead of the natural/square ratio) so the
+   * card reads bigger on the Explore feed. Defaults to false (Home feed).
+   */
+  tall?: boolean;
 }
 
-export const MsPostCard = React.memo(function MsPostCard({
-  post,
+export function MsPostCard({
+  post: postProp,
   onPress,
   onMediaPress,
   onAuthorPress,
@@ -278,7 +289,18 @@ export const MsPostCard = React.memo(function MsPostCard({
   tier,
   locked,
   onSubscribe,
+  tall = false,
 }: MsPostCardProps) {
+  const { editedPosts } = usePostActions();
+  // In-session edits (saved on the edit-post screen) must render immediately on
+  // EVERY surface that shows this post — Home feed, Explore, Creator page,
+  // Profile grid, and the post detail screen — without waiting for a refetch.
+  // The edit screen publishes the confirmed caption/visibility here via
+  // markEdited(); merging before any render logic reads `post` makes the edit
+  // visible the moment the user returns.
+  const post = editedPosts[postProp.id]
+    ? { ...postProp, ...editedPosts[postProp.id] }
+    : postProp;
   const [liking, setLiking] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -303,23 +325,19 @@ export const MsPostCard = React.memo(function MsPostCard({
     likeOverrides,
     bookmarkOverrides,
     commentCounts,
-    editedPosts,
     markLiked,
     markBookmarked,
   } = usePostActions();
-  // Use the shared edit mirror immediately while feeds/detail screens catch up
-  // with their next durable load. This keeps post text consistent everywhere.
-  const viewPost: Post = { ...post, ...(editedPosts[post.id] ?? {}) };
-  const likeOverride = likeOverrides[viewPost.id];
-  const bookmarkOverride = bookmarkOverrides[viewPost.id];
-  const liked = likeOverride?.likedByMe ?? viewPost.likedByMe;
-  const likeCount = likeOverride?.likeCount ?? viewPost.likeCount;
-  const bookmarked = bookmarkOverride?.bookmarkedByMe ?? viewPost.bookmarkedByMe ?? false;
-  const bookmarkCount = bookmarkOverride?.bookmarkCount ?? viewPost.bookmarkCount ?? 0;
-  const commentCount = commentCounts[viewPost.id] ?? viewPost.commentCount ?? viewPost.comments_count ?? 0;
+  const likeOverride = likeOverrides[post.id];
+  const bookmarkOverride = bookmarkOverrides[post.id];
+  const liked = likeOverride?.likedByMe ?? post.likedByMe;
+  const likeCount = likeOverride?.likeCount ?? post.likeCount;
+  const bookmarked = bookmarkOverride?.bookmarkedByMe ?? post.bookmarkedByMe ?? false;
+  const bookmarkCount = bookmarkOverride?.bookmarkCount ?? post.bookmarkCount ?? 0;
+  const commentCount = commentCounts[post.id] ?? post.commentCount ?? post.comments_count ?? 0;
 
-  const isOwn = Boolean(currentUserId && currentUserId === viewPost.author.id);
-  const isLocked = Boolean(locked ?? viewPost.isLocked ?? viewPost.is_locked);
+  const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
+  const isLocked = Boolean(locked ?? post.isLocked ?? post.is_locked);
 
   // ── Realtime: live like counts for this post (feeds update in place) ────
   // Subscribing to post:{id} while this card is mounted lets other users'
@@ -330,20 +348,20 @@ export const MsPostCard = React.memo(function MsPostCard({
     likedRef.current = liked;
   }, [liked]);
   useEffect(() => {
-    const channel = `post:${viewPost.id}`;
+    const channel = `post:${post.id}`;
     realtime.subscribe(channel);
     const off = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
-      if (event.resourceId !== viewPost.id) return;
+      if (event.resourceId !== post.id) return;
       const p = event.payload as { likeCount?: number };
       if (typeof p.likeCount !== 'number') return;
-      markLiked(viewPost.id, likedRef.current, p.likeCount);
-      updateCachedPost(viewPost.id, userId, { likeCount: p.likeCount }).catch(() => {});
+      markLiked(post.id, likedRef.current, p.likeCount);
+      updateCachedPost(post.id, userId, { likeCount: p.likeCount }).catch(() => {});
     });
     return () => {
       realtime.unsubscribe(channel);
       off();
     };
-  }, [viewPost.id, markLiked, userId]);
+  }, [post.id, markLiked, userId]);
 
   const handleLike = async () => {
     if (liking) return;
@@ -353,33 +371,33 @@ export const MsPostCard = React.memo(function MsPostCard({
     const delta = nextLiked ? 1 : -1;
     const nextCount = Math.max(0, likeCount + delta);
     // Publish optimistically — every mounted view of this post updates now.
-    markLiked(viewPost.id, nextLiked, nextCount);
+    markLiked(post.id, nextLiked, nextCount);
     tapMedium();
 
     // Update SQLite cache optimistically
-    updateCachedPost(viewPost.id, userId, {
+    updateCachedPost(post.id, userId, {
       likedByMe: nextLiked,
       likeCount: nextCount,
     }).catch(() => {});
 
     if (!isOnline) {
-      enqueueOfflineAction({ type: 'like_post', postId: viewPost.id, liked: nextLiked }, userId).catch(() => {});
+      enqueueOfflineAction({ type: 'like_post', postId: post.id, liked: nextLiked }, userId).catch(() => {});
       setLiking(false);
       return;
     }
 
     try {
       if (wasLiked) {
-        await unlikePost(viewPost.id);
+        await unlikePost(post.id);
       } else {
-        await likePost(viewPost.id);
+        await likePost(post.id);
       }
       // Server confirmed — keep the shared state authoritative.
-      markLiked(viewPost.id, nextLiked, nextCount);
+      markLiked(post.id, nextLiked, nextCount);
     } catch {
       // Revert on API failure
-      markLiked(viewPost.id, wasLiked, Math.max(0, likeCount - delta));
-      updateCachedPost(viewPost.id, userId, {
+      markLiked(post.id, wasLiked, Math.max(0, likeCount - delta));
+      updateCachedPost(post.id, userId, {
         likedByMe: wasLiked,
         likeCount: Math.max(0, likeCount - delta),
       }).catch(() => {});
@@ -395,28 +413,28 @@ export const MsPostCard = React.memo(function MsPostCard({
     const next = !was;
     const delta = next ? 1 : -1;
     const nextCount = Math.max(0, bookmarkCount + delta);
-    markBookmarked(viewPost.id, next, nextCount);
+    markBookmarked(post.id, next, nextCount);
     tapLight();
 
     // Update SQLite cache optimistically
-    updateCachedPost(viewPost.id, userId, {
+    updateCachedPost(post.id, userId, {
       bookmarkedByMe: next,
       bookmarkCount: nextCount,
     }).catch(() => {});
 
     if (!isOnline) {
-      enqueueOfflineAction({ type: 'save_post', postId: viewPost.id, saved: next }, userId).catch(() => {});
+      enqueueOfflineAction({ type: 'save_post', postId: post.id, saved: next }, userId).catch(() => {});
       setBookmarking(false);
       return;
     }
 
     try {
-      if (was) await unbookmarkPost(viewPost.id);
-      else await bookmarkPost(viewPost.id);
-      markBookmarked(viewPost.id, next, nextCount);
+      if (was) await unbookmarkPost(post.id);
+      else await bookmarkPost(post.id);
+      markBookmarked(post.id, next, nextCount);
     } catch {
-      markBookmarked(viewPost.id, was, Math.max(0, bookmarkCount - delta));
-      updateCachedPost(viewPost.id, userId, {
+      markBookmarked(post.id, was, Math.max(0, bookmarkCount - delta));
+      updateCachedPost(post.id, userId, {
         bookmarkedByMe: was,
         bookmarkCount: Math.max(0, bookmarkCount - delta),
       }).catch(() => {});
@@ -434,12 +452,12 @@ export const MsPostCard = React.memo(function MsPostCard({
       destructive: true,
       onConfirm: async () => {
         try {
-          await deletePost(viewPost.id);
-          markDeleted(viewPost.id);
+          await deletePost(post.id);
+          markDeleted(post.id);
           // Purge the server-confirmed deleted post from the local feed cache
           // so it can never reappear from stale cache/local state.
-          removeCachedPost(viewPost.id, userId).catch(() => {});
-          onDeleted?.(viewPost.id);
+          removeCachedPost(post.id, userId).catch(() => {});
+          onDeleted?.(post.id);
         } catch {
           dialogs.alert({ variant: 'error', title: 'Could not delete post' });
         }
@@ -448,26 +466,30 @@ export const MsPostCard = React.memo(function MsPostCard({
   };
 
   const doReport = (reason: string) =>
-    reportPost(viewPost.id, reason).catch(() =>
+    reportPost(post.id, reason).catch(() =>
       dialogs.alert({ variant: 'error', title: 'Could not report post' }),
     );
 
   const ownActions: ActionItem[] = [
+    // Edit Post / View Analytics only render when the host screen actually
+    // wires a handler — a menu row that does nothing is a dead button.
+    ...(onEditPress
+      ? [{
+          label: 'Edit Post',
+          onPress: () => {
+            setSheetVisible(false);
+            onEditPress(post);
+          },
+        }]
+      : []),
     {
-      label: 'Edit Post',
-      onPress: () => {
-        setSheetVisible(false);
-        onEditPress?.(post);
-      },
-    },
-    {
-      label: (viewPost.commentsEnabled ?? true) ? 'Turn Off Comments' : 'Turn On Comments',
+      label: (post.commentsEnabled ?? true) ? 'Turn Off Comments' : 'Turn On Comments',
       onPress: async () => {
         setSheetVisible(false);
-        const nextState = !(viewPost.commentsEnabled ?? true);
+        const nextState = !(post.commentsEnabled ?? true);
         try {
-          await setCommentsEnabled(viewPost.id, nextState);
-          viewPost.commentsEnabled = nextState;
+          await setCommentsEnabled(post.id, nextState);
+          post.commentsEnabled = nextState;
           toast.success(
             nextState ? 'Comments turned on' : 'Comments turned off',
           );
@@ -476,13 +498,15 @@ export const MsPostCard = React.memo(function MsPostCard({
         }
       },
     },
-    {
-      label: 'View Analytics',
-      onPress: () => {
-        setSheetVisible(false);
-        onAnalyticsPress?.(post);
-      },
-    },
+    ...(onAnalyticsPress
+      ? [{
+          label: 'View Analytics',
+          onPress: () => {
+            setSheetVisible(false);
+            onAnalyticsPress(post);
+          },
+        }]
+      : []),
     { label: 'Delete Post', destructive: true, onPress: doDelete },
   ];
 
@@ -491,10 +515,10 @@ export const MsPostCard = React.memo(function MsPostCard({
   const doNotInterested = () => {
     setSheetVisible(false);
     setFeedback({ variant: 'info', title: 'Noted', message: "We'll show you less of this content." });
-    hidePost(viewPost.id)
+    hidePost(post.id)
       .then(() => {
-        markHidden(viewPost.id);
-        onDeleted?.(viewPost.id);
+        markHidden(post.id);
+        onDeleted?.(post.id);
       })
       .catch(() => setFeedback({ variant: 'error', title: 'Could not hide', message: 'Please try again.' }));
   };
@@ -503,15 +527,15 @@ export const MsPostCard = React.memo(function MsPostCard({
   // cards from the current list immediately.
   const doHideCreator = () => {
     setSheetVisible(false);
-    hideCreator(viewPost.author.username)
+    hideCreator(post.author.username)
       .then(() => {
-        markCreatorHidden(viewPost.author.id);
-        onCreatorHidden?.(viewPost.author.id);
-        onDeleted?.(viewPost.id);
+        markCreatorHidden(post.author.id);
+        onCreatorHidden?.(post.author.id);
+        onDeleted?.(post.id);
         setFeedback({
           variant: 'success',
           title: 'Creator hidden',
-          message: `${viewPost.author.name}'s content will no longer appear in your feeds.`,
+          message: `${post.author.name}'s content will no longer appear in your feeds.`,
         });
       })
       .catch(() => setFeedback({ variant: 'error', title: 'Could not hide creator', message: 'Please try again.' }));
@@ -531,7 +555,7 @@ export const MsPostCard = React.memo(function MsPostCard({
     { label: 'Report', destructive: true, onPress: () => doReport('inappropriate') },
   ];
 
-  const inits = viewPost.author.name
+  const inits = post.author.name
     .split(' ')
     .map((w) => w[0]?.toUpperCase() ?? '')
     .slice(0, 2)
@@ -540,70 +564,74 @@ export const MsPostCard = React.memo(function MsPostCard({
   const openSheet = () => { tapLight(); setSheetVisible(true); };
 
   return (
-    <MsPressable
+    <TouchableOpacity
+      activeOpacity={onPress && !doubleTapToOpen ? 0.95 : 1}
       onPress={doubleTapToOpen ? undefined : onPress}
       disabled={!onPress || doubleTapToOpen}
       style={styles.card}
     >
       {/* Author row */}
       <View style={styles.authorRow}>
-        <MsPressable
+        <TouchableOpacity
           onPress={onAuthorPress}
           style={styles.authorLeft}
-            onLongPress={openSheet}
+          activeOpacity={0.75}
+          onLongPress={openSheet}
           delayLongPress={400}
         >
           <MsAvatar
-            size={38}
+            size={42}
             initials={inits}
-            imageUri={viewPost.author.avatarUrl ?? undefined}
+            imageUri={post.author.avatarUrl ?? undefined}
           />
           <View style={styles.authorInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.authorName} numberOfLines={1}>
-                {viewPost.author.name}
+                {post.author.name}
               </Text>
-              {viewPost.author.isVerified && (
+              {post.author.isVerified && (
                 <SealCheck size={14} color={T.TEXT} weight="fill" />
               )}
             </View>
             <Text style={styles.authorMeta}>
-              @{viewPost.author.username} · {formatTime(viewPost.createdAt)}
+              @{post.author.username} · {formatTime(post.createdAt)}
             </Text>
           </View>
-        </MsPressable>
+        </TouchableOpacity>
 
         <View style={styles.authorRight}>
-          {/* Tier badge — prefer explicit prop, then viewPost.tier (skip free — no badge for public posts). */}
+          {/* Tier badge — prefer explicit prop, then post.tier (skip free — no badge for public posts). */}
           {(() => {
-            const effectiveTier = tier ?? viewPost.tier;
+            const effectiveTier = tier ?? post.tier;
             // New tier system
             if (effectiveTier === 'subscriber' || effectiveTier === 'subscriber_plus') {
               return <MsTierBadge tier={effectiveTier} size="xs" />;
             }
             return null;
           })()}
-          <MsPressable
+          <TouchableOpacity
             style={styles.moreBtn}
-                onPress={openSheet}
+            activeOpacity={0.7}
+            onPress={openSheet}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <DotsThree size={18} color={T.TEXT_2} />
-          </MsPressable>
+          </TouchableOpacity>
         </View>
       </View>
 
       {/* Video title — shown for video/short posts that carry a title from the backend */}
-      {!!(viewPost.title && (viewPost.contentType === 'video' || viewPost.contentType === 'short' || viewPost.mediaType === 'video')) && (
-        <MsPressable
-            onPress={onPress}
+      {!!(post.title && (post.contentType === 'video' || post.contentType === 'short' || post.mediaType === 'video')) && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onPress}
           onLongPress={openSheet}
           delayLongPress={400}
         >
           <Text style={styles.videoTitle} numberOfLines={2}>
-            {viewPost.title}
+            {post.title}
           </Text>
-        </MsPressable>
+        </TouchableOpacity>
       )}
 
       {/* Caption
@@ -611,7 +639,7 @@ export const MsPostCard = React.memo(function MsPostCard({
           Other screens: single tap navigates (original behaviour).
           For video/short posts the description is shown below the title.
       */}
-      {!!viewPost.caption && (
+      {!!post.caption && (
         doubleTapToOpen ? (
           <ScalePressable
             onPress={undefined}
@@ -620,19 +648,20 @@ export const MsPostCard = React.memo(function MsPostCard({
             style={styles.captionPressable}
           >
             <Text style={styles.caption} numberOfLines={3}>
-              {viewPost.caption}
+              {post.caption}
             </Text>
           </ScalePressable>
         ) : (
-          <MsPressable
-                onPress={onPress}
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={onPress}
             onLongPress={openSheet}
             delayLongPress={400}
           >
             <Text style={styles.caption} numberOfLines={3}>
-              {viewPost.caption}
+              {post.caption}
             </Text>
-          </MsPressable>
+          </TouchableOpacity>
         )
       )}
 
@@ -640,9 +669,10 @@ export const MsPostCard = React.memo(function MsPostCard({
           Stack-of-cards effect: two offset cards behind the main cover.
           Tapping always opens the album detail page.
       */}
-      {viewPost.contentType === 'album' && (
-        <MsPressable
-            onPress={() => router.push(`/album/${viewPost.id}`)}
+      {post.contentType === 'album' && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => router.push(`/album/${post.id}`)}
           onLongPress={openSheet}
           delayLongPress={400}
         >
@@ -653,9 +683,9 @@ export const MsPostCard = React.memo(function MsPostCard({
             <View style={[styles.albumCard, styles.albumCardBack1, { borderRadius: T.RADIUS.xl }]} />
             {/* Card 1 — front (actual cover) */}
             <View style={[styles.albumCard, { borderRadius: T.RADIUS.xl, overflow: 'hidden', zIndex: 3 }]}>
-              {viewPost.mediaUrl ? (
+              {post.mediaUrl ? (
                 <MsMediaLoader
-                  uri={viewPost.mediaUrl}
+                  uri={post.mediaUrl}
                   style={StyleSheet.absoluteFill}
                   resizeMode="cover"
                   accessibleLabel="Album cover"
@@ -674,38 +704,39 @@ export const MsPostCard = React.memo(function MsPostCard({
               </View>
             </View>
           </View>
-        </MsPressable>
+        </TouchableOpacity>
       )}
 
       {/* Locked media — subscriber-gated content shows a lock state with a
           subscribe CTA instead of the media itself. */}
       {isLocked && (
-        <MsPressable
-            onPress={onSubscribe ?? onMediaPress ?? onPress}
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onSubscribe ?? onMediaPress ?? onPress}
           onLongPress={openSheet}
           delayLongPress={400}
-          accessibilityLabel={viewPost.tier === 'subscriber_plus' ? 'Subscriber+ locked content' : 'Subscriber locked content'}
+          accessibilityLabel={post.tier === 'subscriber_plus' ? 'Subscriber+ locked content' : 'Subscriber locked content'}
         >
           <View style={styles.lockedMedia}>
             <View style={styles.lockedIcon}>
               <LockSimple size={20} color={T.TEXT_2} weight="bold" />
             </View>
             <Text style={styles.lockedTitle}>
-              {viewPost.tier === 'subscriber_plus' ? 'Subscriber+ only' : 'Subscribers only'}
+              {post.tier === 'subscriber_plus' ? 'Subscriber+ only' : 'Subscribers only'}
             </Text>
             <Text style={styles.lockedSub}>Subscribe to unlock this content</Text>
             <View style={styles.lockedCta}>
               <Text style={styles.lockedCtaLabel}>Subscribe</Text>
             </View>
           </View>
-        </MsPressable>
+        </TouchableOpacity>
       )}
 
       {/* Media — image
           feedMode: single tap = nothing, double-tap = open Full View.
           Other screens: single tap = open Full View, double-tap = like.
       */}
-      {!isLocked && viewPost.mediaUrl && viewPost.mediaType === 'image' && viewPost.contentType !== 'album' && (
+      {!isLocked && post.mediaUrl && post.mediaType === 'image' && post.contentType !== 'album' && (
         <ScalePressable
           onPress={doubleTapToOpen ? undefined : (onMediaPress ?? onPress)}
           onLongPress={openSheet}
@@ -714,10 +745,12 @@ export const MsPostCard = React.memo(function MsPostCard({
           <View style={[
             styles.media,
             { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
-            viewPost.width && viewPost.height ? { aspectRatio: viewPost.width / viewPost.height } : undefined,
+            // Explore's `tall` cards render media at a fixed portrait ratio so
+            // every card carries the same large presence.
+            { aspectRatio: tall ? POST_CARD_TALL_RATIO : (post.width && post.height ? post.width / post.height : 1) },
           ]}>
             <MsMediaLoader
-              uri={viewPost.mediaUrl}
+              uri={post.mediaUrl}
               style={StyleSheet.absoluteFill}
               resizeMode="cover"
               accessibleLabel="Post image"
@@ -733,20 +766,21 @@ export const MsPostCard = React.memo(function MsPostCard({
           Note: we render the card even when mediaUrl is null (Explore preview objects
           may only carry thumbnailUrl), because the card taps navigate to /videos/:id.
       */}
-      {!isLocked && viewPost.mediaType === 'video' && (
-        <MsPressable
-            onPress={onMediaPress ?? onPress}
+      {!isLocked && post.mediaType === 'video' && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={onMediaPress ?? onPress}
           onLongPress={openSheet}
           delayLongPress={400}
         >
           <View style={[
             styles.videoPlaceholder,
             { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
-            viewPost.width && viewPost.height ? { aspectRatio: viewPost.width / viewPost.height } : undefined,
+            post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
           ]}>
-            {(viewPost.thumbnailUrl || viewPost.thumbnail_url) ? (
+            {(post.thumbnailUrl || post.thumbnail_url) ? (
               <MsMediaLoader
-                uri={(viewPost.thumbnailUrl || viewPost.thumbnail_url)!}
+                uri={(post.thumbnailUrl || post.thumbnail_url)!}
                 style={StyleSheet.absoluteFill}
                 resizeMode="cover"
                 accessibleLabel="Video thumbnail"
@@ -754,20 +788,20 @@ export const MsPostCard = React.memo(function MsPostCard({
             ) : (
               <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
             )}
-            {/* Play button overlay — decorative, tap is handled by the card press */}
+            {/* Play button overlay — decorative, tap is handled by the TouchableOpacity */}
             <View style={styles.videoPlayOverlay} pointerEvents="none">
               <View style={styles.videoPlayBtn}>
                 <Play size={20} color="#fff" weight="fill" />
               </View>
             </View>
             {/* Duration badge — real media metadata (e.g. 0:42 / 12:38) */}
-            {fmtDuration(viewPost.durationSecs) && (
+            {fmtDuration(post.durationSecs) && (
               <View style={styles.durationBadge} pointerEvents="none">
-                <Text style={styles.durationBadgeText}>{fmtDuration(viewPost.durationSecs)}</Text>
+                <Text style={styles.durationBadgeText}>{fmtDuration(post.durationSecs)}</Text>
               </View>
             )}
           </View>
-        </MsPressable>
+        </TouchableOpacity>
       )}
 
       {/* Actions */}
@@ -807,22 +841,16 @@ export const MsPostCard = React.memo(function MsPostCard({
       {/* Context menu */}
       <MsActionSheet
         visible={sheetVisible}
-        title={isOwn ? 'Your Post' : viewPost.author.name}
-        subtitle={isOwn ? undefined : `@${viewPost.author.username}`}
+        title={isOwn ? 'Your Post' : post.author.name}
+        subtitle={isOwn ? undefined : `@${post.author.username}`}
         actions={isOwn ? ownActions : guestActions}
         onClose={() => setSheetVisible(false)}
       />
       <MsShareSheet
         visible={shareVisible}
-        contentType={viewPost.contentType || (viewPost.mediaType === 'video' ? 'video' : 'post')}
-        contentId={viewPost.id}
-        title={viewPost.caption || 'MeetSweet post'}
-        preview={{
-          title: viewPost.caption || viewPost.author.name || 'MeetSweet post',
-          subtitle: viewPost.author.username ? `@${viewPost.author.username}` : undefined,
-          imageUrl: viewPost.thumbnailUrl || viewPost.mediaUrl || undefined,
-          avatarUrl: undefined,
-        }}
+        contentType={post.contentType || (post.mediaType === 'video' ? 'video' : 'post')}
+        contentId={post.id}
+        title={post.caption || 'MeetSweet post'}
         onClose={() => setShareVisible(false)}
       />
 
@@ -834,9 +862,9 @@ export const MsPostCard = React.memo(function MsPostCard({
         message={feedback?.message}
         onClose={() => setFeedback(null)}
       />
-    </MsPressable>
+    </TouchableOpacity>
   );
-});
+}
 
 const styles = StyleSheet.create({
   card: { backgroundColor: T.BG },
@@ -857,16 +885,16 @@ const styles = StyleSheet.create({
   authorInfo: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   authorName: {
-    fontSize: 13,
+    fontSize: 15,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
     flexShrink: 1,
   },
   authorMeta: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
-    marginTop: 1,
+    marginTop: 2,
   },
   authorRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   moreBtn: {
@@ -882,18 +910,18 @@ const styles = StyleSheet.create({
     // Allows the ScalePressable wrapper for caption double-tap to fill width
   },
   videoTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: T.FONT.semibold,
     color: T.TEXT,
-    lineHeight: 20,
+    lineHeight: 21,
     paddingHorizontal: 14,
     paddingBottom: 4,
   },
   caption: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: T.FONT.regular,
     color: T.TEXT,
-    lineHeight: 20,
+    lineHeight: 21,
     paddingHorizontal: 14,
     paddingBottom: 8,
   },
@@ -1038,7 +1066,7 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.sm,
     minHeight: 34,
   },
-  actionCount: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  actionCount: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
   actionCountLiked: { color: '#EF4444' },
 
   cardSpacing: { height: 6 },

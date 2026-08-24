@@ -12,14 +12,13 @@ import { T } from '@/constants/theme';
 import { formatFileSize } from '@/types/chat-message';
 import type { MsMessage } from '@/types/chat-message';
 
-const BG_OWN   = '#28282F';
-const BG_OTHER = '#1C1C23';
+const BG_OWN   = '#2B2B33'; // matches MsTextBubble outgoing
+const BG_OTHER = '#23232B'; // matches MsTextBubble incoming
 
 interface Props {
   message: MsMessage;
   position: 'left' | 'right';
   onPress?: () => void;
-  onDownload?: () => void;
   onLongPress?: () => void;
 }
 
@@ -48,7 +47,7 @@ function getFileLabel(mimeType?: string, fileName?: string): string {
   return 'File';
 }
 
-export function MsFileCard({ message, position, onPress, onDownload, onLongPress }: Props) {
+export function MsFileCard({ message, position, onPress, onLongPress }: Props) {
   const isOwn    = position === 'right';
   const filename = message.msFileName ?? message.fileName ?? 'Attachment';
   const sizeVal  = message.msFileSize ?? message.fileSize;
@@ -67,7 +66,7 @@ export function MsFileCard({ message, position, onPress, onDownload, onLongPress
 
   return (
     <Pressable
-      onPress={status === 'local' ? onPress : onDownload}
+      onPress={onPress}
       delayLongPress={350}
       onLongPress={onLongPress}
       style={[styles.container, isOwn ? styles.containerRight : styles.containerLeft]}
@@ -113,15 +112,24 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    maxWidth: 270,
-    minWidth: 190,
+    gap: 12,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    maxWidth: 280,
+    minWidth: 200,
+    // Same solid-object treatment as the text bubble: hairline border + depth.
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.20,
+    shadowRadius: 5,
+    elevation: 2,
   },
   cardLeft: {
     backgroundColor: BG_OTHER,
+    borderColor: 'rgba(255,255,255,0.10)',
     borderBottomLeftRadius: 3,
   },
   cardRight: {
@@ -130,9 +138,9 @@ const styles = StyleSheet.create({
   },
 
   iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 6,
+    width: 38,
+    height: 38,
+    borderRadius: 7,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -144,12 +152,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   filename: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: T.FONT.medium,
     color: T.TEXT,
   },
   meta: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
   },

@@ -16,12 +16,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import {
   ArrowLeft,
   ArrowRight,
@@ -328,15 +329,16 @@ export default function CreateAlbumScreen() {
           Albums are a creator feature — set a price and sell your collection
           directly to fans.
         </Text>
-        <MsPressable
+        <TouchableOpacity
           style={styles.gateCta}
+          activeOpacity={0.85}
           onPress={() => router.push('/become-creator')}
         >
           <Text style={styles.gateCtaLabel}>Become a Creator</Text>
-        </MsPressable>
-        <MsPressable onPress={() => router.back()} style={styles.gateBack}>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => goBack()} activeOpacity={0.7} style={styles.gateBack}>
           <Text style={styles.gateBackLabel}>Not now</Text>
-        </MsPressable>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -370,9 +372,9 @@ export default function CreateAlbumScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <MsPressable style={styles.headerBtn} onPress={() => setStep('content')}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setStep('content')}>
             <ArrowLeft size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Preview Album</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -429,10 +431,10 @@ export default function CreateAlbumScreen() {
             </View>
           )}
 
-          <MsPressable style={styles.publishBtn} onPress={handlePublish}>
+          <TouchableOpacity style={styles.publishBtn} onPress={handlePublish} activeOpacity={0.85}>
             <Star size={16} color={T.BG} weight="fill" />
             <Text style={styles.publishBtnLabel}>Publish Album</Text>
-          </MsPressable>
+          </TouchableOpacity>
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -446,9 +448,9 @@ export default function CreateAlbumScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <MsPressable style={styles.headerBtn} onPress={() => setStep('cover')}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setStep('cover')}>
             <ArrowLeft size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Add Content</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -463,13 +465,14 @@ export default function CreateAlbumScreen() {
 
           {/* Add item button */}
           <View style={styles.addItemRow}>
-            <MsPressable
+            <TouchableOpacity
               style={styles.addItemBtn}
               onPress={() => { setPickerTarget('item'); setPickerVisible(true); }}
-                >
+              activeOpacity={0.8}
+            >
               <Plus size={20} color={T.ACCENT} weight="bold" />
               <Text style={styles.addItemLabel}>Add Photo or Video</Text>
-            </MsPressable>
+            </TouchableOpacity>
             <Text style={styles.itemCount}>{items.length}/20</Text>
           </View>
 
@@ -495,9 +498,9 @@ export default function CreateAlbumScreen() {
                     )}
                   </View>
                   {/* Remove button */}
-                  <MsPressable style={styles.removeThumbBtn} onPress={() => removeItem(idx)}>
+                  <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeItem(idx)}>
                     <X size={11} color={T.TEXT} weight="bold" />
-                  </MsPressable>
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
@@ -512,16 +515,17 @@ export default function CreateAlbumScreen() {
           )}
 
           {/* Continue */}
-          <MsPressable
+          <TouchableOpacity
             style={[styles.continueBtn, items.length === 0 && styles.continueBtnDisabled]}
             onPress={() => setStep('preview')}
-              disabled={false}
+            activeOpacity={0.85}
+            disabled={false}
           >
             <Text style={styles.continueBtnLabel}>
               {items.length === 0 ? 'Continue without items' : `Continue with ${items.length} item${items.length !== 1 ? 's' : ''}`}
             </Text>
             <ArrowRight size={18} color={T.BG} weight="bold" />
-          </MsPressable>
+          </TouchableOpacity>
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -544,9 +548,9 @@ export default function CreateAlbumScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <MsPressable style={styles.headerBtn} onPress={() => setStep('details')}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setStep('details')}>
             <ArrowLeft size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Album Cover</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -560,10 +564,11 @@ export default function CreateAlbumScreen() {
           </View>
 
           {/* Cover preview / selector */}
-          <MsPressable
+          <TouchableOpacity
             style={styles.coverSelector}
             onPress={() => { setPickerTarget('cover'); setPickerVisible(true); }}
-            >
+            activeOpacity={0.85}
+          >
             {coverUri ? (
               <>
                 <Image source={{ uri: coverUri }} style={styles.coverSelectorImg} resizeMode="cover" />
@@ -579,10 +584,10 @@ export default function CreateAlbumScreen() {
                 <Text style={styles.coverSelectorEmptySubtitle}>Tap to choose a photo from your library</Text>
               </View>
             )}
-          </MsPressable>
+          </TouchableOpacity>
 
           {/* Continue */}
-          <MsPressable
+          <TouchableOpacity
             style={[styles.continueBtn, !coverUri && styles.continueBtnDisabled]}
             onPress={() => {
               if (!coverUri) {
@@ -591,10 +596,11 @@ export default function CreateAlbumScreen() {
               }
               setStep('content');
             }}
-            >
+            activeOpacity={0.85}
+          >
             <Text style={styles.continueBtnLabel}>Continue</Text>
             <ArrowRight size={18} color={T.BG} weight="bold" />
-          </MsPressable>
+          </TouchableOpacity>
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -617,13 +623,13 @@ export default function CreateAlbumScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <MsPressable
+        <TouchableOpacity
           style={styles.headerBtn}
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <ArrowLeft size={20} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Album</Text>
         <View style={{ width: 36 }} />
       </View>
@@ -709,15 +715,16 @@ export default function CreateAlbumScreen() {
               {categories.map((cat) => {
                 const active = selectedCategories.includes(cat.id);
                 return (
-                  <MsPressable
+                  <TouchableOpacity
                     key={cat.id}
                     style={[styles.chip, active && styles.chipActive]}
                     onPress={() => toggleCategory(cat.id)}
-                            >
+                    activeOpacity={0.75}
+                  >
                     <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
                       {cat.name}
                     </Text>
-                  </MsPressable>
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -725,7 +732,7 @@ export default function CreateAlbumScreen() {
         )}
 
         {/* ── Continue button ───────────────────────────────────────────── */}
-        <MsPressable
+        <TouchableOpacity
           style={[styles.continueBtn, !title.trim() && styles.continueBtnDisabled]}
           onPress={() => {
             if (!title.trim()) {
@@ -740,10 +747,11 @@ export default function CreateAlbumScreen() {
             setError('');
             setStep('cover');
           }}
+          activeOpacity={0.85}
         >
           <Text style={styles.continueBtnLabel}>Continue</Text>
           <ArrowRight size={18} color={T.BG} weight="bold" />
-        </MsPressable>
+        </TouchableOpacity>
 
         {!!error && (
           <View style={styles.errorBanner}>
@@ -779,13 +787,13 @@ function MediaPickerModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <MsPressable style={styles.modalOverlay} onPress={onClose}>
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
         <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>Select Media</Text>
           <Text style={styles.modalSubtitle}>Choose what to add</Text>
 
-          <MsPressable style={styles.mediaOption} onPress={onPickImage}>
+          <TouchableOpacity style={styles.mediaOption} onPress={onPickImage} activeOpacity={0.8}>
             <View style={styles.mediaOptionIcon}>
               <ImageIcon size={24} color={T.ACCENT} />
             </View>
@@ -794,9 +802,9 @@ function MediaPickerModal({
               <Text style={styles.mediaOptionDesc}>Select an image from your library</Text>
             </View>
             <ArrowRight size={16} color={T.TEXT_3} />
-          </MsPressable>
+          </TouchableOpacity>
 
-          <MsPressable style={styles.mediaOption} onPress={onPickVideo}>
+          <TouchableOpacity style={styles.mediaOption} onPress={onPickVideo} activeOpacity={0.8}>
             <View style={styles.mediaOptionIcon}>
               <VideoCamera size={24} color={T.ACCENT} />
             </View>
@@ -805,9 +813,9 @@ function MediaPickerModal({
               <Text style={styles.mediaOptionDesc}>Select a video (up to 5 minutes)</Text>
             </View>
             <ArrowRight size={16} color={T.TEXT_3} />
-          </MsPressable>
+          </TouchableOpacity>
         </View>
-      </MsPressable>
+      </TouchableOpacity>
     </Modal>
   );
 }

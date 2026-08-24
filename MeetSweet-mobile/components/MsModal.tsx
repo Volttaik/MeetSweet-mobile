@@ -1,28 +1,25 @@
 /**
  * MsModal — shared modal/sheet shell.
  *
- * • 'sheet'  → native bottom sheet (@gorhom/bottom-sheet): Reanimated
- *              worklet-driven presentation, native swipe-to-dismiss and
- *              backdrop — no JS-thread Modal animation, no PanResponder.
- * • 'center' → native RN Modal (renders as a real native dialog) with the
- *              platform's native fade animation — no JS-driven animation.
+ * Physics upgrade:
+ *   - Swipe resistance: drag distance is rubber-banded (sqrt curve)
+ *   - Velocity-based dismiss: fast swipe closes even before 80px threshold
+ *   - Spring snap-back with configurable damping/stiffness
  */
-import React, { ReactNode, useEffect, useMemo, useRef } from 'react';
+import React, { ReactNode, useRef } from 'react';
 import {
+  Animated,
+  KeyboardAvoidingView,
   Modal,
+  PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   ViewStyle,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetView,
-  type BottomSheetBackdropProps,
-} from '@gorhom/bottom-sheet';
 import { X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '@/constants/theme';
@@ -50,91 +47,124 @@ export function MsModal({
 }: MsModalProps) {
   const insets = useSafeAreaInsets();
   const isSheet = presentation === 'sheet';
-  const sheetRef = useRef<BottomSheetModal>(null);
 
-  useEffect(() => {
-    if (!isSheet) return;
-    if (visible) sheetRef.current?.present();
-    else sheetRef.current?.dismiss();
-  }, [visible, isSheet]);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
 
-  const renderBackdrop = useMemo(
-    () => (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        opacity={0.72}
-      />
-    ),
-    []
-  );
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        isSheet && g.dy > 10 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
 
-  // ── Sheet presentation: native bottom sheet ───────────────────────────────
-  if (isSheet) {
-    return (
-      <BottomSheetModal
-        ref={sheetRef}
-        index={0}
-        snapPoints={['auto']}
-        enableDynamicSizing
-        backdropComponent={renderBackdrop}
-        backgroundStyle={styles.sheetBackground}
-        handleIndicatorStyle={styles.handle}
-        onDismiss={onClose}
-      >
-        <BottomSheetView
-          style={[
-            styles.sheetBody,
-            { paddingBottom: Math.max(insets.bottom + 8, 20) },
-            style,
-          ]}
-        >
-          {(title || subtitle) && (
-            <View style={styles.header}>
-              <View style={styles.headerCopy}>
-                {title && <Text style={styles.title}>{title}</Text>}
-                {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
-              </View>
-              <MsPressable onPress={onClose} hitSlop={12} style={styles.close}>
-                <X size={18} color={T.TEXT_2} />
-              </MsPressable>
-            </View>
-          )}
-          <View style={styles.body}>{children}</View>
-          {footer && <View style={styles.footer}>{footer}</View>}
-        </BottomSheetView>
-      </BottomSheetModal>
-    );
-  }
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) {
+          // Apply rubber-band resistance: drag feels increasingly stiff
+          const resistance = 0.55;
+          const rubbered = g.dy * resistance;
+          translateY.setValue(rubbered);
+          // Fade overlay as user drags down
+          const progress = Math.min(1, rubbered / 280);
+          overlayOpacity.setValue(1 - progress * 0.5);
+        }
+      },
 
-  // ── Center presentation: native dialog modal ─────────────────────────────
+      onPanResponderRelease: (_, g) => {
+        const shouldClose =
+          g.dy > 80 || g.vy > 0.8; // threshold OR fast fling
+
+        if (shouldClose) {
+          Animated.parallel([
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 260,
+              useNativeDriver: true,
+            }),
+            Animated.timing(overlayOpacity, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
+            translateY.setValue(0);
+            overlayOpacity.setValue(1);
+            onClose();
+          });
+        } else {
+          // Spring snap-back — slightly underdamped for a satisfying bounce
+          Animated.parallel([
+            Animated.spring(translateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              damping: 18,
+              stiffness: 280,
+              mass: 1,
+            }),
+            Animated.timing(overlayOpacity, {
+              toValue: 1,
+              duration: 160,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }
+      },
+
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 18,
+          stiffness: 280,
+          mass: 1,
+        }).start();
+        overlayOpacity.setValue(1);
+      },
+    }),
+  ).current;
+
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType={isSheet ? 'slide' : 'fade'}
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={styles.overlayWrap}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.centerSurface, style]}>
+      <KeyboardAvoidingView
+        style={styles.overlayWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.overlay, { opacity: overlayOpacity }]}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+
+        <Animated.View
+          style={[
+            styles.surface,
+            isSheet ? styles.sheet : styles.center,
+            isSheet && { paddingBottom: Math.max(insets.bottom + 8, 20) },
+            style,
+            isSheet && { transform: [{ translateY }] },
+          ]}
+          {...(isSheet ? panResponder.panHandlers : {})}
+        >
+          {isSheet && <View style={styles.handle} />}
           {(title || subtitle) && (
             <View style={styles.header}>
               <View style={styles.headerCopy}>
                 {title && <Text style={styles.title}>{title}</Text>}
                 {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
               </View>
-              <MsPressable onPress={onClose} hitSlop={12} style={styles.close}>
+              <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.close}>
                 <X size={18} color={T.TEXT_2} />
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           )}
           <View style={styles.body}>{children}</View>
           {footer && <View style={styles.footer}>{footer}</View>}
-        </View>
-      </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -142,41 +172,40 @@ export function MsModal({
 const styles = StyleSheet.create({
   overlayWrap: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  overlay: {
     backgroundColor: 'rgba(8,5,8,0.72)',
   },
-  sheetBackground: {
+  surface: {
     backgroundColor: T.SURFACE,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
     shadowColor: T.SHADOW,
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.45,
     shadowRadius: 24,
     elevation: 18,
   },
-  sheetBody: {
-    backgroundColor: T.SURFACE,
+  sheet: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     paddingTop: 12,
     paddingHorizontal: 20,
   },
-  centerSurface: {
+  center: {
+    alignSelf: 'center',
     width: '86%',
     borderRadius: 24,
-    backgroundColor: T.SURFACE,
     padding: 20,
-    shadowColor: T.SHADOW,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    elevation: 18,
+    marginBottom: 'auto',
+    marginTop: 'auto',
   },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.18)',
+    alignSelf: 'center',
+    marginBottom: 16,
   },
   header: {
     flexDirection: 'row',

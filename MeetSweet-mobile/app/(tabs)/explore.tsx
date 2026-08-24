@@ -10,16 +10,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { useNotifications } from '@/contexts/NotificationsContext';
 import {
-  Bell,
   Compass,
   Images,
   Lightning,
@@ -141,44 +138,6 @@ const toggleStyles = StyleSheet.create({
 });
 
 // ─── Map explore ContentPreview + Creator → Post shape for MsPostCard ─────────
-
-/**
- * FeedPostRow — memoized post row so scrolling/state changes don't re-render
- * every visible card. Navigation closures are created here, per row, only when
- * the row actually re-renders; the parent passes stable callbacks + data.
- */
-const FeedPostRow = React.memo(function FeedPostRow({
-  item,
-  onAuthorPress,
-  onCreatorHidden,
-  isSubscribed,
-}: {
-  item: { type: 'post'; post: Post; id: string; contentType?: string | null };
-  onAuthorPress: (creatorId: string, creatorHandle?: string) => void;
-  onCreatorHidden: (creatorId: string) => void;
-  isSubscribed: boolean;
-}) {
-  const navToContent = () => {
-    if (item.contentType === 'short') {
-      router.push({ pathname: '/shorts', params: { startId: item.id } });
-    } else if (item.post.mediaType === 'video') {
-      router.push(`/videos/${item.id}`);
-    } else {
-      router.push(`/post/${item.id}`);
-    }
-  };
-  return (
-    <MsPostCard
-      post={item.post}
-      onPress={navToContent}
-      onMediaPress={navToContent}
-      onAuthorPress={() => onAuthorPress(item.post.author.id, item.post.author.username)}
-      tier={item.post.tier as import('@/constants/tiers').ContentTier | undefined}
-      onCreatorHidden={onCreatorHidden}
-      subscribedToAuthor={isSubscribed}
-    />
-  );
-});
 
 function previewToPost(preview: import('@/lib/api-client-react').ContentPreview, creator: import('@/lib/api-client-react').Creator): Post {
   const isVideo = preview.kind === 'video' || preview.kind === 'audio';
@@ -590,35 +549,6 @@ export default function ExploreScreen() {
     : viewMode === 'albums'  ? albumsQuery.isError
     : feedQuery.isError;
 
-  const { notifUnread } = useNotifications();
-
-  // ── Shared page header ────────────────────────────────────────────────────────
-  const pageHeader = (
-    <View style={styles.header}>
-      <View>
-        <Text style={styles.eyebrow}>DISCOVER</Text>
-        <Text style={styles.title}>Explore</Text>
-      </View>
-      <View style={styles.headerActions}>
-        <Pressable
-          style={styles.iconButton}
-          onPress={() => router.push('/notifications')}
-          accessibilityLabel="Notifications"
-        >
-          <View style={{ position: 'relative' }}>
-            <Bell size={19} color={T.TEXT} />
-            {notifUnread > 0 && (
-              <View style={styles.notificationDot}>
-                <Text style={{ color: '#fff', fontSize: 8, fontFamily: T.FONT.bold, lineHeight: 11 }}>
-                  {notifUnread > 9 ? '9+' : notifUnread}
-                </Text>
-              </View>
-            )}
-          </View>
-        </Pressable>
-      </View>
-    </View>
-  );
 
   const headerProps: HeaderProps = {
     isLoading,
@@ -669,20 +599,34 @@ export default function ExploreScreen() {
       }
     };
 
-    const renderFeedItem = useCallback(
-      ({ item }: { item: FeedItem }) => {
-        if (item.type === 'post') {
-          return (
-            <FeedPostRow
-              item={item}
-              onAuthorPress={navToCreatorId}
-              onCreatorHidden={markCreatorHidden}
-              isSubscribed={isSubscribedCreator(item.post.author.id)}
-            />
-          );
-        }
+    const renderFeedItem = ({ item }: { item: FeedItem }) => {
+      if (item.type === 'post') {
+        const navToContent = () => {
+          if (item.contentType === 'short') {
+            router.push({ pathname: '/shorts', params: { startId: item.id } });
+          } else if (item.post.mediaType === 'video') {
+            router.push(`/videos/${item.id}`);
+          } else {
+            router.push(`/post/${item.id}`);
+          }
+        };
+        return (
+          <MsPostCard
+            post={item.post}
+            currentUserId={currentUser?.id}
+            onPress={navToContent}
+            onMediaPress={navToContent}
+            onAuthorPress={() => navToCreatorId(item.post.author.id, item.post.author.username)}
+            onEditPress={(p) => router.push(`/edit-post/${p.id}`)}
+            tier={item.post.tier as import('@/constants/tiers').ContentTier | undefined}
+            onCreatorHidden={(creatorId) => markCreatorHidden(creatorId)}
+            subscribedToAuthor={isSubscribedCreator(item.post.author.id)}
+            tall
+          />
+        );
+      }
 
-        if (item.type === 'album-row') {
+      if (item.type === 'album-row') {
         return (
           <View style={styles.albumRowWrap}>
             <View style={styles.albumRowHeader}>
@@ -709,20 +653,16 @@ export default function ExploreScreen() {
         );
       }
 
-        return null;
-      },
-      [navToCreatorId, markCreatorHidden, isSubscribedCreator],
-    );
+      return null;
+    };
 
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-        {pageHeader}
         {stickyControls}
 
-        <FlashList
+        <FlatList
           data={feedItems}
           keyExtractor={(item) => item.id}
-          getItemType={(item) => item.type}
           renderItem={renderFeedItem}
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
@@ -753,8 +693,13 @@ export default function ExploreScreen() {
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.feedListContent}
           showsVerticalScrollIndicator={false}
-          refreshing={refreshing}
-          onRefresh={refresh}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />
+          }
+          removeClippedSubviews
+          windowSize={5}
+          maxToRenderPerBatch={4}
+          initialNumToRender={5}
         />
 
         <MsActionSheet
@@ -773,7 +718,6 @@ export default function ExploreScreen() {
   if (viewMode === 'albums') {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-        {pageHeader}
         {stickyControls}
 
         <FlatList
@@ -823,7 +767,6 @@ export default function ExploreScreen() {
   // ── CREATORS MODE — creator cards + their content ────────────────────────────────────────────
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
-      {pageHeader}
       {stickyControls}
 
       <ScrollView
@@ -842,8 +785,6 @@ export default function ExploreScreen() {
               <>
                 <MsSectionHeader
                   title="Featured creators"
-                  actionLabel="View all"
-                  onAction={() => {}}
                   style={styles.sectionHeader}
                 />
                 <ScrollView
@@ -953,9 +894,11 @@ export default function ExploreScreen() {
                     <MsPostCard
                       key={preview.id}
                       post={post}
+                      currentUserId={currentUser?.id}
                       onPress={navToCreatorContent}
                       onMediaPress={navToCreatorContent}
                       onAuthorPress={() => navToCreatorId(creator.id, creator.handle)}
+                      onEditPress={(p) => router.push(`/edit-post/${p.id}`)}
                     />
                   );
                 })}
@@ -1056,39 +999,6 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
-  header: {
-    minHeight: 52,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  eyebrow: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 1.3 },
-  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 21, letterSpacing: -0.6, marginTop: 1 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: T.SURFACE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...T.SHADOWS.soft,
-  },
-  notificationDot: {
-    position: 'absolute',
-    top: -5,
-    right: -7,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 2,
-    borderWidth: 1.5,
-    borderColor: T.BG,
-  },
   scrollContent: { paddingTop: 16, paddingBottom: 0 },
   feedListContent: { paddingTop: 12, paddingBottom: 100 },
 
@@ -1099,13 +1009,13 @@ const styles = StyleSheet.create({
   searchField: {
     marginHorizontal: 20,
     marginTop: 4,
-    height: 46,
+    height: 40,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 15,
-    gap: 9,
+    paddingHorizontal: 13,
+    gap: 8,
     ...T.SHADOWS.soft,
   },
   searchInput: {
@@ -1113,9 +1023,9 @@ const styles = StyleSheet.create({
     color: T.TEXT,
     fontFamily: T.FONT.regular,
     fontSize: 13,
-    height: 44,
+    height: 38,
     paddingHorizontal: 0,
-    // Vertically centre the caret + text inside the 44px search field on Android.
+    // Vertically centre the caret + text inside the search field on Android.
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',

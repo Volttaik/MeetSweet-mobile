@@ -14,12 +14,10 @@
  * fights the parent for percentage calculations.
  */
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Check, Checks, Clock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
-import { openRawLink } from '@/lib/open-link';
-import { MsPressable } from '@/components/MsPressable';
 
 // ── URL detection ─────────────────────────────────────────────────────────────
 
@@ -52,8 +50,10 @@ function parseLinks(text: string): Array<{ text: string; isLink: boolean; url?: 
 }
 
 // ── Bubble colours (ash-shadow gray, never pink) ───────────────────────────────
-const BG_OWN   = '#28282F'; // outgoing — slightly elevated dark gray
-const BG_OTHER = '#1C1C23'; // incoming — deeper dark gray
+// Lifted a step off the #0C0C0F wallpaper so bubbles read as solid objects
+// instead of blending into the background.
+const BG_OWN   = '#2B2B33'; // outgoing — elevated solid gray
+const BG_OTHER = '#23232B'; // incoming — solid deep gray
 
 interface Props {
   message: MsMessage;
@@ -62,11 +62,12 @@ interface Props {
   showDeleted?: boolean;
   timeString?: string;
   showReadReceipt?: boolean;
-  /** True when the server confirmed persistence but the recipient has not yet
-   *  read past this message — renders the double-gray "delivered" tick. */
+  /** Device-delivery receipt (recipient's device acked over the socket).
+   *  Renders a dim double-check — distinct from read (accent double-check). */
   showDelivered?: boolean;
   isPending?: boolean;
   isFailed?: boolean;
+  onRetry?: () => void;
   onPress?: () => void;
   onLongPress?: () => void;
 }
@@ -81,6 +82,7 @@ export function MsTextBubble({
   showDelivered,
   isPending,
   isFailed,
+  onRetry,
   onPress,
   onLongPress,
 }: Props) {
@@ -89,22 +91,17 @@ export function MsTextBubble({
 
   return (
     <View style={[styles.container, isOwn ? styles.containerRight : styles.containerLeft]}>
-      <MsPressable
+      <Pressable
+        delayLongPress={350}
         onPress={onPress}
         onLongPress={onLongPress}
-        delayLongPress={350}
-        scale={0.98}
-        pressOpacity={1}
-        haptic
+        style={[
+          styles.bubble,
+          isOwn ? styles.bubbleRight : styles.bubbleLeft,
+          isDeleted && styles.bubbleDeleted,
+          isFailed && styles.bubbleFailed,
+        ]}
       >
-        <View
-          style={[
-            styles.bubble,
-            isOwn ? styles.bubbleRight : styles.bubbleLeft,
-            isDeleted && styles.bubbleDeleted,
-            isFailed && styles.bubbleFailed,
-          ]}
-        >
         {isDeleted ? (
           <Text style={styles.deletedText}>This message was deleted</Text>
         ) : (
@@ -116,7 +113,7 @@ export function MsTextBubble({
                     key={i}
                     style={[styles.textLink, isOwn ? styles.textLinkOwn : styles.textLinkOther]}
                     onPress={() => {
-                      if (seg.url) openRawLink(seg.url);
+                      if (seg.url) Linking.openURL(seg.url).catch(() => {});
                     }}
                   >
                     {seg.text}
@@ -162,8 +159,14 @@ export function MsTextBubble({
             ) : null}
           </View>
         ) : null}
-        </View>
-      </MsPressable>
+      </Pressable>
+
+      {/* Failed — retry affordance below bubble */}
+      {isFailed && isOwn && onRetry ? (
+        <TouchableOpacity style={styles.retryRow} onPress={onRetry} activeOpacity={0.7}>
+          <Text style={styles.retryText}>Not delivered · Tap to retry</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -184,7 +187,7 @@ function StatusIcon({
   if (isPending) {
     return (
       <View style={styles.statusIcon}>
-        <Clock size={10} color="rgba(255,255,255,0.32)" weight="regular" />
+        <Clock size={9} color="rgba(255,255,255,0.38)" weight="regular" />
       </View>
     );
   }
@@ -192,22 +195,22 @@ function StatusIcon({
     // Blue/accent tint double check = read by the recipient
     return (
       <View style={styles.statusIcon}>
-        <Checks size={11} color={T.ACCENT} weight="bold" />
+        <Checks size={9} color={T.ACCENT} weight="bold" />
       </View>
     );
   }
   if (isDelivered) {
-    // Double muted check = delivered (server-confirmed, recipient received)
+    // Device delivered (live socket receipt, not yet read) — dim double check
     return (
       <View style={styles.statusIcon}>
-        <Checks size={11} color="rgba(255,255,255,0.45)" weight="bold" />
+        <Checks size={9} color="rgba(255,255,255,0.45)" weight="bold" />
       </View>
     );
   }
-  // Sent — single muted check
+  // Sent (server-confirmed, not yet delivered to the device) — single muted check
   return (
     <View style={styles.statusIcon}>
-      <Check size={11} color="rgba(255,255,255,0.40)" weight="bold" />
+      <Check size={9} color="rgba(255,255,255,0.45)" weight="bold" />
     </View>
   );
 }
@@ -221,23 +224,39 @@ const styles = StyleSheet.create({
   },
   containerLeft: {
     alignSelf: 'flex-start',
-    marginLeft: 8,
+    marginLeft: 10,
   },
   containerRight: {
     alignSelf: 'flex-end',
-    marginRight: 8,
+    marginRight: 10,
   },
 
   bubble: {
-    borderRadius: 8,
-    paddingHorizontal: 10,
+    borderRadius: 10,
+    paddingHorizontal: 14,
     paddingTop: 7,
-    paddingBottom: 5,
+    paddingBottom: 7,
+    // Small floor so a bare short message never collapses into a sliver,
+    // but the bubble otherwise wraps its content tightly.
+    minHeight: 40,
+    justifyContent: 'center',
+    // Hairline border + soft depth: the bubble is a solid object sitting
+    // above the wallpaper, not text floating on the background.
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.20,
+    shadowRadius: 5,
+    elevation: 2,
     // No minWidth — let content dictate size.
     // The meta row (time + icon) sets the floor naturally.
   },
   bubbleLeft: {
     backgroundColor: BG_OTHER,
+    // Incoming sits deeper so it gets a touch more edge light to stay
+    // equally defined against the wallpaper.
+    borderColor: 'rgba(255,255,255,0.10)',
     borderBottomLeftRadius: 3,
   },
   bubbleRight: {
@@ -252,12 +271,10 @@ const styles = StyleSheet.create({
   },
 
   text: {
-    fontSize: 14,
-    lineHeight: 19,
-    // Medium weight — noticeably more readable than the 400 base without
-    // tipping into heavy. Keeps the MeetSweet Poppins look.
+    fontSize: 17,
+    lineHeight: 25,
     fontFamily: T.FONT.medium,
-    letterSpacing: 0.06,
+    letterSpacing: 0.1,
   },
   textOwn:   { color: '#FFFFFF' },
   textOther: { color: T.TEXT },
@@ -266,16 +283,18 @@ const styles = StyleSheet.create({
   textLinkOther: { color: '#60A5FA' },
 
   caption: {
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 19,
     fontFamily: T.FONT.regular,
-    marginTop: 3,
+    marginTop: 6,
     opacity: 0.75,
   },
   captionOwn:   { color: 'rgba(255,255,255,0.8)' },
   captionOther: { color: T.TEXT_2 },
 
   deletedText: {
-    fontSize: 13,
+    fontSize: 15,
+    lineHeight: 20,
     fontFamily: T.FONT.regular,
     fontStyle: 'italic',
     color: T.TEXT_3,
@@ -285,29 +304,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'nowrap',        // ← prevents timestamp line-break
     alignItems: 'center',
-    marginTop: 2,
-    gap: 3,
+    marginTop: 3,
+    gap: 4,
   },
   metaLeft:  { justifyContent: 'flex-start' },
   metaRight: { justifyContent: 'flex-end' },
 
   time: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: T.FONT.regular,
-    lineHeight: 13,
+    lineHeight: 12,
     flexShrink: 0,             // ← never compress the timestamp
   },
-  timeOwn:   { color: 'rgba(255,255,255,0.38)' },
-  timeOther: { color: T.TEXT_3 },
+  timeOwn:   { color: 'rgba(255,255,255,0.42)' },
+  timeOther: { color: 'rgba(255,255,255,0.34)' },
 
   editedLabel: {
     fontSize: 10,
+    lineHeight: 13,
     fontFamily: T.FONT.regular,
     fontStyle: 'italic',
     flexShrink: 0,
   },
-  editedOwn:   { color: 'rgba(255,255,255,0.30)' },
-  editedOther: { color: T.TEXT_3 },
+  editedOwn:   { color: 'rgba(255,255,255,0.34)' },
+  editedOther: { color: 'rgba(255,255,255,0.32)' },
 
   statusIcon: {
     flexShrink: 0,
@@ -315,4 +335,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  retryRow: {
+    marginTop: 3,
+    alignSelf: 'flex-end',
+    paddingHorizontal: 4,
+  },
+  retryText: {
+    fontSize: 10,
+    fontFamily: T.FONT.medium,
+    color: '#EF4444',
+  },
 });

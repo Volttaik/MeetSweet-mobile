@@ -4,12 +4,10 @@
  * Each pill pops in with a scale + fade animation when it first appears.
  * Tap a pill to toggle your own reaction.
  */
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Reanimated, { ZoomIn } from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import type { MessageReaction } from '@kesha-antonov/react-native-chat';
-import { MsPressable } from '@/components/MsPressable';
 
 interface Props {
   reactions: MessageReaction[];
@@ -18,7 +16,7 @@ interface Props {
   onPress?: (emoji: string) => void;
 }
 
-// ── Animated pill — worklet-driven entrance + native press feedback ───────────
+// ── Animated pill ──────────────────────────────────────────────────────────────
 function ReactionPill({
   emoji,
   count,
@@ -32,22 +30,39 @@ function ReactionPill({
   onPress?: () => void;
   delay: number;
 }) {
+  const scale   = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 160,
+        delay,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 200,
+        delay,
+        easing: Easing.out(Easing.back(1.6)),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
   return (
-    <Reanimated.View
-      entering={ZoomIn.delay(delay).springify().damping(14).stiffness(200)}
-    >
-      <MsPressable
+    <Animated.View style={{ opacity, transform: [{ scale }] }}>
+      <TouchableOpacity
         style={[s.pill, hasReacted && s.pillActive]}
         onPress={onPress}
-        scale={0.9}
-        pressOpacity={0.72}
-        haptic
+        activeOpacity={0.72}
         hitSlop={4}
       >
         <Text style={s.emoji}>{emoji}</Text>
         {count > 1 ? <Text style={[s.count, hasReacted && s.countActive]}>{count}</Text> : null}
-      </MsPressable>
-    </Reanimated.View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 

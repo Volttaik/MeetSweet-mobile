@@ -10,11 +10,12 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { ArrowLeft } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
@@ -32,9 +33,9 @@ export default function PurchasedAlbumsScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <MsPressable style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => goBack()} activeOpacity={0.7}>
           <ArrowLeft size={20} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
         <Text style={styles.title}>Purchased Albums</Text>
         <View style={{ width: 36 }} />
       </View>

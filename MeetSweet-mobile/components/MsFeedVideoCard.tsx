@@ -12,10 +12,10 @@ import {
   StyleSheet,
   StyleProp,
   Text,
+  TouchableOpacity,
   View,
   ViewStyle,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -98,7 +98,8 @@ function ScalePressable({
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
     <Animated.View style={[animStyle, style]}>
-      <MsPressable
+      <TouchableOpacity
+        activeOpacity={1}
         onPress={onPress}
         onLongPress={onLongPress}
         onPressIn={() => {
@@ -110,7 +111,7 @@ function ScalePressable({
         delayLongPress={400}
       >
         {children}
-      </MsPressable>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -180,13 +181,14 @@ export function MsFeedVideoCard({
 
       {/* ── Info row (matches MsPostCard author row style) ── */}
       <View style={[styles.infoRow, compact && styles.infoRowCompact]}>
-        <MsPressable
+        <TouchableOpacity
           onPress={(e) => {
             e?.stopPropagation?.();
             (onCreatorPress ?? onPress)();
           }}
           style={styles.creatorLeft}
-            hitSlop={8}
+          activeOpacity={0.7}
+          hitSlop={8}
         >
           <MsAvatar
             size={compact ? 24 : 34}
@@ -209,7 +211,7 @@ export function MsFeedVideoCard({
               </Text>
             ) : null}
           </View>
-        </MsPressable>
+        </TouchableOpacity>
 
         {/* Stats — right side */}
         <View style={styles.stats}>
@@ -336,16 +338,16 @@ const styles = StyleSheet.create({
   creatorName: {
     color: T.TEXT,
     fontFamily: T.FONT.semibold,
-    fontSize: 13,
+    fontSize: 15,
     flexShrink: 1,
   },
   creatorNameCompact: {
-    fontSize: 12,
+    fontSize: 13,
   },
   creatorHandle: {
     color: T.TEXT_2,
     fontFamily: T.FONT.regular,
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 1,
   },
 
@@ -362,14 +364,14 @@ const styles = StyleSheet.create({
   statText: {
     color: T.TEXT_3,
     fontFamily: T.FONT.regular,
-    fontSize: 11,
+    fontSize: 12,
   },
 
   title: {
     color: T.TEXT,
     fontFamily: T.FONT.regular,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 21,
     paddingHorizontal: 14,
     paddingBottom: 14,
     paddingTop: 2,

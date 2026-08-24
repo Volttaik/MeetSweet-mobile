@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAccessToken, clearSessionStorage } from '@/lib/session-storage';
 import { getApiBase, refreshAccessToken } from '@/services/api';
 import { REALTIME_EVENT, REALTIME_EVENT_ALIASES } from '@/services/realtime-events';
+import { subscribeNetwork } from '@/hooks/useNetwork';
 export { REALTIME_EVENT } from '@/services/realtime-events';
 
 export interface RealtimeEvent {
@@ -19,6 +20,11 @@ export interface RealtimeEvent {
   userId?: string;
   roomId?: string;
   clientMessageId?: string;
+  /** True when this event was delivered by the reconnect/offline REPLAY (durable
+   *  sync) rather than live on the wire. Consumers use it to distinguish "new"
+   *  events from "catch-up" ones — e.g. the sound layer never chimes for a
+   *  replayed message the user already missed. */
+  replayed?: boolean;
   payload: Record<string, unknown>;
 }
 
@@ -49,15 +55,53 @@ type PendingCommand = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+/**
+ * A command held while the socket is offline. Queued commands are transmitted
+ * in order on the next successful reconnect (hello), so a user can send a
+ * message while disconnected and it is delivered once connectivity returns —
+ * no duplicates, because every command carries a clientMessageId the server
+ * dedupes on.
+ */
+type QueuedCommand = {
+  command: string;
+  payload: Record<string, unknown>;
+  channel?: string;
+  clientMessageId?: string;
+  resolve: (ack: SweetSocketAck) => void;
+  reject: (error: Error) => void;
+};
+
 const HEARTBEAT_MS = 25_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 const COMMAND_TIMEOUT_MS = 45_000;
 const DEDUP_CAP = 2_000;
 const CLOSE_UNAUTHORIZED = 4401;
-const CLIENT_ID_KEY = '@meetsweet_sweet_socket_client_id_v1';
-const CURSOR_KEY_PREFIX = '@meetsweet_sweet_socket_cursor_v1_';
 const DEBUG = typeof __DEV__ !== 'undefined' && __DEV__;
+
+/**
+ * Stable per-install socket identity. The SERVER keys the durable replay
+ * cursor by (user_id, client_id) — the client must present the SAME id on
+ * every connection so reconnects resume from the last acknowledged sequence
+ * instead of restarting the replay. Persisted so it survives app restarts.
+ */
+const CLIENT_ID_KEY = 'ms_socket_client_id_v1';
+let clientIdPromise: Promise<string> | null = null;
+
+async function getClientId(): Promise<string> {
+  clientIdPromise ??= (async () => {
+    try {
+      const existing = await AsyncStorage.getItem(CLIENT_ID_KEY);
+      if (existing) return existing;
+      const fresh = `ms-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+      await AsyncStorage.setItem(CLIENT_ID_KEY, fresh);
+      return fresh;
+    } catch {
+      return `ms-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    }
+  })();
+  return clientIdPromise;
+}
 
 function wsUrl(token: string): string {
   const base = getApiBase().replace(/\/+$/, '');
@@ -77,6 +121,7 @@ function normalizedEvent(event: RealtimeEvent): RealtimeEvent {
     ts: event.ts ?? (event.timestamp ? new Date(event.timestamp).toISOString() : undefined),
     timestamp: event.timestamp ?? (event.ts ? new Date(event.ts).getTime() : Date.now()),
     resourceId: event.resourceId ?? event.resource_id,
+    replayed: event.replayed === true,
   };
 }
 
@@ -89,39 +134,52 @@ class SweetSocketClient {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lifecycleSubscription: { remove: () => void } | null = null;
+  private offNetwork: (() => void) | null = null;
+  private syncInFlight = false;
   private connectSeq = 0;
   private lastSequence: number | null = null;
-  private clientId: string | null = null;
-  private sessionUserId: string | null = null;
-  private cursorLoaded = false;
-  private syncInFlight = false;
-  private deferredSequence: number | null = null;
   private helloReceived = false;
   private reconnecting = false;
+  /** True while a durable replay page is streaming after a sync request.
+   *  Events delivered in this window are catch-up replays, not live — tagged
+   *  `replayed` so consumers (sounds, badges) can ignore them. */
+  private syncActive = false;
   private desiredChannels = new Set<string>();
-  private channelRefs = new Map<string, number>();
   private activeChannels = new Set<string>();
   private pendingSubscribe = new Set<string>();
   private pendingUnsubscribe = new Set<string>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private seenIds = new Set<string>();
   private pendingCommands = new Map<string, PendingCommand>();
+  private queuedCommands: QueuedCommand[] = [];
   private typeHandlers = new Map<string, Set<EventHandler>>();
   private channelHandlers = new Map<string, Set<EventHandler>>();
   private ackHandlers = new Set<AckHandler>();
   private statusHandlers = new Set<StatusHandler>();
 
-  connect(userId?: string): void {
-    if (userId && this.sessionUserId && userId !== this.sessionUserId) {
-      // A singleton socket cannot be reused across accounts: the server binds
-      // the authenticated user at upgrade time. Close the old transport before
-      // opening one with the new token and cursor namespace.
-      this.disconnect();
-    }
-    this.sessionUserId = userId ?? this.sessionUserId;
+  connect(): void {
     this.suspended = false;
     this.manualClosed = false;
     this.installLifecycleListener();
+    // Device-connectivity awareness: the moment the network probe reports the
+    // device reachable again, reconnect IMMEDIATELY instead of waiting out the
+    // exponential backoff. The probe fires on a real connectivity change, so
+    // a lost-then-restored connection converges within seconds — no manual
+    // refresh, no app reopen required.
+    if (!this.offNetwork) {
+      this.offNetwork = subscribeNetwork((state) => {
+        if (!state.isOnline) return; // offline → onclose/backoff handles it
+        if (this.manualClosed || this.suspended) return;
+        if (this.isOpen() || this.status === 'connecting') return;
+        if (this.retryTimer) {
+          clearTimeout(this.retryTimer);
+          this.retryTimer = null;
+        }
+        this.retryDelay = RECONNECT_BASE_MS;
+        this.reconnecting = true;
+        void this.open();
+      });
+    }
     if (this.status === 'connecting' || this.status === 'open' || this.status === 'reconnecting') return;
     void this.open();
   }
@@ -130,19 +188,18 @@ class SweetSocketClient {
     this.manualClosed = true;
     this.suspended = false;
     this.desiredChannels.clear();
-    this.channelRefs.clear();
     this.activeChannels.clear();
     this.pendingSubscribe.clear();
     this.pendingUnsubscribe.clear();
     this.clearTimers();
     this.lifecycleSubscription?.remove();
     this.lifecycleSubscription = null;
-    this.cursorLoaded = false;
-    this.lastSequence = null;
-    this.sessionUserId = null;
+    this.offNetwork?.();
+    this.offNetwork = null;
     const ws = this.ws;
     this.ws = null;
     this.rejectPending(new Error('SweetSocket disconnected'));
+    this.rejectQueued(new Error('SweetSocket disconnected'));
     this.setStatus('closed');
     try { ws?.close(1000, 'manual'); } catch { /* ignore */ }
   }
@@ -168,9 +225,6 @@ class SweetSocketClient {
 
   subscribe(channel: string): void {
     if (!channel) return;
-    const refs = this.channelRefs.get(channel) ?? 0;
-    this.channelRefs.set(channel, refs + 1);
-    if (refs > 0) return;
     this.desiredChannels.add(channel);
     this.pendingSubscribe.add(channel);
     this.pendingUnsubscribe.delete(channel);
@@ -178,13 +232,6 @@ class SweetSocketClient {
   }
 
   unsubscribe(channel: string): void {
-    if (!channel) return;
-    const refs = this.channelRefs.get(channel) ?? 0;
-    if (refs > 1) {
-      this.channelRefs.set(channel, refs - 1);
-      return;
-    }
-    this.channelRefs.delete(channel);
     this.desiredChannels.delete(channel);
     this.activeChannels.delete(channel);
     this.pendingSubscribe.delete(channel);
@@ -192,31 +239,89 @@ class SweetSocketClient {
     this.scheduleFlush();
   }
 
-  /** Send an application command and resolve when the server acknowledges it. */
+  /** Send an application command and resolve when the server acknowledges it.
+   *  When `options.queue` is true and the socket is offline, the command is
+   *  held and transmitted automatically on the next reconnect instead of
+   *  failing immediately (used for message sends). */
   emit(
     command: string,
     payload: Record<string, unknown> = {},
-    options: { channel?: string; clientMessageId?: string } = {},
+    options: { channel?: string; clientMessageId?: string; queue?: boolean } = {},
   ): Promise<SweetSocketAck> {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return new Promise<SweetSocketAck>((resolve, reject) => {
       if (!this.isOpen()) {
+        if (options.queue) {
+          this.queuedCommands.push({
+            command,
+            payload,
+            channel: options.channel,
+            clientMessageId: options.clientMessageId,
+            resolve,
+            reject,
+          });
+          return;
+        }
         reject(new Error('SweetSocket is not connected'));
         return;
       }
-      const timer = setTimeout(() => {
-        this.pendingCommands.delete(requestId);
-        reject(new Error(`SweetSocket command timed out: ${command}`));
-      }, COMMAND_TIMEOUT_MS);
-      this.pendingCommands.set(requestId, { command, resolve, reject, timer });
-      this.sendJson({
-        type: 'command',
-        requestId,
-        command,
-        channel: options.channel,
-        clientMessageId: options.clientMessageId,
-        payload,
-      });
+      this.sendCommand(requestId, command, payload, options, resolve, reject);
+    });
+  }
+
+  /** Transmit a command over the open socket and track its ack. */
+  private sendCommand(
+    requestId: string,
+    command: string,
+    payload: Record<string, unknown>,
+    options: { channel?: string; clientMessageId?: string },
+    resolve: (ack: SweetSocketAck) => void,
+    reject: (error: Error) => void,
+  ): void {
+    const timer = setTimeout(() => {
+      this.pendingCommands.delete(requestId);
+      reject(new Error(`SweetSocket command timed out: ${command}`));
+    }, COMMAND_TIMEOUT_MS);
+    this.pendingCommands.set(requestId, { command, resolve, reject, timer });
+    this.sendJson({
+      type: 'command',
+      requestId,
+      command,
+      channel: options.channel,
+      clientMessageId: options.clientMessageId,
+      payload,
+    });
+  }
+
+  /** Replay queued commands in order once the socket is healthy again. */
+  private flushQueued(): void {
+    if (!this.isOpen() || this.queuedCommands.length === 0) return;
+    const queued = this.queuedCommands;
+    this.queuedCommands = [];
+    for (const q of queued) {
+      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      this.sendCommand(requestId, q.command, q.payload, q, q.resolve, q.reject);
+    }
+  }
+
+  /**
+   * Ask the server to replay durable events after this client's cursor. The
+   * server answers with `synced` (through/hasMore); we ack the watermark and
+   * page again while hasMore. One replay in flight at a time.
+   */
+  private requestSync(): void {
+    if (this.syncInFlight) return;
+    this.syncInFlight = true;
+    // Replay pages arrive as ordinary `event` frames after the sync request —
+    // mark that window so they can be tagged as replays.
+    this.syncActive = true;
+    void getClientId().then((clientId) => {
+      if (!this.isOpen() || this.manualClosed || this.suspended) {
+        this.syncInFlight = false;
+        this.syncActive = false;
+        return;
+      }
+      this.sendJson({ type: 'sync', clientId });
     });
   }
 
@@ -276,38 +381,10 @@ class SweetSocketClient {
     });
   }
 
-  private async loadCursorState(): Promise<void> {
-    if (this.cursorLoaded) return;
-    this.cursorLoaded = true;
-    try {
-      let clientId = await AsyncStorage.getItem(CLIENT_ID_KEY);
-      if (!clientId) {
-        clientId = `mobile_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
-        await AsyncStorage.setItem(CLIENT_ID_KEY, clientId);
-      }
-      this.clientId = clientId;
-      const scope = this.sessionUserId ?? 'anonymous';
-      const raw = await AsyncStorage.getItem(`${CURSOR_KEY_PREFIX}${clientId}_${scope}`);
-      const cursor = raw ? Number(raw) : 0;
-      this.lastSequence = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
-    } catch {
-      this.clientId = this.clientId ?? `mobile_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
-      this.lastSequence = this.lastSequence ?? 0;
-    }
-  }
-
-  private async persistCursor(sequence: number): Promise<void> {
-    if (!this.clientId || !Number.isFinite(sequence)) return;
-    const scope = this.sessionUserId ?? 'anonymous';
-    try { await AsyncStorage.setItem(`${CURSOR_KEY_PREFIX}${this.clientId}_${scope}`, String(sequence)); }
-    catch { /* cursor persistence retries on the next event */ }
-  }
-
   private async open(): Promise<void> {
     if (this.manualClosed || this.suspended) return;
     const flow = ++this.connectSeq;
-    await this.loadCursorState();
-    const wasReconnect = this.reconnecting || (this.lastSequence ?? 0) > 0;
+    const wasReconnect = this.reconnecting || this.lastSequence !== null;
     this.setStatus(wasReconnect ? 'reconnecting' : 'connecting');
     log(wasReconnect ? 'reconnecting' : 'connecting');
 
@@ -336,9 +413,8 @@ class SweetSocketClient {
 
     ws.onopen = () => {
       if (flow !== this.connectSeq) return;
-      this.retryDelay = RECONNECT_BASE_MS;        this.helloReceived = false;
-        this.syncInFlight = false;
-
+      this.retryDelay = RECONNECT_BASE_MS;
+      this.helloReceived = false;
       this.setStatus('open');
       this.startHeartbeat();
       log('socket open');
@@ -352,10 +428,8 @@ class SweetSocketClient {
       if (flow !== this.connectSeq) return;
       this.stopHeartbeat();
       this.activeChannels.clear();
-      this.ws = null;        this.helloReceived = false;
-        this.syncInFlight = false;
-        this.deferredSequence = null;
-
+      this.ws = null;
+      this.helloReceived = false;
       if (this.manualClosed || this.suspended) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
         void refreshAccessToken().then(async (fresh) => {
@@ -373,16 +447,10 @@ class SweetSocketClient {
     this.reconnecting = true;
     this.setStatus('reconnecting');
     this.emitLifecycle(REALTIME_EVENT.connectionReconnecting);
-    // Full jitter on the backoff: when many clients drop together (network
-    // blip, deploy), scheduling every reconnect at the same fixed delay would
-    // make them re-connect in lock-step — a thundering herd against the realtime
-    // gateway. Randomizing within the current window spreads the reconnects.
-    // The exponential window still doubles per attempt and caps at RECONNECT_MAX_MS.
-    const delay = Math.floor(Math.random() * this.retryDelay);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       void this.open();
-    }, delay);
+    }, this.retryDelay);
     this.retryDelay = Math.min(this.retryDelay * 2, RECONNECT_MAX_MS);
   }
 
@@ -440,6 +508,7 @@ class SweetSocketClient {
           this.pendingSubscribe.clear();
           this.pendingUnsubscribe.clear();
           this.emitLifecycle(REALTIME_EVENT.authSessionExpired);
+          this.rejectQueued(new Error('SweetSocket session expired'));
           void clearSessionStorage().catch(() => {});
           this.manualClosed = true;
           try { this.ws?.close(CLOSE_UNAUTHORIZED, 'Session expired'); } catch { /* ignore */ }
@@ -464,21 +533,25 @@ class SweetSocketClient {
         this.helloReceived = true;
         for (const channel of this.desiredChannels) this.pendingSubscribe.add(channel);
         this.flushSubscriptions();
+        // Deliver anything the user sent while offline, in order.
+        this.flushQueued();
         // The hello value is a baseline only on the first connection. On a
-        // reconnect, retain the last received sequence so the server replays
-        // everything after the client's real cursor.
-        // Sync is mandatory on every authenticated connection, including the
-        // first app launch. The server owns the durable cursor and clamps any
-        // stale client value safely.
-        if (this.clientId && !this.syncInFlight) {
-          this.syncInFlight = true;
-          this.sendJson({ type: 'sync', since: this.lastSequence ?? 0, clientId: this.clientId });
-        }
+        // reconnect, retain the last received sequence so we never regress.
+        if (this.lastSequence === null) this.lastSequence = sequence;
+        // Replay missed events on EVERY connection — first open and reconnect
+        // alike. The server resumes from this client's durable cursor (keyed
+        // by clientId), so events that happened while the app was closed,
+        // backgrounded, or offline are delivered here without the user opening
+        // any screen. The `synced` handler acks the watermark and pages again
+        // while the server reports more.
+        this.requestSync();
         if (this.reconnecting) {
           this.reconnecting = false;
           log('reconnected');
-          this.emitLifecycle(REALTIME_EVENT.connectionReconnected);
+        } else {
+          log('connected');
         }
+        this.emitLifecycle(REALTIME_EVENT.connectionReconnected);
         return;
       }
       case 'subscribed': {
@@ -489,38 +562,30 @@ class SweetSocketClient {
       case 'unsubscribed': return;
       case 'pong': return;
       case 'synced': {
-        const through = typeof message.through === 'number' ? message.through : null;
-        const hasMore = message.hasMore === true;
-        if (through !== null) {
-          this.lastSequence = Math.max(this.lastSequence ?? 0, through);
-          if (hasMore && this.clientId) {
-            // Keep the cursor unacknowledged until the final replay page has
-            // been applied. A live event may arrive during replay; acknowledging
-            // it early would let a crash skip older missed events.
-            this.sendJson({ type: 'sync', since: this.lastSequence, clientId: this.clientId });
-            return;
-          }
-          const finalSequence = Math.max(this.lastSequence, this.deferredSequence ?? 0);
-          this.lastSequence = finalSequence;
-          this.deferredSequence = null;
-          void this.persistCursor(finalSequence);
-          if (this.clientId) this.sendJson({ type: 'ack', clientId: this.clientId, sequence: finalSequence });
+        // Replay page delivered — advance the durable cursor to the replayed
+        // watermark so the next reconnect resumes AFTER this page, and page
+        // again while the server reports more (bounded, convergent replay).
+        const sync = message as { since?: number; through?: number; hasMore?: boolean };
+        if (typeof sync.through === 'number' && Number.isFinite(sync.through)) {
+          const through = sync.through;
+          void getClientId().then((clientId) => {
+            if (this.isOpen() && !this.manualClosed && !this.suspended) {
+              this.sendJson({ type: 'ack', clientId, sequence: through });
+            }
+          });
         }
         this.syncInFlight = false;
-        log('resync complete');
-        return;
-      }
-      case 'sync_ack': {
-        const sequence = typeof message.sequence === 'number' ? message.sequence : null;
-        if (sequence !== null) {
-          this.lastSequence = Math.max(this.lastSequence ?? 0, sequence);
-          void this.persistCursor(this.lastSequence);
-        }
+        // Replay is done once the server reports no more pages — from here on
+        // every event frame is live again.
+        if (!sync.hasMore) this.syncActive = false;
+        log('resync', sync.since, '→', sync.through, sync.hasMore ? '(more)' : '(done)');
+        if (sync.hasMore) this.requestSync();
         return;
       }
       case 'ack': this.handleAck(message); return;
       case 'event': {
         const event = normalizedEvent(message.event as RealtimeEvent);
+        if (this.syncActive) event.replayed = true;
         this.handleEvent(event);
         return;
       }
@@ -553,32 +618,19 @@ class SweetSocketClient {
   }
 
   private handleEvent(event: RealtimeEvent): void {
-    // Apply first, then advance and acknowledge the cursor. This ordering is
-    // important: a process crash cannot leave a locally advanced cursor for an
-    // event that never reached the store/cache.
-    const alreadySeen = Boolean(event.id && this.seenIds.has(event.id));
-    if (!alreadySeen) {
-      if (event.id) {
-        this.seenIds.add(event.id);
-        if (this.seenIds.size > DEDUP_CAP) {
-          const oldest = this.seenIds.values().next().value;
-          if (oldest) this.seenIds.delete(oldest);
-        }
-      }
-      log('received', event.type, event.channel);
-      this.dispatch(event);
-    }
-
+    // Advance the cursor even when a durable replay is a duplicate of an event
+    // that arrived live before the disconnect. Otherwise every reconnect would
+    // request that same already-seen event forever.
     const sequence = event.sequence ?? event.seq ?? null;
-    if (typeof sequence === 'number' && (this.lastSequence === null || sequence > this.lastSequence)) {
-      if (this.syncInFlight) {
-        this.deferredSequence = Math.max(this.deferredSequence ?? 0, sequence);
-      } else {
-        this.lastSequence = sequence;
-        void this.persistCursor(sequence);
-        if (this.clientId) this.sendJson({ type: 'ack', clientId: this.clientId, sequence });
-      }
+    if (typeof sequence === 'number' && (this.lastSequence === null || sequence > this.lastSequence)) this.lastSequence = sequence;
+    if (!event.id || this.seenIds.has(event.id)) return;
+    this.seenIds.add(event.id);
+    if (this.seenIds.size > DEDUP_CAP) {
+      const oldest = this.seenIds.values().next().value;
+      if (oldest) this.seenIds.delete(oldest);
     }
+    log('received', event.type, event.channel);
+    this.dispatch(event);
   }
 
   private dispatch(event: RealtimeEvent): void {
@@ -610,6 +662,13 @@ class SweetSocketClient {
       pending.reject(error);
     }
     this.pendingCommands.clear();
+  }
+
+  private rejectQueued(error: Error): void {
+    if (!this.queuedCommands.length) return;
+    const queued = this.queuedCommands;
+    this.queuedCommands = [];
+    for (const q of queued) q.reject(error);
   }
 }
 

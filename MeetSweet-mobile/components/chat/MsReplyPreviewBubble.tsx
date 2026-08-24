@@ -18,7 +18,6 @@ interface Props {
 export function MsReplyPreviewBubble({ reply, position }: Props) {
   const isOwn = position === 'right';
   const senderName = reply.user?.name ?? 'Someone';
-  const isDeleted = Boolean((reply as { deleted?: boolean }).deleted);
   const hasImage = !!reply.image;
   const hasAudio = !!reply.audio;
 
@@ -42,16 +41,7 @@ export function MsReplyPreviewBubble({ reply, position }: Props) {
             {senderName}
           </Text>
         </View>
-        {isDeleted ? (
-          <View style={styles.mediaRow}>
-            <Text
-              style={[styles.deletedText, isOwn ? styles.textOwn : styles.textOther]}
-              numberOfLines={2}
-            >
-              Original message deleted
-            </Text>
-          </View>
-        ) : hasImage ? (
+        {hasImage ? (
           <View style={styles.imageRow}>
             <Image source={{ uri: reply.image }} style={styles.thumb} />
             <Text style={[styles.text, isOwn ? styles.textOwn : styles.textOther]} numberOfLines={1}>
@@ -79,10 +69,12 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    borderRadius: 8,
+    // Same radius family as the main bubbles — the quote reads as part of
+    // the bubble, not a separate thin strip.
+    borderRadius: 10,
     overflow: 'hidden',
-    marginBottom: 3,
-    maxWidth: 260,
+    marginBottom: 4,
+    maxWidth: 280,
   },
   containerLeft: {
     alignSelf: 'flex-start',
@@ -104,9 +96,9 @@ const styles = StyleSheet.create({
 
   body: {
     flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 3,
   },
   headerRow: {
     flexDirection: 'row',
@@ -114,7 +106,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   senderName: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: T.FONT.semibold,
   },
   senderNameOwn: { color: 'rgba(255,255,255,0.75)' },
@@ -137,17 +129,10 @@ const styles = StyleSheet.create({
   },
   text: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: T.FONT.regular,
-    lineHeight: 17,
+    lineHeight: 18,
   },
   textOwn: { color: 'rgba(255,255,255,0.8)' },
   textOther: { color: T.TEXT_2 },
-  deletedText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: T.FONT.regular,
-    fontStyle: 'italic',
-    lineHeight: 17,
-  },
 });

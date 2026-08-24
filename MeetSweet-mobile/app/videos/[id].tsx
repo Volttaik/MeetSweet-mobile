@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   Easing,
@@ -282,7 +283,7 @@ export default function VideoWatchScreen() {
         <View style={styles.topBar}>
           <PressScale
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={() => goBack()}
             accessibilityLabel="Go back"
             hitSlop={12}
           >
@@ -304,7 +305,7 @@ export default function VideoWatchScreen() {
             title="Video unavailable"
             message="This video could not be loaded."
             actionLabel="Go back"
-            onAction={() => router.back()}
+            onAction={() => goBack()}
           />
         </View>
       </View>
@@ -341,7 +342,7 @@ export default function VideoWatchScreen() {
       <View style={styles.topBar}>
         <PressScale
           style={styles.backBtn}
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           accessibilityLabel="Go back"
           hitSlop={12}
         >
@@ -505,9 +506,11 @@ export default function VideoWatchScreen() {
               <MsPostCard
                 key={video.id}
                 post={video}
+                currentUserId={user?.id}
                 onAuthorPress={() => openProfile(video.author.id, video.author.username)}
                 onPress={() => router.replace(`/videos/${video.id}`)}
                 onMediaPress={() => router.replace(`/videos/${video.id}`)}
+                onEditPress={(v) => router.push(`/edit-post/${v.id}`)}
               />
             ))}
           </View>
@@ -525,12 +528,7 @@ export default function VideoWatchScreen() {
         visible={shareVisible}
         contentType="video"
         contentId={post.id}
-        title="Share Video"
-        preview={{
-          title: post.title || post.caption || post.author.name || 'Video',
-          subtitle: post.author.username ? `by @${post.author.username}` : undefined,
-          imageUrl: post.thumbnailUrl || undefined,
-        }}
+        title={post.caption || 'Video'}
         onClose={() => setShareVisible(false)}
       />
 

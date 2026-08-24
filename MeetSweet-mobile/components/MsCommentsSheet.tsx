@@ -11,23 +11,23 @@
  *   - Keyboard-aware composer pinned at bottom.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  FlatList,
+  Keyboard,
+  Modal,
+  PanResponder,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import { FlashList } from '@shopify/flash-list';
-import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetView,
-  type BottomSheetBackdropProps,
-} from '@gorhom/bottom-sheet';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -390,15 +390,15 @@ export function CommentRow({
               </Text>
             )}
             <Text style={styles.timeAgo}>{fmtTimeAgo(comment.createdAt)}</Text>
-            <MsPressable onPress={handleMenu} hitSlop={8} style={styles.menuIcon}>
+            <TouchableOpacity onPress={handleMenu} hitSlop={8} style={styles.menuIcon}>
               <Text style={styles.menuDots}>•••</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.commentText}>{comment.body}</Text>
 
           <View style={styles.actionsRow}>
-            <MsPressable
+            <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => (comment.likedByMe ? onUnlike(comment.id) : onLike(comment.id))}
               hitSlop={8}
@@ -413,43 +413,43 @@ export function CommentRow({
                   {comment.likeCount}
                 </Text>
               )}
-            </MsPressable>
+            </TouchableOpacity>
 
             {onReply && (
-              <MsPressable
+              <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={() => onReply(comment)}
                 hitSlop={8}
               >
                 <ArrowBendUpLeft size={13} color="#8E8E93" />
                 <Text style={styles.actionLabel}>Reply</Text>
-              </MsPressable>
+              </TouchableOpacity>
             )}
 
             {isOwn && onEdit && (
-              <MsPressable
+              <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={() => onEdit(comment)}
                 hitSlop={8}
               >
                 <Pencil size={13} color="#8E8E93" />
                 <Text style={styles.actionLabel}>Edit</Text>
-              </MsPressable>
+              </TouchableOpacity>
             )}
 
             {isOwn && (
-              <MsPressable
+              <TouchableOpacity
                 style={styles.actionBtn}
                 onPress={() => onDelete(comment.id)}
                 hitSlop={8}
               >
                 <Trash size={13} color="#8E8E93" />
-              </MsPressable>
+              </TouchableOpacity>
             )}
           </View>
 
           {(comment.replyCount > 0 || replies.length > 0) && (
-            <MsPressable style={styles.toggleRepliesBtn} onPress={toggleReplies} hitSlop={6}>
+            <TouchableOpacity style={styles.toggleRepliesBtn} onPress={toggleReplies} hitSlop={6}>
               <Text style={styles.toggleRepliesText}>
                 {showReplies
                   ? 'Hide replies'
@@ -457,7 +457,7 @@ export function CommentRow({
                       comment.replyCount === 1 ? 'reply' : 'replies'
                     }`}
               </Text>
-            </MsPressable>
+            </TouchableOpacity>
           )}
 
           {showReplies && (
@@ -501,30 +501,35 @@ interface CommentsModalProps {
 
 export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) {
   const insets = useSafeAreaInsets();
-  const sheetRef = useRef<BottomSheetModal>(null);
-  // The sheet is a native @gorhom/bottom-sheet: Reanimated worklet-driven
-  // presentation, native swipe-to-dismiss, and native keyboard avoidance
-  // (keyboardBehavior="extend" keeps the composer pinned above the keyboard).
-  useEffect(() => {
-    if (visible) sheetRef.current?.present();
-    else sheetRef.current?.dismiss();
-  }, [visible]);
-
-  const renderBackdrop = useMemo(
-    () => (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        opacity={0.65}
-      />
-    ),
-    []
-  );
-
+  const { height: screenHeight } = useWindowDimensions();
+  // Adaptive keyboard handling: the sheet lifts up by the keyboard height
+  // (animated) and its max height shrinks so it never goes full-screen, the
+  // input row stays fully visible, and the comments stay readable above it.
+  const [kbHeight, setKbHeight] = useState(0);
+  const kbLift = useRef(new Animated.Value(0)).current;
   const { user } = useAuth();
   const { setCommentCount } = usePostActions();
 
+  useEffect(() => {
+    const animateTo = (toValue: number) => {
+      setKbHeight(toValue);
+      Animated.timing(kbLift, {
+        toValue,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    };
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      animateTo(e.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      animateTo(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [kbLift]);
   const {
     comments,
     setComments,
@@ -679,31 +684,89 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
     setReplyingTo(comment);
   }, []);
 
-  return (
-    <BottomSheetModal
-      ref={sheetRef}
-      index={0}
-      snapPoints={['82%']}
-      backdropComponent={renderBackdrop}
-      backgroundStyle={sheetStyles.sheetBackground}
-      handleIndicatorStyle={sheetStyles.handleBar}
-      keyboardBehavior="extend"
-      onDismiss={onClose}
-    >
-      <BottomSheetView style={{ flex: 1 }}>
-        {/* Header */}
-        <View style={sheetStyles.header}>
-          <View style={sheetStyles.headerLeft}>
-            <ChatCircle size={18} color={T.ACCENT} weight="fill" />
-            <Text style={sheetStyles.headerTitle}>Comments</Text>
-            <Text style={sheetStyles.headerCount}>{comments.length}</Text>
-          </View>
-          <MsPressable style={sheetStyles.closeBtn} onPress={onClose} hitSlop={10}>
-            <X size={16} color="#A1A1AA" />
-          </MsPressable>
-        </View>
+  const dragY = useRef(new Animated.Value(0)).current;
 
-        <View style={sheetStyles.divider} />
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) {
+          dragY.setValue(g.dy * 0.7);
+        }
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.6) {
+          Animated.timing(dragY, {
+            toValue: 600,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            dragY.setValue(0);
+            onClose();
+          });
+        } else {
+          Animated.spring(dragY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 280,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+      },
+    })
+  ).current;
+
+  useEffect(() => {
+    if (visible) {
+      dragY.setValue(0);
+    }
+  }, [visible]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={sheetStyles.overlay}>
+        <Pressable style={sheetStyles.backdrop} onPress={onClose} />
+        <Animated.View
+          style={[
+            sheetStyles.sheetContainer,
+            {
+              // Lift the whole sheet up by the keyboard height and cap its
+              // height so the top never goes off-screen (no full-screen jump).
+              marginBottom: kbLift,
+              maxHeight: kbHeight > 0
+                ? Math.max(240, screenHeight - kbHeight - 8)
+                : '82%',
+            },
+          ]}
+        >
+          <Animated.View style={{ flex: 1, transform: [{ translateY: dragY }] }}>
+            {/* Top Handle */}
+            <View style={sheetStyles.handleArea} {...panResponder.panHandlers}>
+              <View style={sheetStyles.handleBar} />
+            </View>
+
+            {/* Header */}
+            <View style={sheetStyles.header} {...panResponder.panHandlers}>
+            <View style={sheetStyles.headerLeft}>
+              <ChatCircle size={18} color={T.ACCENT} weight="fill" />
+              <Text style={sheetStyles.headerTitle}>Comments</Text>
+              <Text style={sheetStyles.headerCount}>{comments.length}</Text>
+            </View>
+            <TouchableOpacity style={sheetStyles.closeBtn} onPress={onClose} hitSlop={10}>
+              <X size={16} color="#A1A1AA" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={sheetStyles.divider} />
 
           {/* List Content */}
           {isLoading && comments.length === 0 ? (
@@ -711,12 +774,12 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
           ) : error && comments.length === 0 ? (
             <View style={sheetStyles.emptyWrap}>
               <Text style={sheetStyles.emptyTitle}>{error}</Text>
-              <MsPressable onPress={() => refresh()} style={sheetStyles.retryBtn}>
+              <TouchableOpacity onPress={() => refresh()} style={sheetStyles.retryBtn}>
                 <Text style={sheetStyles.retryText}>Retry</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           ) : (
-            <FlashList
+            <FlatList
               data={comments}
               keyExtractor={(item, index) => `${item.id || 'comment'}-${index}`}
               renderItem={({ item }) => (
@@ -731,8 +794,13 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   onReply={handleStartReply}
                 />
               )}
-              refreshing={isRefreshing}
-              onRefresh={() => refresh(true)}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={() => refresh(true)}
+                  tintColor={T.ACCENT}
+                />
+              }
               onEndReached={loadMore}
               onEndReachedThreshold={0.3}
               ListFooterComponent={
@@ -760,15 +828,15 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
           )}
 
           {/* Composer */}
-          <View style={[sheetStyles.composerContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={[sheetStyles.composerContainer, { paddingBottom: kbHeight > 0 ? 18 : Math.max(insets.bottom, 12) }]}>
             {replyingTo && (
               <View style={sheetStyles.contextChip}>
                 <Text style={sheetStyles.contextText} numberOfLines={1}>
                   Replying to @{replyingTo.author.username || replyingTo.author.name}
                 </Text>
-                <MsPressable onPress={() => setReplyingTo(null)} hitSlop={6}>
+                <TouchableOpacity onPress={() => setReplyingTo(null)} hitSlop={6}>
                   <X size={12} color="#A1A1AA" />
-                </MsPressable>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -777,7 +845,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                 <Text style={sheetStyles.contextText} numberOfLines={1}>
                   Editing your comment
                 </Text>
-                <MsPressable
+                <TouchableOpacity
                   onPress={() => {
                     setEditingComment(null);
                     setText('');
@@ -785,7 +853,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   hitSlop={6}
                 >
                   <X size={12} color="#A1A1AA" />
-                </MsPressable>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -814,29 +882,32 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                     editable={commentsEnabled}
                   />
                 </View>
-                <MsPressable
+                <TouchableOpacity
                   style={[
                     sheetStyles.sendBtn,
                     (!text.trim() || sending) && sheetStyles.sendBtnDisabled,
                   ]}
                   onPress={handleSend}
                   disabled={!text.trim() || sending}
+                  activeOpacity={0.7}
                 >
                   {sending ? (
                     <ActivityIndicator size={12} color="#FFFFFF" />
                   ) : (
                     <PaperPlaneRight size={16} color="#FFFFFF" weight="fill" />
                   )}
-                </MsPressable>
+                </TouchableOpacity>
               </View>
             ) : (
               <View style={sheetStyles.disabledBar}>
                 <Text style={sheetStyles.disabledText}>Comments are disabled for this post</Text>
               </View>
             )}
-        </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+          </View>
+          </Animated.View>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
@@ -939,13 +1010,13 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         ))
       )}
 
-      <MsPressable style={sectionStyles.viewAllBtn} onPress={() => setModalOpen(true)}>
+      <TouchableOpacity style={sectionStyles.viewAllBtn} onPress={() => setModalOpen(true)} activeOpacity={0.7}>
         <Text style={sectionStyles.viewAllText}>
           {totalCount > previewCount
             ? `View all ${totalCount} comments`
             : 'Add a comment…'}
         </Text>
-      </MsPressable>
+      </TouchableOpacity>
 
       <CommentsModal visible={modalOpen} onClose={() => setModalOpen(false)} postId={postId} />
     </View>
@@ -983,7 +1054,11 @@ const styles = StyleSheet.create({
 });
 
 const sheetStyles = StyleSheet.create({
-  sheetBackground: {
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.65)' },
+  backdrop: { ...StyleSheet.absoluteFillObject },
+  sheetContainer: {
+    maxHeight: '82%',
+    minHeight: '55%',
     backgroundColor: '#000000',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -991,6 +1066,7 @@ const sheetStyles = StyleSheet.create({
     borderTopColor: '#27272A',
     overflow: 'hidden',
   },
+  handleArea: { alignItems: 'center', paddingVertical: 8 },
   handleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#27272A' },
   header: {
     flexDirection: 'row',

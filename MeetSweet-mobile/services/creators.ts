@@ -41,12 +41,12 @@ export interface CreatorProfileFull {
   subscriptionPlusPrice: number;
   category: string | null;
   isOnline: boolean;
+  /** Server-authoritative account state; normal profiles have no creator UI. */
+  isCreator: boolean;
   /** Creator-profile access model: when true, the viewer (not subscribed, not
    *  the owner) must NOT see any of this creator's content on the profile.
    *  Authoritative from the server — never derived from local state. */
   contentLocked: boolean;
-  /** Server-authoritative account state; normal profiles have no creator UI. */
-  isCreator: boolean;
 }
 
 /**
@@ -119,8 +119,8 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
     subscriptionPlusPrice: Number(rawUser.subscription_plus_price ?? rawUser.subscriptionPlusPrice ?? 0),
     category: rawUser.category ? String(rawUser.category) : null,
     isOnline: Boolean(rawUser.is_online ?? rawUser.isOnline ?? false),
+    isCreator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? rawUser.is_verified_creator ?? false),
     contentLocked: Boolean(rawUser.content_locked ?? rawUser.contentLocked ?? false),
-    isCreator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? false),
   };
 }
 

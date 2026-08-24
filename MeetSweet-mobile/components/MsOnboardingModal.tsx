@@ -20,9 +20,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import {
@@ -203,19 +203,21 @@ export function MsOnboardingModal({
             {/* Buttons */}
             <View style={styles.buttonRow}>
               {onSkip && !currentScreen.mandatory && (
-                <MsPressable
+                <TouchableOpacity
                   style={styles.skipBtn}
                   onPress={handleSkip}
                   disabled={loading}
-                  >
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.skipLabel}>Skip</Text>
-                </MsPressable>
+                </TouchableOpacity>
               )}
 
-              <MsPressable
+              <TouchableOpacity
                 style={[styles.primaryBtn, !onSkip && styles.primaryBtnFull]}
                 onPress={handleNext}
                 disabled={loading}
+                activeOpacity={0.85}
               >
                 {loading ? (
                   <ActivityIndicator size="small" color="#0C0C0F" />
@@ -229,14 +231,9 @@ export function MsOnboardingModal({
                     )}
                   </>
                 )}
-              </MsPressable>
+              </TouchableOpacity>
             </View>
 
-            {currentScreen.secondaryLabel && (
-              <MsPressable style={styles.secondaryBtn} onPress={() => {}}>
-                <Text style={styles.secondaryLabel}>{currentScreen.secondaryLabel}</Text>
-              </MsPressable>
-            )}
           </View>
         </Animated.View>
       </View>

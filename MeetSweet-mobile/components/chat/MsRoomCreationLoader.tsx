@@ -13,16 +13,8 @@
  * in-progress copy, or `error`/`success` to render terminal states with
  * retry/done actions. The rotating ring stops once a terminal state is shown.
  */
-import React, { useEffect } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import Reanimated, {
-  Easing,
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CheckCircle, WarningCircle, ArrowCounterClockwise } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
@@ -61,21 +53,30 @@ export function MsRoomCreationLoader({
   onCancel,
   onDone,
 }: Props) {
-  const spin = useSharedValue(0);
+  const spin = useRef(new Animated.Value(0)).current;
 
   const animate = visible && !success && !error;
 
   useEffect(() => {
     if (!animate) return;
-    spin.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.linear }), -1, false);
-    return () => { cancelAnimation(spin); spin.value = 0; };
+    const loop = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 1100,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
   }, [animate, spin]);
 
-  const ringStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${spin.value * 360}deg` }],
-  }));
-
   if (!visible) return null;
+
+  const rotate = spin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   const interactive = Boolean(error || success);
 
@@ -89,10 +90,10 @@ export function MsRoomCreationLoader({
           {/* Rotating ring — a bordered circle with a transparent gap so it
               reads as a spinner orbiting the logo. */}
           {animate && (
-            <Reanimated.View
+            <Animated.View
               style={[
                 styles.ring,
-                ringStyle,
+                { transform: [{ rotate }] },
               ]}
             />
           )}

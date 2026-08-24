@@ -6,9 +6,9 @@ import {
   Switch,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -26,6 +26,7 @@ import {
   type Icon,
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import * as Clipboard from 'expo-clipboard';
 import { T } from '@/constants/theme';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
@@ -269,10 +270,11 @@ function SettingsSection({
   const [open, setOpen] = useState(defaultOpen);
   return (
     <View style={styles.settingsCard}>
-      <MsPressable
+      <TouchableOpacity
         style={styles.settingsHeader}
         onPress={() => setOpen((v) => !v)}
-        >
+        activeOpacity={0.75}
+      >
         <View style={styles.settingsIconWrap}>
           <IconComp size={18} color={T.TEXT_2} />
         </View>
@@ -282,7 +284,7 @@ function SettingsSection({
           color={T.TEXT_3}
           style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
         />
-      </MsPressable>
+      </TouchableOpacity>
       {open && <View style={styles.settingsBody}>{children}</View>}
     </View>
   );
@@ -302,9 +304,10 @@ function SettingsRow({
   icon?: Icon;
 }) {
   return (
-    <MsPressable
+    <TouchableOpacity
       style={styles.settingsRow}
       onPress={onPress}
+      activeOpacity={0.7}
     >
       <View style={styles.settingsRowLabelWrap}>
         {RowIcon ? <RowIcon size={16} color={T.TEXT_2} /> : null}
@@ -314,7 +317,7 @@ function SettingsRow({
         {value ? <Text style={styles.settingsRowValue}>{value}</Text> : null}
         <CaretRight size={13} color={T.TEXT_3} />
       </View>
-    </MsPressable>
+    </TouchableOpacity>
   );
 }
 
@@ -496,13 +499,14 @@ export default function CreatorDashboardScreen() {
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <MsPressable
-          onPress={() => router.back()}
+        <TouchableOpacity
+          onPress={() => goBack()}
           style={styles.backBtn}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Creator Dashboard</Text>
         <View style={{ width: 38 }} />
       </View>
@@ -537,13 +541,14 @@ export default function CreatorDashboardScreen() {
                   {latestPeriod ? `${shortPeriod(latestPeriod)}: ${formatNaira(monthRevenue)}` : 'No earnings recorded yet'}
                 </Text>
               </View>
-              <MsPressable
+              <TouchableOpacity
                 style={styles.withdrawBtn}
                 onPress={() => router.push('/creator-payout')}
-                        >
+                activeOpacity={0.85}
+              >
                 <ArrowCircleUp size={16} color="#fff" weight="fill" />
                 <Text style={styles.withdrawLabel}>Withdraw</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.heroMetaRow}>
@@ -643,33 +648,36 @@ export default function CreatorDashboardScreen() {
           {/* ── Quick actions ─────────────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsRow}>
-            <MsPressable
+            <TouchableOpacity
               style={styles.actionCard}
               onPress={() => router.push('/create-post')}
-                    >
+              activeOpacity={0.8}
+            >
               <View style={styles.actionIconWrap}>
                 <Camera size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>New Post</Text>
-            </MsPressable>
-            <MsPressable
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.actionCard}
               onPress={() => router.push('/creator-payout')}
-                    >
+              activeOpacity={0.8}
+            >
               <View style={styles.actionIconWrap}>
                 <Wallet size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>Payout</Text>
-            </MsPressable>
-            <MsPressable
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.actionCard}
               onPress={() => router.push('/settings')}
-                    >
+              activeOpacity={0.8}
+            >
               <View style={styles.actionIconWrap}>
                 <GearSix size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>Settings</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
 
               {/* ── Referral link ─────────────────────────────────────────────── */}
@@ -683,7 +691,7 @@ export default function CreatorDashboardScreen() {
               <Text style={styles.referralUrl} numberOfLines={1}>{referral?.url ?? 'Loading referral link…'}</Text>
             </View>
             <View style={styles.referralActions}>
-              <MsPressable
+              <TouchableOpacity
                 style={styles.referralAction}
                 disabled={!referral?.url || referralBusy}
                 onPress={async () => {
@@ -695,14 +703,14 @@ export default function CreatorDashboardScreen() {
                 }}
               >
                 <Text style={styles.referralActionText}>Copy Link</Text>
-              </MsPressable>
-              <MsPressable
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.referralAction, styles.referralActionPrimary]}
                 disabled={!referral?.url || referralBusy}
                 onPress={() => referral?.url && Share.share({ title: 'Join MeetSweet', message: `Join MeetSweet with my referral link: ${referral.url}`, url: referral.url })}
               >
                 <Text style={[styles.referralActionText, styles.referralActionPrimaryText]}>Share</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -743,12 +751,12 @@ export default function CreatorDashboardScreen() {
                     autoFocus
                     selectTextOnFocus
                   />
-                  <MsPressable style={styles.priceSave} onPress={() => savePrice('subscriber')}>
+                  <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber')}>
                     <Text style={styles.priceSaveText}>Save</Text>
-                  </MsPressable>
-                  <MsPressable onPress={() => setEditingPrice(null)} hitSlop={8}>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
                     <Text style={styles.priceCancelText}>Cancel</Text>
-                  </MsPressable>
+                  </TouchableOpacity>
                 </View>
               </View>
             ) : (
@@ -777,12 +785,12 @@ export default function CreatorDashboardScreen() {
                     autoFocus
                     selectTextOnFocus
                   />
-                  <MsPressable style={styles.priceSave} onPress={() => savePrice('subscriber_plus')}>
+                  <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber_plus')}>
                     <Text style={styles.priceSaveText}>Save</Text>
-                  </MsPressable>
-                  <MsPressable onPress={() => setEditingPrice(null)} hitSlop={8}>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
                     <Text style={styles.priceCancelText}>Cancel</Text>
-                  </MsPressable>
+                  </TouchableOpacity>
                 </View>
               </View>
             ) : (

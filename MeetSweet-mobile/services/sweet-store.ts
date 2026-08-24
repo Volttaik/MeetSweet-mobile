@@ -22,13 +22,14 @@
  */
 
 import { realtime, REALTIME_EVENT, type RealtimeEvent } from '@/services/realtime';
+import { soundService } from '@/services/sound-service';
 import {
   normalizeChatRoom,
   normalizeMessage,
   type ChatRoom,
   type RoomMessage,
 } from '@/services/room-service';
-import { cacheChatRooms, cacheMessages, rekeyCachedRoom, removeCachedRoom } from '@/services/chat-cache';
+import { cacheChatRooms, cacheMessages, removeCachedRoom } from '@/services/chat-cache';
 import { useEffect, useState } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,11 +55,22 @@ function sortRooms(rooms: ChatRoom[]): ChatRoom[] {
 }
 
 function roomIdOf(event: RealtimeEvent): string {
-  const payloadRoomId = (event.payload as { roomId?: unknown })?.roomId;
-  return String(event.roomId ?? payloadRoomId ?? String(event.channel ?? '').replace(/^chat:/, ''));
+  // Durable per-user events ride the private `user:{id}` channel but always
+  // carry the room id in the payload/event — never trust the channel string
+  // for room-scoped state (parsing `user:` as a room id would silently drop
+  // preview/unread updates for rooms the user is not currently viewing).
+  const payloadRoomId = (event.payload as { roomId?: unknown } | undefined)?.roomId;
+  if (typeof payloadRoomId === 'string' && payloadRoomId) return payloadRoomId;
+  if (typeof event.roomId === 'string' && event.roomId) return event.roomId;
+  return String(event.channel ?? '').replace(/^chat:/, '');
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
+
+/** How long a typing indicator lives without a heartbeat before the store
+ *  expires it (chat list "Typing…" row). Must be comfortably longer than the
+ *  sender's typing heartbeat so an active composer never flickers. */
+const TYPING_EXPIRE_MS = 12_000;
 
 class SweetStore {
   private rooms = new Map<string, ChatRoom>();
@@ -69,6 +81,10 @@ class SweetStore {
   private started = false;
   private currentUserId: string | null = null;
   private offFns: Array<() => void> = [];
+  /** Auto-expiry timers for typing indicators, keyed `${roomId}:${userId}`.
+   *  A sender whose app dies mid-compose never sends typing:stop — without
+   *  these, the chat list would show "Typing…" forever. */
+  private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   /** Start listening to the user's private channel + all socket events. */
   start(userId: string): void {
@@ -86,7 +102,6 @@ class SweetStore {
       realtime.on(REALTIME_EVENT.chatsUpdate, (e) => this.onChatsUpdate(e)),
       realtime.on(REALTIME_EVENT.chatsDelete, (e) => this.onChatsDelete(e)),
       realtime.on(REALTIME_EVENT.chatClear, (e) => this.onChatClear(e)),
-      realtime.on(REALTIME_EVENT.roomMigrated, (e) => this.onRoomMigrated(e)),
       realtime.on(REALTIME_EVENT.chatTypingStarted, (e) => this.onTyping(e, true)),
       realtime.on(REALTIME_EVENT.chatTypingStopped, (e) => this.onTyping(e, false)),
       realtime.on(REALTIME_EVENT.chatPresenceUpdated, (e) => this.onPresence(e)),
@@ -105,6 +120,8 @@ class SweetStore {
     this.unread.clear();
     this.typing.clear();
     this.presence.clear();
+    for (const timer of this.typingTimers.values()) clearTimeout(timer);
+    this.typingTimers.clear();
   }
 
   /** Replace the whole room list (HTTP refresh / local cache hydration). */
@@ -170,15 +187,22 @@ class SweetStore {
   private onMessageUpsert(event: RealtimeEvent): void {
     const roomId = roomIdOf(event);
     if (!roomId) return;
+    // Never persist the provisional (`accepted`) copy of a message — it is
+    // optimistic and not yet durable; the persisted copy (same id, server
+    // fields) replaces it. Caching the provisional could leave a row with
+    // pending/isOwn in the wrong state if writes raced.
+    if ((event.payload as { status?: string })?.status === 'accepted') return;
     const raw = (event.payload as { message?: unknown })?.message;
     if (!raw) return;
-    const msg = normalizeMessage(raw, this.currentUserId ?? undefined);
+    const msg = normalizeMessage(raw);
     if (!msg?.id) return;
-    // The user channel is active for the whole authenticated session. Persist
-    // incoming messages here so a room opened later can render from the local
-    // replica without requiring a refresh or a history fallback.
-    if (this.currentUserId) {
-      cacheMessages(roomId, [msg], this.currentUserId).catch(() => {});
+
+    // A genuinely NEW incoming message (someone else's, delivered live — not a
+    // reconnect replay, not the sender's own echo) triggers the receive chime.
+    // Keyed by clientMessageId ?? message id so the provisional + persisted
+    // copies of the same message can never play twice.
+    if (msg.sender?.id && msg.sender.id !== this.currentUserId && !event.replayed) {
+      soundService.playMessageReceived(event.clientMessageId ?? String(msg.id));
     }
 
     // Update the room's preview if we know the room (newest message wins).
@@ -186,27 +210,21 @@ class SweetStore {
     if (room) {
       const incomingAt = new Date(msg.createdAt).getTime();
       const currentAt = new Date(room.lastMessageAt ?? 0).getTime();
-      const isNewer = incomingAt > currentAt || (
-        incomingAt === currentAt && msg.id > String(room.lastMessageId ?? '')
-      );
-      if (isNewer) {
-        const isOtherSender = msg.sender?.id && msg.sender.id !== this.currentUserId;
-        const unreadCount = isOtherSender
-          ? (this.unread.get(roomId) ?? room.unreadCount ?? 0) + 1
-          : (this.unread.get(roomId) ?? room.unreadCount ?? 0);
+      if (incomingAt >= currentAt) {
         this.rooms.set(roomId, {
           ...room,
-          lastMessageId: msg.id,
-          lastMessageBody: msg.body ?? null,
+          lastMessageBody: msg.body ?? room.lastMessageBody,
           lastMessageAt: msg.createdAt ?? room.lastMessageAt,
-          lastMessageMediaType: (msg.mediaType ?? null) as ChatRoom['lastMessageMediaType'],
-          lastMessageSenderId: msg.sender?.id ?? null,
-          unreadCount,
+          lastMessageMediaType: (msg.mediaType ?? room.lastMessageMediaType ?? null) as ChatRoom['lastMessageMediaType'],
+          lastMessageSenderId: msg.sender?.id ?? room.lastMessageSenderId,
         });
-        this.unread.set(roomId, unreadCount);
-        cacheChatRooms([this.rooms.get(roomId)!], this.currentUserId).catch(() => {});
       }
     }
+    // Persist the message row locally so an offline-received message (delivered
+    // by the reconnect replay on the user channel) survives an app restart and
+    // the room opens instantly without a history fetch. Idempotent upsert by
+    // message id — the chat screen's own handler may already have cached it.
+    cacheMessages(roomId, [msg], this.currentUserId).catch(() => {});
     this.notify();
   }
 
@@ -290,37 +308,6 @@ class SweetStore {
     }
   }
 
-  /**
-   * room:migrated — a legacy pre-deterministic room was adopted to its
-   * canonical derived id. Re-key every piece of in-memory + persisted state
-   * keyed by the old id so the chat list never shows two entries for one
-   * conversation.
-   */
-  private onRoomMigrated(event: RealtimeEvent): void {
-    const p = event.payload as { roomId?: string; legacyRoomId?: string };
-    const fromId = p.legacyRoomId;
-    const toId = p.roomId;
-    if (!fromId || !toId || fromId === toId) return;
-
-    const room = this.rooms.get(fromId);
-    if (room) {
-      this.rooms.set(toId, { ...room, chatRoomId: toId });
-      this.rooms.delete(fromId);
-    }
-    if (this.unread.has(fromId)) {
-      this.unread.set(toId, this.unread.get(fromId) ?? 0);
-      this.unread.delete(fromId);
-    }
-    if (this.typing.has(fromId)) {
-      this.typing.set(toId, this.typing.get(fromId) ?? new Set<string>());
-      this.typing.delete(fromId);
-    }
-    if (this.currentUserId) {
-      rekeyCachedRoom(fromId, toId, this.currentUserId).catch(() => {});
-    }
-    this.notify();
-  }
-
   private onTyping(event: RealtimeEvent, started: boolean): void {
     const roomId = roomIdOf(event);
     if (!roomId) return;
@@ -332,6 +319,23 @@ class SweetStore {
     else users.delete(userId);
     if (users.size === 0) this.typing.delete(roomId);
     else this.typing.set(roomId, users);
+
+    // Typing is ephemeral: arm/refresh an expiry so a sender that goes silent
+    // (app killed, network dropped) never leaves a stuck "Typing…" row.
+    const key = `${roomId}:${userId}`;
+    const existing = this.typingTimers.get(key);
+    if (existing) clearTimeout(existing);
+    if (started) {
+      this.typingTimers.set(key, setTimeout(() => {
+        this.typingTimers.delete(key);
+        const roomUsers = this.typing.get(roomId);
+        roomUsers?.delete(userId);
+        if (roomUsers && roomUsers.size === 0) this.typing.delete(roomId);
+        this.notify();
+      }, TYPING_EXPIRE_MS));
+    } else {
+      this.typingTimers.delete(key);
+    }
     this.notify();
   }
 

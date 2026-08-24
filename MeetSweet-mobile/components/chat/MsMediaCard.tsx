@@ -18,24 +18,18 @@
  *
  * Never shows in-bubble playback controls.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
+  Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import Reanimated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
 import { Image as ExpoImage } from 'expo-image';
-import { MsPressable } from '@/components/MsPressable';
-import { Play, ArrowClockwise, DownloadSimple, Image as ImageIcon } from 'phosphor-react-native';
+import { Play, ArrowClockwise, Image as ImageIcon } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
 import { formatDuration } from '@/types/chat-message';
@@ -47,33 +41,38 @@ const MIN_CARD_W  = 160;
 /** Default height while we wait for natural dimensions */
 const DEFAULT_H   = Math.round(MAX_CARD_W * 0.65);
 
+/**
+ * URIs whose image has fully decoded at least once this session. Re-mounted
+ * media cards (windowed list cells, re-opened rooms) start at full opacity
+ * with no shimmer for these — the native cache already holds the pixels, so
+ * flashing a skeleton + fade-in on every mount reads as a media "blink".
+ * Mirrors MsMediaLoader's session cache.
+ */
+const _loadedMediaUris = new Set<string>();
+
 // ── Shimmer placeholder ───────────────────────────────────────────────────────
 
 function Shimmer({ width, height }: { width: number; height: number }) {
-  const anim = useSharedValue(0);
-
+  const anim = useRef(new Animated.Value(0)).current;
   React.useEffect(() => {
-    anim.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 820 }),
-        withTiming(0, { duration: 820 }),
-      ),
-      -1,
-      false,
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 820, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 820, useNativeDriver: true }),
+      ]),
     );
-    return () => cancelAnimation(anim);
-  }, [anim]);
-
-  const style = useAnimatedStyle(() => ({
-    opacity: 0.3 + anim.value * 0.4,
-  }));
+    loop.start();
+    return () => loop.stop();
+  }, []);
 
   return (
-    <Reanimated.View
-      style={[
-        { width, height, backgroundColor: T.SURFACE_2 },
-        style,
-      ]}
+    <Animated.View
+      style={{
+        width,
+        height,
+        backgroundColor: T.SURFACE_2,
+        opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }),
+      }}
     />
   );
 }
@@ -95,18 +94,16 @@ interface Props {
   message:    MsMessage;
   position:   'left' | 'right';
   onPress?:   () => void;
-  onDownload?: () => void;
   onLongPress?: () => void;
 }
 
-export function MsMediaCard({ message, position, onPress, onDownload, onLongPress }: Props) {
+export function MsMediaCard({ message, position, onPress, onLongPress }: Props) {
   const isOwn   = position === 'right';
   const isVideo = message.msMediaType === 'video' || !!message.video;
 
   // Rendering priority: localUri (persistent local file) → library field.
   const imageUri = message.localUri || message.image || (isVideo ? undefined : message.audio) || '';
-  const needsDownload = !isVideo && !message.localUri && !!imageUri;
-  const hasThumb = !isVideo && !!imageUri && !needsDownload;
+  const hasThumb = !isVideo && !!imageUri;
   const videoDur = message.msAudioDuration ?? 0;
 
   // Animated GIF detection — from the file type / mime / extension. GIFs are
@@ -122,15 +119,24 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
   const [imgW, setImgW] = useState<number>(MAX_CARD_W);
   const [imgH, setImgH] = useState<number>(DEFAULT_H);
 
-  const [loading,  setLoading]  = useState(hasThumb);
+  // Media already decoded earlier in this session (native cache has it) —
+  // appear instantly instead of flashing a skeleton + fade-in again.
+  const alreadyLoaded = !!imageUri && _loadedMediaUris.has(imageUri);
+  const [loading,  setLoading]  = useState(hasThumb && !alreadyLoaded);
   const [error,    setError]    = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
-  // Smooth fade-in — Reanimated worklet on the UI thread
-  const fadeAnim = useSharedValue(0);
+  // Smooth fade-in (starts at 1 for session-cached media so re-mounts show
+  // the image immediately instead of blinking from transparent).
+  const fadeAnim = useRef(new Animated.Value(alreadyLoaded ? 1 : 0)).current;
 
-  const handleLoad = useCallback((e: { nativeEvent: { source: { width: number; height: number } } }) => {
-    const { width: nw, height: nh } = e.nativeEvent.source;
+  const handleLoad = useCallback((e: { nativeEvent?: { source?: { width: number; height: number } } }) => {
+    // expo-image on web fires onLoad with a different event shape (no
+    // nativeEvent.source) — fall back to the placeholder size instead of
+    // crashing on `undefined.source`.
+    const src = e?.nativeEvent?.source;
+    const nw = src?.width ?? 0;
+    const nh = src?.height ?? 0;
     if (nw > 0 && nh > 0) {
       // Fit width within MAX_CARD_W, let height follow natural aspect ratio.
       // Animated GIFs get a height cap so a tall GIF stays a compact bubble
@@ -142,8 +148,13 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
       setImgH(isGif ? Math.min(fh, Math.round(MAX_CARD_W * 1.2)) : fh);
     }
     setLoading(false);
-    fadeAnim.value = withTiming(1, { duration: 240 });
-  }, [fadeAnim]);
+    if (imageUri) _loadedMediaUris.add(imageUri);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 240,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim, imageUri]);
 
   const handleError = useCallback(() => {
     setLoading(false);
@@ -153,21 +164,17 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
   const handleRetry = useCallback(() => {
     setError(false);
     setLoading(true);
-    fadeAnim.value = 0;
+    fadeAnim.setValue(0);
     setRetryKey((k) => k + 1);
   }, [fadeAnim]);
 
-  const fadeStyle = useAnimatedStyle(() => ({ opacity: fadeAnim.value }));
-
   return (
-    <MsPressable
+    <Pressable
       onPress={onPress}
       delayLongPress={350}
       onLongPress={onLongPress}
       style={[s.container, isOwn ? s.containerRight : s.containerLeft]}
-      scale={0.98}
-      pressOpacity={1}
-      haptic
+      android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
       accessibilityLabel={isVideo ? 'Video message. Tap to play.' : isGif ? 'Animated GIF message. Tap to view.' : 'Image message. Tap to view.'}
       accessibilityRole="button"
     >
@@ -184,19 +191,10 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
               <ImageIcon size={24} color={T.TEXT_3} weight="regular" />
             </View>
             <Text style={s.errorText}>Failed to load</Text>
-            <MsPressable style={s.retryBtn} onPress={handleRetry}>
+            <TouchableOpacity style={s.retryBtn} onPress={handleRetry} activeOpacity={0.7}>
               <ArrowClockwise size={16} color={T.ACCENT} />
               <Text style={s.retryText}>Retry</Text>
-            </MsPressable>
-          </View>
-        ) : needsDownload ? (
-          <View style={[s.downloadWrap, { width: MAX_CARD_W, height: DEFAULT_H * 0.72 }]}>
-            <ImageIcon size={26} color={T.TEXT_3} />
-            <Text style={s.downloadTitle}>Image ready</Text>
-            <MsPressable style={s.downloadBtn} onPress={onDownload}>
-              <DownloadSimple size={16} color="#fff" weight="bold" />
-              <Text style={s.downloadText}>Download image</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         ) : isVideo ? (
           /* ── Video: dark placeholder + large play ring + duration ──────── */
@@ -217,7 +215,7 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
                 <Shimmer width={imgW} height={imgH} />
               </View>
             )}
-            <Reanimated.View style={error ? { opacity: 0 } : fadeStyle}>
+            <Animated.View style={{ opacity: error ? 0 : fadeAnim }}>
               <ExpoImage
                 key={retryKey}
                 source={{ uri: imageUri }}
@@ -228,7 +226,7 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
                 onError={handleError}
                 accessibilityLabel={isGif ? 'Animated GIF' : 'Photo'}
               />
-            </Reanimated.View>
+            </Animated.View>
           </>
         )}
 
@@ -239,7 +237,7 @@ export function MsMediaCard({ message, position, onPress, onDownload, onLongPres
           </View>
         ) : null}
       </View>
-    </MsPressable>
+    </Pressable>
   );
 }
 
@@ -249,9 +247,14 @@ const s = StyleSheet.create({
   containerRight: { alignSelf: 'flex-end',   marginRight: 8 },
 
   card: {
-    borderRadius: 5,
+    // Radius matches the text-bubble family so media feels like part of the
+    // same solid component language.
+    borderRadius: 10,
     overflow: 'hidden',
-    // No background — image/video shows without a bubble wrapper
+    // No background — image/video shows without a bubble wrapper, but the
+    // hairline edge keeps it defined against any wallpaper.
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.32,
@@ -311,35 +314,10 @@ const s = StyleSheet.create({
     backgroundColor: T.SURFACE_2,
   },
   caption: {
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 19,
     fontFamily: T.FONT.regular,
     color: T.TEXT_2,
-  },
-
-  downloadWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: T.SURFACE_2,
-  },
-  downloadTitle: {
-    fontSize: 12,
-    fontFamily: T.FONT.medium,
-    color: T.TEXT_2,
-  },
-  downloadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.ACCENT,
-  },
-  downloadText: {
-    fontSize: 12,
-    fontFamily: T.FONT.semibold,
-    color: '#fff',
   },
 
   errorWrap: {

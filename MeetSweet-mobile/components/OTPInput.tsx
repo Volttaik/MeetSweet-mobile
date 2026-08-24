@@ -40,6 +40,7 @@ interface BoxProps {
   inputRef: (ref: TextInput | null) => void;
   onChangeText: (text: string) => void;
   onKeyPress: (key: string) => void;
+  onPaste: (text: string) => void;
   onFocus: () => void;
   onBlur: () => void;
   autoFocus?: boolean;
@@ -52,6 +53,7 @@ function OtpBox({
   inputRef,
   onChangeText,
   onKeyPress,
+  onPaste,
   onFocus,
   onBlur,
   autoFocus,
@@ -99,12 +101,24 @@ function OtpBox({
           value={digit}
           onChangeText={onChangeText}
           onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key)}
+          // Web paste: react-native-web forwards the DOM ClipboardEvent here.
+          // (Native paste arrives through onChangeText with the full string.)
+          // Spread via a cast — RN's TextInputProps type has no onPaste.
+          {...({
+            onPaste: (e: unknown) => {
+              const evt = e as { nativeEvent?: { clipboardData?: { getData?: (f: string) => string } }; clipboardData?: { getData?: (f: string) => string } };
+              const clip = evt?.nativeEvent?.clipboardData ?? evt?.clipboardData;
+              const text = typeof clip?.getData === 'function' ? clip.getData('text') : '';
+              if (text) onPaste(text);
+            },
+          } as object)}
           onFocus={onFocus}
           onBlur={onBlur}
           keyboardType="number-pad"
           textContentType="oneTimeCode"
           autoComplete="one-time-code"
-          maxLength={1}
+          // No maxLength — the controlled `digit` value keeps each box to one
+          // character while allowing full-code pastes through handleChange.
           textAlign="center"
           selectionColor="rgba(255,255,255,0.5)"
           caretHidden
@@ -164,8 +178,30 @@ const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(function OTPInput(
   };
 
   const handleChange = (text: string, index: number) => {
-    const digit = text.replace(/[^0-9]/g, '').slice(-1);
+    const digitsOnly = text.replace(/[^0-9]/g, '');
     const digits = getDigits();
+
+    // Paste of a full/partial code — fill the boxes from this index onward.
+    if (digitsOnly.length > 1) {
+      for (let i = 0; i < digitsOnly.length && index + i < length; i++) {
+        digits[index + i] = digitsOnly[i];
+      }
+      const next = digits.join('');
+      onChange(next);
+      const lastFilled = Math.min(index + digitsOnly.length - 1, length - 1);
+      if (next.length === length) {
+        inputRefs.current[lastFilled]?.blur();
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        onComplete?.(next);
+      } else {
+        setTimeout(() => inputRefs.current[lastFilled + 1]?.focus(), 10);
+      }
+      return;
+    }
+
+    const digit = digitsOnly.slice(-1);
     digits[index] = digit;
     const next = digits.join('');
     onChange(next);
@@ -179,12 +215,11 @@ const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(function OTPInput(
       } else {
         // Last box filled
         inputRefs.current[index]?.blur();
-        const full = next.replace(/\s/g, '');
-        if (full.length === length) {
+        if (next.length === length) {
           try {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch {}
-          onComplete?.(full);
+          onComplete?.(next);
         }
       }
     }
@@ -219,6 +254,7 @@ const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(function OTPInput(
           }}
           onChangeText={(text) => handleChange(text, i)}
           onKeyPress={(key) => handleKeyPress(key, i)}
+          onPaste={(text) => handleChange(text, i)}
           onFocus={() => setFocusedIndex(i)}
           onBlur={() => setFocusedIndex(-1)}
           autoFocus={autoFocus && i === 0}

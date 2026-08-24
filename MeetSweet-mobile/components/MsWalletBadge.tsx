@@ -8,8 +8,8 @@ import {
   Animated,
   StyleSheet,
   Text,
+  TouchableOpacity,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { Wallet } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { router } from 'expo-router';
@@ -48,14 +48,14 @@ export function MsWalletBadge({ balance, onPress }: MsWalletBadgeProps) {
     : null;
 
   return (
-    <MsPressable onPress={handlePress}>
+    <TouchableOpacity onPress={handlePress} activeOpacity={0.75}>
       <Animated.View style={[styles.badge, { transform: [{ scale: scaleAnim }] }]}>
         <Wallet size={12} color={T.SUCCESS} weight="fill" />
         {displayBalance != null && (
           <Text style={styles.label}>{displayBalance}</Text>
         )}
       </Animated.View>
-    </MsPressable>
+    </TouchableOpacity>
   );
 }
 

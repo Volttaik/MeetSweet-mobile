@@ -4,14 +4,12 @@
  * Renders as an overlay below the chat header with the search bar and a
  * matching-message results list. The overlay is keyboard-aware so the search
  * input, cursor, typed text and results are ALWAYS visible above the keyboard
- * on every device.
- *
- * The keyboard avoidance uses react-native-keyboard-controller's
- * KeyboardAvoidingView (the same native driver as the rest of the app — the
- * legacy JS-thread KeyboardAvoidingView from react-native would fight the
- * root KeyboardProvider and re-offset on iOS). The KAV reads the keyboard
- * height from the native module on both platforms, so no manual keyboard
- * height tracking is needed.
+ * on every device:
+ *   • iOS — KeyboardAvoidingView (behavior="padding") shifts the results up
+ *     with the keyboard.
+ *   • Android — the window resize isn't guaranteed (Expo Go / soft input
+ *     mode varies per device), so the keyboard height is tracked explicitly
+ *     and applied as bottom padding to the results list.
  *
  * Tapping a result closes the overlay and jumps to the message in the chat
  * (the target bubble flashes via the screen's highlight).
@@ -19,13 +17,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { ArrowBendUpLeft, MagnifyingGlass, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
@@ -61,6 +61,19 @@ function snippetFor(m: MsMessage): string {
 export function MsChatSearch({ visible, topOffset, messages, onClose, onJump }: Props) {
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Track the keyboard height explicitly (Android can't always rely on window
+  // resize, and this is the value that guarantees the results stay visible).
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -69,6 +82,7 @@ export function MsChatSearch({ visible, topOffset, messages, onClose, onJump }: 
       return () => clearTimeout(t);
     }
     setQuery('');
+    setKeyboardHeight(0);
   }, [visible]);
 
   const matches = useMemo(() => {
@@ -90,7 +104,7 @@ export function MsChatSearch({ visible, topOffset, messages, onClose, onJump }: 
   return (
     <KeyboardAvoidingView
       style={[s.overlay, { top: topOffset }]}
-      behavior="padding"
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={topOffset}
     >
       {/* ── Search bar ──────────────────────────────────────────────────── */}
@@ -114,19 +128,21 @@ export function MsChatSearch({ visible, topOffset, messages, onClose, onJump }: 
             {total === 0 ? 'No results' : `${total} ${total === 1 ? 'match' : 'matches'}`}
           </Text>
         )}
-        <MsPressable onPress={onClose} hitSlop={8} style={s.iconBtn}>
+        <TouchableOpacity onPress={onClose} hitSlop={8} style={s.iconBtn}>
           <X size={18} color={T.TEXT_2} />
-        </MsPressable>
+        </TouchableOpacity>
       </View>
 
-      {/* ── Results — the KAV keeps them above the keyboard on both platforms ── */}
+      {/* ── Results (padded above the keyboard on Android) ───────────────── */}
       <FlatList
         data={matches}
         keyExtractor={(m) => String(m._id)}
         style={s.list}
         contentContainerStyle={[
           s.listContent,
-          { paddingBottom: 16 },
+          // Android: keep results above the keyboard regardless of soft-input
+          // mode. iOS is handled by the KeyboardAvoidingView above.
+          { paddingBottom: Platform.OS === 'android' ? keyboardHeight : 16 },
         ]}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
@@ -141,8 +157,9 @@ export function MsChatSearch({ visible, topOffset, messages, onClose, onJump }: 
           )
         }
         renderItem={({ item }) => (
-          <MsPressable
+          <TouchableOpacity
             style={s.row}
+            activeOpacity={0.7}
             onPress={() => handleJump(item)}
           >
             <View style={s.rowIcon}>
@@ -159,7 +176,7 @@ export function MsChatSearch({ visible, topOffset, messages, onClose, onJump }: 
             <Text style={s.rowTime}>
               {item.createdAt ? formatTime(item.createdAt) : ''}
             </Text>
-          </MsPressable>
+          </TouchableOpacity>
         )}
       />
     </KeyboardAvoidingView>

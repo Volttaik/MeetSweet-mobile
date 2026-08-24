@@ -1,5 +1,10 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+
+// A card Pressable (button on web) cannot contain a nested <button>, so the
+// embedded Subscribe control drops its button role on web only (renders as a
+// clickable div inside the card button). Native keeps full button semantics.
+const INNER_BUTTON_ROLE = Platform.OS === 'web' ? undefined : 'button';
 import { SealCheck, Play, Sparkle, Users } from 'phosphor-react-native';
 import type { ContentPreview, Creator, TrendingCollection } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -126,7 +131,7 @@ export function MsFeaturedCreatorCard({
         hitSlop={6}
       >
         <MsAvatar
-          size={56}
+          size={60}
           initials={creator.initials}
           imageUri={creator.avatarUrl ?? undefined}
           showOnline={creator.isOnline}
@@ -160,7 +165,7 @@ export function MsFeaturedCreatorCard({
         onPress={onSubscribe}
         disabled={subscribing || !onSubscribe}
         hitSlop={6}
-        accessibilityRole="button"
+        accessibilityRole={INNER_BUTTON_ROLE}
         accessibilityLabel={isSubscribed ? `Subscribed to ${creator.name}` : `Subscribe to ${creator.name}`}
       >
         <Text style={[featuredStyles.subscribeBtnLabel, isSubscribed && { color: T.TEXT_2 }]}>
@@ -201,7 +206,7 @@ export function MsRecommendedCreatorRow({
     >
       <Pressable onPress={onAvatarPress ?? onPress} hitSlop={6}>
         <MsAvatar
-          size={46}
+          size={50}
           initials={creator.initials}
           imageUri={creator.avatarUrl ?? undefined}
           showOnline={creator.isOnline}
@@ -230,7 +235,7 @@ export function MsRecommendedCreatorRow({
         onPress={onSubscribe}
         disabled={subscribing || !onSubscribe}
         hitSlop={6}
-        accessibilityRole="button"
+        accessibilityRole={INNER_BUTTON_ROLE}
         accessibilityLabel={isSubscribed ? `Subscribed to ${creator.name}` : `Subscribe to ${creator.name}`}
       >
         <Text style={[recommendedStyles.subscribeLabel, isSubscribed && { color: T.TEXT_2 }]}>
@@ -375,14 +380,14 @@ const identityStyles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   copy: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13, flexShrink: 1 },
-  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 2 },
+  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14, flexShrink: 1 },
+  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, marginTop: 2 },
 });
 
 const featuredStyles = StyleSheet.create({
   card: {
-    width: 254,
-    minHeight: 260,
+    width: 300,
+    minHeight: 292,
     borderRadius: T.RADIUS.xl,
     padding: 16,
     justifyContent: 'space-between',
@@ -399,13 +404,13 @@ const featuredStyles = StyleSheet.create({
     borderRadius: T.RADIUS.xl,
   },
   mark: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  markText: { color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1.2 },
+  markText: { color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 11, letterSpacing: 1.2 },
   avatarWrap: { marginTop: 14 },
   featuredCopy: { marginTop: 12 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  name: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18, letterSpacing: -0.3, flexShrink: 1 },
-  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 3 },
-  bio: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, lineHeight: 17, marginTop: 9 },
+  name: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 20, letterSpacing: -0.3, flexShrink: 1 },
+  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, marginTop: 3 },
+  bio: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 19, marginTop: 9 },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -415,17 +420,17 @@ const featuredStyles = StyleSheet.create({
     // No visible border — depth comes from contrast
   },
   metric: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  metricText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
-  price: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 10 },
+  metricText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13 },
+  price: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 11 },
   subscribeBtn: {
     marginTop: 12,
-    height: 36,
+    height: 38,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.TEXT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  subscribeBtnLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.BG },
+  subscribeBtnLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.BG },
   subscribeBtnSubscribed: { backgroundColor: T.SURFACE_2 },
 });
 
@@ -440,20 +445,20 @@ const recommendedStyles = StyleSheet.create({
   },
   info: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13, flexShrink: 1 },
-  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 2 },
+  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15, flexShrink: 1 },
+  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, marginTop: 2 },
   meta: { alignItems: 'flex-end', marginRight: 4, gap: 3 },
-  category: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1 },
-  subscriberCount: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10 },
+  category: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 11, letterSpacing: 1 },
+  subscriberCount: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
   subscribeButton: {
     borderRadius: T.RADIUS.full,
-    paddingHorizontal: 12,
-    height: 31,
+    paddingHorizontal: 14,
+    height: 34,
     backgroundColor: T.TEXT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  subscribeLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
+  subscribeLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 12 },
   subscribeButtonSubscribed: { backgroundColor: T.SURFACE_2 },
 });
 
@@ -505,8 +510,8 @@ const previewStyles = StyleSheet.create({
 
 const collectionStyles = StyleSheet.create({
   card: {
-    width: 222,
-    height: 126,
+    width: 240,
+    height: 134,
     borderRadius: T.RADIUS.xl,
     padding: 14,
     justifyContent: 'space-between',
@@ -522,9 +527,9 @@ const collectionStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   copy: { marginTop: 8 },
-  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 15 },
-  subtitle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 10, marginTop: 3 },
-  count: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 10 },
+  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16 },
+  subtitle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 3 },
+  count: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
 });
 
 const skeletonStyles = StyleSheet.create({

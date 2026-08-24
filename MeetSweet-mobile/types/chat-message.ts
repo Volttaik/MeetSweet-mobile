@@ -9,6 +9,7 @@ export type MessageType =
   | 'text'
   | 'image'
   | 'gif'
+  | 'sticker'
   | 'video'
   | 'audio'
   | 'voice'
@@ -37,9 +38,6 @@ export interface QuotedMessage {
   image?: string;
   video?: string;
   audio?: string;
-  /** True when the quoted original was deleted/recalled — the preview must
-   *  render "Original message deleted" instead of stale content. */
-  deleted?: boolean;
 }
 
 export interface MsUser {
@@ -47,19 +45,6 @@ export interface MsUser {
   name?: string;
   avatar?: string;
   username?: string;
-}
-
-export interface LinkPreview {
-  url: string;
-  kind: 'profile' | 'post' | 'album' | 'short' | 'video' | 'external';
-  title?: string | null;
-  description?: string | null;
-  imageUrl?: string | null;
-  name?: string | null;
-  username?: string | null;
-  domain?: string | null;
-  resourceId?: string | null;
-  resourceType?: string | null;
 }
 
 export interface MsMessage {
@@ -96,9 +81,8 @@ export interface MsMessage {
   msAudioDuration?: number | null;
   caption?: string | null;
   msCaption?: string | null;
+  msStickerImage?: boolean;
   reactions?: MessageReaction[];
-  /** Rich link preview for URLs in the message body (server-resolved). */
-  linkPreview?: LinkPreview | null;
   quotedMessage?: QuotedMessage;
   replyToId?: string | null;
   replyMessage?: QuotedMessage;
@@ -109,9 +93,12 @@ export interface MsMessage {
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   pending?: boolean;
   sent?: boolean;
-  /** True once the server has confirmed persistence ("delivered" tick). The
-   *  read state is tracked separately via `received`. */
-  delivered?: boolean;
+  /** True when the RECIPIENT'S DEVICE acknowledged delivery over the socket
+   *  (message:receipt, status: 'delivered'). Distinct from `received` (read).
+   *  Never inferred — only set by the live delivery receipt, so an offline
+   *  recipient's message honestly stays at "sent". */
+  msDelivered?: boolean;
+  /** True when the recipient has read past this message (server-authoritative). */
   received?: boolean;
   image?: string;
   video?: string;
@@ -124,14 +111,15 @@ export interface MsMessage {
 export function toMsMessage(m: any, currentUserId: string): MsMessage {
   const messageId = String(m.id || m._id || `msg_${Date.now()}`);
   const senderId = String(m.sender?.id || m.user?._id || m.sender_id || '');
-  const isOwn = senderId === currentUserId;
+  const isOwn = senderId === currentUserId || m.isOwn || m.is_own;
 
   const mediaType: MessageType =
     m.messageType || m.mediaType || m.media_type || (m.isVoiceNote ? 'voice' : m.image ? 'image' : m.video ? 'video' : m.audio ? 'audio' : 'text');
-  // GIF is a media-first type: it renders through the image path (animated via
-  // expo-image) but keeps its distinct mediaType so the model never degrades
-  // it to a generic image.
+  // gif / sticker are media-first types: they render through the image path
+  // (animated via expo-image for gif, floating for sticker) but keep their
+  // distinct mediaType so the model never degrades them to a generic image.
   const isGifLike = mediaType === 'gif';
+  const isStickerLike = mediaType === 'sticker';
 
   const mediaUrl = m.mediaUrl || m.media_url || m.image || m.video || m.audio || null;
   const fileName = m.fileName || m.file_name || null;
@@ -144,18 +132,16 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
   const audioDuration = m.audioDuration || m.audio_duration || m.duration || m.msAudioDuration || 0;
 
   const replyObj = m.replyTo || m.reply_to || m.replyMessage || m.quotedMessage || null;
-  const replyDeleted = Boolean(replyObj?.deleted || replyObj?.is_recalled);
   const replyMessage: QuotedMessage | null = replyObj
     ? {
         id: String(replyObj.id || replyObj._id || ''),
         _id: String(replyObj.id || replyObj._id || ''),
         senderId: String(replyObj.senderId || replyObj.sender_id || ''),
         senderName: replyObj.senderName || replyObj.sender_name || replyObj.sender?.name || 'User',
-        text: replyDeleted ? '' : (replyObj.text || replyObj.body || ''),
-        body: replyDeleted ? '' : (replyObj.text || replyObj.body || ''),
-        mediaUrl: replyDeleted ? null : (replyObj.mediaUrl || replyObj.media_url || null),
-        mediaType: replyDeleted ? null : (replyObj.mediaType || replyObj.media_type || null),
-        deleted: replyDeleted || undefined,
+        text: replyObj.text || replyObj.body || '',
+        body: replyObj.text || replyObj.body || '',
+        mediaUrl: replyObj.mediaUrl || replyObj.media_url || null,
+        mediaType: replyObj.mediaType || replyObj.media_type || null,
         user: {
           _id: String(replyObj.senderId || replyObj.sender_id || replyObj.user?._id || ''),
           name: replyObj.senderName || replyObj.sender_name || replyObj.sender?.name || replyObj.user?.name || 'User',
@@ -198,8 +184,8 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
     msAudioDuration: audioDuration,
     caption,
     msCaption: caption,
+    msStickerImage: Boolean(m.msStickerImage || m.is_sticker || isStickerLike),
     reactions: Array.isArray(m.reactions) ? m.reactions : [],
-    linkPreview: m.linkPreview ?? m.link_preview ?? null,
     quotedMessage: replyMessage ?? undefined,
     replyMessage: replyMessage ?? undefined,
     replyToId: m.replyToId || m.reply_to_id || replyMessage?.id || null,
@@ -213,12 +199,9 @@ export function toMsMessage(m: any, currentUserId: string): MsMessage {
     // Honest read state: only true when the backend reports the recipient has
     // read past this message (other member's last_read_at). Never assumed.
     received: Boolean(m.received ?? m.read ?? m.is_read ?? false),
-    // Delivered = the server has persisted the message (its canonical view).
-    // Drives the double-gray "delivered" tick; read (received) is separate.
-    delivered: Boolean(m.delivered ?? m.is_delivered ?? m.status === 'delivered'),
-    // gif carries its media in the image field so the bubble/media fullscreen
-    // paths resolve it without special-casing every consumer.
-    image: (mediaType === 'image' || isGifLike) ? (m.localUri || mediaUrl) : undefined,
+    // gif + sticker carry their media in the image field so the bubble/media
+    // fullscreen paths resolve them without special-casing every consumer.
+    image: (mediaType === 'image' || isGifLike || isStickerLike) ? (m.localUri || mediaUrl) : undefined,
     video: mediaType === 'video' ? (m.localUri || mediaUrl) : undefined,
     audio: mediaType === 'audio' ? (m.localUri || mediaUrl) : undefined,
   };

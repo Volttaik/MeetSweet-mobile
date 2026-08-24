@@ -12,10 +12,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import {
@@ -71,9 +72,8 @@ export default function EditPostScreen() {
     getPost(id)
       .then((p) => {
         setPost(p);
-        // Hydrate the editable value from the fetched post. Without this,
-        // opening Edit Post rendered an empty caption and saving it erased the
-        // existing text even when the user only changed visibility.
+        // Seed the caption so the edit screen shows the existing content —
+        // without this the field renders blank and saving would wipe the post.
         setCaption(p.caption ?? '');
         if (p.visibility === 'public' || p.visibility === 'subscribers' || p.visibility === 'draft') {
           setVisibility(p.visibility);
@@ -106,7 +106,7 @@ export default function EditPostScreen() {
         commentsEnabled,
       } as any);
       toast.success('Post updated');
-      router.back();
+      goBack();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save changes');
     } finally {
@@ -120,9 +120,9 @@ export default function EditPostScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.topBar}>
-          <MsPressable style={styles.backBtn} onPress={() => router.back()} hitSlop={12}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => goBack()} hitSlop={12}>
             <ArrowLeft size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.topTitle}>Edit Post</Text>
           <View style={styles.backBtn} />
         </View>
@@ -139,11 +139,11 @@ export default function EditPostScreen() {
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         {/* ── Top bar ── */}
         <View style={styles.topBar}>
-          <MsPressable style={styles.backBtn} onPress={() => router.back()} hitSlop={12}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => goBack()} hitSlop={12}>
             <ArrowLeft size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.topTitle}>Edit Post</Text>
-          <MsPressable
+          <TouchableOpacity
             style={[styles.saveTopBtn, saving && { opacity: 0.5 }]}
             onPress={handleSave}
             disabled={saving}
@@ -152,7 +152,7 @@ export default function EditPostScreen() {
             {saving
               ? <ActivityIndicator size="small" color={T.ACCENT} />
               : <Text style={styles.saveTopLabel}>Save</Text>}
-          </MsPressable>
+          </TouchableOpacity>
         </View>
 
         <KeyboardAwareScrollViewCompat
@@ -186,11 +186,12 @@ export default function EditPostScreen() {
               {VISIBILITY_OPTIONS.map((opt) => {
                 const active = opt.value === visibility;
                 return (
-                  <MsPressable
+                  <TouchableOpacity
                     key={opt.value}
                     style={[styles.visRow, active && styles.visRowActive]}
                     onPress={() => setVisibility(opt.value)}
-                          >
+                    activeOpacity={0.75}
+                  >
                     <View style={[styles.visIconWrap, active && styles.visIconWrapActive]}>
                       <opt.Icon size={15} color={active ? T.ACCENT : T.TEXT_2} />
                     </View>
@@ -203,7 +204,7 @@ export default function EditPostScreen() {
                     <View style={[styles.radio, active && styles.radioActive]}>
                       {active && <View style={styles.radioDot} />}
                     </View>
-                  </MsPressable>
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -226,16 +227,17 @@ export default function EditPostScreen() {
                     : 'Comments are hidden; the Comment Room stays associated and can be re-enabled later'}
                 </Text>
               </View>
-              <MsPressable
+              <TouchableOpacity
                 onPress={() => setCommentsEnabledState((v) => !v)}
-                    style={[
+                activeOpacity={0.8}
+                style={[
                   styles.switch,
                   commentsEnabled && styles.switchOn,
                 ]}
                 accessibilityLabel="Toggle comments"
               >
                 <View style={[styles.switchThumb, commentsEnabled && styles.switchThumbOn]} />
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -251,10 +253,11 @@ export default function EditPostScreen() {
           ) : null}
 
           {/* ── Save button ── */}
-          <MsPressable
+          <TouchableOpacity
             style={[styles.saveBtn, saving && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={saving}
+            activeOpacity={0.85}
           >
             {saving ? (
               <ActivityIndicator color={T.BG} size="small" />
@@ -264,7 +267,7 @@ export default function EditPostScreen() {
                 <Text style={styles.saveBtnLabel}>Save Changes</Text>
               </>
             )}
-          </MsPressable>
+          </TouchableOpacity>
         </KeyboardAwareScrollViewCompat>
       </View>
   );

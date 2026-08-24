@@ -7,10 +7,11 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useAnimatedStyle,
@@ -329,15 +330,6 @@ export default function ShortsScreen() {
           contentType="short"
           contentId={shareId}
           title="Share Short"
-          preview={(() => {
-            const item = shorts.find((s) => s.id === shareId);
-            if (!item) return undefined;
-            return {
-              title: item.caption || item.creator.name || 'Short',
-              subtitle: item.creator.username ? `by @${item.creator.username}` : undefined,
-              imageUrl: item.thumbnailUrl || undefined,
-            };
-          })()}
           onClose={() => setShareId(null)}
         />
       ) : null}
@@ -512,7 +504,7 @@ function ShortPage({
 
       {/* Top bar — fades out in focus mode, restored on any interaction */}
       <Animated.View style={[styles.topBar, { paddingTop: topInset + 12 }, overlayStyle]} onTouchStart={showShortsUi}>
-        <PressScale style={styles.topButton} onPress={() => router.back()} accessibilityLabel="Close Shorts">
+        <PressScale style={styles.topButton} onPress={() => goBack()} accessibilityLabel="Close Shorts">
           <ArrowLeft size={21} color="#fff" />
         </PressScale>
         <View style={styles.topTitle}>
@@ -522,14 +514,17 @@ function ShortPage({
         <View style={{ minWidth: 40 }} />
       </Animated.View>
 
-      {/* Bottom scrim — keeps captions & actions legible over bright video */}
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.62)']}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={[styles.bottomScrim, overlayStyle]}
-        pointerEvents="none"
-      />
+      {/* Bottom scrim — keeps captions & actions legible over bright video.
+          LinearGradient is not a reanimated component, so the focus-mode
+          fade lives on a wrapping Animated.View instead. */}
+      <Animated.View style={[styles.bottomScrim, overlayStyle]} pointerEvents="none">
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.62)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
 
       {/* Bottom content */}
       <Animated.View style={[styles.content, overlayStyle]} onTouchStart={showShortsUi}>

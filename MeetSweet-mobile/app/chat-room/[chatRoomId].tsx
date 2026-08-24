@@ -26,32 +26,28 @@ import React, {
   useState,
 } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
+  Easing,
   FlatList,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   Share,
   StatusBar,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   Linking,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Reanimated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { MsPressable } from '@/components/MsPressable';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import * as ExpoClipboard from 'expo-clipboard';
 import { Image as ExpoImage } from 'expo-image';
 
@@ -98,7 +94,6 @@ import type { ProfileSheetUser } from '@/components/MsUserProfileSheet';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { setActiveChatRoomId } from '@/contexts/NotificationsContext';
 import {
   getChatRoom,
   sendRoomMessage,
@@ -116,11 +111,13 @@ import {
 } from '@/services/room-service';
 import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { sweetStore } from '@/services/sweet-store';
+import { setFocusedChatRoom } from '@/lib/chat-focus';
 import { blockUser, unblockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 import {
   getCachedMessages,
   cacheMessages,
+  deleteCachedMessage,
   removeCachedMessage,
   clearCachedMessages,
   updateCachedMessage,
@@ -141,24 +138,23 @@ import { MsChatBubble } from '@/components/chat/MsChatBubble';
 import { MsChatInputBar } from '@/components/chat/MsChatInputBar';
 import { MsChatBackground } from '@/components/chat/MsChatBackground';
 import { MsTypingIndicator } from '@/components/chat/MsTypingIndicator';
-import { MsRecordingIndicator } from '@/components/chat/MsRecordingIndicator';
-import { playMessageReceived, playMessageSent } from '@/services/chat-sounds';
 import { MsDateSeparator } from '@/components/chat/MsDateSeparator';
 import type { SendPayload, PendingVoice, InlineAttachment, AttachmentSendPayload } from '@/components/chat/MsChatInputBar';
 import {
   toMsMessage,
   toReplyMessage,
-  type LinkPreview,
   type MsMessage,
 } from '@/types/chat-message';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const QUICK_REACTIONS = ['❤️', '😂', '🔥', '👍', '😍', '😢', '😮', '👏'];
-// Peer presence expires after this long without a refresh (heartbeat model).
-const PRESENCE_EXPIRY_MS = 60_000;
-// Delete-for-everyone recall window — must match the server constant.
-const DELETE_FOR_EVERYONE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** How often the sender re-announces typing while composing (heartbeat). */
+const TYPING_HEARTBEAT_MS = 5_000;
+/** How long the recipient waits without a heartbeat before clearing the
+ *  typing indicator (must be comfortably > TYPING_HEARTBEAT_MS). */
+const TYPING_EXPIRE_MS = 12_000;
 
 function formatDateLabel(d: Date): string {
   const today = new Date();
@@ -237,13 +233,6 @@ function finalizeTemp(
  * inverted, so the data array must be sorted descending by createdAt or the
  * bubbles render in the wrong order.
  */
-function messageCursor(message: MsMessage): string {
-  const createdAt = message.createdAt instanceof Date
-    ? message.createdAt.toISOString()
-    : new Date(message.createdAt).toISOString();
-  return `${createdAt}::${realMessageId(message)}`;
-}
-
 function byNewestFirst(a: MsMessage, b: MsMessage): number {
   const ta = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
   const tb = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
@@ -261,27 +250,31 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   // The screen is opened with ONLY a chatRoomId. The other participant's
   // identity is resolved from the room (getChatRoom) — never from navigation
-  // params. The one exception is a FRESH DM opened from a profile/search: the
-  // room row does not exist server-side yet (it materializes lazily on first
-  // send/history), so the opener passes the participant's profile so the
-  // header renders instantly and the socket has the participant id to resolve
-  // the derived room.
-  const { chatRoomId: routeChatRoomId, participantId: routeParticipantId, name: routeName, username: routeUsername, avatarUrl: routeAvatarUrl } =
-    useLocalSearchParams<{
-      chatRoomId?: string;
-      participantId?: string;
-      name?: string;
-      username?: string;
-      avatarUrl?: string;
-    }>();
+  // params.
+  const {
+    chatRoomId: routeChatRoomId,
+    name: routeName,
+    username: routeUsername,
+    avatarUrl: routeAvatarUrl,
+  } = useLocalSearchParams<{ chatRoomId?: string; name?: string; username?: string; avatarUrl?: string }>();
   const [chatRoomId, setChatRoomId] = useState(routeChatRoomId ?? '');
   const { user } = useAuth();
 
   useEffect(() => {
     if (routeChatRoomId && routeChatRoomId !== chatRoomId) {
       setChatRoomId(routeChatRoomId);
+      // Navigating between chats carries fresh participant identity — seed it
+      // immediately so the header never flashes an empty placeholder.
+      if (routeName || routeUsername || routeAvatarUrl) {
+        setOtherUser((prev) => ({
+          ...prev,
+          name: routeName ?? prev.name,
+          username: routeUsername ?? prev.username,
+          avatarUrl: routeAvatarUrl ?? prev.avatarUrl,
+        }));
+      }
     }
-  }, [routeChatRoomId]);
+  }, [routeChatRoomId, routeName, routeUsername, routeAvatarUrl]);
 
   const sendToRoom = useCallback(async (
     body?: string,
@@ -302,10 +295,8 @@ export default function ChatScreen() {
       fileType: opts?.fileType,
       isVoiceNote: opts?.isVoiceNote,
       clientMessageId: opts?.clientMessageId,
-      userId: user?.id,
-      participantId: routeParticipantId,
     });
-  }, [chatRoomId, user?.id, routeParticipantId]);
+  }, [chatRoomId]);
 
   // ── Message state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<MsMessage[]>([]);
@@ -318,18 +309,25 @@ export default function ChatScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const typingExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Realtime: the other participant is recording a voice note.
   const [isRecording, setIsRecording] = useState(false);
-  const recordingExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Presence is a heartbeat, not a latch — the peer's "online" indicator
-  // expires if no refresh arrives (crash, kill, lost relay).
-  const presenceExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Typing debounce ref ────────────────────────────────────────────────────
+  // ── Typing refs ────────────────────────────────────────────────────────────
+  // typingTimerRef — one-shot delay before the FIRST typing:start of a compose
+  // session (so a stray tap doesn't flash the recipient's indicator).
+  // typingHeartbeatRef — while composing, re-broadcast typing:start every few
+  // seconds so the recipient can expire a stuck indicator if this device dies
+  // mid-compose; the recipient never relies on a typing:stop that may never
+  // arrive.
+  // typingExpireRef / recordingExpireRef — recipient side: auto-clear the
+  // OTHER user's indicator after silence (no stop event, no new start event,
+  // no message). Separate timers so a recording can never clobber the typing
+  // expiry (or vice versa).
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typingExpireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingExpireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingBroadcastRef = useRef(false);
-  const playedIncomingIdsRef = useRef(new Set<string>());
 
   // ── Input state ──────────────────────────────────────────────────────────────
   const [inputText, setInputText] = useState('');
@@ -342,28 +340,31 @@ export default function ChatScreen() {
   const [localReactions, setLocalReactions] = useState<Record<string, MessageReaction[]>>({});
 
   // ── Other user info ──────────────────────────────────────────────────────────
-  // Initialized empty until the actual participant data is loaded from the
-  // room. Never use chatRoomId as a temporary user id.
+  // Seeded from the navigation params (the chat list / creator profile already
+  // have the participant identity), so the header renders the real name and
+  // avatar on the very first frame — never a "U" placeholder. The room fetch
+  // below then refreshes it with the server's authoritative copy. Never use
+  // chatRoomId as a temporary user id.
   const [otherUser, setOtherUser] = useState<ProfileSheetUser & { isOnline?: boolean }>({
     id: '',
-    name: '',
-    username: '',
-    avatarUrl: null,
+    name: routeName ?? '',
+    username: routeUsername ?? '',
+    avatarUrl: routeAvatarUrl ?? null,
     isOnline: false,
   });
 
-  // ── Context menu animation — Reanimated worklets on the UI thread ────────────
-  const menuScaleAnim = useSharedValue(0.88);
-  const menuOpacityAnim = useSharedValue(0);
+  // ── Context menu animation ────────────────────────────────────────────────────
+  const menuScaleAnim = useRef(new Animated.Value(0)).current;
+  const menuOpacityAnim = useRef(new Animated.Value(0)).current;
 
-  const menuCardStyle = useAnimatedStyle(() => ({
-    opacity: menuOpacityAnim.value,
-    transform: [{ scale: menuScaleAnim.value }],
-  }));
-  const menuOverlayStyle = useAnimatedStyle(() => ({
-    opacity: menuOpacityAnim.value,
-  }));
-  const menuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Message-area shimmer — the chat UI (header, input bar, all controls)
+  // renders immediately; ONLY the conversation region may show a skeleton,
+  // and only when there is genuinely NO cached conversation to paint (first
+  // open of a room, or after a cache wipe). Once a conversation has been
+  // First open with no cached conversation: a single compact loading spinner
+  // over the message area. Cached opens paint instantly with no placeholder at
+  // all; the spinner unmounts the moment messages arrive.
+  const [showShimmer, setShowShimmer] = useState(false);
 
   // Ref to the Chat's FlatList so tapping a quoted reply can scroll to the
   // original message. The list is inverted (newest at bottom); scrollToMessage
@@ -371,21 +372,15 @@ export default function ChatScreen() {
   const messagesListRef = useRef<FlatList<MsMessage>>(null);
 
   const showMenu = useCallback((msg: MsMessage) => {
-    // Physical long-press feedback (native haptic engine).
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setMenuMsg(msg);
     setMenuVisible(true);
   }, []);
 
   const hideMenu = useCallback(() => {
-    menuOpacityAnim.value = withTiming(0, { duration: 120 });
-    menuScaleAnim.value = withTiming(0.92, { duration: 120 });
-    if (menuHideTimerRef.current) clearTimeout(menuHideTimerRef.current);
-    menuHideTimerRef.current = setTimeout(() => setMenuVisible(false), 120);
-  }, [menuOpacityAnim, menuScaleAnim]);
-
-  useEffect(() => () => {
-    if (menuHideTimerRef.current) clearTimeout(menuHideTimerRef.current);
+    Animated.parallel([
+      Animated.timing(menuOpacityAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(menuScaleAnim, { toValue: 0.92, duration: 120, useNativeDriver: true }),
+    ]).start(() => setMenuVisible(false));
   }, []);
 
   // ── Sheets / modals ──────────────────────────────────────────────────────────
@@ -397,14 +392,22 @@ export default function ChatScreen() {
   // already partway through its animation).
   useEffect(() => {
     if (menuVisible) {
-      menuScaleAnim.value = 0.88;
-      menuOpacityAnim.value = 0;
-      menuOpacityAnim.value = withTiming(1, { duration: 160 });
-      menuScaleAnim.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.back(1.3)) });
+      menuScaleAnim.setValue(0.88);
+      menuOpacityAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(menuOpacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(menuScaleAnim, {
+          toValue: 1,
+          duration: 200,
+          easing: Easing.out(Easing.back(1.3)),
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuVisible]);
   const [showAttach, setShowAttach] = useState(false);
+  // Sticker sheet opened directly from the composer's sticker button.
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
   const [inlineAttachment, setInlineAttachment] = useState<InlineAttachment | null>(null);
@@ -414,16 +417,10 @@ export default function ChatScreen() {
   const [fullscreenVideoUri, setFullscreenVideoUri] = useState<string | null>(null);
   const [fullscreenVideoIsOwn, setFullscreenVideoIsOwn] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  // 0–1 progress of the in-flight media upload, scoped to its optimistic bubble.
-  const [uploadProgress, setUploadProgress] = useState<{ tempId: string; progress: number } | null>(null);
 
   // ── Delete confirmation state ────────────────────────────────────────────────
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MsMessage | null>(null);
-  // Delete-for-everyone is only available inside the recall window (24h).
-  const deleteForEveryoneExpired = deleteTarget
-    ? Date.now() - new Date(deleteTarget.createdAt).getTime() > DELETE_FOR_EVERYONE_WINDOW_MS
-    : false;
 
   // ── Block / room state ───────────────────────────────────────────────────────
   const [isBlocked, setIsBlocked] = useState(false);
@@ -466,14 +463,19 @@ export default function ChatScreen() {
     if (chatRoomId) {
       persistChatBackground(chatRoomId, user?.id, bg).catch(() => {});
     }
-  }, [chatRoomId, user?.id]);    // ── Resolve already-downloaded media without downloading remote files ──
+  }, [chatRoomId, user?.id]);
 
+  // ── Ensure each media message has a persistent local file ────────────────
   // For every message with a remote mediaUrl:
-  //  • If it already has a cached localUri, verify it and keep it.
-  //  • Otherwise resolve an existing local file if one is present.
-  //  • Never download remote media during room hydration. Receivers download
-  //    explicitly from the media bubble, which prevents large files and images
-  //    from flashing through intermediate renderer states.
+  //  • If it already has a cached localUri, VERIFY the file still exists on
+  //    disk. If the user manually cleared device storage (OS cleanup, app
+  //    cache wipe), the cached URI is stale — clear it and re-download so the
+  //    renderer never points at a missing file (Task §12: offline/manual-
+  //    deletion detection).
+  //  • Otherwise resolve an existing local file, else download it, then
+  //    persist the localUri onto the cached message + rendered message and
+  //    flip msMediaStatus to 'local' so the UI renders the local file.
+  //  • Never download the same file twice.
   //
   // State updates are BATCHED into at most two setMessages calls (one to flip
   // pending downloads to 'downloading', one to apply the final local/failed
@@ -489,8 +491,8 @@ export default function ChatScreen() {
       return {
         localUri: local,
         msMediaStatus: 'local' as const,
-        // gif carries its media in the image field — the local copy must patch
-        // it or cached animated GIFs would lose their source.
+        // gif messages carry their media in the image field — the local copy
+        // must patch it or cached animated GIFs would lose their source.
         image: (mediaType === 'image' || mediaType === 'gif') ? local : undefined,
         video: mediaType === 'video' ? local : undefined,
         audio: mediaType === 'audio' ? local : undefined,
@@ -506,6 +508,23 @@ export default function ChatScreen() {
         }),
       );
     };
+
+    // Mark every media message without a valid local copy as 'downloading' in
+    // one pass so the UI shows a loading state while files are fetched.
+    const needsDownload: string[] = [];
+    for (const m of roomMsgs) {
+      // Deleted messages render as text placeholders — never download their media.
+      if (m.mediaUrl && m.mediaType && !m.localUri && !m.isDeleted) needsDownload.push(String(m.id));
+    }
+    if (needsDownload.length) {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          needsDownload.includes(idOf(msg))
+            ? { ...msg, msMediaStatus: 'downloading' as const }
+            : msg,
+        ),
+      );
+    }
 
     const patches: Array<{ id: string; patch: Partial<MsMessage> }> = [];
     for (const m of roomMsgs) {
@@ -526,16 +545,26 @@ export default function ChatScreen() {
         setCachedMessageLocalUri(chatRoomId, id, null, uid).catch(() => {});
       }
 
-      // (b) No (valid) localUri — resolve an existing local file if present.
+      // (b) No (valid) localUri — try to resolve an existing local file
+      // first (cheap, avoids re-downloading), otherwise download.
       let local = await resolveLocalMedia(chatRoomId, id, {
         mime: m.mimeType,
         mediaType: m.mediaType,
         url: m.mediaUrl,
       }).catch(() => null);
+      if (!local) {
+        local = await downloadRoomMedia(chatRoomId, id, m.mediaUrl, {
+          mime: m.mimeType,
+          mediaType: m.mediaType,
+        }).catch(() => null);
+      }
       if (local) {
         m.localUri = local;
         setCachedMessageLocalUri(chatRoomId, id, local, uid).catch(() => {});
         patches.push({ id, patch: mediaPatch(m, local) });
+      } else {
+        // Download failed — mark so the UI can show a retry affordance.
+        patches.push({ id, patch: { msMediaStatus: 'failed' as const } });
       }
     }
 
@@ -564,6 +593,8 @@ export default function ChatScreen() {
       try {
         const cached = await getCachedMessages(chatRoomId, uid).catch(() => []);
         if (cached.length > 0) {
+          // Deleted messages are NOT filtered out — they render as "This
+          // message was deleted" placeholders, preserving conversation order.
           setMessages(
             cached
               .map((m: RoomMessage) => toMsMessage(m, uid))
@@ -571,6 +602,7 @@ export default function ChatScreen() {
           );
           // Local content is on screen — never show the loading shimmer.
           setLoading(false);
+          setShowShimmer(false);
           // Background maintenance is silent; rendering does not wait for it:
           // 1) resolve/persist local media for cached messages missing a
           //    local file (recovery after a failed download), 2) mark read.
@@ -586,14 +618,11 @@ export default function ChatScreen() {
       // First open on this device: seed the local replica once. Subsequent
       // opens render from SQLite and do not fetch history merely to paint it.
       // History comes over the persistent socket (chat.history → history:set)
-      // with no HTTP realtime fallback and no polling loop.
+      // with an HTTP fallback; never a separate polling loop.
+      setShowShimmer(true);
       try {
-        const result = await fetchRoomHistory(chatRoomId, { participantId: routeParticipantId });
-        // The history resolve materialized the room server-side — (re)subscribe
-        // to the live channel so typing/recording/presence relay and provisional
-        // broadcasts flow. The mount-time subscribe happened before the room
-        // existed and was rejected; this one is authorized.
-        realtime.subscribe(`chat:${chatRoomId}`);
+        const result = await fetchRoomHistory(chatRoomId);
+        // Keep deleted messages as placeholders (see note above).
         const fresh = result.messages;
         setMessages(fresh.map((m: RoomMessage) => toMsMessage(m, uid)).sort(byNewestFirst));
         setHasMore(result.hasMore ?? false);
@@ -603,14 +632,16 @@ export default function ChatScreen() {
       } catch {
         // Keep the empty local view available while offline.
       } finally {
+        setShowShimmer(false);
         setLoading(false);
       }
       return;
     }
 
-    // ── Explicit pagination (user scrolled up) — socket history ──
+    // ── Explicit pagination (user scrolled up) — socket history, HTTP fallback ──
     try {
-      const result = await fetchRoomHistory(chatRoomId, { before, participantId: routeParticipantId });
+      const result = await fetchRoomHistory(chatRoomId, { before });
+      // Keep deleted messages as placeholders (see the cache-first note above).
       const msgs = result.messages
         .map((m: RoomMessage) => toMsMessage(m, uid))
         .sort(byNewestFirst);
@@ -624,7 +655,7 @@ export default function ChatScreen() {
     } finally {
       setLoading(false);
     }
-  }, [chatRoomId, user?.id, ensureMediaLocal, routeParticipantId]);
+  }, [chatRoomId, user?.id, ensureMediaLocal]);
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
@@ -641,28 +672,12 @@ export default function ChatScreen() {
     const removedIds = new Set<string>();
     const incomingMap = new Map<string, MsMessage>();
     for (const m of fresh) {
-      const realId = String(m.id);
-      incomingMap.set(realId, toMsMessage(m, uid));
-      // The server's provisional (accepted) event is keyed by the clientMessageId
-      // and the persisted event by the real message id. Register the persisted
-      // message under BOTH keys so it reconciles the optimistic bubble IN PLACE
-      // (stable _id → no remount/flash) instead of being prepended as a
-      // duplicate while the optimistic copy is still on screen. The alias entry
-      // keeps `_id` = clientMessageId and `id` = real id so a stale alias can
-      // never be rendered as a duplicate of its real entry.
-      const clientMessageId = (m as { clientMessageId?: string }).clientMessageId;
-      if (clientMessageId && clientMessageId !== realId) {
-        // The alias entry keeps `_id` = clientMessageId (matches the
-        // optimistic bubble's stable key) and reports the real id via
-        // msServerId, so realMessageId(alias) resolves to the real id and the
-        // canonical entry is dropped instead of prepended as a duplicate.
-        incomingMap.set(clientMessageId, {
-          ...toMsMessage(m, uid),
-          _id: clientMessageId,
-          msServerId: realId,
-        });
-      }
+      incomingMap.set(String(m.id), toMsMessage(m, uid));
     }
+
+    // Persist OUTSIDE the state updater — updaters must stay pure (React may
+    // invoke them more than once in dev). Idempotent upsert by message id.
+    if (persist) cacheMessages(chatRoomId, fresh, uid).catch(() => {});
 
     setMessages((prev) => {
       // 1. Filter out deleted/removed context messages
@@ -670,21 +685,15 @@ export default function ChatScreen() {
 
       // 2. Reconcile existing messages with updated fresh data
       updated = updated.map((m) => {
-        const key = realMessageId(m);
-        const freshMsg = incomingMap.get(key);
+        const freshMsg = incomingMap.get(realMessageId(m));
         if (freshMsg) {
-          // If we matched through the clientMessageId alias (the optimistic
-          // bubble keyed by its temp id), also drop the real-id entry so the
-          // same message is never prepended again as a duplicate.
-          if (key !== realMessageId(freshMsg)) incomingMap.delete(realMessageId(freshMsg));
-          incomingMap.delete(key);
+          // Delete by the SAME key the map was built with (real message id).
+          // Deleting by m._id misses confirmed optimistic messages (whose _id
+          // is still the temp id), leaving a duplicate in the list.
+          incomingMap.delete(realMessageId(m));
           return {
             ...m,
             ...freshMsg,
-            // Keep the stable list key (temp id) and attach the server id so
-            // future ops (delete/react/reconcile) use the real id.
-            _id: m._id,
-            msServerId: freshMsg.msServerId ?? freshMsg.id ?? m.msServerId,
             localUri: m.localUri ?? freshMsg.localUri ?? null,
             image: m.image ?? freshMsg.image,
             video: m.video ?? freshMsg.video,
@@ -701,12 +710,8 @@ export default function ChatScreen() {
 
       // 3. Prepend any newly arrived messages, newest first. The changes
       //    endpoint returns them oldest-first (ASC), so they must be re-sorted
-      //    or the inverted list shows them reversed. Skip alias entries whose
-      //    real entry is also in the map (the alias was registered but nothing
-      //    matched it — render the canonical copy only).
-      const newOnes = Array.from(incomingMap.values())
-        .filter((ms) => !(ms._id !== ms.id && incomingMap.has(String(ms.id))))
-        .sort(byNewestFirst);
+      //    or the inverted list shows them reversed.
+      const newOnes = Array.from(incomingMap.values()).sort(byNewestFirst);
       if (newOnes.length > 0) {
         updated = [...newOnes, ...updated];
       }
@@ -724,7 +729,6 @@ export default function ChatScreen() {
       //    position, never identity.
       updated = updated.sort(byNewestFirst);
 
-      if (persist) cacheMessages(chatRoomId, fresh, uid).catch(() => {});
       return updated;
     });
 
@@ -752,34 +756,36 @@ export default function ChatScreen() {
     const offMessage = realtime.on(REALTIME_EVENT.chatMessageCreated, (event) => {
       const raw = (event.payload as { message?: unknown })?.message;
       if (!raw) return;
-      const msg = normalizeMessage(raw, user?.id);
-      const eventRoomId = event.roomId ?? String((event.payload as { roomId?: unknown })?.roomId ?? msg?.chatRoomId ?? '');
-      if (!msg?.id || eventRoomId !== chatRoomId) return;
-      // The server sends clientMessageId on the event payload — attach it so
-      // the persisted event can reconcile the optimistic bubble (keyed by that
-      // temp id) IN PLACE instead of being prepended as a duplicate.
-      const payload = event.payload as { clientMessageId?: string; status?: string };
-      if (payload.clientMessageId) (msg as { clientMessageId?: string }).clientMessageId = payload.clientMessageId;
+      const msg = normalizeMessage(raw);
+      if (!msg?.id) return;
       // A delivered message from the other user clears their typing indicator.
       if (msg.sender?.id && msg.sender.id !== user?.id) {
         setIsTyping(false);
-        const soundId = String(msg.id ?? payload.clientMessageId ?? '');
-        if (payload.status === 'accepted' && soundId && !playedIncomingIdsRef.current.has(soundId)) {
-          playedIncomingIdsRef.current.add(soundId);
-          playMessageReceived();
-        }
+        clearTypingExpiry();
       }
-      void handleIncomingMessages([msg], payload.status !== 'accepted');
+      void handleIncomingMessages([msg], (event.payload as { status?: string })?.status !== 'accepted');
     });
     const offAck = realtime.on(REALTIME_EVENT.chatMessageAck, (event) => {
+      // Device-delivery receipt (message:receipt, status: 'delivered'): the
+      // recipient's device acknowledged the message over the socket. Flip the
+      // sender's bubble to the delivered state (double check) — this is the
+      // only honest source of "delivered"; it is never inferred from the HTTP
+      // send succeeding. Read state is separate (message:read / read flag).
+      const receipt = event.payload as { messageId?: string; status?: string };
+      if (receipt.messageId && receipt.status === 'delivered') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            realMessageId(m) === receipt.messageId && m.user._id === user?.id
+              ? { ...m, msDelivered: true }
+              : m,
+          ),
+        );
+        return;
+      }
       const raw = (event.payload as { message?: unknown })?.message;
       if (!raw) return;
-      const msg = normalizeMessage(raw, user?.id);
-      const eventRoomId = event.roomId ?? String((event.payload as { roomId?: unknown })?.roomId ?? msg?.chatRoomId ?? '');
-      if (!msg?.id || eventRoomId !== chatRoomId) return;
-      const payload = event.payload as { clientMessageId?: string };
-      if (payload.clientMessageId) (msg as { clientMessageId?: string }).clientMessageId = payload.clientMessageId;
-      void handleIncomingMessages([msg]);
+      const msg = normalizeMessage(raw);
+      if (msg?.id) void handleIncomingMessages([msg]);
     });
     const offFailed = realtime.on(REALTIME_EVENT.chatMessageFailed, (event) => {
       const payload = event.payload as { clientMessageId?: string; error?: string };
@@ -791,106 +797,69 @@ export default function ChatScreen() {
       ));
     });
     const offUpdated = realtime.on(REALTIME_EVENT.chatMessageUpdated, (event) => {
-      const p = event.payload as {
-        messageId?: string;
-        body?: string;
-        caption?: string | null;
-        isEdited?: boolean;
-        linkPreview?: LinkPreview | null;
-      };
+      const p = event.payload as { messageId?: string; body?: string; isEdited?: boolean };
       if (!p.messageId) return;
       setMessages((prev) =>
         prev.map((m) =>
           realMessageId(m) === p.messageId
-            ? {
-                ...m,
-                text: p.body ?? m.text,
-                msCaption: p.caption !== undefined ? p.caption : m.msCaption,
-                caption: p.caption !== undefined ? p.caption : m.caption,
-                msIsEdited: p.isEdited ?? m.msIsEdited,
-                // The server resolves link metadata asynchronously after the
-                // send — merge the card in place when it arrives. Never let a
-                // stale card survive an edit that removed the URL (null).
-                linkPreview: p.linkPreview !== undefined ? p.linkPreview : m.linkPreview,
-              }
+            ? { ...m, text: p.body ?? m.text, msIsEdited: p.isEdited ?? m.msIsEdited }
             : m,
         ),
       );
-      // Persist only the fields the server actually changed — a caption-only
-      // edit must never clobber the cached body (or vice versa).
-      const cachePatch: Partial<RoomMessage> = { isEdited: true };
-      if (p.body !== undefined) cachePatch.body = p.body;
-      if (p.caption !== undefined) cachePatch.caption = p.caption ?? undefined;
-      if (p.linkPreview !== undefined) cachePatch.linkPreview = p.linkPreview as never;
-      updateCachedMessage(chatRoomId, p.messageId, cachePatch, user?.id).catch(() => {});
+      if (p.body !== undefined) {
+        updateCachedMessage(chatRoomId, p.messageId, { body: p.body, isEdited: true }, user?.id).catch(() => {});
+      }
     });
     const offDeleted = realtime.on(REALTIME_EVENT.chatMessageDeleted, (event) => {
       const p = event.payload as { messageId?: string; scope?: string; userId?: string };
       if (!p.messageId) return;
-      // delete-for-me only affects the actor; recall affects everyone. Keep the
-      // timeline row and replace its content with the durable placeholder.
+      // delete-for-me only affects the actor; recall affects everyone.
       const affectsMe = p.scope === 'everyone' || (p.scope === 'me' && p.userId === user?.id);
       if (!affectsMe) return;
-      setMessages((prev) => prev.map((m) => {
-        if (realMessageId(m) === p.messageId) {
-          return { ...m, text: '', msIsDeleted: true, isDeleted: true, pending: false, sent: true };
-        }
-        // Replies quoting the deleted message lose their preview content — the
-        // quote renders "Original message deleted" instead of stale text/media.
-        if (m.replyMessage && String(m.replyMessage.id) === p.messageId) {
-          return { ...m, replyMessage: { ...m.replyMessage, text: '', body: '', deleted: true } };
-        }
-        return m;
-      }));
-      updateCachedMessage(chatRoomId, p.messageId, { body: null, isDeleted: true }, user?.id).catch(() => {});
-      deleteRoomMedia(chatRoomId, p.messageId).catch(() => {});
+      if (p.scope === 'everyone') {
+        // Recall: keep the conversation ordered with a "This message was
+        // deleted" placeholder instead of removing the row entirely.
+        setMessages((prev) =>
+          prev.map((m) =>
+            realMessageId(m) === p.messageId
+              ? { ...m, msIsDeleted: true, text: '', image: undefined, video: undefined, audio: undefined }
+              : m,
+          ),
+        );
+        deleteCachedMessage(chatRoomId, p.messageId, user?.id).catch(() => {});
+        deleteRoomMedia(chatRoomId, p.messageId).catch(() => {});
+      } else {
+        setMessages((prev) => prev.filter((m) => realMessageId(m) !== p.messageId));
+        removeCachedMessage(chatRoomId, p.messageId, user?.id).catch(() => {});
+      }
     });
     const offTypingStart = realtime.on(REALTIME_EVENT.chatTypingStarted, (event) => {
       const who = (event.payload as { userId?: string })?.userId;
-      if (!who || who === user?.id) return;
-      setIsTyping(true);
-      if (typingExpiryRef.current) clearTimeout(typingExpiryRef.current);
-      typingExpiryRef.current = setTimeout(() => setIsTyping(false), 3500);
+      if (who && who !== user?.id) {
+        setIsTyping(true);
+        // Auto-expire if the sender goes silent (app killed / network drop).
+        armTypingExpiry();
+      }
     });
     const offTypingStop = realtime.on(REALTIME_EVENT.chatTypingStopped, (event) => {
       const who = (event.payload as { userId?: string })?.userId;
-      if (!who || who === user?.id) return;
-      if (typingExpiryRef.current) clearTimeout(typingExpiryRef.current);
-      typingExpiryRef.current = null;
-      setIsTyping(false);
+      if (!who || who !== user?.id) {
+        setIsTyping(false);
+        clearTypingExpiry();
+      }
     });
     const offRecStart = realtime.on(REALTIME_EVENT.chatRecordingStarted, (event) => {
       const who = (event.payload as { userId?: string })?.userId;
-      if (!who || who === user?.id) return;
-      setIsRecording(true);
-      if (recordingExpiryRef.current) clearTimeout(recordingExpiryRef.current);
-      recordingExpiryRef.current = setTimeout(() => setIsRecording(false), 8000);
+      if (who && who !== user?.id) {
+        setIsRecording(true);
+        armRecordingExpiry();
+      }
     });
     const offRecStop = realtime.on(REALTIME_EVENT.chatRecordingStopped, (event) => {
       const who = (event.payload as { userId?: string })?.userId;
-      if (!who || who === user?.id) return;
-      if (recordingExpiryRef.current) clearTimeout(recordingExpiryRef.current);
-      recordingExpiryRef.current = null;
-      setIsRecording(false);
-    });
-    const offReceipt = realtime.on(REALTIME_EVENT.messageReceipt, (event) => {
-      const p = event.payload as { messageId?: string; roomId?: string; status?: 'sent' | 'delivered' | 'read' };
-      if (!p.messageId || (p.roomId && p.roomId !== chatRoomId)) return;
-      setMessages((prev) => prev.map((m) =>
-        realMessageId(m) === p.messageId
-          ? {
-              ...m,
-              status: p.status ?? m.status,
-              delivered: p.status === 'delivered' || p.status === 'read' ? true : m.delivered,
-              received: p.status === 'read' ? true : m.received,
-            }
-          : m,
-      ));
-      if (p.status) {
-        updateCachedMessage(chatRoomId, p.messageId, {
-          delivered: p.status === 'delivered' || p.status === 'read',
-          read: p.status === 'read',
-        }, user?.id).catch(() => {});
+      if (!who || who !== user?.id) {
+        setIsRecording(false);
+        clearRecordingExpiry();
       }
     });
     const offRead = realtime.on(REALTIME_EVENT.chatMessageRead, (event) => {
@@ -900,42 +869,27 @@ export default function ChatScreen() {
       setMessages((prev) =>
         prev.map((m) =>
           m.user._id === user?.id && new Date(m.createdAt).getTime() <= readThrough
-            ? { ...m, received: true, status: 'read' as const }
+            ? { ...m, received: true, status: 'read' as const, msDelivered: true }
             : m,
         ),
       );
     });
-    const offReaction = realtime.on(REALTIME_EVENT.messagesReaction, (event) => {
+    const offReaction = realtime.on(REALTIME_EVENT.chatReactionUpdated, (event) => {
       const p = event.payload as {
         messageId?: string;
         reactions?: Array<{ emoji: string; userIds: string[] }>;
       };
       if (!p.messageId) return;
-      const authoritative = p.reactions ?? [];
       setMessages((prev) =>
         prev.map((m) =>
-          realMessageId(m) === p.messageId ? { ...m, reactions: authoritative } : m,
+          realMessageId(m) === p.messageId ? { ...m, reactions: p.reactions ?? m.reactions } : m,
         ),
       );
-      setLocalReactions((prev) => ({ ...prev, [p.messageId!]: authoritative }));
-      updateCachedMessage(chatRoomId, p.messageId, { reactions: authoritative }, user?.id).catch(() => {});
     });
     const offPresence = realtime.on(REALTIME_EVENT.chatPresenceUpdated, (event) => {
       const p = event.payload as { userId?: string; online?: boolean };
       if (!p.userId || p.userId === user?.id) return;
-      if (presenceExpiryRef.current) clearTimeout(presenceExpiryRef.current);
-      if (p.online) {
-        setOtherUser((prev) => (prev.id === p.userId ? { ...prev, isOnline: true } : prev));
-        // Presence is a heartbeat, not a latch — if the peer vanishes without
-        // an offline relay (crash, force-kill, lost frame), the indicator must
-        // not stick forever. Each refresh resets the expiry.
-        presenceExpiryRef.current = setTimeout(() => {
-          presenceExpiryRef.current = null;
-          setOtherUser((prev) => (prev.id === p.userId ? { ...prev, isOnline: false } : prev));
-        }, PRESENCE_EXPIRY_MS);
-      } else {
-        setOtherUser((prev) => (prev.id === p.userId ? { ...prev, isOnline: false } : prev));
-      }
+      setOtherUser((prev) => (prev.id === p.userId ? { ...prev, isOnline: p.online ?? false } : prev));
     });
 
     // chat:open / chat:close — the server knows this user is actively viewing
@@ -951,46 +905,28 @@ export default function ChatScreen() {
     };
     announce(true);
     sweetStore.setRoomFocused(chatRoomId);
+    setFocusedChatRoom(chatRoomId);
+
+    // After a socket reconnect the server's room-focus registry is empty (the
+    // old connection's teardown cleared it) — re-announce that this user is
+    // still viewing the room so DM pushes for it stay suppressed and presence
+    // stays accurate. The screen never remounts on a reconnect, so this has
+    // to ride the reconnected lifecycle event.
+    const offReconnected = realtime.on(REALTIME_EVENT.connectionReconnected, () => {
+      announce(true);
+    });
 
     return () => {
       realtime.unsubscribe(channel);
       offMessage(); offAck(); offFailed(); offUpdated(); offDeleted();
       offTypingStart(); offTypingStop();
-      offRecStart(); offRecStop(); offReceipt(); offRead(); offReaction(); offPresence();
-      if (typingExpiryRef.current) clearTimeout(typingExpiryRef.current);
-      if (recordingExpiryRef.current) clearTimeout(recordingExpiryRef.current);
-      if (presenceExpiryRef.current) clearTimeout(presenceExpiryRef.current);
+      offRecStart(); offRecStop(); offRead(); offReaction(); offPresence();
+      offReconnected();
       announce(false);
       sweetStore.setRoomFocused(null);
+      setFocusedChatRoom(null);
     };
   }, [chatRoomId, user?.id, handleIncomingMessages]);
-
-  // ── App-level presence ────────────────────────────────────────────────────
-  // Presence follows the CONNECTION, not just screen focus: when the socket
-  // (re)connects while this chat is open, announce online; when it drops or the
-  // app backgrounds (socket suspends → closed), announce offline. Combined with
-  // the receiving-side expiry, the peer's indicator reflects real liveness.
-  useEffect(() => {
-    if (!chatRoomId) return;
-    const offStatus = realtime.onStatus((status) => {
-      const channel = `chat:${chatRoomId}`;
-      if (status === 'open') {
-        realtime.relay(channel, REALTIME_EVENT.chatPresenceUpdated, { userId: user?.id, online: true });
-      } else if (status === 'closed' || status === 'reconnecting') {
-        realtime.relay(channel, REALTIME_EVENT.chatPresenceUpdated, { userId: user?.id, online: false });
-      }
-    });
-    return offStatus;
-  }, [chatRoomId, user?.id]);
-
-  // ── Notification suppression ──────────────────────────────────────────────
-  // While this chat is on screen, pushes for THIS room are suppressed (the
-  // message is already arriving over the socket); every other notification
-  // still banners normally.
-  useEffect(() => {
-    setActiveChatRoomId(chatRoomId ?? null);
-    return () => setActiveChatRoomId(null);
-  }, [chatRoomId]);
 
   // ── Typing broadcast (client → server) ──────────────────────────────────
   // When the user types, fire a debounced ephemeral event over the shared
@@ -1009,26 +945,77 @@ export default function ChatScreen() {
     });
   }, [chatRoomId, user?.id]);
 
+  // ── Typing broadcast (sender) ───────────────────────────────────────────────
+  // Announce when the FIRST keystroke of a compose session lands (a short
+  // delay so a stray tap doesn't flash the recipient's indicator), then keep a
+  // heartbeat going while text keeps flowing. The debounce is NOT re-armed per
+  // keystroke — otherwise a fast typist would never announce until they
+  // paused, which made the indicator appear only AFTER composing finished.
+  const stopTypingHeartbeat = useCallback(() => {
+    if (typingHeartbeatRef.current) {
+      clearInterval(typingHeartbeatRef.current);
+      typingHeartbeatRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!chatRoomId || isBlocked) return;
-    if (inputText.trim().length === 0) {
+    const hasText = inputText.trim().length > 0;
+
+    if (!hasText) {
+      // Compose session over — stop announcing and tear down the heartbeat.
       if (typingBroadcastRef.current) {
         typingBroadcastRef.current = false;
         sendTypingStop();
       }
+      stopTypingHeartbeat();
       return;
     }
 
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = setTimeout(() => {
-      typingBroadcastRef.current = true;
-      sendTypingBroadcast();
-    }, 250);
-
-    return () => {
+    if (!typingBroadcastRef.current) {
+      // First keystroke of a compose session — arm the one-shot announce.
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    };
-  }, [inputText, chatRoomId, isBlocked, sendTypingBroadcast, sendTypingStop]);
+      typingTimerRef.current = setTimeout(() => {
+        typingTimerRef.current = null;
+        typingBroadcastRef.current = true;
+        sendTypingBroadcast();
+        if (!typingHeartbeatRef.current) {
+          typingHeartbeatRef.current = setInterval(() => {
+            if (typingBroadcastRef.current) sendTypingBroadcast();
+          }, TYPING_HEARTBEAT_MS);
+        }
+      }, 250);
+    }
+    // Note: no cleanup here — clearing the session timers is owned by the
+    // empty-text branch and the unmount effect below, so later keystrokes of
+    // the same session never cancel the pending announce/heartbeat.
+  }, [inputText, chatRoomId, isBlocked, sendTypingBroadcast, sendTypingStop, stopTypingHeartbeat]);
+
+  // ── Typing/recording auto-expire (recipient) ───────────────────────────────
+  // The sender heartbeats while composing; if this device hears nothing for
+  // TYPING_EXPIRE_MS (sender app killed, network dropped mid-compose), the
+  // indicator clears itself instead of sticking forever. Recording uses the
+  // same silence window (voice:start is announced once, so a died device
+  // would otherwise leave "Recording voice note…" stuck).
+  const armExpiry = useCallback((ref: React.MutableRefObject<ReturnType<typeof setTimeout> | null>, clear: () => void) => {
+    if (ref.current) clearTimeout(ref.current);
+    ref.current = setTimeout(() => {
+      ref.current = null;
+      clear();
+    }, TYPING_EXPIRE_MS);
+  }, []);
+
+  const clearExpiry = useCallback((ref: React.MutableRefObject<ReturnType<typeof setTimeout> | null>) => {
+    if (ref.current) {
+      clearTimeout(ref.current);
+      ref.current = null;
+    }
+  }, []);
+
+  const armTypingExpiry = useCallback(() => armExpiry(typingExpireRef, () => setIsTyping(false)), [armExpiry]);
+  const clearTypingExpiry = useCallback(() => clearExpiry(typingExpireRef), [clearExpiry]);
+  const armRecordingExpiry = useCallback(() => armExpiry(recordingExpireRef, () => setIsRecording(false)), [armExpiry]);
+  const clearRecordingExpiry = useCallback(() => clearExpiry(recordingExpireRef), [clearExpiry]);
 
   // ── Clear typing on unmount (leaving the conversation) ────────────────────
   useEffect(() => {
@@ -1038,47 +1025,18 @@ export default function ChatScreen() {
         sendTypingStop();
       }
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      stopTypingHeartbeat();
+      clearTypingExpiry();
+      clearRecordingExpiry();
     };
-  }, [chatRoomId, sendTypingStop]);
+  }, [chatRoomId, sendTypingStop, stopTypingHeartbeat, clearTypingExpiry, clearRecordingExpiry]);
 
   // ── Resolve the other participant FROM THE ROOM (not navigation params) ──
-  // Local-first: seed from the SQLite room cache immediately so the header
-  // never flashes a placeholder identity, then overwrite with fresh server
-  // truth when the HTTP fetch resolves. The sole exception is a FRESH DM
-  // opened from a profile/search — the room row does not exist server-side
-  // yet, so the opener's navigation params seed the header until the first
-  // send/history materializes the room.
   useEffect(() => {
     if (!chatRoomId) return;
-    let cancelled = false;
     (async () => {
-      // 1. Seed instantly from local cache (SQLite read — no network wait).
-      const cached = await getCachedChatRooms(user?.id).catch(() => []);
-      const cachedRoom = cached.find((r) => r.chatRoomId === chatRoomId);
-      if (cancelled) return;
-      if (cachedRoom?.otherUser?.id) {
-        setOtherUser({
-          id: cachedRoom.otherUser.id,
-          name: cachedRoom.otherUser.name || 'Chat',
-          username: cachedRoom.otherUser.username,
-          avatarUrl: cachedRoom.otherUser.avatarUrl ?? null,
-          isOnline: cachedRoom.otherUser.isOnline ?? false,
-        });
-        if (cachedRoom.isMuted !== undefined) setIsMuted(Boolean(cachedRoom.isMuted));
-      } else if (routeParticipantId) {
-        // Fresh room — render the participant profile the opener passed.
-        setOtherUser({
-          id: routeParticipantId,
-          name: routeName || 'Chat',
-          username: routeUsername || '',
-          avatarUrl: routeAvatarUrl || null,
-        });
-      }
-
-      // 2. Fetch fresh server truth and overwrite (never downgrade the header).
       try {
         const room = await getChatRoom(chatRoomId);
-        if (cancelled) return;
         // Hydrate room-level flags the backend already knows, so the header
         // menu reflects the server truth on open (not a stale local default).
         setIsMuted(Boolean(room.isMuted));
@@ -1099,28 +1057,22 @@ export default function ChatScreen() {
           });
         }
       } catch {
-        // Cache/params already seeded — keep whatever local identity we have.
+        // Fall back to local cache — stale but better than nothing
+        const cached = await getCachedChatRooms(user?.id).catch(() => []);
+        const room = cached.find((r) => r.chatRoomId === chatRoomId);
+        if (room?.isMuted !== undefined) setIsMuted(Boolean(room.isMuted));
+        if (room?.otherUser?.id) {
+          setOtherUser({
+            id: room.otherUser.id,
+            name: room.otherUser.name || 'Chat',
+            username: room.otherUser.username,
+            avatarUrl: room.otherUser.avatarUrl ?? null,
+            isOnline: room.otherUser.isOnline ?? false,
+          });
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [chatRoomId, user?.id, routeParticipantId, routeName, routeUsername, routeAvatarUrl]);
-
-  // ── Adopt a migrated legacy room id ────────────────────────────────────────
-  // When the server adopts a pre-deterministic legacy room to its canonical
-  // derived id (first touch after deploy), this screen may be open keyed by the
-  // OLD id. Re-key to the canonical id so incoming events keep reconciling into
-  // the visible list instead of being dropped as a "different room".
-  useEffect(() => {
-    if (!routeChatRoomId) return;
-    return realtime.on('room:migrated', (event) => {
-      const payload = (event as { payload?: { roomId?: string; legacyRoomId?: string } })?.payload;
-      if (payload?.legacyRoomId === chatRoomId && payload.roomId && payload.roomId !== chatRoomId) {
-        setChatRoomId(payload.roomId);
-      }
-    });
-  }, [chatRoomId, routeChatRoomId]);
+  }, [chatRoomId, user?.id]);
 
   // ── Hydrate block status from local store ───────────────────────────────────
   // The backend User/Room payloads don't expose "is this user blocked by me",
@@ -1147,7 +1099,10 @@ export default function ChatScreen() {
     if (!hasMore || loadingMore || messages.length === 0) return;
     setLoadingMore(true);
     const oldest = messages[messages.length - 1];
-    await loadMessages(messageCursor(oldest));
+    const cursor = oldest.createdAt instanceof Date
+      ? oldest.createdAt.toISOString()
+      : new Date(oldest.createdAt as number).toISOString();
+    await loadMessages(cursor);
     setLoadingMore(false);
   }, [hasMore, loadingMore, messages, loadMessages]);
 
@@ -1179,58 +1134,51 @@ export default function ChatScreen() {
   }, []);
 
   // ── Send handler ─────────────────────────────────────────────────────────────
+  // Smoothly bring the conversation to the newest message. The list is
+  // inverted (index 0 = newest), so offset 0 is the bottom. Called ONLY when
+  // the user sends — typing/reaction/presence events never force-scroll.
+  const scrollToNewest = useCallback(() => {
+    requestAnimationFrame(() => {
+      try {
+        messagesListRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+      } catch {
+        // List may not be ready — best-effort.
+      }
+    });
+  }, []);
+
   const handleSend = useCallback(async (payload: SendPayload) => {
     if (!chatRoomId) return;
     // A blocked room is inactive — no messages may leave the device. The
     // input is also disabled, but this guard is the authoritative gate so a
-    // stray send cannot bypass it.
+    // a stray send cannot bypass it.
     if (isBlocked) return;
 
     // ── Edit mode ────────────────────────────────────────────────────────────
     if (editingMsg) {
       const editId = String(editingMsg._id);
-      const isCaptionEdit = Boolean(
-        editingMsg.msMediaType || editingMsg.msIsVoiceNote || editingMsg.image || editingMsg.video || editingMsg.audio,
-      );
       const newText = payload.text ?? '';
-      const prevText = isCaptionEdit ? (editingMsg.msCaption ?? '') : (editingMsg.text ?? '');
-      const prevCaption = editingMsg.msCaption ?? null;
+      const prevText = editingMsg.text ?? '';
       const prevEdited = editingMsg.msIsEdited ?? false;
-      // Optimistic: update the visible message immediately. A caption edit
-      // changes only the caption — the media body stays untouched.
+      // Optimistic: update the visible message immediately.
       setMessages((prev) =>
-        prev.map((m) =>
-          m._id === editingMsg._id
-            ? isCaptionEdit
-              ? { ...m, msCaption: newText, caption: newText, msIsEdited: true }
-              : { ...m, text: newText, msIsEdited: true }
-            : m,
-        ),
+        prev.map((m) => m._id === editingMsg._id ? { ...m, text: newText, msIsEdited: true } : m),
       );
       setEditingMsg(null);
       setInputText('');
       try {
-        await editRoomMessage(
-          chatRoomId,
-          editId,
-          isCaptionEdit ? undefined : newText,
-          isCaptionEdit ? newText : undefined,
-        );
+        await editRoomMessage(chatRoomId, editId, newText);
         // Server confirmed — mirror the edit into SQLite by messageId. Do NOT
         // create a new message; the row is preserved, only its body changes.
-        const cachePatch: Partial<RoomMessage> = { isEdited: true };
-        if (isCaptionEdit) cachePatch.caption = newText;
-        else cachePatch.body = newText;
-        await updateCachedMessage(chatRoomId, editId, cachePatch, user?.id).catch(() => {});
+        await updateCachedMessage(chatRoomId, editId, {
+          body: newText,
+          isEdited: true,
+        }, user?.id).catch(() => {});
       } catch {
         // Revert the visible + cached state — the server did not confirm.
         setMessages((prev) =>
           prev.map((m) =>
-            m._id === editingMsg._id
-              ? isCaptionEdit
-                ? { ...m, msCaption: prevCaption ?? '', caption: prevCaption, msIsEdited: prevEdited }
-                : { ...m, text: prevText, msIsEdited: prevEdited }
-              : m,
+            m._id === editingMsg._id ? { ...m, text: prevText, msIsEdited: prevEdited } : m,
           ),
         );
         dialogs.alert({ variant: 'error', title: 'Could not edit message' });
@@ -1268,7 +1216,7 @@ export default function ChatScreen() {
           : undefined,
       } as any;
       setMessages((prev) => Chat.append(prev, [optimistic]));
-      playMessageSent();
+      scrollToNewest();
       setReplyMessage(null);
       setInputText('');
       try {
@@ -1324,13 +1272,10 @@ export default function ChatScreen() {
         pending: true,
       };
       setMessages((prev) => (Chat.append as any)(prev, [optimistic]));
-      playMessageSent();
+      scrollToNewest();
       try {
         setUploadingMedia(true);
-        const uploaded = await uploadMedia(uri, 'audio/m4a', 'voice.m4a', (progress) => {
-          setUploadProgress({ tempId, progress });
-        });
-        setUploadProgress(null);
+        const uploaded = await uploadMedia(uri, 'audio/m4a');
         const res = await sendToRoom(undefined, uploaded.url, 'audio', {
           audioDuration: duration,
           isVoiceNote: true,
@@ -1414,15 +1359,12 @@ export default function ChatScreen() {
         pending: true,
       };
       setMessages((prev) => (Chat.append as any)(prev, [optimistic]));
-      playMessageSent();
+      scrollToNewest();
       try {
         setUploadingMedia(true);
         // Always upload with correct audio MIME — never video/mp4
         const mime = confirmed.mimeType?.startsWith('audio/') ? confirmed.mimeType : 'audio/m4a';
-        const uploaded = await uploadMedia(uri, mime, confirmed.fileName, (progress) => {
-          setUploadProgress({ tempId, progress });
-        });
-        setUploadProgress(null);
+        const uploaded = await uploadMedia(uri, mime);
         const res = await sendToRoom(
           undefined,
           uploaded.url,
@@ -1479,22 +1421,16 @@ export default function ChatScreen() {
       return;
     }
 
-    // ── Image / GIF / Sticker / Video / Document ────────────────────────────
+    // ── Image / GIF / Video / Document ──────────────────────────────────────
     // GIF is a media-first type: the picker returns type 'gif' with an
     // animated asset; it uploads as image/gif, persists as a .gif local file
     // (animation survives caching), and renders as a compact animated bubble.
-    // Stickers ride the same pipeline but carry their real on-disk format:
-    // they travel as mediaType 'gif' (the server schema has no 'sticker'
-    // type), while the MIME/file type stays image/webp so the local file keeps
-    // the webp extension and the renderer shows an animated image without the
-    // GIF badge.
-    const isSticker = attachType === 'sticker';
-    const mediaType = (isSticker ? 'gif' : attachType) as 'image' | 'video' | 'gif' | 'document';
+    const mediaType = attachType as 'image' | 'video' | 'gif' | 'document';
     const isGif = mediaType === 'gif';
     // FILE TYPE for this message — derived from the attachment's MIME/filename
     // so the Auth Tree carries the on-disk format alongside the message type.
     const sendFileType =
-      isGif && !isSticker ? 'gif'
+      isGif ? 'gif'
       : deriveFileType(confirmed.mimeType, confirmed.fileName) ??
         (mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : null);
     const optimistic: MsMessage = {
@@ -1503,7 +1439,6 @@ export default function ChatScreen() {
       chatRoomId: chatRoomId ?? '',
       messageType: (mediaType as MsMessage['messageType']) || 'file',
       text: confirmed.caption ?? '',
-      msCaption: confirmed.caption ?? undefined,
       createdAt: now,
       user: { _id: user?.id ?? '', name: user?.name ?? '', avatar: user?.avatarUrl ?? undefined },
       image: (mediaType === 'image' || isGif) ? uri : undefined,
@@ -1518,7 +1453,7 @@ export default function ChatScreen() {
       pending: true,
     };
     setMessages((prev) => (Chat.append as any)(prev, [optimistic]));
-    playMessageSent();
+    scrollToNewest();
     try {
       setUploadingMedia(true);
       const mime =
@@ -1527,10 +1462,11 @@ export default function ChatScreen() {
         : isGif ? (confirmed.mimeType || 'image/gif')
         : mediaType === 'video' ? 'video/mp4'
         : (confirmed.mimeType || 'application/octet-stream');
-      const uploaded = await uploadMedia(uri, mime, confirmed.fileName, (progress) => {
-        setUploadProgress({ tempId, progress });
-      });
-      setUploadProgress(null);
+      const uploaded = await uploadMedia(
+        uri,
+        mime,
+        confirmed.fileName,
+      );
         const res = await sendToRoom(
           confirmed.caption,
           uploaded.url,
@@ -1611,18 +1547,35 @@ export default function ChatScreen() {
     const id = realMessageId(target);
     const scope: 'me' | 'everyone' = forEveryone ? 'everyone' : 'me';
 
-    // Keep a stable placeholder while the server confirms the delete.
+    // Never assume success until the server confirms it. We keep the message
+    // visible (with a soft-deleted appearance) while the request is in flight,
+    // then remove it from the local context only on success.
     setMessages((prev) =>
-      prev.map((m) => (m._id === target._id
-        ? { ...m, text: '', msIsDeleted: true, isDeleted: true, pending: false, sent: true }
-        : m)),
+      prev.map((m) => (m._id === target._id ? { ...m, msIsDeleted: true } : m)),
     );
 
     try {
       await deleteRoomMessage(chatRoomId, id, scope);
-      // Server confirmed — keep the chronological placeholder in both the
-      // visible list and the local replica. Media may be removed locally.
-      await updateCachedMessage(chatRoomId, id, { body: null, isDeleted: true }, user?.id).catch(() => {});
+      // Server confirmed. The socket messages:delete event syncs the OTHER
+      // side; no context membership API is involved.
+      if (forEveryone) {
+        // Recall: keep the message rendered as a "This message was deleted"
+        // placeholder and persist the tombstone so it survives reopening.
+        await deleteCachedMessage(chatRoomId, id, user?.id).catch(() => {});
+        setMessages((prev) =>
+          prev.map((m) =>
+            m._id === target._id
+              ? { ...m, msIsDeleted: true, text: '', image: undefined, video: undefined, audio: undefined }
+              : m,
+          ),
+        );
+      } else {
+        // Delete for me: remove the message locally and from the visible list.
+        await removeCachedMessage(chatRoomId, id, user?.id).catch(() => {});
+        setMessages((prev) => prev.filter((m) => realMessageId(m) !== id));
+      }
+      // Remove the local media file for this message so it doesn't linger
+      // on disk after the message is gone.
       await deleteRoomMedia(chatRoomId, id).catch(() => {});
       // Drop the optimistic-reaction entry for this message so the
       // localReactions map doesn't accumulate stale ids for deleted messages.
@@ -1633,9 +1586,9 @@ export default function ChatScreen() {
         return next;
       });
     } catch {
-      // Revert the soft-delete appearance because the server rejected it.
+      // Revert the soft-delete appearance — the server did not confirm.
       setMessages((prev) =>
-        prev.map((m) => (m._id === target._id ? { ...m, msIsDeleted: false, isDeleted: false } : m)),
+        prev.map((m) => (m._id === target._id ? { ...m, msIsDeleted: false } : m)),
       );
       dialogs.alert({ variant: 'error', title: 'Could not delete', message: forEveryone ? 'The message could not be deleted for everyone. Please try again.' : 'The message could not be deleted for you. Please try again.' });
     }
@@ -1715,7 +1668,7 @@ export default function ChatScreen() {
             await removeCachedRoom(chatRoomId, user?.id).catch(() => {});
             await clearCachedMessages(chatRoomId, user?.id).catch(() => {});
             await clearRoomMedia(chatRoomId).catch(() => {});
-            router.back();
+            goBack();
           } catch {
             dialogs.alert({ variant: 'error', title: 'Could not delete chat room', message: 'Please try again.' });
           }
@@ -1750,22 +1703,16 @@ export default function ChatScreen() {
 
   const handleEdit = useCallback(() => {
     if (!menuMsg) return;
-    // Text messages edit their body; media messages with a caption edit the
-    // caption. Messages with neither have nothing to edit — guard here so
-    // Edit can never be triggered through another route even if the menu
-    // button is hidden.
-    const isCaptionEdit = Boolean(
-      menuMsg.msMediaType || menuMsg.msIsVoiceNote || menuMsg.image || menuMsg.video || menuMsg.audio,
-    );
-    if (isCaptionEdit) {
-      if (!menuMsg.msCaption) return;
-      hideMenu();
-      setEditingMsg(menuMsg);
-      setInputText(menuMsg.msCaption ?? '');
-      setMenuMsg(null);
-      return;
-    }
-    if (!menuMsg.text) return;
+    // Editing only applies to TEXT messages. Audio/voice/image/video/document
+    // messages have no editable body — guard here so Edit can never be
+    // triggered through another route even if the menu button is hidden.
+    if (
+      menuMsg.msMediaType ||
+      menuMsg.msIsVoiceNote ||
+      menuMsg.image ||
+      menuMsg.video ||
+      menuMsg.audio
+    ) return;
     hideMenu();
     setEditingMsg(menuMsg);
     setInputText(menuMsg.text ?? '');
@@ -1793,7 +1740,7 @@ export default function ChatScreen() {
 
     // Optimistic update immediately
     setLocalReactions((prev) => {
-      const curr = prev[msgId] ?? msg.reactions ?? [];
+      const curr = prev[msgId] ?? [];
       const existing = curr.find((r) => r.emoji === emoji);
       let next: MessageReaction[];
       if (existing) {
@@ -1881,9 +1828,12 @@ export default function ChatScreen() {
     const mediaType = msg.msMediaType;
     if (!mediaType || !remoteUrl) return;
 
-    // Mark downloading so MsFileCard shows a loading indicator.
+    // Mark downloading so MsFileCard shows a loading indicator. Match by the
+    // REAL message id — own confirmed messages keep their temp `_id` list key,
+    // so comparing to `m._id` would silently miss them and the card would stay
+    // on the download arrow while the file is being fetched.
     setMessages((prev) =>
-      prev.map((m) => (String(m._id) === id ? { ...m, msMediaStatus: 'downloading' as const } : m)),
+      prev.map((m) => (realMessageId(m) === id ? { ...m, msMediaStatus: 'downloading' as const } : m)),
     );
 
     // Resolve an existing local file first (cheap), else download.
@@ -1902,7 +1852,7 @@ export default function ChatScreen() {
     if (local) {
       setMessages((prev) =>
         prev.map((m) =>
-          String(m._id) === id
+          realMessageId(m) === id
             ? {
                 ...m,
                 localUri: local,
@@ -1920,48 +1870,11 @@ export default function ChatScreen() {
       // Download failed — surface a retry affordance and try the remote URL
       // directly as a last resort (some files open from a remote URL).
       setMessages((prev) =>
-        prev.map((m) => (String(m._id) === id ? { ...m, msMediaStatus: 'failed' as const } : m)),
+        prev.map((m) => (realMessageId(m) === id ? { ...m, msMediaStatus: 'failed' as const } : m)),
       );
       if (remoteUrl) openUri(remoteUrl);
     }
   }, [chatRoomId]);
-
-  // ── Explicit media download ────────────────────────────────────────────────
-  // Remote media remains a stable message until the receiver asks for it. The
-  // local file is then keyed by the stable server message id and merged in
-  // place, so the bubble never changes identity or flashes through empty data.
-  const handleMediaDownload = useCallback(async (msg: MsMessage) => {
-    if (!chatRoomId) return;
-    const id = realMessageId(msg);
-    const remoteUrl = msg.msMediaUrl ?? msg.image ?? msg.video ?? msg.audio ?? null;
-    const mediaType = msg.msMediaType;
-    if (!remoteUrl || !mediaType) return;
-
-    setMessages((prev) => prev.map((m) =>
-      realMessageId(m) === id ? { ...m, msMediaStatus: 'downloading' as const } : m,
-    ));
-    const local = await downloadRoomMedia(chatRoomId, id, remoteUrl, {
-      mime: msg.msMimeType,
-      mediaType: mediaType as 'image' | 'video' | 'audio' | 'document' | 'gif',
-    }).catch(() => null);
-
-    if (!local) {
-      setMessages((prev) => prev.map((m) =>
-        realMessageId(m) === id ? { ...m, msMediaStatus: 'failed' as const } : m,
-      ));
-      return;
-    }
-
-    setMessages((prev) => prev.map((m) => realMessageId(m) === id ? {
-      ...m,
-      localUri: local,
-      msMediaStatus: 'local' as const,
-      image: mediaType === 'image' || mediaType === 'gif' ? local : m.image,
-      video: mediaType === 'video' ? local : m.video,
-      audio: mediaType === 'audio' ? local : m.audio,
-    } : m));
-    setCachedMessageLocalUri(chatRoomId, id, local, user?.id).catch(() => {});
-  }, [chatRoomId, user?.id]);
 
   // ── Media press ───────────────────────────────────────────────────────────────
   const handleMediaPress = useCallback((msg: MsMessage) => {
@@ -1970,10 +1883,6 @@ export default function ChatScreen() {
       setFullscreenVideoUri(msg.localUri ?? msg.video ?? null);
       setFullscreenVideoIsOwn(isOwn);
     } else if (msg.image || msg.msMediaType === 'image') {
-      if (!msg.localUri && msg.msMediaUrl) {
-        void handleMediaDownload(msg);
-        return;
-      }
       setFullscreenImageUri(msg.localUri ?? msg.image ?? null);
       setFullscreenImageIsOwn(isOwn);
     } else if ((msg.msMediaType as string) === 'document' || msg.msMediaType === 'audio') {
@@ -1984,10 +1893,10 @@ export default function ChatScreen() {
       // uses the OS linker so no extra file-viewer dependency is required.
       handleOpenFile(msg);
     }
-  }, [user?.id, handleMediaDownload]);
+  }, [user?.id]);
 
-  /* obsolete manual retry path removed: queued messages are retried by SweetSocket */
-  /*
+  // ── Retry failed send ────────────────────────────────────────────────────────
+  const handleRetry = useCallback(async (failedMsg: MsMessage) => {
     if (!chatRoomId) return;
 
     const mediaType = failedMsg.msMediaType ?? null;
@@ -2055,10 +1964,7 @@ export default function ChatScreen() {
             : 'application/octet-stream';
         }
         setUploadingMedia(true);
-        const uploaded = await uploadMedia(localSrc, mime, undefined, (progress) => {
-          setUploadProgress({ tempId: failedMsg._id, progress });
-        });
-        setUploadProgress(null);
+        const uploaded = await uploadMedia(localSrc, mime);
         mediaUrl = uploaded.url;
       }
       if (!mediaUrl) throw new Error('No media source available for retry');
@@ -2104,8 +2010,6 @@ export default function ChatScreen() {
     }
   }, [chatRoomId, user?.id]);
 
-  */
-
   // ── Voice ready — handled internally by MsChatInputBar; no-op here ───────────
   const handleVoiceReady = useCallback((_voice: PendingVoice) => {
     // Voice is staged inside MsChatInputBar as a VoiceCompactBar above the input.
@@ -2124,7 +2028,6 @@ export default function ChatScreen() {
       duration: result.duration,
     });
   }, []);
-
 
   // ── Send with inline attachment — upload and dispatch ────────────────────────
   const handleSendWithAttachment = useCallback(async (payload: AttachmentSendPayload) => {
@@ -2154,9 +2057,11 @@ export default function ChatScreen() {
     dedupeMessages(
       messages.map((m) => ({
         ...m,
-        reactions: Object.prototype.hasOwnProperty.call(localReactions, realMessageId(m))
-          ? localReactions[realMessageId(m)]
-          : (m.reactions ?? []),
+        // Reactions may have been optimistically keyed by the message's TEMP id
+        // before the send confirmed (reacting to a still-pending bubble); after
+        // finalizeTemp the message is keyed by its server id. Fall back to _id
+        // (the stable temp key) so the reaction survives the key change.
+        reactions: localReactions[realMessageId(m)] ?? localReactions[m._id] ?? m.reactions ?? [],
       })),
     ),
     [messages, localReactions],
@@ -2232,6 +2137,19 @@ export default function ChatScreen() {
     [messagesWithReactions, flashHighlight, hasMore, loadingMore, handleLoadEarlier],
   );
 
+  // ── Stable bubble callbacks ────────────────────────────────────────────────
+  // MsChatBubble is memoized, so the callbacks it receives must be
+  // referentially stable between renders — inline arrows here would defeat the
+  // memo and re-render every bubble on every keystroke / unrelated update.
+  const onBubbleReactionPress = useCallback(
+    (msg: MsMessage, emoji: string) => handleReaction(msg, emoji),
+    [handleReaction],
+  );
+  const onBubbleQuotePress = useCallback(
+    (id: string | number) => { void scrollToMessage(String(id)); },
+    [scrollToMessage],
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.fill, { backgroundColor: T.BG }]}>
@@ -2240,9 +2158,9 @@ export default function ChatScreen() {
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
-        <MsPressable style={styles.headerBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => goBack()}>
           <ArrowLeft size={22} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
         <Pressable style={styles.headerCenter} onPress={() => setShowProfileSheet(true)} hitSlop={8}>
           <MsAvatar
             size={36}
@@ -2253,25 +2171,29 @@ export default function ChatScreen() {
             <Text style={styles.headerName} numberOfLines={1}>
               {otherUser.name || 'Chat'}
             </Text>
-            {otherUser.isOnline ? (
-              <Text style={[styles.headerUsername, { color: T.SUCCESS }]}>Online</Text>
+            {isTyping ? (
+              <Text style={styles.headerStatusLive}>Typing...</Text>
+            ) : isRecording ? (
+              <Text style={styles.headerStatusLive}>Recording voice note...</Text>
+            ) : otherUser.isOnline ? (
+              <Text style={[styles.headerStatusLive, { color: T.SUCCESS }]}>Online</Text>
             ) : otherUser.username ? (
               <Text style={styles.headerUsername}>@{otherUser.username}</Text>
             ) : null}
           </View>
         </Pressable>
-        <MsPressable
+        <TouchableOpacity
           style={styles.headerBtn}
           onPress={() => setShowHeaderMenu(true)}
         >
           <DotsThreeVertical size={22} color={T.TEXT_2} weight="bold" />
-        </MsPressable>
+        </TouchableOpacity>
       </View>
 
       {/* ── Chat search bar (slides in below header) ─────────────────────── */}
       <MsChatSearch
         visible={showChatSearch}
-        topOffset={insets.top + 58}
+        topOffset={insets.top + 72}
         messages={messagesWithReactions as any}
         onClose={() => setShowChatSearch(false)}
         onJump={(msgId) => scrollToMessage(String(msgId))}
@@ -2296,6 +2218,17 @@ export default function ChatScreen() {
         </View>
       )}
 
+      {/* ── Message-area loading — ONLY the conversation region loads. The
+           header, input bar and all other controls render immediately; a
+           single compact spinner sits over the empty message list on first
+           open (no shimmer, no skeleton cards) and disappears when the first
+           messages arrive. ─────────────────────────────────────────────── */}
+      {showShimmer && (
+        <View pointerEvents={loading ? 'auto' : 'none'} style={[styles.msgLoadingWrap, { top: insets.top + 58 }]}>
+          <ActivityIndicator size="small" color={T.TEXT_3} />
+        </View>
+      )}
+
       {/* ── Chat Component — always mounted: header/input/controls are UI,
            not loading data; only the message list shows the skeleton above ── */}
       <Chat<MsMessage>
@@ -2305,6 +2238,13 @@ export default function ChatScreen() {
         messagesContainerRef={messagesListRef as any}
         user={{ _id: currentUserId }}
         colorScheme="dark"
+        isTyping={isTyping}
+        // DM rule: no profile pictures beside individual messages — the message
+        // area is bubbles only. Avatars live in the chat header instead.
+        renderAvatar={null}
+        // Suppress the library's own typing bubble — the screen renders a
+        // single compact MsTypingIndicator via renderChatFooter instead.
+        renderTypingIndicator={() => null}
         isInverted
         disableKeyboardProvider
         keyboardAvoidingViewProps={{
@@ -2346,12 +2286,11 @@ export default function ChatScreen() {
               currentMessage={cm}
               currentUserId={currentUserId}
               highlighted={highlightedMsgId === realMessageId(cm)}
-              uploadProgress={uploadProgress?.tempId === cm._id ? uploadProgress.progress : undefined}
               onLongPressMessage={handleLongPress}
-              onReactionPress={(msg, emoji) => handleReaction(msg, emoji)}
+              onReactionPress={onBubbleReactionPress}
               onMediaPress={handleMediaPress}
-              onMediaDownload={handleMediaDownload}
-              onQuotePress={(id) => scrollToMessage(id)}
+              onRetry={handleRetry}
+              onQuotePress={onBubbleQuotePress}
             />
           );
         }}
@@ -2390,15 +2329,7 @@ export default function ChatScreen() {
           />
         )}
 
-        // Keep the library's own typing flag off: the footer below is the
-        // single independent presence indicator, so two message-like bubbles
-        // can never be rendered for one typing event.
-        isTyping={false}
-        renderChatFooter={() => isRecording
-          ? <MsRecordingIndicator />
-          : isTyping
-            ? <MsTypingIndicator />
-            : null}
+        renderChatFooter={() => isTyping ? <MsTypingIndicator /> : null}
 
         messagesContainerStyle={styles.msgContainer}
       />
@@ -2430,7 +2361,7 @@ export default function ChatScreen() {
         <View style={styles.imgPreviewRoot}>
           <StatusBar barStyle="light-content" backgroundColor="#000" />
           {/* Close button */}
-          <MsPressable
+          <TouchableOpacity
             style={[styles.imgPreviewClose, { top: insets.top + 12 }]}
             onPress={() => setShowInlineImagePreview(false)}
             hitSlop={12}
@@ -2438,7 +2369,7 @@ export default function ChatScreen() {
             <View style={styles.imgPreviewCloseBtn}>
               <X size={18} color="#fff" weight="bold" />
             </View>
-          </MsPressable>
+          </TouchableOpacity>
 
           {/* Full-resolution image (expo-image animates GIFs) */}
           {inlineAttachment && (inlineAttachment.type === 'image' || inlineAttachment.type === 'video' || inlineAttachment.type === 'gif') && (
@@ -2466,9 +2397,9 @@ export default function ChatScreen() {
           <Text style={styles.blockedBannerText}>
             You've blocked this user. Tap to unblock.
           </Text>
-          <MsPressable onPress={handleBlockUser} hitSlop={8}>
+          <TouchableOpacity onPress={handleBlockUser} hitSlop={8}>
             <Text style={styles.blockedUnblockBtn}>Unblock</Text>
-          </MsPressable>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -2524,45 +2455,34 @@ export default function ChatScreen() {
           <View style={styles.deleteSheet}>
             <Text style={styles.deleteSheetTitle}>Delete this message?</Text>
             <View style={styles.deleteSheetDivider} />
-            <MsPressable
+            <TouchableOpacity
               style={styles.deleteSheetBtn}
               onPress={() => handleDelete(false)}
             >
               <Text style={styles.deleteSheetBtnText}>Delete for me</Text>
-            </MsPressable>
+            </TouchableOpacity>
             {/* "Delete for everyone" is only permitted for the current user's
                 own messages — it removes the message from BOTH users' contexts. */}
             {String(deleteTarget?.user?._id) === currentUserId && (
               <>
                 <View style={styles.deleteSheetDivider} />
-                {deleteForEveryoneExpired ? (
-                  <View style={styles.deleteSheetBtnDisabled}>
-                    <Text style={[styles.deleteSheetBtnText, { color: T.TEXT_3 }]}>
-                      Delete for everyone
-                    </Text>
-                    <Text style={styles.deleteSheetHint}>
-                      Only available for 24 hours after sending
-                    </Text>
-                  </View>
-                ) : (
-                  <MsPressable
-                    style={styles.deleteSheetBtn}
-                    onPress={() => handleDelete(true)}
-                  >
-                    <Text style={[styles.deleteSheetBtnText, { color: T.DANGER }]}>
-                      Delete for everyone
-                    </Text>
-                  </MsPressable>
-                )}
+                <TouchableOpacity
+                  style={styles.deleteSheetBtn}
+                  onPress={() => handleDelete(true)}
+                >
+                  <Text style={[styles.deleteSheetBtnText, { color: T.DANGER }]}>
+                    Delete for everyone
+                  </Text>
+                </TouchableOpacity>
               </>
             )}
             <View style={styles.deleteSheetDivider} />
-            <MsPressable
+            <TouchableOpacity
               style={styles.deleteSheetBtn}
               onPress={() => setShowDeleteConfirm(false)}
             >
               <Text style={[styles.deleteSheetBtnText, { color: T.TEXT_3 }]}>Cancel</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>
@@ -2633,12 +2553,12 @@ export default function ChatScreen() {
                 </Text>
               </View>
             ) : null}
-            <MsPressable
+            <TouchableOpacity
               style={styles.msgInfoClose}
               onPress={() => setShowMsgInfo(false)}
             >
               <Text style={styles.msgInfoCloseText}>Close</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>
@@ -2651,18 +2571,15 @@ export default function ChatScreen() {
         onRequestClose={hideMenu}
         statusBarTranslucent
       >
-        <Reanimated.View style={[styles.menuOverlay, menuOverlayStyle]}>
+        <Animated.View style={[styles.menuOverlay, { opacity: menuOpacityAnim }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={hideMenu} />
-          <Reanimated.View style={[styles.menuCard, menuCardStyle]}>
+          <Animated.View style={[styles.menuCard, { transform: [{ scale: menuScaleAnim }] }]}>
             {/* Quick reactions */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.reactRow}>
               {QUICK_REACTIONS.map((emoji) => (
-                <MsPressable
+                <TouchableOpacity
                   key={emoji}
                   style={styles.reactBtn}
-                  scale={0.85}
-                  pressOpacity={0.7}
-                  haptic
                   onPress={() => {
                     if (menuMsg) handleReaction(menuMsg, emoji);
                     hideMenu();
@@ -2670,20 +2587,18 @@ export default function ChatScreen() {
                   }}
                 >
                   <Text style={styles.reactEmoji}>{emoji}</Text>
-                </MsPressable>
+                </TouchableOpacity>
               ))}
             </ScrollView>
             <View style={styles.menuDivider} />
             <MenuItem icon={<ArrowBendUpLeft size={18} color={T.TEXT} />} label="Reply" onPress={handleMenuReply} />
             {String(menuMsg?.user?._id) === currentUserId &&
-              (!menuMsg?.msMediaType && !menuMsg?.msIsVoiceNote && !menuMsg?.image && !menuMsg?.video && !menuMsg?.audio
-                ? !!menuMsg?.text
-                : !!menuMsg?.msCaption) && (
-                <MenuItem
-                  icon={<PencilSimple size={18} color={T.TEXT} />}
-                  label={menuMsg?.msMediaType || menuMsg?.msIsVoiceNote ? 'Edit Caption' : 'Edit'}
-                  onPress={handleEdit}
-                />
+              !menuMsg?.msMediaType &&
+              !menuMsg?.msIsVoiceNote &&
+              !menuMsg?.image &&
+              !menuMsg?.video &&
+              !menuMsg?.audio && (
+                <MenuItem icon={<PencilSimple size={18} color={T.TEXT} />} label="Edit" onPress={handleEdit} />
               )}
             {!!menuMsg?.text && (
               <MenuItem icon={<CopyIcon size={18} color={T.TEXT} />} label="Copy" onPress={handleCopy} />
@@ -2698,8 +2613,8 @@ export default function ChatScreen() {
               labelStyle={{ color: T.DANGER }}
               onPress={handleDeletePress}
             />
-          </Reanimated.View>
-        </Reanimated.View>
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* ── Fullscreen image viewer (swipe-down to dismiss) ─────────────────── */}
@@ -2720,18 +2635,18 @@ export default function ChatScreen() {
         statusBarTranslucent
       >
         <View style={styles.fullscreenBg}>
-          <View style={[styles.fsvHeader, { paddingTop: insets.top + 12 }]}>
-            <MsPressable style={styles.fsvBtn} onPress={() => setFullscreenVideoUri(null)}>
+          <View style={[styles.fsvHeader, { paddingTop: 48 }]}>
+            <TouchableOpacity style={styles.fsvBtn} onPress={() => setFullscreenVideoUri(null)}>
               <X size={18} color="#fff" weight="bold" />
-            </MsPressable>
+            </TouchableOpacity>
             {!fullscreenVideoIsOwn && fullscreenVideoUri ? (
-              <MsPressable
+              <TouchableOpacity
                 style={styles.fsvBtn}
                 onPress={() => Share.share({ url: fullscreenVideoUri, message: fullscreenVideoUri })}
                 accessibilityLabel="Save video"
               >
                 <DownloadSimple size={20} color="#fff" weight="bold" />
-              </MsPressable>
+              </TouchableOpacity>
             ) : <View style={styles.fsvBtn} />}
           </View>
           {fullscreenVideoUri ? (
@@ -2752,97 +2667,115 @@ export default function ChatScreen() {
 
 function FullscreenImageViewer({ uri, onClose, isOwn }: { uri: string; onClose: () => void; isOwn: boolean }) {
   const insets = useSafeAreaInsets();
-  const SCREEN = Dimensions.get('window');  // Pan + swipe-down
+  const SCREEN = Dimensions.get('window');
+
+  // Pan + swipe-down
   const translateX   = useRef(new Animated.Value(0)).current;
   const translateY   = useRef(new Animated.Value(0)).current;
   const bgOpacity    = useRef(new Animated.Value(1)).current;
-  // Pinch zoom
+  // Pinch zoom (using manual two-touch tracking)
   const scaleAnim    = useRef(new Animated.Value(1)).current;
   const scaleRef     = useRef(1);
   const lastScaleRef = useRef(1);
+  const prevDistRef  = useRef<number | null>(null);
+  // Double-tap
+  const lastTapRef   = useRef(0);
   const isZoomedRef  = useRef(false);
 
-  // ── Native gestures (react-native-gesture-handler) ─────────────────────────
-  // Pinch, pan and double-tap run through the native gesture system on the
-  // UI thread — the old PanResponder handled touches on the JS thread.
+  function dist(t1: { pageX: number; pageY: number }, t2: { pageX: number; pageY: number }) {
+    const dx = t1.pageX - t2.pageX;
+    const dy = t1.pageY - t2.pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
-  const toggleZoom = useCallback(() => {
-    // Double-tap: toggle zoom, resetting any pan offset.
-    const targetScale = isZoomedRef.current ? 1 : 2.5;
-    isZoomedRef.current = !isZoomedRef.current;
-    scaleRef.current = targetScale;
-    Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: targetScale, useNativeDriver: true, damping: 20, stiffness: 280 }),
-      Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 280 }),
-      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 280 }),
-    ]).start();
-  }, [scaleAnim, translateX, translateY]);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, gs) => {
+        const touches = (_e.nativeEvent as any).touches;
+        if (touches?.length >= 2) return true;
+        const s = scaleRef.current;
+        if (s > 1) return true;
+        return Math.abs(gs.dy) > 8;
+      },
 
-  const pinchGesture = useMemo(() => Gesture.Pinch()
-    // Pinch natively requires two pointers (default minPointers = 2).
-    .onStart(() => {
-      lastScaleRef.current = scaleRef.current;
-    })
-    .onUpdate((e) => {
-      const newScale = Math.max(0.85, Math.min(5, lastScaleRef.current * e.scale));
-      scaleRef.current = newScale;
-      scaleAnim.setValue(newScale);
-    })
-    .onEnd(() => {
-      // Keep the current scale (spring settles it) — mirrors the old
-      // release path's zoomed branch.
-      Animated.spring(scaleAnim, { toValue: scaleRef.current, useNativeDriver: true, damping: 22, stiffness: 300 }).start();
-    }), [scaleAnim]);
+      onPanResponderGrant: (e) => {
+        const touches = (e.nativeEvent as any).touches;
+        if (touches?.length >= 2) {
+          prevDistRef.current = dist(touches[0], touches[1]);
+          lastScaleRef.current = scaleRef.current;
+        }
+        // Double-tap detection
+        const now = Date.now();
+        if (touches?.length === 1) {
+          if (now - lastTapRef.current < 280) {
+            // Double-tap: toggle zoom
+            const targetScale = isZoomedRef.current ? 1 : 2.5;
+            isZoomedRef.current = !isZoomedRef.current;
+            scaleRef.current = targetScale;
+            Animated.parallel([
+              Animated.spring(scaleAnim, { toValue: targetScale, useNativeDriver: true, damping: 20, stiffness: 280 }),
+              Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 280 }),
+              Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 280 }),
+            ]).start();
+          }
+          lastTapRef.current = now;
+        }
+      },
 
-  const panGesture = useMemo(() => Gesture.Pan()
-    .maxPointers(1)
-    .shouldCancelWhenOutside(false)
-    .onUpdate((e) => {
-      const s = scaleRef.current;
-      if (s > 1.05) {
-        // Pan while zoomed
-        translateX.setValue(e.translationX);
-        translateY.setValue(e.translationY);
-      } else if (e.translationY > 0) {
-        // Swipe-down at 1× — drag + dim
-        translateY.setValue(e.translationY);
-        bgOpacity.setValue(Math.max(0, 1 - e.translationY / 350));
-      }
-    })
-    .onEnd((e) => {
-      const s = scaleRef.current;
-      // Swipe-down dismiss at scale ~1
-      if (s <= 1.05 && (e.translationY > 100 || e.velocityY > 0.9)) {
-        Animated.parallel([
-          Animated.timing(translateY, { toValue: SCREEN.height, duration: 220, useNativeDriver: true }),
-          Animated.timing(bgOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
-        ]).start(onClose);
-        return;
-      }
-      // Snap back to center if scale ~1
-      if (s <= 1.05) {
-        scaleRef.current = 1;
-        isZoomedRef.current = false;
-        Animated.parallel([
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 300 }),
-          Animated.spring(bgOpacity, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 300 }),
-          Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 300 }),
-        ]).start();
-      } else {
-        // Keep panned position when zoomed
-        Animated.spring(scaleAnim, { toValue: s, useNativeDriver: true, damping: 22, stiffness: 300 }).start();
-      }
-    }), [scaleAnim, translateX, translateY, bgOpacity, onClose, SCREEN.height]);
+      onPanResponderMove: (e, gs) => {
+        const touches = (e.nativeEvent as any).touches;
+        // Pinch
+        if (touches?.length >= 2 && prevDistRef.current !== null) {
+          const d = dist(touches[0], touches[1]);
+          const ratio  = d / prevDistRef.current;
+          const newScale = Math.max(0.85, Math.min(5, lastScaleRef.current * ratio));
+          scaleRef.current = newScale;
+          scaleAnim.setValue(newScale);
+          return;
+        }
+        // Pan (while zoomed) or swipe-down (at 1×)
+        const s = scaleRef.current;
+        if (s > 1.05) {
+          translateX.setValue(gs.dx);
+          translateY.setValue(gs.dy);
+        } else if (gs.dy > 0) {
+          translateY.setValue(gs.dy);
+          bgOpacity.setValue(Math.max(0, 1 - gs.dy / 350));
+        }
+      },
 
-  const doubleTapGesture = useMemo(() => Gesture.Tap()
-    .numberOfTaps(2)
-    .maxDuration(280)
-    .onEnd(() => toggleZoom()), [toggleZoom]);
+      onPanResponderRelease: (_e, gs) => {
+        prevDistRef.current = null;
+        const s = scaleRef.current;
+        // Swipe-down dismiss at scale ~1
+        if (s <= 1.05 && (gs.dy > 100 || gs.vy > 0.9)) {
+          Animated.parallel([
+            Animated.timing(translateY, { toValue: SCREEN.height, duration: 220, useNativeDriver: true }),
+            Animated.timing(bgOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+          ]).start(onClose);
+          return;
+        }
+        // Snap back to center if scale ~1
+        if (s <= 1.05) {
+          scaleRef.current = 1;
+          isZoomedRef.current = false;
+          Animated.parallel([
+            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 300 }),
+            Animated.spring(bgOpacity, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 300 }),
+            Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 300 }),
+          ]).start();
+        } else {
+          // Keep panned position when zoomed
+          Animated.spring(scaleAnim, { toValue: s, useNativeDriver: true, damping: 22, stiffness: 300 }).start();
+        }
+      },
 
-  const viewerGesture = useMemo(
-    () => Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture),
-    [pinchGesture, panGesture, doubleTapGesture],
-  );
+      onPanResponderTerminate: () => {
+        prevDistRef.current = null;
+      },
+    }),
+  ).current;
 
   const handleShare = async () => {
     try {
@@ -2857,38 +2790,37 @@ function FullscreenImageViewer({ uri, onClose, isOwn }: { uri: string; onClose: 
 
         {/* Header bar — close + share */}
         <View style={[styles.fsvHeader, { paddingTop: insets.top + 8 }]}>
-          <MsPressable style={styles.fsvBtn} onPress={onClose} accessibilityLabel="Close image viewer">
+          <TouchableOpacity style={styles.fsvBtn} onPress={onClose} accessibilityLabel="Close image viewer">
             <X size={18} color="#fff" weight="bold" />
-          </MsPressable>
+          </TouchableOpacity>
           {!isOwn && (
-            <MsPressable style={styles.fsvBtn} onPress={handleShare} accessibilityLabel="Save image">
+            <TouchableOpacity style={styles.fsvBtn} onPress={handleShare} accessibilityLabel="Save image">
               <DownloadSimple size={20} color="#fff" weight="bold" />
-            </MsPressable>
+            </TouchableOpacity>
           )}
         </View>
 
-        {/* Image — native pinch, pan, double-tap gestures */}
-        <GestureDetector gesture={viewerGesture}>
-          <Animated.View
-            style={[
-              styles.fsvImgWrap,
-              {
-                transform: [
-                  { scale: scaleAnim },
-                  { translateX },
-                  { translateY },
-                ],
-              },
-            ]}
-          >
-            <ExpoImage
-              source={{ uri }}
-              style={{ width: SCREEN.width, height: SCREEN.height * 0.85 }}
-              contentFit="contain"
-              accessibilityLabel="Full screen image"
-            />
-          </Animated.View>
-        </GestureDetector>
+        {/* Image — supports pinch, pan, double-tap */}
+        <Animated.View
+          style={[
+            styles.fsvImgWrap,
+            {
+              transform: [
+                { scale: scaleAnim },
+                { translateX },
+                { translateY },
+              ],
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <ExpoImage
+            source={{ uri }}
+            style={{ width: SCREEN.width, height: SCREEN.height * 0.85 }}
+            contentFit="contain"
+            accessibilityLabel="Full screen image"
+          />
+        </Animated.View>
 
         {/* Hint */}
         <Text style={[styles.swipeHint, { bottom: insets.bottom + 16 }]}>
@@ -2913,10 +2845,10 @@ function MenuItem({
   labelStyle?: object;
 }) {
   return (
-    <MsPressable style={styles.menuItem} onPress={onPress} scale={0.97} pressOpacity={0.8} haptic>
+    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.7}>
       {icon}
       <Text style={[styles.menuItemText, labelStyle]}>{label}</Text>
-    </MsPressable>
+    </TouchableOpacity>
   );
 }
 
@@ -2959,22 +2891,31 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
   },
+  // Live presence/typing/recording status — bolder and accented so it reads
+  // clearly under the name without overlapping it (name is truncated above).
+  headerStatusLive: {
+    fontSize: 12,
+    fontFamily: T.FONT.semibold,
+    color: T.ACCENT,
+  },
 
   msgContainer: {
     backgroundColor: 'transparent',
     paddingHorizontal: 0,
   },
 
-  // Message-area shimmer — absolute overlay confined to the conversation
+  // Message-area loading — absolute overlay confined to the conversation
   // region (below the header, above the input bar which paints over it).
   // The chat UI renders immediately; only messages are loading.
-  msgShimmerWrap: {
+  msgLoadingWrap: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
     backgroundColor: T.BG,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Empty-chat state — centered overlay above the chat background
@@ -3176,16 +3117,6 @@ const styles = StyleSheet.create({
   deleteSheetBtn: {
     paddingVertical: 16,
     alignItems: 'center',
-  },
-  deleteSheetBtnDisabled: {
-    paddingVertical: 14,
-    alignItems: 'center',
-    gap: 2,
-  },
-  deleteSheetHint: {
-    fontSize: 11,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_3,
   },
   deleteSheetBtnText: {
     fontSize: 15,

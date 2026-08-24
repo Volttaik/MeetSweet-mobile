@@ -17,7 +17,8 @@
  *
  * Keyboard behaviour
  * ──────────────────
- * • Tracks keyboard height via Keyboard events.
+ * • The composer's bottom inset follows keyboard-controller's animated
+ *   progress so it rides the keyboard without jumping (see bottomPadStyle).
  */
 
 import React, {
@@ -30,18 +31,19 @@ import React, {
 import {
   Animated,
   Easing,
-  Keyboard,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Reanimated, { interpolate, useAnimatedStyle } from 'react-native-reanimated';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import {
   ArrowBendUpLeft,
   ArrowUp,
@@ -56,19 +58,7 @@ import {
   Play,
   X,
 } from 'phosphor-react-native';
-import {
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
-  useAudioRecorder,
-} from 'expo-audio';
-import Reanimated, {
-  useAnimatedStyle,
-  useSharedValue,
-  type SharedValue,
-} from 'react-native-reanimated';
+import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { T } from '@/constants/theme';
 import type { ReplyMessage } from '@kesha-antonov/react-native-chat';
@@ -83,7 +73,7 @@ export interface PendingVoice {
 
 /** Inline attachment staged above the input before sending */
 export interface InlineAttachment {
-  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif' | 'sticker';
+  type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -108,6 +98,7 @@ type RecordingState = 'idle' | 'active' | 'locked';
 const LONG_PRESS_DELAY   = 250;
 const LOCK_THRESHOLD_Y   = -52;
 const CANCEL_THRESHOLD_X = -72;
+const ICON_ANIM_MS       = 180;
 const WAVEFORM_BARS      = 16;
 const MAX_REC_SECS       = 300; // 5 minutes
 const WARN_AT_SECS       = 270; // 4 minutes 30 seconds
@@ -116,17 +107,6 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Map a live dBFS metering value (−160 silence … 0 full scale) onto a 0..1 bar
- * height. Voice sits mostly in the −50..−5 dB band, so the linear amplitude is
- * boosted with a sqrt curve for a perceptible, natural-looking wave.
- */
-function normalizeDb(db: number | undefined | null): number {
-  if (db == null || !Number.isFinite(db)) return 0.15;
-  const amp = Math.pow(10, Math.max(-160, Math.min(0, db)) / 20);
-  return Math.min(1, Math.max(0.1, Math.sqrt(amp)));
 }
 
 // ─── Animated pressable helper ────────────────────────────────────────────────
@@ -183,39 +163,6 @@ const IconBtn = memo(function IconBtn({
   );
 });
 
-// ─── Live waveform — metering-driven bars rendered on the UI thread ───────────
-
-const WaveBar = memo(function WaveBar({
-  wave,
-  index,
-  barStyle,
-}: {
-  wave: SharedValue<number[]>;
-  index: number;
-  barStyle: any;
-}) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    height: Math.max(3, wave.value[index] * 22),
-  }));
-  return <Reanimated.View style={[barStyle, animatedStyle]} />;
-});
-
-const LiveWaveform = memo(function LiveWaveform({
-  wave,
-  barStyle,
-}: {
-  wave: SharedValue<number[]>;
-  barStyle: any;
-}) {
-  return (
-    <>
-      {Array.from({ length: WAVEFORM_BARS }, (_, i) => (
-        <WaveBar key={i} wave={wave} index={i} barStyle={barStyle} />
-      ))}
-    </>
-  );
-});
-
 // ─── VoiceCompactBar — compact audio preview above input ─────────────────────
 
 const VoiceCompactBar = memo(function VoiceCompactBar({
@@ -225,22 +172,43 @@ const VoiceCompactBar = memo(function VoiceCompactBar({
   voice: PendingVoice;
   onRemove: () => void;
 }) {
-  const player = useAudioPlayer(voice.uri);
-  const status = useAudioPlayerStatus(player);
-  const isPlaying = status.playing;
-  const position  = Math.floor(status.currentTime ?? 0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position,  setPosition]  = useState(0);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
-  useEffect(() => () => { player.remove(); }, [player]);
+  useEffect(() => () => {
+    soundRef.current?.stopAsync().catch(() => {});
+    soundRef.current?.unloadAsync().catch(() => {});
+  }, []);
 
   const togglePlay = async () => {
     try {
       if (isPlaying) {
-        player.pause();
+        await soundRef.current?.pauseAsync();
+        setIsPlaying(false);
         return;
       }
-      await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
-      if (status.didJustFinish) await player.seekTo(0);
-      player.play();
+      if (!soundRef.current) {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: voice.uri },
+          { shouldPlay: true },
+          (status) => {
+            if (!status.isLoaded) return;
+            setPosition(Math.floor((status.positionMillis ?? 0) / 1000));
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+              soundRef.current?.unloadAsync().catch(() => {});
+              soundRef.current = null;
+            }
+          },
+        );
+        soundRef.current = sound;
+      } else {
+        await soundRef.current.playAsync();
+      }
+      setIsPlaying(true);
     } catch {/* ignore */}
   };
 
@@ -273,15 +241,15 @@ const VoiceCompactBar = memo(function VoiceCompactBar({
         ))}
       </View>
       <Text style={sa.voiceDuration}>{fmt(isPlaying ? position : voice.duration)}</Text>
-      <MsPressable style={sa.voicePlayBtn} onPress={togglePlay}>
+      <TouchableOpacity style={sa.voicePlayBtn} onPress={togglePlay} activeOpacity={0.8}>
         {isPlaying
           ? <Pause size={13} color="#fff" weight="fill" />
           : <Play  size={13} color="#fff" weight="fill" />
         }
-      </MsPressable>
-      <MsPressable style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
+      </TouchableOpacity>
+      <TouchableOpacity style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
         <X size={12} color={T.TEXT_3} />
-      </MsPressable>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -295,22 +263,43 @@ const AudioAttachmentBar = memo(function AudioAttachmentBar({
   attachment: InlineAttachment;
   onRemove: () => void;
 }) {
-  const player = useAudioPlayer(attachment.uri);
-  const status = useAudioPlayerStatus(player);
-  const isPlaying = status.playing;
-  const position  = Math.floor(status.currentTime ?? 0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position,  setPosition]  = useState(0);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
-  useEffect(() => () => { player.remove(); }, [player]);
+  useEffect(() => () => {
+    soundRef.current?.stopAsync().catch(() => {});
+    soundRef.current?.unloadAsync().catch(() => {});
+  }, []);
 
   const togglePlay = async () => {
     try {
       if (isPlaying) {
-        player.pause();
+        await soundRef.current?.pauseAsync();
+        setIsPlaying(false);
         return;
       }
-      await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
-      if (status.didJustFinish) await player.seekTo(0);
-      player.play();
+      if (!soundRef.current) {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: attachment.uri },
+          { shouldPlay: true },
+          (status) => {
+            if (!status.isLoaded) return;
+            setPosition(Math.floor((status.positionMillis ?? 0) / 1000));
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+              soundRef.current?.unloadAsync().catch(() => {});
+              soundRef.current = null;
+            }
+          },
+        );
+        soundRef.current = sound;
+      } else {
+        await soundRef.current.playAsync();
+      }
+      setIsPlaying(true);
     } catch {/* ignore */}
   };
 
@@ -345,15 +334,15 @@ const AudioAttachmentBar = memo(function AudioAttachmentBar({
       <Text style={sa.voiceDuration}>
         {fmt(isPlaying ? position : duration)}
       </Text>
-      <MsPressable style={sa.voicePlayBtn} onPress={togglePlay}>
+      <TouchableOpacity style={sa.voicePlayBtn} onPress={togglePlay} activeOpacity={0.8}>
         {isPlaying
           ? <Pause size={13} color="#fff" weight="fill" />
           : <Play  size={13} color="#fff" weight="fill" />
         }
-      </MsPressable>
-      <MsPressable style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
+      </TouchableOpacity>
+      <TouchableOpacity style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
         <X size={12} color={T.TEXT_3} />
-      </MsPressable>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -369,7 +358,7 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
   onRemove: () => void;
   onEdit?: () => void;
 }) {
-  const isMedia  = attachment.type === 'image' || attachment.type === 'video' || attachment.type === 'gif' || attachment.type === 'sticker';
+  const isMedia  = attachment.type === 'image' || attachment.type === 'video' || attachment.type === 'gif';
   const isDoc    = attachment.type === 'document';
   const fileName = (attachment as InlineAttachment).fileName ?? '';
   const fileSize = (attachment as InlineAttachment).fileSize;
@@ -397,11 +386,6 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
               <Text style={sa.gifBadgeText}>GIF</Text>
             </View>
           )}
-          {attachment.type === 'sticker' && (
-            <View style={sa.gifBadge}>
-              <Text style={sa.gifBadgeText}>STICKER</Text>
-            </View>
-          )}
         </View>
       )}
 
@@ -415,7 +399,6 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
         <Text style={sa.mediaName} numberOfLines={1}>
           {attachment.type === 'gif'
             ? 'GIF'
-            : attachment.type === 'sticker' ? 'Sticker'
             : attachment.type === 'image' ? 'Photo'
             : attachment.type === 'video' ? 'Video'
             : fileName}
@@ -426,13 +409,13 @@ const MediaAttachmentBar = memo(function MediaAttachmentBar({
       </View>
 
       {onEdit && (
-        <MsPressable style={sa.editBtn} onPress={onEdit} hitSlop={6}>
+        <TouchableOpacity style={sa.editBtn} onPress={onEdit} hitSlop={6}>
           <PencilSimple size={14} color={T.TEXT_2} />
-        </MsPressable>
+        </TouchableOpacity>
       )}
-      <MsPressable style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
+      <TouchableOpacity style={sa.attachRemoveBtn} onPress={onRemove} hitSlop={6}>
         <X size={12} color={T.TEXT_3} />
-      </MsPressable>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -501,18 +484,17 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   const inputRef = useRef<TextInput>(null);
 
-  // ── Keyboard tracking ─────────────────────────────────────────────────────
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
-
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
+  // ── Keyboard bottom inset ──────────────────────────────────────────────────
+  // The composer must sit flush against the keyboard while it is open (no
+  // home-indicator gap) and regain the safe-area inset when it closes.
+  // Driving paddingBottom from keyboard-controller's animated progress keeps
+  // it in lock-step with the KeyboardAvoidingView's own translation — an
+  // instant padding flip was what made the composer visibly jump ahead of /
+  // after the keyboard instead of riding it smoothly.
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const bottomPadStyle = useAnimatedStyle(() => ({
+    paddingBottom: interpolate(keyboardProgress.value, [0, 1], [insets.bottom, 0]),
+  }));
 
   // ── Mic ↔ Send spring animation ────────────────────────────────────────────
   const sendAnim = useRef(new Animated.Value(hasContent ? 1 : 0)).current;
@@ -613,30 +595,18 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   const [recWarning,  setRecWarning]  = useState(false);   // 4:30 warning
   const [micDenied,   setMicDenied]   = useState(false);   // permission denied banner
 
-  // ── Audio recorder (expo-audio) — created once per mount, prepared on demand.
-  //     Metering is enabled so the live waveform is driven by real dBFS values
-  //     instead of a fake JS-thread pulse.
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-
-  // ── Live waveform — metering samples pushed into a shared-value ring buffer
-  //     that the bars read on the UI thread (zero JS work per frame).
-  const waveHeights = useSharedValue<number[]>(new Array(WAVEFORM_BARS).fill(0.15));
-  const ringBufferRef = useRef<number[]>([]);
-
   const recRef = useRef<{
-    state:              RecordingState;
-    recording:          boolean;
-    intervalId:         ReturnType<typeof setInterval> | null;
-    meteringIntervalId: ReturnType<typeof setInterval> | null;
-    longPressTimer:     ReturnType<typeof setTimeout>  | null;
-    seconds:            number;
+    state:          RecordingState;
+    recording:      Audio.Recording | null;
+    intervalId:     ReturnType<typeof setInterval> | null;
+    longPressTimer: ReturnType<typeof setTimeout>  | null;
+    seconds:        number;
   }>({
-    state:              'idle',
-    recording:          false,
-    intervalId:         null,
-    meteringIntervalId: null,
-    longPressTimer:     null,
-    seconds:            0,
+    state:          'idle',
+    recording:      null,
+    intervalId:     null,
+    longPressTimer: null,
+    seconds:        0,
   });
 
   const syncState = (s: RecordingState) => {
@@ -647,6 +617,13 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   // ── Mic press animation ────────────────────────────────────────────────────
   const micPressScale = useRef(new Animated.Value(1)).current;
   const micGlowAnim   = useRef(new Animated.Value(0)).current;
+
+  const animateMicPressIn = () => {
+    Animated.parallel([
+      Animated.spring(micPressScale, { toValue: 0.88, useNativeDriver: true, damping: 12, stiffness: 300 }),
+      Animated.timing(micGlowAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+    ]).start();
+  };
 
   const animateMicPressOut = () => {
     Animated.parallel([
@@ -670,53 +647,47 @@ export const MsChatInputBar = memo(function MsChatInputBar({
   const cancelHintAnim = useRef(new Animated.Value(0)).current;
   const lockedAnim     = useRef(new Animated.Value(0)).current;
 
-  // ── Live waveform sampling — reads the recorder's dBFS metering at 10 Hz and
-  //     scrolls a WAVEFORM_BARS window of normalized heights through the shared
-  //     value. Bars re-render on the UI thread; no layout churn per frame.
-  const startMetering = () => {
-    stopMetering();
-    recRef.current.meteringIntervalId = setInterval(() => {
-      if (!recRef.current.recording) return;
-      // Guard the native status read: an uncaught exception inside a timer
-      // callback would crash the whole app mid-recording. If the recorder is
-      // ever in a state where getStatus() throws (released module, native
-      // error), stop metering instead of taking the app down — the recording
-      // itself keeps running and the timer keeps counting.
-      try {
-        const db = recorder.getStatus().metering;
-        ringBufferRef.current.push(normalizeDb(db));
-        if (ringBufferRef.current.length > WAVEFORM_BARS) ringBufferRef.current.shift();
-        waveHeights.value = ringBufferRef.current.slice();
-      } catch {
-        stopMetering();
-      }
-    }, 100);
+  // ── Waveform bars ──────────────────────────────────────────────────────────
+  const barAnims = useRef(
+    Array.from({ length: WAVEFORM_BARS }, () => new Animated.Value(1)),
+  ).current;
+  const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
+
+  const startPulse = () => {
+    pulseLoop.current?.stop();
+    const loops = barAnims.map((a, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 35),
+          Animated.timing(a, { toValue: 1.8, duration: 320 + (i % 4) * 50, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(a, { toValue: 1,   duration: 320 + (i % 4) * 50, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ),
+    );
+    pulseLoop.current = Animated.parallel(loops);
+    pulseLoop.current.start();
   };
 
-  const stopMetering = () => {
-    if (recRef.current.meteringIntervalId) {
-      clearInterval(recRef.current.meteringIntervalId);
-      recRef.current.meteringIntervalId = null;
-    }
-    ringBufferRef.current.length = 0;
-    waveHeights.value = new Array(WAVEFORM_BARS).fill(0.15);
+  const stopPulse = () => {
+    pulseLoop.current?.stop();
+    pulseLoop.current = null;
+    barAnims.forEach((a) => a.setValue(1));
   };
 
   // ── Recording actions ──────────────────────────────────────────────────────
 
   const _startRecording = async () => {
     try {
-      const { granted } = await requestRecordingPermissionsAsync();
+      const { granted, canAskAgain } = await Audio.requestPermissionsAsync();
       if (!granted) {
         setMicDenied(true);
         animateMicPressOut();
         return;
       }
       setMicDenied(false);
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, interruptionMode: 'doNotMix' });
-      await recorder.prepareToRecordAsync({ isMeteringEnabled: true });
-      recorder.record();
-      recRef.current.recording = true;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      recRef.current.recording = recording;
       recRef.current.seconds   = 0;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       Animated.timing(micGlowAnim, { toValue: 1, duration: 160, useNativeDriver: true }).start();
@@ -740,28 +711,29 @@ export const MsChatInputBar = memo(function MsChatInputBar({
       }, 1000);
       syncState('active');
       setRecSeconds(0);
-      startMetering();
+      startPulse();
       onRecordingStateChange?.(true);
     } catch {/* permission denied or device error */}
   };
 
   const _stopRecording = async (cancel = false) => {
     if (recRef.current.intervalId) { clearInterval(recRef.current.intervalId); recRef.current.intervalId = null; }
-    stopMetering();
+    stopPulse();
     animateMicPressOut();
-    const wasRecording = recRef.current.recording;
-    recRef.current.recording = false;
+    const rec = recRef.current.recording;
+    recRef.current.recording = null;
     syncState('idle');
     setRecSeconds(0);
     setRecWarning(false);
     onRecordingStateChange?.(false);
-    if (!wasRecording) return;
+    if (!rec) return;
     try {
-      await recorder.stop();
+      await rec.stopAndUnloadAsync();
       if (!cancel) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        const uri = recorder.uri;
-        const dur = Math.max(0, Math.floor(recorder.currentTime ?? 0));
+        const uri    = rec.getURI();
+        const status = await rec.getStatusAsync();
+        const dur    = Math.floor((status.durationMillis ?? 0) / 1000);
         if (uri && dur > 0) {
           // Stage as compact preview above input — user presses send to dispatch
           setPendingVoice({ uri, duration: dur });
@@ -783,68 +755,61 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     }).start();
   };
 
-  // ── Mic hold-to-record gesture (native gesture-handler, UI thread) ─────────
-  // Replaces the JS-thread PanResponder: activation, translation tracking and
-  // release all run through the native gesture system instead of simulated
-  // JS touch handling.
-  const gestureEndedRef = useRef(false);
+  // ── PanResponder for mic ───────────────────────────────────────────────────
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, _gs) => recRef.current.state !== 'idle',
 
-  const micGesture = Gesture.Pan()
-    .minDistance(0)
-    .maxPointers(1)
-    .shouldCancelWhenOutside(false)
-    .onBegin(() => {
-      // Touch-down: press-in feedback + the long-press timer that starts
-      // recording after LONG_PRESS_DELAY ms.
-      if (recRef.current.state !== 'idle') return;
-      Animated.spring(micPressScale, { toValue: 0.88, useNativeDriver: true, damping: 12, stiffness: 300 }).start();
-      Animated.timing(micGlowAnim, { toValue: 0.6, duration: 100, useNativeDriver: true }).start();
-      Haptics.selectionAsync().catch(() => {});
-      recRef.current.longPressTimer = setTimeout(() => {
-        recRef.current.longPressTimer = null;
-        _startRecording();
-      }, LONG_PRESS_DELAY);
-    })
-    .onUpdate((e) => {
-      if (recRef.current.state !== 'active') return;
-      lockHintAnim.setValue(Math.min(1, Math.max(0, -e.translationY / Math.abs(LOCK_THRESHOLD_Y))));
-      if (e.translationY > -20) {
-        cancelHintAnim.setValue(Math.min(1, Math.max(0, -e.translationX / Math.abs(CANCEL_THRESHOLD_X))));
-      }
-    })
-    .onEnd((e) => {
-      gestureEndedRef.current = true;
-      if (recRef.current.longPressTimer) {
-        clearTimeout(recRef.current.longPressTimer);
-        recRef.current.longPressTimer = null;
-        animateMicPressOut();
-        return;
-      }
-      if (recRef.current.state !== 'active') return;
-      if (e.translationY <= LOCK_THRESHOLD_Y) _lockRecording();
-      else if (e.translationX <= CANCEL_THRESHOLD_X) _stopRecording(true);
-      else _stopRecording(false);
-    })
-    .onFinalize(() => {
-      // Gesture was cancelled/stolen (not a normal release) — behave like the
-      // old onPanResponderTerminate.
-      if (!gestureEndedRef.current) {
+      onPanResponderGrant: () => {
+        if (recRef.current.state !== 'idle') return;
+        Animated.spring(micPressScale, { toValue: 0.88, useNativeDriver: true, damping: 12, stiffness: 300 }).start();
+        Animated.timing(micGlowAnim, { toValue: 0.6, duration: 100, useNativeDriver: true }).start();
+        Haptics.selectionAsync().catch(() => {});
+        recRef.current.longPressTimer = setTimeout(() => {
+          recRef.current.longPressTimer = null;
+          _startRecording();
+        }, LONG_PRESS_DELAY);
+      },
+
+      onPanResponderMove: (_e, gs) => {
+        if (recRef.current.state !== 'active') return;
+        lockHintAnim.setValue(Math.min(1, Math.max(0, -gs.dy / Math.abs(LOCK_THRESHOLD_Y))));
+        if (gs.dy > -20) {
+          cancelHintAnim.setValue(Math.min(1, Math.max(0, -gs.dx / Math.abs(CANCEL_THRESHOLD_X))));
+        }
+      },
+
+      onPanResponderRelease: (_e, gs) => {
+        if (recRef.current.longPressTimer) {
+          clearTimeout(recRef.current.longPressTimer);
+          recRef.current.longPressTimer = null;
+          animateMicPressOut();
+          return;
+        }
+        if (recRef.current.state !== 'active') return;
+        if (gs.dy <= LOCK_THRESHOLD_Y) _lockRecording();
+        else if (gs.dx <= CANCEL_THRESHOLD_X) _stopRecording(true);
+        else _stopRecording(false);
+      },
+
+      onPanResponderTerminate: () => {
         if (recRef.current.longPressTimer) {
           clearTimeout(recRef.current.longPressTimer);
           recRef.current.longPressTimer = null;
         }
         animateMicPressOut();
         if (recRef.current.state === 'active') _stopRecording(true);
-      }
-      gestureEndedRef.current = false;
-    });
+      },
+    }),
+  ).current;
 
   // ── Cleanup ────────────────────────────────────────────────────────────────
   useEffect(() => () => {
     if (recRef.current.longPressTimer) clearTimeout(recRef.current.longPressTimer);
     if (recRef.current.intervalId)     clearInterval(recRef.current.intervalId);
-    stopMetering();
-    if (recRef.current.recording) void recorder.stop();
+    stopPulse();
+    recRef.current.recording?.stopAndUnloadAsync().catch(() => {});
   }, []);
 
   // ── Send handler — multi-path ──────────────────────────────────────────────
@@ -880,8 +845,6 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
-  const bottomInset = !keyboardVisible ? insets.bottom : 0;
-
   // ── LOCKED state ───────────────────────────────────────────────────────────
   if (recState === 'locked') {
     return (
@@ -906,9 +869,11 @@ export const MsChatInputBar = memo(function MsChatInputBar({
         )}
 
         <View style={s.lockedRow}>
-          {/* Live waveform */}
+          {/* Animated waveform */}
           <View style={s.lockedWave}>
-            <LiveWaveform wave={waveHeights} barStyle={s.lockedBar} />
+            {barAnims.map((a, i) => (
+              <Animated.View key={i} style={[s.lockedBar, { transform: [{ scaleY: a }] }]} />
+            ))}
           </View>
 
           {/* Timer */}
@@ -917,18 +882,19 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           </Text>
 
           {/* Cancel */}
-          <MsPressable style={s.lockedCancel} onPress={() => _stopRecording(true)}
+          <TouchableOpacity style={s.lockedCancel} onPress={() => _stopRecording(true)} activeOpacity={0.8}
             accessibilityLabel="Cancel recording"
           >
             <X size={16} color={T.TEXT_2} />
-          </MsPressable>
+          </TouchableOpacity>
 
-          {/* Stop / confirm — green after lock */}
-          <MsPressable style={s.lockedStop} onPress={() => _stopRecording(false)}
+          {/* Stop / confirm — green after lock; the send icon makes it clear
+              this button finishes and stages the recording */}
+          <TouchableOpacity style={s.lockedStop} onPress={() => _stopRecording(false)} activeOpacity={0.85}
             accessibilityLabel="Stop and confirm recording"
           >
-            <Lock size={15} color="#fff" weight="fill" />
-          </MsPressable>
+            <PaperPlaneRight size={15} color="#fff" weight="fill" />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -936,29 +902,30 @@ export const MsChatInputBar = memo(function MsChatInputBar({
 
   // ── Main render ────────────────────────────────────────────────────────────
   return (
-    <View style={[s.root, { paddingBottom: bottomInset }]}>
+    <Reanimated.View style={[s.root, bottomPadStyle]}>
 
       {/* ── Microphone permission denied banner ───────────────────────────── */}
       {micDenied && (
-        <MsPressable
+        <TouchableOpacity
           style={s.micDeniedBanner}
           onPress={async () => {
             const { Linking } = await import('react-native');
             Linking.openSettings();
           }}
+          activeOpacity={0.85}
           accessibilityLabel="Microphone access required. Tap to open settings."
           accessibilityRole="button"
         >
           <Microphone size={14} color="#fff" weight="fill" />
           <Text style={s.micDeniedText}>Microphone access required. Tap to open settings.</Text>
-          <MsPressable
+          <TouchableOpacity
             hitSlop={10}
             onPress={() => setMicDenied(false)}
             accessibilityLabel="Dismiss"
           >
             <X size={14} color="rgba(255,255,255,0.55)" />
-          </MsPressable>
-        </MsPressable>
+          </TouchableOpacity>
+        </TouchableOpacity>
       )}
 
       {/* ── Edit banner ──────────────────────────────────────────────────── */}
@@ -968,9 +935,9 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           <Text style={s.contextBarText} numberOfLines={1}>
             Editing: {editingMessage?.text ?? ''}
           </Text>
-          <MsPressable onPress={onCancelEdit} hitSlop={8}>
+          <TouchableOpacity onPress={onCancelEdit} hitSlop={8}>
             <X size={16} color={T.TEXT_3} />
-          </MsPressable>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -989,9 +956,9 @@ export const MsChatInputBar = memo(function MsChatInputBar({
           <Text style={s.contextBarText} numberOfLines={1}>
             Replying to {replyMessage.user?.name ?? 'message'}
           </Text>
-          <MsPressable onPress={onClearReply} hitSlop={8}>
+          <TouchableOpacity onPress={onClearReply} hitSlop={8}>
             <X size={16} color={T.TEXT_3} />
-          </MsPressable>
+          </TouchableOpacity>
         </Animated.View>
       ) : null}
 
@@ -1037,7 +1004,9 @@ export const MsChatInputBar = memo(function MsChatInputBar({
             <View style={[s.recDot, recWarning && s.recDotWarn]} />
             <Text style={[s.recTimer, recWarning && s.recTimerWarn]}>{fmtSecs(recSeconds)}</Text>
             <View style={s.recWave}>
-              <LiveWaveform wave={waveHeights} barStyle={s.recBar} />
+              {barAnims.map((a, i) => (
+                <Animated.View key={i} style={[s.recBar, { transform: [{ scaleY: a }] }]} />
+              ))}
             </View>
             <Animated.Text
               style={[
@@ -1109,13 +1078,14 @@ export const MsChatInputBar = memo(function MsChatInputBar({
               ]}
               pointerEvents={hasContent ? 'auto' : 'none'}
             >
-              <MsPressable
+              <TouchableOpacity
                 style={[s.rightBtn, s.actionBtn, isEditing && s.actionBtnEdit]}
                 onPress={handleSend}
-                      disabled={!hasContent || disabled || sending}
+                activeOpacity={0.88}
+                disabled={!hasContent || disabled || sending}
               >
                 <PaperPlaneRight size={20} color="#fff" weight="fill" />
-              </MsPressable>
+              </TouchableOpacity>
             </Animated.View>
           ) : null}
 
@@ -1143,28 +1113,27 @@ export const MsChatInputBar = memo(function MsChatInputBar({
                 <Animated.View style={[s.micGlow, { opacity: micGlowAnim }]} pointerEvents="none" />
               )}
 
-              {/* Mic view — native gesture-handler pan (hold-to-record) */}
-              <GestureDetector gesture={micGesture}>
-                <Animated.View
-                  style={[
-                    s.rightBtn,
-                    s.actionBtn,
-                    recState === 'active' && s.actionBtnRec,
-                    recState === 'idle' && { transform: [{ scale: micPressScale }] },
-                  ]}
-                >
-                  {recState === 'active'
-                    ? <View style={s.recDotSmall} />
-                    : <Microphone size={21} color="#fff" weight="fill" />
-                  }
-                </Animated.View>
-              </GestureDetector>
+              {/* Mic view with PanResponder */}
+              <Animated.View
+                style={[
+                  s.rightBtn,
+                  s.actionBtn,
+                  recState === 'active' && s.actionBtnRec,
+                  recState === 'idle' && { transform: [{ scale: micPressScale }] },
+                ]}
+                {...panResponder.panHandlers}
+              >
+                {recState === 'active'
+                  ? <View style={s.recDotSmall} />
+                  : <Microphone size={21} color="#fff" weight="fill" />
+                }
+              </Animated.View>
             </Animated.View>
           ) : null}
         </View>
       </View>
 
-    </View>
+    </Reanimated.View>
   );
 });
 
@@ -1250,12 +1219,12 @@ const s = StyleSheet.create({
     maxHeight: 130,
   },
 
-  recDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#EF4444', flexShrink: 0 },
-  recDotSmall: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' },
-  recTimer: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT, flexShrink: 0, minWidth: 36 },
+  recDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#EF4444', flexShrink: 0 },
+  recDotSmall: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#EF4444' },
+  recTimer: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT, flexShrink: 0, minWidth: 36 },
   recWave: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2, height: 22, overflow: 'hidden' },
-  recBar: { flex: 1, minWidth: 2, height: 10, borderRadius: 1.5, backgroundColor: T.ACCENT, opacity: 0.7 },
-  slideHint: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, flexShrink: 0 },
+  recBar: { flex: 1, minWidth: 2.5, height: 12, borderRadius: 2, backgroundColor: T.ACCENT, opacity: 0.85 },
+  slideHint: { fontSize: 11, fontFamily: T.FONT.medium, color: T.TEXT_2, flexShrink: 0 },
 
   rightBtnWrap: {
     width: 48,
@@ -1330,8 +1299,8 @@ const s = StyleSheet.create({
     backgroundColor: T.SURFACE,
   },
   lockedWave: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2, height: 26, overflow: 'hidden' },
-  lockedBar: { flex: 1, minWidth: 2, height: 12, borderRadius: 1.5, backgroundColor: T.ACCENT, opacity: 0.65 },
-  lockedTimer: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT, flexShrink: 0, minWidth: 38, textAlign: 'right' },
+  lockedBar: { flex: 1, minWidth: 2.5, height: 14, borderRadius: 2, backgroundColor: T.ACCENT, opacity: 0.8 },
+  lockedTimer: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT, flexShrink: 0, minWidth: 38, textAlign: 'right' },
   lockedCancel: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   // Green stop button after lock
   lockedStop: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.SUCCESS, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
@@ -1379,22 +1348,25 @@ const s = StyleSheet.create({
 // ── Attachment bar styles ────────────────────────────────────────────────────
 
 const sa = StyleSheet.create({
-  // Voice compact bar
+  // Voice compact bar — matches the sent MsVoiceBubble dimensions exactly so
+  // the preview → sent transition is pixel-stable.
   voiceBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
+    gap: 9,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     backgroundColor: T.SURFACE,
     marginHorizontal: 10,
     marginTop: 6,
     borderRadius: T.RADIUS.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
   },
   voiceIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: `${T.ACCENT}22`,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1413,7 +1385,7 @@ const sa = StyleSheet.create({
     minHeight: 3,
   },
   voiceDuration: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: T.FONT.semibold,
     color: T.TEXT_2,
     flexShrink: 0,
@@ -1421,9 +1393,9 @@ const sa = StyleSheet.create({
     textAlign: 'right',
   },
   voicePlayBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',

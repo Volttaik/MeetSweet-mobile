@@ -14,52 +14,37 @@
  *                 share the same chatRoomId. Server-owned.
  *   messageId   — identifies one exact message (MSG_001). Server-owned.
  *
- * HTTP CONTRACT (initial loads + settings only):
+ * REQUIRED BACKEND CONTRACT:
  *
  *   POST   /api/chat-rooms                     { participant_id }
  *          → { chat_room_id, created, participants, other_user, ... }
  *   GET    /api/chat-rooms?tab=all|archived    → { chat_rooms: [...] }
  *   GET    /api/chat-rooms/:chatRoomId         → { chat_room: {...} }
+ *   GET    /api/chat-rooms/:chatRoomId/messages?before=&after=
+ *          → { messages: [...], has_more }
+ *   POST   /api/chat-rooms/:chatRoomId/messages            → { message: {...} }
+ *   POST   /api/chat-rooms/:chatRoomId/read
+ *   POST   /api/chat-rooms/:chatRoomId/clear
+ *
+ * Live message, typing, presence, and read events arrive through SweetSocket
+ * (messages:upsert/update/delete/reaction, typing:*, presence:*, message:read)
+ * and history over chat.history → history:set. There is NO per-open context
+ * membership call: Turso is the durable source and the socket keeps the screen
+ * current — WhatsApp-style. HTTP is the offline/recovery fallback.
+ *   DELETE /api/chat-rooms/:chatRoomId/messages/:messageId
+ *   PATCH  /api/chat-rooms/:chatRoomId/messages/:messageId  { body }
+ *   POST   /api/chat-rooms/:chatRoomId/messages/:messageId/reactions  { emoji }
  *   PUT    /api/chat-rooms/:chatRoomId/mute       { muted }
  *   PUT    /api/chat-rooms/:chatRoomId/archive    { archived }
  *   DELETE /api/chat-rooms/:chatRoomId
  *
- * SWEETSOCKET CONTRACT (all live messaging — the single source of truth):
- *
- *   Commands  chat.send | chat.history | chat.read | chat.clear
- *             message.edit | message.delete | message.reaction
- *   Events    messages:upsert | messages:update | messages:delete
- *             messages:reaction | message:read | typing:* | presence:*
- *
- * There is NO HTTP messaging path: send/edit/delete/react/read/clear and
- * history all flow through the socket. Turso is the durable source and the
- * socket keeps the screen current — WhatsApp-style. HTTP is reserved for room
- * discovery, mute/archive/delete settings, and media upload.
- *
- * Message command payload: { body, mediaUrl, mediaType, caption, fileName,
- *   fileSize, mimeType, audioDuration, replyToId }
+ * Message POST body: { body, media_url, media_type, caption, file_name,
+ *   file_size, mime_type, audio_duration, reply_to_id }
  */
 
-import * as Crypto from 'expo-crypto';
 import { apiFetch } from './api';
+import { soundService } from '@/services/sound-service';
 import { realtime } from './realtime';
-import { enqueueChatMessage } from './chat-outbox';
-
-/**
- * Deterministic DM room id — byte-identical mirror of the server's
- * deterministicDmRoomId (lib/services/chat-rooms.ts): sha256 of the
- * lexicographically sorted user-id pair. Because the room for a pair is a pure
- * function of the two ids, opening a chat needs ZERO network — no HTTP
- * get-or-create, no socket resolve. The server materializes the room lazily on
- * first send/history and adopts any legacy room to this canonical id.
- */
-export async function deriveRoomId(a: string, b: string): Promise<string> {
-  const pair = [a, b].sort().join(':');
-  const hex = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, pair, {
-    encoding: Crypto.CryptoEncoding.HEX,
-  });
-  return `dm_${hex.slice(0, 32)}`;
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,7 +79,7 @@ export interface ChatRoom {
   /** Latest message id for local ordering and reconciliation. */
   lastMessageId?: string | null;
   /** Media type of the latest message (chat list contextual preview). */
-  lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | null;
+  lastMessageMediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
   /** Sender id of the latest message (chat list "You:" prefix). */
   lastMessageSenderId?: string | null;
   /** User IDs currently typing in this room. */
@@ -108,10 +93,10 @@ export interface RoomMessage {
   body: string | null;
   mediaUrl: string | null;
   /** MESSAGE TYPE — how the item behaves as a message (image / video / audio /
-   *  document / gif). This is the message category, NOT the on-disk file
-   *  format. The on-disk file format is `fileType`. gif = animated image in a
-   *  compact bubble. */
-  mediaType: 'image' | 'video' | 'audio' | 'document' | 'gif' | null;
+   *  document / gif / sticker). This is the message category, NOT the on-disk
+   *  file format. The on-disk file format is `fileType`. gif = animated image
+   *  in a compact bubble; sticker = floating image with no bubble background. */
+  mediaType: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
   /** FILE TYPE — the actual stored file format (e.g. 'jpeg', 'png', 'mp4',
    *  'mov', 'mp3', 'm4a', 'pdf', 'docx', 'zip', ...). Derived from mimeType /
    *  mediaUrl so the renderer and storage layer never have to guess. null for
@@ -143,16 +128,12 @@ export interface RoomMessage {
   /** Reaction state for this message (server-authoritative). Each entry maps
    *  an emoji to the user ids that reacted. Stays associated with this messageId. */
   reactions?: Array<{ emoji: string; userIds: string[] }>;
-  /** Rich link preview metadata for URLs in the message body. Resolved
-   *  server-side once and persisted with the message, so the client renders
-   *  the card from the payload — no re-fetch on chat open. */
-  linkPreview?: LinkPreview | null;
   /** The message this one replies to/quotes. Server stores the relationship;
    *  mobile only renders it. `id` is the quoted message's messageId. */
   replyTo?: {
     id: string;
     body?: string | null;
-    mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | null;
+    mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
     /** Remote URL of the quoted message's media, when the server includes it.
      *  Used only for the reply-preview thumbnail. Optional because not every
      *  backend payload carries the quoted media URL. */
@@ -165,17 +146,9 @@ export interface RoomMessage {
 export interface SendRoomMessagePayload {
   /** Stable ID generated before rendering the optimistic message. */
   clientMessageId?: string;
-  /** Authenticated owner used to scope the persistent outbound queue. */
-  userId?: string;
-  /**
-   * The other participant's user id. Lets the server resolve/materialize the
-   * canonical derived room lazily on first send — the client never needs an
-   * HTTP get-or-create to start a DM.
-   */
-  participantId?: string;
   body?: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | null;
+  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'gif' | 'sticker' | null;
   caption?: string;
   fileName?: string;
   fileSize?: number;
@@ -278,7 +251,7 @@ function inferMediaType(raw: any): RoomMessage['mediaType'] {
   const explicit = raw.mediaType ?? raw.media_type;
   if (
     explicit === 'image' || explicit === 'video' || explicit === 'audio' ||
-    explicit === 'document' || explicit === 'gif'
+    explicit === 'document' || explicit === 'gif' || explicit === 'sticker'
   ) {
     return explicit;
   }
@@ -348,7 +321,7 @@ export function deriveFileType(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function normalizeMessage(raw: any, currentUserId?: string): RoomMessage {
+export function normalizeMessage(raw: any): RoomMessage {
   const mediaUrl = raw.mediaUrl ?? raw.media_url ?? null;
   const mimeType = raw.mimeType ?? raw.mime_type ?? undefined;
   const mediaType = inferMediaType(raw);
@@ -384,48 +357,11 @@ export function normalizeMessage(raw: any, currentUserId?: string): RoomMessage 
     sender: raw.sender
       ? normalizeParticipant(raw.sender)
       : { id: '', name: 'Unknown', username: '', avatarUrl: null },
-    // Ownership is always derived from the authenticated mobile session. The
-    // server may build a payload from another viewer's perspective, so trusting
-    // a serialized is_own flag can mark every recipient message as "You".
-    isOwn: currentUserId ? String(raw.sender?.id ?? raw.sender_id ?? '') === currentUserId : Boolean(raw.isOwn ?? raw.is_own ?? false),
+    isOwn: raw.isOwn ?? raw.is_own ?? false,
     delivered: raw.delivered ?? raw.is_delivered ?? undefined,
     read: raw.read ?? raw.is_read ?? undefined,
     reactions: normalizeReactions(raw.reactions),
     replyTo: normalizeReplyTo(raw.reply_to ?? raw.replyTo),
-    linkPreview: normalizeLinkPreview(raw.link_preview ?? raw.linkPreview),
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface LinkPreview {
-  url: string;
-  kind: 'profile' | 'post' | 'album' | 'short' | 'video' | 'external';
-  title?: string | null;
-  description?: string | null;
-  imageUrl?: string | null;
-  name?: string | null;
-  username?: string | null;
-  domain?: string | null;
-  resourceId?: string | null;
-  resourceType?: string | null;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeLinkPreview(raw: any): LinkPreview | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const kind = raw.kind;
-  if (kind !== 'profile' && kind !== 'post' && kind !== 'album' && kind !== 'short' && kind !== 'video' && kind !== 'external') return null;
-  return {
-    url: String(raw.url ?? ''),
-    kind,
-    title: raw.title ?? raw.name ?? null,
-    description: raw.description ?? null,
-    imageUrl: raw.imageUrl ?? raw.image_url ?? null,
-    name: raw.name ?? null,
-    username: raw.username ?? null,
-    domain: raw.domain ?? null,
-    resourceId: raw.resourceId ?? raw.resource_id ?? null,
-    resourceType: raw.resourceType ?? raw.resource_type ?? null,
   };
 }
 
@@ -460,9 +396,35 @@ function normalizeReplyTo(raw: any): RoomMessage['replyTo'] {
 
 // ─── Chat Room API ────────────────────────────────────────────────────────────
 
-// NOTE: room creation is now implicit — the client derives the canonical room
-// id locally (deriveRoomId) and the server materializes it lazily on first
-// send/history, so there is no HTTP get-or-create call anymore.
+/**
+ * Open (or create) the chat room for a participant.
+ * POST /api/chat-rooms { participant_id }
+ * Backend returns the authoritative chatRoomId (existing OR new — one room per
+ * pair, never duplicates). Mobile never generates the room ID.
+ */
+export async function getOrCreateChatRoom(
+  participantId: string,
+): Promise<{ chatRoomId: string; created: boolean; chatRoom: ChatRoom }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  if (!participantId) {
+    throw new Error('A recipient user ID is required to open a chat room.');
+  }
+  const raw = await apiFetch<unknown>('/chat-rooms', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ participant_id: participantId }),
+  });
+  const chatRoom = normalizeChatRoom(raw);
+  if (!chatRoom.chatRoomId) {
+    throw new Error('Chat room was not created: the server returned no chat_room_id.');
+  }
+  return {
+    chatRoomId: chatRoom.chatRoomId,
+    created: (raw as { created?: boolean })?.created ?? true,
+    chatRoom,
+  };
+}
 
 /**
  * List chat rooms (chat list source). Lightweight metadata only — the backend
@@ -496,22 +458,50 @@ export async function getChatRoom(chatRoomId: string): Promise<ChatRoom> {
 }
 
 /**
- * Fetch room history over SweetSocket. The server reads durable history from
- * Turso and answers with a `history:set` event plus the command ack; there is
- * no HTTP history fallback.
+ * GET messages for a room. `before` is the explicit older-history cursor.
+ * GET /api/chat-rooms/:chatRoomId/messages?before=
+ */
+export async function getRoomMessages(
+  chatRoomId: string,
+  opts?: { before?: string },
+): Promise<{ messages: RoomMessage[]; hasMore: boolean }> {
+  const token = await getToken();
+  if (!token) throw new Error('Not authenticated');
+  const params: string[] = [];
+  if (opts?.before) params.push(`before=${encodeURIComponent(opts.before)}`);
+  const qs = params.length > 0 ? `?${params.join('&')}` : '';
+  const raw = await apiFetch<{ messages: unknown[]; hasMore?: boolean; has_more?: boolean }>(
+    `/chat-rooms/${encodeURIComponent(chatRoomId)}/messages${qs}`,
+    { headers: authHeader(token) },
+  );
+  return {
+    messages: Array.isArray(raw?.messages) ? raw.messages.map(normalizeMessage) : [],
+    hasMore: raw?.hasMore ?? raw?.has_more ?? false,
+  };
+}
+
+/**
+ * Fetch room history — socket-first, HTTP fallback.
+ *
+ * The canonical realtime path is the `chat.history` command over the
+ * persistent SweetSocket connection: the server reads durable history from
+ * Turso and answers with a `history:set` event (plus the command ack). The
+ * client merges the messages deterministically by id. HTTP GET /messages
+ * remains the fallback when the socket is unavailable (offline, backgrounded,
+ * recovery after a failed reconnect).
  */
 export async function fetchRoomHistory(
   chatRoomId: string,
-  opts?: { before?: string; participantId?: string },
+  opts?: { before?: string },
 ): Promise<{ messages: RoomMessage[]; hasMore: boolean }> {
   // STRICT TRANSPORT RULE: history comes over SweetSocket (chat.history →
   // history:set) only — no silent HTTP GET /messages fallback. If the socket is
   // unavailable this rejects visibly; the live screen surfaces that rather than
   // swapping to the HTTP transport. (chat-restore.ts owns the explicit
-  // explicit restoration path also uses this socket command.)
+  // background restoration path via getRoomMessages.)
   const ack = await realtime.emit(
     'chat.history',
-    { before: opts?.before, limit: 30, participantId: opts?.participantId },
+    { before: opts?.before, limit: 30 },
     { channel: `chat:${chatRoomId}` },
   );
   const payload = ack.event?.payload as { messages?: unknown[]; hasMore?: boolean } | undefined;
@@ -524,7 +514,7 @@ export async function fetchRoomHistory(
 
 /**
  * Send a message into a room. Messages store author + chatRoomId destination.
- * SweetSocket `message.send`
+ * POST /api/chat-rooms/:chatRoomId/messages
  */
 export async function sendRoomMessage(
   chatRoomId: string,
@@ -533,21 +523,41 @@ export async function sendRoomMessage(
   // Generate a client-side identity for idempotent optimistic send. The server
   // reconciles this clientMessageId into the authoritative server message id.
   const clientMessageId = payload.clientMessageId
-    ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;  // SweetSocket is the only message transport. A disconnected socket enters
-  // the durable outbound queue; it is never replaced by HTTP or a retry button.
-  const queued = enqueueChatMessage({
-    clientMessageId,
-    chatRoomId,
-    payload: { ...payload, clientMessageId },
-    userId: payload.userId,
-  });
-  const message = await queued;
-  return { message: normalizeMessage(message) };
+    ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+
+  // STRICT TRANSPORT RULE: SweetSocket is the ONLY send transport. If the
+  // socket is unavailable the send fails visibly (emit rejects) — we never
+  // Offline sends are QUEUED (queue: true): the command is held in the socket
+  // client and transmitted on the next reconnect, then reconciled via the
+  // clientMessageId the server dedupes on — no HTTP fallback, no duplicates.
+  const ack = await realtime.emit('message.send', {
+    body: payload.body,
+    mediaUrl: payload.mediaUrl,
+    mediaType: payload.mediaType,
+    caption: payload.caption,
+    fileName: payload.fileName,
+    fileSize: payload.fileSize,
+    mimeType: payload.mimeType,
+    audioDuration: payload.audioDuration,
+    fileType: payload.fileType,
+    isVoiceNote: payload.isVoiceNote,
+    replyToId: payload.replyToId,
+  }, { channel: `chat:${chatRoomId}`, clientMessageId, queue: true });
+  const eventMessage = ack.event?.payload?.message;
+  if (eventMessage) {
+    // The message is server-persisted — the send chime plays exactly once per
+    // clientMessageId (deduped), and only after the messaging system accepted
+    // it. Never on reconnect replays (that's a different code path) or on
+    // optimistic state updates.
+    soundService.playMessageSent(clientMessageId);
+    return { message: normalizeMessage(eventMessage) };
+  }
+  throw new Error(ack.error ?? 'SweetSocket did not return the persisted message');
 }
 
 /**
  * Mark the current user's unread state as read FOR THIS ROOM.
- * SweetSocket `chat.read`
+ * POST /api/chat-rooms/:chatRoomId/read
  */
 export async function markRoomRead(chatRoomId: string): Promise<void> {
   // STRICT TRANSPORT RULE: read propagates over SweetSocket only. No HTTP /read
@@ -561,7 +571,7 @@ export async function markRoomRead(chatRoomId: string): Promise<void> {
 /**
  * Clear the current user's chat state for this room. The ROOM remains the
  * permanent container — the relationship and the other user are NOT deleted.
- * SweetSocket `chat.clear`
+ * POST /api/chat-rooms/:chatRoomId/clear
  */
 export async function clearChatRoom(chatRoomId: string): Promise<void> {
   // STRICT TRANSPORT RULE: chat clearing propagates over SweetSocket only (the
@@ -585,7 +595,7 @@ export async function clearChatRoom(chatRoomId: string): Promise<void> {
  * tree and returns success; mobile then mirrors the result into SQLite. Mobile
  * never assumes success until the server confirms it.
  *
- * SweetSocket `message.delete`
+ * DELETE /api/chat-rooms/:chatRoomId/messages/:messageId?scope=me|everyone
  */
 export async function deleteRoomMessage(
   chatRoomId: string,
@@ -599,24 +609,14 @@ export async function deleteRoomMessage(
 }
 
 /**
- * Edit a message body and/or caption inside a room. Pass `body` for a text
- * edit, `caption` for a media-caption edit, or both. The server persists each
- * provided field independently (a caption edit never clobbers the body).
- * SweetSocket `message.edit`
+ * Edit a message body inside a room.
+ * PATCH /api/chat-rooms/:chatRoomId/messages/:messageId
  */
-export async function editRoomMessage(
-  chatRoomId: string,
-  messageId: string,
-  body?: string,
-  caption?: string,
-): Promise<void> {
+export async function editRoomMessage(chatRoomId: string, messageId: string, body: string): Promise<void> {
   // STRICT TRANSPORT RULE: edits propagate over SweetSocket only (server
   // validates author, persists is_edited, broadcasts messages:update). No HTTP
   // PATCH fallback.
-  const payload: Record<string, unknown> = { messageId };
-  if (body !== undefined) payload.body = body;
-  if (caption !== undefined) payload.caption = caption;
-  await realtime.emit('message.edit', payload, { channel: `chat:${chatRoomId}` });
+  await realtime.emit('message.edit', { messageId, body }, { channel: `chat:${chatRoomId}` });
 }
 
 /**

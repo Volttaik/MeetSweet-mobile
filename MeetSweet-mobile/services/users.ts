@@ -12,21 +12,29 @@ async function getToken(): Promise<string | null> {
   return getAccessToken();
 }
 
-export async function checkUsernameAvailability(username: string): Promise<{ available: boolean }> {
-  try {
-    const resp = await apiFetch<{ available?: boolean; ok?: boolean }>(
-      `/users/check-username?username=${encodeURIComponent(username)}`,
-    );
-    if (resp && typeof resp.available === 'boolean') {
-      return { available: resp.available };
-    }
-    return { available: true };
-  } catch {
-    // Basic client validation if endpoint fails
-    const isValidLength = username.length >= 3 && username.length <= 30;
-    const isValidChars = /^[a-zA-Z0-9_]+$/.test(username);
-    return { available: isValidLength && isValidChars };
+export async function checkEmailAvailability(email: string): Promise<{ available: boolean }> {
+  // apiFetch throws on non-2xx (e.g. before this route is deployed) — the
+  // caller treats a thrown error as "couldn't verify" and never claims the
+  // email is available on a failed check.
+  const resp = await apiFetch<{ available?: boolean; ok?: boolean }>(
+    `/users/check-email?email=${encodeURIComponent(email)}`,
+  );
+  if (resp && typeof resp.available === 'boolean') {
+    return { available: resp.available };
   }
+  throw new Error('Could not check email availability');
+}
+
+export async function checkUsernameAvailability(username: string): Promise<{ available: boolean }> {
+  // apiFetch throws on non-2xx — callers treat a thrown error as "couldn't
+  // verify" (neutral/error state) rather than claiming the username is free.
+  const resp = await apiFetch<{ available?: boolean; ok?: boolean }>(
+    `/users/check-username?username=${encodeURIComponent(username)}`,
+  );
+  if (resp && typeof resp.available === 'boolean') {
+    return { available: resp.available };
+  }
+  throw new Error('Could not check username availability');
 }
 
 export async function updateMe(fields: Record<string, any>): Promise<{ user: User }> {

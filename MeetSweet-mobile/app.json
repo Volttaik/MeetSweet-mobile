@@ -35,10 +35,6 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.meetsweet.app",
-      "abiFilters": [
-        "arm64-v8a",
-        "armeabi-v7a"
-      ],
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
@@ -90,6 +86,9 @@
         }
       ]
     },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
     "plugins": [
       "./plugins/withSecureWindow",
       [
@@ -106,18 +105,23 @@
           "icon": "./assets/images/logo.png",
           "color": "#C45A72",
           "androidMode": "default",
-          "androidCollapsedTitle": "#{unread_notifications} new interactions"
+          "androidCollapsedTitle": "#{unread_notifications} new interactions",
+          "sounds": [
+            "./assets/sounds/message-received.wav"
+          ]
         }
       ],
       "expo-secure-store",
       "react-native-video",
-      "@giphy/react-native-sdk",
       "expo-sqlite",
-      "expo-asset",
       [
         "expo-build-properties",
         {
           "android": {
+            "abiFilters": [
+              "arm64-v8a",
+              "armeabi-v7a"
+            ],
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
           }

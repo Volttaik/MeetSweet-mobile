@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import {
   Checkbox,
 } from 'heroui-native';
@@ -129,7 +130,7 @@ export default function AuthScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + 32,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 32),
             paddingBottom: insets.bottom + 48,
           },
         ]}
@@ -217,7 +218,7 @@ export default function AuthScreen() {
                   style={[styles.input, { flex: 1 }]}
                   placeholderTextColor="rgba(255,255,255,0.2)"
                 />
-                <MsPressable
+                <TouchableOpacity
                   onPress={() => setShowPw((v) => !v)}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   style={styles.eyeBtn}
@@ -227,7 +228,7 @@ export default function AuthScreen() {
                   ) : (
                     <Eye size={20} color="rgba(255,255,255,0.4)" />
                   )}
-                </MsPressable>
+                </TouchableOpacity>
               </InputRow>
               {!!errors.password && (
                 <Text style={styles.fieldError}>{errors.password}</Text>
@@ -236,33 +237,35 @@ export default function AuthScreen() {
 
             {/* Remember me + Forgot */}
             <View style={styles.loginMeta}>
-              <MsPressable
+              <TouchableOpacity
                 style={styles.checkRow}
                 onPress={() => setRememberMe((v) => !v)}
-                >
+                activeOpacity={0.7}
+              >
                 <Checkbox isSelected={rememberMe} onSelectedChange={setRememberMe} />
                 <Text style={styles.checkLabel}>Remember me</Text>
-              </MsPressable>
-              <MsPressable
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={() => router.push('/forgot-password')}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
                 <Text style={styles.forgotText}>Forgot password?</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
 
             {/* Login button */}
-            <MsPressable
+            <TouchableOpacity
               style={[styles.submitBtn, loading && styles.submitBtnLoading]}
               onPress={handleLogin}
               disabled={loading}
+              activeOpacity={0.85}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={styles.submitBtnLabel}>Log In</Text>
               )}
-            </MsPressable>
+            </TouchableOpacity>
           </View>
 
 
@@ -270,9 +273,9 @@ export default function AuthScreen() {
           {/* Create account link */}
           <View style={styles.createRow}>
             <Text style={styles.createText}>Don't have an account? </Text>
-            <MsPressable onPress={() => router.push('/register')}>
+            <TouchableOpacity onPress={() => router.push('/register')} activeOpacity={0.7}>
               <Text style={styles.createLink}>Create Account</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
       </KeyboardAwareScrollViewCompat>
     </MsScreenBackground>
@@ -353,7 +356,9 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   eyeBtn: { padding: 4 },
   fieldError: {

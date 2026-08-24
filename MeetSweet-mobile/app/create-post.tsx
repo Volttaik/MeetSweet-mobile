@@ -8,15 +8,16 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import {
   ArrowLeft,
   ArrowRight,
@@ -100,7 +101,6 @@ export default function CreatePostScreen() {
 
   // Content type state
   const [contentType, setContentType] = useState<ContentType>('post');
-  const isCreator = Boolean(user?.isCreator);
 
   // Onboarding fields
   const [caption,              setCaption]              = useState('');
@@ -129,9 +129,7 @@ export default function CreatePostScreen() {
   const [retrievingThumb,   setRetrievingThumb]   = useState(false);
 
   // Flow state
-  const initialStep: Step = isCreator
-    ? (params.type ? 'onboard' : 'type-select')
-    : 'onboard';
+  const initialStep: Step = params.type ? 'onboard' : 'type-select';
   const [step,           setStep]           = useState<Step>(initialStep);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error,          setError]          = useState('');
@@ -143,14 +141,12 @@ export default function CreatePostScreen() {
   // Post creation onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
 
-  // Creator onboarding explains monetization only to creator accounts. A
-  // normal user opens the simple post composer directly.
+  // Check for post creation onboarding on mount
   useEffect(() => {
-    if (!isCreator) return;
     shouldShowOnboarding('post_creation_onboarded').then((shouldShow) => {
       if (shouldShow) setShowOnboarding(true);
     });
-  }, [isCreator]);
+  }, []);
 
   const handleOnboardingComplete = async () => {
     await completeOnboarding('post_creation_onboarded');
@@ -188,16 +184,12 @@ export default function CreatePostScreen() {
   useEffect(() => {
     getCategories().then(({ categories }) => setCategories(categories)).catch(() => {});
     // If type param was passed (e.g. from profile tab)
-    if (isCreator && params.type === 'video')  { setContentType('video');  }
-    if (isCreator && params.type === 'shorts') { setContentType('shorts'); }
+    if (params.type === 'video')  { setContentType('video');  }
+    if (params.type === 'shorts') { setContentType('shorts'); }
 
     // ── Restore draft ────────────────────────────────────────────────────────
     AsyncStorage.getItem(DRAFT_KEY).then((raw) => {
       if (!raw) return;
-      if (!isCreator) {
-        setContentType('post');
-        return;
-      }
       try {
         const draft = JSON.parse(raw);
         if (draft.caption)                     setCaption(draft.caption);
@@ -226,7 +218,7 @@ export default function CreatePostScreen() {
         if (draft.selectedCategories)          setSelectedCategories(draft.selectedCategories);
       } catch {/* ignore corrupt draft */}
     }).catch(() => {});
-  }, [isCreator, params.type]);
+  }, []);
 
   // ── Auto-save draft ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -444,13 +436,13 @@ export default function CreatePostScreen() {
 
       const finalCaption = caption.trim();
 
-  // Shorts are always free/public; normal users can only publish public/free posts.
-  const resolvedVisibility =
+      // Shorts are always free/public; everything else maps from the tier picker.
+      const resolvedVisibility =
         contentType === 'shorts' ? 'public' : (tier === 'subscriber_plus' ? 'subscribers' : TIERS[tier].visibility);
 
       await createPost({
         caption:       finalCaption,
-        visibility:    isCreator ? resolvedVisibility : 'public',
+        visibility:    resolvedVisibility,
         media_ids:     mediaIds,
         categories:    selectedCategories,
         tags,
@@ -458,7 +450,7 @@ export default function CreatePostScreen() {
         // Send title as its own field for videos (not collapsed into caption)
         title:         contentType === 'video' && videoTitle.trim() ? videoTitle.trim() : undefined,
         // Send tier so backend can store it when multi-tier is supported
-        tier:          isCreator && contentType !== 'shorts' ? tier : 'free',
+        tier:          contentType === 'shorts' ? 'free' : tier,
         // Send thumbnail URL directly — fallback if the separate PATCH fails
         thumbnail_url: thumbUrl,
         // Comments ON by default — the backend creates/associates a Comment
@@ -527,9 +519,9 @@ export default function CreatePostScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <MsPressable style={styles.headerBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => goBack()}>
             <X size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Create</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -538,14 +530,14 @@ export default function CreatePostScreen() {
 
         <ScrollView contentContainerStyle={styles.typeGrid} showsVerticalScrollIndicator={false}>
           {CONTENT_TYPES.map((ct) => (
-            <MsPressable
+            <TouchableOpacity
               key={ct.type}
               style={[styles.typeCard, contentType === ct.type && { borderColor: ct.accentColor, borderWidth: 2 }]}
               onPress={() => {
                 // Creator-only types (videos, shorts, albums) open the styled
                 // creator gate sheet; on server-confirmed activation the flow
                 // continues here. The server stays the authority.
-                if ((ct.type === 'video' || ct.type === 'shorts' || ct.type === 'album') && !isCreator) {
+                if ((ct.type === 'video' || ct.type === 'shorts' || ct.type === 'album') && user && !user.isCreator) {
                   dialogs.creatorGate({
                     message: ct.type === 'album'
                       ? 'Albums are a creator feature — set a price and sell your collection.'
@@ -559,7 +551,8 @@ export default function CreatePostScreen() {
                 setContentType(ct.type);
                 setStep('onboard');
               }}
-                >
+              activeOpacity={0.8}
+            >
               <View style={[styles.typeCardIcon, { backgroundColor: ct.accentColor }]}>
                 {ct.icon}
               </View>
@@ -568,7 +561,7 @@ export default function CreatePostScreen() {
                 <Text style={styles.typeCardDesc}>{ct.description}</Text>
               </View>
               <ArrowRight size={18} color={T.TEXT_3} />
-            </MsPressable>
+            </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
@@ -581,9 +574,9 @@ export default function CreatePostScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <MsPressable style={styles.headerBtn} onPress={() => setStep('onboard')}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => setStep('onboard')}>
             <ArrowLeft size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Preview</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -604,12 +597,12 @@ export default function CreatePostScreen() {
                   />
                 </View>
               )}
-              <MsPressable style={styles.removeMedia} onPress={removeMedia}>
+              <TouchableOpacity style={styles.removeMedia} onPress={removeMedia}>
                 <X size={15} color={T.TEXT} weight="bold" />
-              </MsPressable>
-              <MsPressable style={styles.changeMedia} onPress={() => setPickerVisible(true)}>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.changeMedia} onPress={() => setPickerVisible(true)}>
                 <Text style={styles.changeMediaLabel}>Change</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -623,7 +616,7 @@ export default function CreatePostScreen() {
                   <Text style={styles.thumbnailRetrievingLabel}>Retrieving thumbnail…</Text>
                 </View>
               ) : (
-                <MsPressable style={styles.thumbnailPicker} onPress={pickThumbnail}>
+                <TouchableOpacity style={styles.thumbnailPicker} onPress={pickThumbnail} activeOpacity={0.8}>
                   {thumbnailUri ? (
                     <>
                       <Image source={{ uri: thumbnailUri }} style={styles.thumbnailPreview} resizeMode="cover" />
@@ -637,7 +630,7 @@ export default function CreatePostScreen() {
                       <Text style={styles.thumbnailPlaceholderLabel}>Add thumbnail</Text>
                     </View>
                   )}
-                </MsPressable>
+                </TouchableOpacity>
               )}
               <Text style={styles.charHint}>Auto-extracted from video · tap to use a custom image</Text>
             </View>
@@ -669,7 +662,7 @@ export default function CreatePostScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Visibility</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {contentType === 'shorts' || !isCreator ? (
+              {contentType === 'shorts' ? (
                 <Text style={styles.previewCaption}>Public · available to everyone</Text>
               ) : (
                 <MsTierBadge tier={tier} size="sm" />
@@ -681,9 +674,9 @@ export default function CreatePostScreen() {
           {!!error && <Text style={styles.errorText}>{error}</Text>}
 
           {/* Publish button */}
-          <MsPressable style={styles.publishBtn} onPress={handlePublish}>
+          <TouchableOpacity style={styles.publishBtn} onPress={handlePublish} activeOpacity={0.85}>
             <Text style={styles.publishLabel}>Publish {contentLabel}</Text>
-          </MsPressable>
+          </TouchableOpacity>
         </ScrollView>
 
         {/* Media picker modal */}
@@ -692,21 +685,21 @@ export default function CreatePostScreen() {
             <View style={[styles.pickerSheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
               <View style={styles.pickerHandle} />
               <Text style={styles.pickerTitle}>Select Media</Text>
-              <MsPressable style={styles.pickerOption} onPress={() => pickMedia('image')}>
+              <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('image')} activeOpacity={0.8}>
                 <ImageIcon size={22} color={T.TEXT_2} />
                 <Text style={styles.pickerOptionLabel}>Photo</Text>
-              </MsPressable>
+              </TouchableOpacity>
               {contentType !== 'post' && (
-                <MsPressable style={styles.pickerOption} onPress={() => pickMedia('video')}>
+                <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('video')} activeOpacity={0.8}>
                   <FilmStrip size={22} color={T.TEXT_2} />
                   <Text style={styles.pickerOptionLabel}>
                     {contentType === 'shorts' ? 'Short Video (max 60s)' : 'Video (max 5 min)'}
                   </Text>
-                </MsPressable>
+                </TouchableOpacity>
               )}
-              <MsPressable style={styles.pickerCancel} onPress={() => setPickerVisible(false)}>
+              <TouchableOpacity style={styles.pickerCancel} onPress={() => setPickerVisible(false)}>
                 <Text style={styles.pickerCancelLabel}>Cancel</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           </Pressable>
         </Modal>
@@ -724,18 +717,15 @@ export default function CreatePostScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <MsPressable
-          style={styles.headerBtn}
-          onPress={() => isCreator ? setStep('type-select') : router.back()}
-        >
+        <TouchableOpacity style={styles.headerBtn} onPress={() => setStep('type-select')}>
           <ArrowLeft size={20} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
         <View style={styles.headerCenter}>
           <View style={[styles.headerTypeBadge, { backgroundColor: selectedCt.accentColor + '22' }]}>
             <Text style={[styles.headerTypeLabel, { color: selectedCt.accentColor }]}>{selectedCt.label}</Text>
           </View>
         </View>
-        <MsPressable
+        <TouchableOpacity
           style={styles.continueBtn}
           onPress={() => {
             if (!mediaUri && contentType !== 'post') {
@@ -744,10 +734,11 @@ export default function CreatePostScreen() {
               setStep('preview');
             }
           }}
+          activeOpacity={0.8}
         >
           <Text style={styles.continueBtnLabel}>Next</Text>
           <ArrowRight size={14} color={T.BG} weight="bold" />
-        </MsPressable>
+        </TouchableOpacity>
       </View>
 
       <KeyboardAwareScrollViewCompat showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -815,12 +806,12 @@ export default function CreatePostScreen() {
                       />
                     </View>
                   )}
-                  <MsPressable style={styles.removeMedia} onPress={removeMedia}>
+                  <TouchableOpacity style={styles.removeMedia} onPress={removeMedia}>
                     <X size={14} color={T.TEXT} weight="bold" />
-                  </MsPressable>
+                  </TouchableOpacity>
                 </View>
               ) : (
-                <MsPressable style={styles.mediaPicker} onPress={() => setPickerVisible(true)}>
+                <TouchableOpacity style={styles.mediaPicker} onPress={() => setPickerVisible(true)} activeOpacity={0.8}>
                   <View style={[styles.mediaPickerIcon, { backgroundColor: selectedCt.accentColor + '22' }]}>
                     {selectedCt.icon}
                   </View>
@@ -829,7 +820,7 @@ export default function CreatePostScreen() {
                      contentType === 'video'  ? 'Select video (max 5 min)' :
                      'Select short video (max 60s)'}
                   </Text>
-                </MsPressable>
+                </TouchableOpacity>
               )}
             </View>
           )}
@@ -841,38 +832,40 @@ export default function CreatePostScreen() {
               {mediaUri ? (
                 <View style={styles.previewMediaWrap}>
                   <Image source={{ uri: mediaUri }} style={{ height: 200, borderRadius: 12 }} resizeMode="cover" />
-                  <MsPressable style={styles.removeMedia} onPress={removeMedia}>
+                  <TouchableOpacity style={styles.removeMedia} onPress={removeMedia}>
                     <X size={14} color={T.TEXT} weight="bold" />
-                  </MsPressable>
+                  </TouchableOpacity>
                 </View>
               ) : (
-                <MsPressable style={styles.mediaPicker} onPress={() => pickMedia('image')}>
+                <TouchableOpacity style={styles.mediaPicker} onPress={() => pickMedia('image')} activeOpacity={0.8}>
                   <ImageIcon size={28} color={T.TEXT_3} />
                   <Text style={styles.mediaPickerLabel}>Add a photo</Text>
-                </MsPressable>
+                </TouchableOpacity>
               )}
             </View>
           )}
 
-          {/* Normal users get the simple public Post composer. Monetization
-              controls exist only for a server-authorized creator. */}
-          {isCreator && contentType !== 'shorts' && contentType !== 'album' && (
+          {/* Visibility picker — creators only. Hidden for non-creators (plain
+              Create Post flow, posts stay public), Shorts (always free) and
+              Albums (purchase-only via the album flow) */}
+          {user?.isCreator && contentType !== 'shorts' && contentType !== 'album' && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Visibility</Text>
               <View style={styles.visibilityRow}>
                 {TIER_OPTIONS.map((opt) => {
                   const active = opt.value === tier;
                   return (
-                    <MsPressable
+                    <TouchableOpacity
                       key={opt.value}
                       style={[
                         styles.visOpt,
                         active && { ...styles.visOptActive, borderColor: opt.color },
                       ]}
                       onPress={() => setTier(opt.value)}
-                                >
+                      activeOpacity={0.75}
+                    >
                       <MsTierBadge tier={opt.value} size="xs" />
-                    </MsPressable>
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -890,13 +883,14 @@ export default function CreatePostScreen() {
                 {categories.map((cat) => {
                   const active = selectedCategories.includes(cat.id);
                   return (
-                    <MsPressable
+                    <TouchableOpacity
                       key={cat.id}
                       style={[styles.catChip, active && styles.catChipActive]}
                       onPress={() => toggleCategory(cat.id)}
-                                >
+                      activeOpacity={0.75}
+                    >
                       <Text style={[styles.catLabel, active && styles.catLabelActive]}>{cat.name}</Text>
-                    </MsPressable>
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -921,18 +915,18 @@ export default function CreatePostScreen() {
                 blurOnSubmit={false}
               />
               {tagInput.trim().length > 0 && (
-                <MsPressable onPress={addTag} hitSlop={8}>
+                <TouchableOpacity onPress={addTag} hitSlop={8}>
                   <Check size={16} color={T.ACCENT} weight="bold" />
-                </MsPressable>
+                </TouchableOpacity>
               )}
             </View>
             {tags.length > 0 && (
               <View style={styles.tagRow}>
                 {tags.map((t) => (
-                  <MsPressable key={t} style={styles.tagChip} onPress={() => removeTag(t)}>
+                  <TouchableOpacity key={t} style={styles.tagChip} onPress={() => removeTag(t)} activeOpacity={0.8}>
                     <Text style={styles.tagChipLabel}>#{t}</Text>
                     <X size={10} color={T.TEXT_2} />
-                  </MsPressable>
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
@@ -959,22 +953,22 @@ export default function CreatePostScreen() {
             <View style={styles.pickerHandle} />
             <Text style={styles.pickerTitle}>Select Media</Text>
             {contentType !== 'video' && contentType !== 'shorts' && (
-              <MsPressable style={styles.pickerOption} onPress={() => pickMedia('image')}>
+              <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('image')} activeOpacity={0.8}>
                 <ImageIcon size={22} color={T.TEXT_2} />
                 <Text style={styles.pickerOptionLabel}>Photo</Text>
-              </MsPressable>
+              </TouchableOpacity>
             )}
             {contentType !== 'post' && (
-              <MsPressable style={styles.pickerOption} onPress={() => pickMedia('video')}>
+              <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('video')} activeOpacity={0.8}>
                 <FilmStrip size={22} color={T.TEXT_2} />
                 <Text style={styles.pickerOptionLabel}>
                   {contentType === 'shorts' ? 'Short Video (max 60s)' : 'Video (max 5 min)'}
                 </Text>
-              </MsPressable>
+              </TouchableOpacity>
             )}
-            <MsPressable style={styles.pickerCancel} onPress={() => setPickerVisible(false)}>
+            <TouchableOpacity style={styles.pickerCancel} onPress={() => setPickerVisible(false)}>
               <Text style={styles.pickerCancelLabel}>Cancel</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>

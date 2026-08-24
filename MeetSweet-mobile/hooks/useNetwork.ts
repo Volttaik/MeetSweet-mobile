@@ -117,6 +117,16 @@ function applyProbeResult(online: boolean, latencyMs = 0) {
   emit();
 }
 
+/**
+ * Subscribe to the shared connectivity state (non-React consumers, e.g. the
+ * SweetSocket transport). The listener receives the current state immediately.
+ */
+export function subscribeNetwork(listener: Listener): () => void {
+  _listeners.add(listener);
+  listener(currentState());
+  return () => _listeners.delete(listener);
+}
+
 /** Call after a successful API response to mark the network as available. */
 export function reportNetworkSuccess() {
   applyProbeResult(true, 0);

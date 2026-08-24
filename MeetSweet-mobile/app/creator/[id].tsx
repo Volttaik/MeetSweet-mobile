@@ -10,12 +10,13 @@ import {
   Share,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { createShareLink } from '@/services/sharing';
 import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
@@ -33,7 +34,8 @@ import {
 import { blockUser, reportUser, searchUsers } from '@/services/users';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { subscribe, cancelSubscription, getCreatorMessagingSettings } from '@/services/subscriptions';
-import { deriveRoomId } from '@/services/room-service';
+import { getOrCreateChatRoom, getChatRoomList, type ChatRoom } from '@/services/room-service';
+import { getCachedChatRooms, cacheChatRooms } from '@/services/chat-cache';
 import { getCachedCreatorProfile, cacheCreatorProfile } from '@/lib/posts-db';
 import { Spinner } from 'heroui-native';
 import type { Creator } from '@/lib/api-client-react';
@@ -65,6 +67,7 @@ import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
+import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import { wasOpenedViaShareLink } from '@/lib/deep-link';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -252,9 +255,10 @@ function SubscribeSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <MsPressable style={shStyles.overlay} onPress={onClose}>
-        <MsPressable
+      <TouchableOpacity style={shStyles.overlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity
           style={[shStyles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 28) }]}
+          activeOpacity={1}
           onPress={() => {}}
         >
           {/* Drag handle */}
@@ -285,7 +289,7 @@ function SubscribeSheet({
                 ? (creatorProfile?.subscriptionPrice ?? 0)
                 : (creatorProfile?.subscriptionPlusPrice ?? 0);
               return (
-                <MsPressable
+                <TouchableOpacity
                   key={plan.key}
                   style={[
                     shStyles.tierCard,
@@ -293,7 +297,8 @@ function SubscribeSheet({
                     active && { backgroundColor: plan.bg },
                   ]}
                   onPress={() => setSelectedPlan(plan.key)}
-                        >
+                  activeOpacity={0.85}
+                >
                   {/* Top row */}
                   <View style={shStyles.tierTop}>
                     <View style={[shStyles.tierBadge, { backgroundColor: plan.bg }]}>
@@ -333,7 +338,7 @@ function SubscribeSheet({
                       </View>
                     ))}
                   </View>
-                </MsPressable>
+                </TouchableOpacity>
               );
             })}
           </View>
@@ -357,13 +362,14 @@ function SubscribeSheet({
               <Text style={[shStyles.primaryLabel, { color: T.TEXT_2 }]}>Current Active Plan</Text>
             </View>
           ) : (
-            <MsPressable
+            <TouchableOpacity
               style={[
                 shStyles.primaryBtn,
                 canAfford ? { backgroundColor: planCfg.color } : shStyles.primaryBtnOutline,
                 (subscribing || !canAfford) && { opacity: 0.85 },
               ]}
-                  disabled={subscribing}
+              activeOpacity={0.85}
+              disabled={subscribing}
               onPress={canAfford ? () => onConfirm(selectedPlan) : onWallet}
             >
               {subscribing ? (
@@ -384,26 +390,27 @@ function SubscribeSheet({
                     : 'Top up wallet to subscribe'}
                 </Text>
               )}
-            </MsPressable>
+            </TouchableOpacity>
           )}
 
           {isSubscribed && onUnsubscribe ? (
-            <MsPressable
+            <TouchableOpacity
               style={shStyles.unsubscribeBtn}
               onPress={onUnsubscribe}
               disabled={subscribing || unsubscribing}
-                >
+              activeOpacity={0.7}
+            >
               <Text style={shStyles.unsubscribeLabel}>
                 {unsubscribing ? 'Cancelling subscription…' : 'Unsubscribe'}
               </Text>
-            </MsPressable>
+            </TouchableOpacity>
           ) : null}
 
-          <MsPressable style={shStyles.cancelBtn} onPress={onClose}>
+          <TouchableOpacity style={shStyles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
             <Text style={shStyles.cancelLabel}>Close</Text>
-          </MsPressable>
-        </MsPressable>
-      </MsPressable>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
     </Modal>
   );
 }
@@ -526,7 +533,8 @@ export default function CreatorProfileScreen() {
     message?: string;
   } | null>(null);
   const [loadingMessaging, setLoadingMessaging] = useState(false);
-  const [profileIsCreator, setProfileIsCreator] = useState(false);
+  // Full-screen Chat Room creation loader (subscription check + backend create).
+  const [creatingRoom, setCreatingRoom] = useState(false);
 
   // Full creator profile from /api/creators/:id
   const [creatorFullProfile, setCreatorFullProfile] = useState<CreatorProfileFull | null>(null);
@@ -543,14 +551,13 @@ export default function CreatorProfileScreen() {
   // straight from a shared link, the recipient must see the profile itself —
   // never the subscribe-onboarding modal popping over the shared destination.
   useEffect(() => {
-    if (!profileIsCreator) return;
     wasOpenedViaShareLink().then((viaShare) => {
       if (viaShare) return;
       shouldShowOnboarding('subscription_onboarded').then((shouldShow) => {
         if (shouldShow) setShowSubscriptionOnboarding(true);
       });
     });
-  }, [profileIsCreator]);
+  }, []);
 
   // Fetch messaging settings on mount (subscription status comes from creator profile)
   useEffect(() => {
@@ -656,6 +663,15 @@ export default function CreatorProfileScreen() {
         throw new Error('Could not resolve this creator as a messaging user.');
       }
 
+      // Pass the participant identity with the navigation so the chat header
+      // renders the real name/avatar immediately instead of flashing "U".
+      const chatRoomParams = (roomId: string) => ({
+        chatRoomId: roomId,
+        name: realProfile?.name ?? '',
+        username: realProfile?.username ?? creatorUsername,
+        avatarUrl: realProfile?.avatarUrl ?? '',
+      });
+
       // Re-check against the canonical participant UUID immediately before
       // room creation. This handles stale profile state and makes this entry
       // point obey the same policy as search and the backend.
@@ -664,6 +680,7 @@ export default function CreatorProfileScreen() {
       if (!access.can_message) {
         // Subscription required (or messaging disabled) — do NOT create a room.
         // Route the user to the creator profile's subscribe sheet instead.
+        setCreatingRoom(false);
         if (access.who_can_message === 'subscribers') {
           dialogs.alert({
             title: 'Subscription Required',
@@ -677,26 +694,51 @@ export default function CreatorProfileScreen() {
         return;
       }
 
-      // WhatsApp-style: the room id is a pure function of the two user ids, so
-      // no HTTP lookup/create is needed — derive it locally and open instantly.
-      // The server materializes the room lazily on first send/history and
-      // adopts any legacy room to this canonical id.
-      const chatRoomId = await deriveRoomId(currentUser?.id ?? '', creatorUserId);
+      // Idempotent open — find any EXISTING room before ever creating one, so
+      // the user never sees "Creating chatroom…" for a room that already
+      // exists. Check the local cache first, then the canonical server list.
+      const matchesPeer = (r: ChatRoom) =>
+        Boolean(r.chatRoomId) &&
+        ((r.otherUser?.id && r.otherUser.id === creatorUserId) ||
+          r.participants.some((p) => p.id === creatorUserId));
+
+      const cachedRooms = await getCachedChatRooms(currentUser?.id).catch(() => []);
+      const cachedMatch = cachedRooms.find(matchesPeer);
+      if (cachedMatch?.chatRoomId) {
+        router.push({
+          pathname: '/chat-room/[chatRoomId]',
+          params: chatRoomParams(cachedMatch.chatRoomId),
+        });
+        return;
+      }
+
+      const serverRooms = await getChatRoomList('all').catch(() => ({ chatRooms: [] }));
+      const serverMatch = serverRooms.chatRooms.find(matchesPeer);
+      if (serverMatch?.chatRoomId) {
+        await cacheChatRooms(serverRooms.chatRooms, currentUser?.id).catch(() => {});
+        router.push({
+          pathname: '/chat-room/[chatRoomId]',
+          params: chatRoomParams(serverMatch.chatRoomId),
+        });
+        return;
+      }
+
+      // Genuinely no room exists — create one. Only now show the full-screen
+      // creation loader, since this is the only path that actually creates.
+      setCreatingRoom(true);
+      const { chatRoomId, chatRoom } = await getOrCreateChatRoom(creatorUserId);
+      setCreatingRoom(false);
+      await cacheChatRooms([chatRoom], currentUser?.id).catch(() => {});
       router.push({
         pathname: '/chat-room/[chatRoomId]',
-        params: {
-          chatRoomId,
-          participantId: creatorUserId,
-          name: realProfile?.name ?? '',
-          username: realProfile?.username ?? creatorUsername,
-          avatarUrl: realProfile?.avatarUrl ?? '',
-        },
+        params: chatRoomParams(chatRoomId),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
     } finally {
       setLoadingMessaging(false);
+      setCreatingRoom(false);
     }
   };
 
@@ -751,7 +793,7 @@ export default function CreatorProfileScreen() {
   // server reports content_locked (viewer not subscribed and not the owner),
   // NO content may be shown here — header/subscribe only. The owner and
   // subscribed viewers get the full profile. Authoritative from the server.
-  const contentLocked = profileIsCreator && !isOwnProfile && Boolean(creatorFullProfile?.contentLocked);
+  const contentLocked = !isOwnProfile && Boolean(creatorFullProfile?.contentLocked);
 
   // Fade the content section in when a subscription unlocks the profile.
   const contentOpacity = useRef(new Animated.Value(0)).current;
@@ -773,8 +815,7 @@ export default function CreatorProfileScreen() {
   // shows stale subscriber counts or subscription state.
   const applyProfile = useCallback((profile: CreatorProfileFull) => {
     setCreatorFullProfile(profile);
-    setProfileIsCreator(profile.isCreator);
-    setIsSubscribed(profile.isCreator && profile.subscribedToCreator);
+    setIsSubscribed(profile.subscribedToCreator);
     setCurrentTier(profile.subscriptionTier ?? null);
     setWhoCanMessage(profile.whoCanMessage);
     setRealProfile({
@@ -998,28 +1039,23 @@ export default function CreatorProfileScreen() {
     return <View style={styles.center}><Spinner color="default" size="lg" /></View>;
   }
 
-  const TABS: { key: TabKey; label: string }[] = profileIsCreator
-    ? [
-        { key: 'posts',   label: `Posts (${creatorFullProfile?.postCount ?? creatorPosts.length})` },
-        { key: 'videos',  label: `Videos (${creatorFullProfile?.videoCount ?? creatorVideos.length})` },
-        { key: 'shorts',  label: `Shorts (${creatorFullProfile?.shortCount ?? creatorShorts.length})` },
-        { key: 'albums',  label: `Albums (${creatorFullProfile?.albumCount ?? creatorAlbums.length})` },
-        { key: 'reviews', label: `Reviews (${reviewsQuery.isLoading ? '…' : totalReviews})` },
-        { key: 'about',   label: 'About' },
-      ]
-    : [
-        { key: 'posts', label: `Posts (${creatorFullProfile?.postCount ?? creatorPosts.length})` },
-        { key: 'about', label: 'About' },
-      ];
+  const TABS: { key: TabKey; label: string }[] = [
+    { key: 'posts',   label: `Posts (${creatorFullProfile?.postCount ?? creatorPosts.length})` },
+    { key: 'videos',  label: `Videos (${creatorFullProfile?.videoCount ?? creatorVideos.length})` },
+    { key: 'shorts',  label: `Shorts (${creatorFullProfile?.shortCount ?? creatorShorts.length})` },
+    { key: 'albums',  label: `Albums (${creatorFullProfile?.albumCount ?? creatorAlbums.length})` },
+    { key: 'reviews', label: `Reviews (${reviewsQuery.isLoading ? '…' : totalReviews})` },
+    { key: 'about',   label: 'About' },
+  ];
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.back()} accessibilityLabel="Back">
+        <Pressable style={styles.backButton} onPress={() => goBack()} accessibilityLabel="Back">
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
-        <Text style={styles.headerTitle}>{profileIsCreator ? 'Creator profile' : 'Profile'}</Text>
+        <Text style={styles.headerTitle}>Creator profile</Text>
         <Pressable style={styles.moreButton} onPress={() => setMoreSheetOpen(true)}>
           <Sparkle size={17} color={T.TEXT_2} />
         </Pressable>
@@ -1072,35 +1108,37 @@ export default function CreatorProfileScreen() {
               information only; content counts that imply browsing the
               creator's posts stay hidden until subscription. */}
           <View style={styles.metrics}>
-            {profileIsCreator && (
+            <View>
+              <Text style={styles.metricValue}>{fmtCount(creator.subscriberCount ?? 0) || '—'}</Text>
+              <Text style={styles.metricLabel}>Subscribers</Text>
+            </View>
+            {!contentLocked && (
               <>
-                <View>
-                  <Text style={styles.metricValue}>{fmtCount(creator.subscriberCount ?? 0) || '—'}</Text>
-                  <Text style={styles.metricLabel}>Subscribers</Text>
-                </View>
                 <View style={styles.metricDivider} />
+                <View>
+                  <Text style={styles.metricValue}>{creatorFullProfile?.postCount ?? creatorPosts.length}</Text>
+                  <Text style={styles.metricLabel}>Drops</Text>
+                </View>
               </>
             )}
-            <View>
-              <Text style={styles.metricValue}>{creatorFullProfile?.postCount ?? creatorPosts.length}</Text>
-              <Text style={styles.metricLabel}>{profileIsCreator ? 'Drops' : 'Posts'}</Text>
-            </View>
           </View>
 
           {/* Subscribe button — reflects the authoritative server state: price
               when unsubscribed, current state + Upgrade when a base subscriber,
               and the highest tier with no upgrade when Subscriber+. Never shown
-              on your own profile. */}
-                  {profileIsCreator && !isOwnProfile && (
+              on your own profile, and never shown on a profile that is not an
+              actual creator (plain users keep normal profile functionality). */}
+          {!isOwnProfile && creatorFullProfile?.isCreator && (
           <View style={styles.subscribeRow}>
-            <MsPressable
+            <TouchableOpacity
               style={[
                 styles.subscribeButton,
                 isSubscribed && styles.subscribeButtonSubscribed,
                 currentTier === 'subscriber_plus' && styles.subscribeButtonPlus,
               ]}
               onPress={handleSubscribePress}
-                >
+              activeOpacity={0.85}
+            >
               {currentTier === 'subscriber_plus' ? (
                 <>
                   <Star size={16} color="#E8A020" weight="fill" />
@@ -1122,30 +1160,32 @@ export default function CreatorProfileScreen() {
                   )}
                 </>
               )}
-            </MsPressable>
+            </TouchableOpacity>
 
             {isSubscribed && currentTier === 'subscriber' && (
-              <MsPressable
+              <TouchableOpacity
                 style={styles.upgradeButton}
                 onPress={handleSubscribePress}
-                    >
+                activeOpacity={0.85}
+              >
                 <Star size={16} color="#E8A020" weight="fill" />
                 <Text style={styles.upgradeBtnLabel}>Upgrade</Text>
-              </MsPressable>
+              </TouchableOpacity>
             )}
           </View>
           )}
 
           {/* Message button - shown when viewing another user's profile and not own profile */}
           {!isOwnProfile && currentUser && currentUser.username !== (realProfile?.username ?? id) && (
-            <MsPressable
+            <TouchableOpacity
               style={[
                 styles.messageButton,
                 whoCanMessage === 'none' && styles.messageButtonDisabled,
               ]}
               onPress={handleMessagePress}
               disabled={loadingMessaging || whoCanMessage === 'none'}
-                >
+              activeOpacity={0.85}
+            >
               {loadingMessaging ? (
                 <Spinner size="sm" color="default" />
               ) : whoCanMessage === 'none' ? (
@@ -1164,7 +1204,7 @@ export default function CreatorProfileScreen() {
                   <Text style={styles.messageBtnLabel}>Message</Text>
                 </>
               )}
-            </MsPressable>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -1184,13 +1224,14 @@ export default function CreatorProfileScreen() {
                 From ₦{(creatorFullProfile?.subscriptionPrice ?? 0).toLocaleString()}/month
               </Text>
             )}
-            <MsPressable
+            <TouchableOpacity
               style={styles.lockBtn}
               onPress={handleSubscribePress}
-                >
+              activeOpacity={0.85}
+            >
               <Lock size={15} color={T.BG} weight="fill" />
               <Text style={styles.lockBtnText}>Subscribe to unlock</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         ) : (
           <Animated.View style={{ opacity: contentOpacity }}>
@@ -1203,15 +1244,16 @@ export default function CreatorProfileScreen() {
           style={styles.tabs}
         >
           {TABS.map((tab) => (
-            <MsPressable
+            <TouchableOpacity
               key={tab.key}
               style={[styles.tab, activeTab === tab.key && styles.tabActive]}
               onPress={() => setActiveTab(tab.key)}
-                >
+              activeOpacity={0.7}
+            >
               <Text style={[styles.tabLabel, activeTab === tab.key && styles.tabLabelActive]}>
                 {tab.label}
               </Text>
-            </MsPressable>
+            </TouchableOpacity>
           ))}
         </ScrollView>
 
@@ -1228,9 +1270,11 @@ export default function CreatorProfileScreen() {
                   <MsPostCard
                     key={post.id}
                     post={post}
+                    currentUserId={currentUser?.id}
                     onAuthorPress={() => undefined}
-                    onSubscribe={profileIsCreator ? handleSubscribePress : undefined}
+                    onSubscribe={handleSubscribePress}
                     onPress={() => openPost(post)}
+                    onEditPress={(p) => router.push(`/edit-post/${p.id}`)}
                     // Discovery actions (Not Interested / Hide Creator) never
                     // appear for creators the viewer already subscribes to.
                     subscribedToAuthor={isSubscribed}
@@ -1239,7 +1283,7 @@ export default function CreatorProfileScreen() {
                       setCreatorPosts([]);
                       setCreatorVideos([]);
                       setCreatorShorts([]);
-                      router.back();
+                      goBack();
                     }}
                   />
                 ))}
@@ -1261,16 +1305,18 @@ export default function CreatorProfileScreen() {
                   <MsPostCard
                     key={v.id}
                     post={v}
+                    currentUserId={currentUser?.id}
                     onAuthorPress={() => undefined}
-                    onSubscribe={profileIsCreator ? handleSubscribePress : undefined}
+                    onSubscribe={handleSubscribePress}
                     onPress={() => openPost(v)}
+                    onEditPress={(p) => router.push(`/edit-post/${p.id}`)}
                     subscribedToAuthor={isSubscribed}
                     onDeleted={(id) => setCreatorVideos((prev) => prev.filter((p) => p.id !== id))}
                     onCreatorHidden={(creatorId) => {
                       setCreatorPosts([]);
                       setCreatorVideos([]);
                       setCreatorShorts([]);
-                      router.back();
+                      goBack();
                     }}
                   />
                 ))}
@@ -1292,16 +1338,18 @@ export default function CreatorProfileScreen() {
                   <MsPostCard
                     key={s.id}
                     post={s}
+                    currentUserId={currentUser?.id}
                     onAuthorPress={() => undefined}
-                    onSubscribe={profileIsCreator ? handleSubscribePress : undefined}
+                    onSubscribe={handleSubscribePress}
                     onPress={() => openPost(s)}
+                    onEditPress={(p) => router.push(`/edit-post/${p.id}`)}
                     subscribedToAuthor={isSubscribed}
                     onDeleted={(id) => setCreatorShorts((prev) => prev.filter((p) => p.id !== id))}
                     onCreatorHidden={(creatorId) => {
                       setCreatorPosts([]);
                       setCreatorVideos([]);
                       setCreatorShorts([]);
-                      router.back();
+                      goBack();
                     }}
                   />
                 ))}
@@ -1361,18 +1409,16 @@ export default function CreatorProfileScreen() {
         {/* ── About tab ── */}
         {activeTab === 'about' && (
           <View style={styles.tabContent}>
-            {profileIsCreator ? (
-              <View style={styles.aboutCard}>
-                <Users size={18} color={T.TEXT_2} />
-                <View style={styles.aboutCopy}>
-                  <Text style={styles.aboutTitle}>A closer connection</Text>
-                  <Text style={styles.aboutText}>
-                    Subscribe for the full feed, exclusive drops, and direct messaging.
-                  </Text>
-                </View>
-                <CaretRight size={17} color={T.TEXT_3} />
+            <View style={styles.aboutCard}>
+              <Users size={18} color={T.TEXT_2} />
+              <View style={styles.aboutCopy}>
+                <Text style={styles.aboutTitle}>A closer connection</Text>
+                <Text style={styles.aboutText}>
+                  Subscribe for the full feed, exclusive drops, and direct messaging.
+                </Text>
               </View>
-            ) : null}
+              <CaretRight size={17} color={T.TEXT_3} />
+            </View>
 
             <View style={styles.infoCard}>
               {creator.category ? (
@@ -1384,7 +1430,7 @@ export default function CreatorProfileScreen() {
                   <View style={styles.infoDivider} />
                 </>
               ) : null}
-              {profileIsCreator && creatorFullProfile?.subscriptionPrice != null && (
+              {creatorFullProfile?.subscriptionPrice != null && (
                 <>
                   <View style={styles.infoRow}>
                     <Text style={styles.infoLabel}>Subscription price</Text>
@@ -1398,7 +1444,7 @@ export default function CreatorProfileScreen() {
                 {creator.isVerified ? (
                   <View style={styles.verifiedValueRow}>
                     <SealCheck size={14} color={T.ACCENT} weight="fill" />
-                    <Text style={styles.infoValue}>{profileIsCreator ? 'Verified creator' : 'Verified profile'}</Text>
+                    <Text style={styles.infoValue}>Verified creator</Text>
                   </View>
                 ) : (
                   <Text style={styles.infoValue}>Not verified</Text>
@@ -1587,7 +1633,7 @@ export default function CreatorProfileScreen() {
                   try {
                     await blockUser(creator.handle.replace('@', ''));
                     toast.success(`${creator.name} has been blocked.`);
-                    router.back();
+                    goBack();
                   } catch {
                     dialogs.alert({ variant: 'error', title: 'Could not block this user', message: 'Please try again.' });
                   }
@@ -1606,6 +1652,8 @@ export default function CreatorProfileScreen() {
         onComplete={handleSubscriptionOnboardingComplete}
       />
 
+      {/* Full-screen Chat Room creation loader */}
+      <MsRoomCreationLoader visible={creatingRoom} />
     </View>
   );
 }
@@ -1670,7 +1718,7 @@ const styles = StyleSheet.create({
   },
   metricValue: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16, textAlign: 'center' },
   metricLabel: {
-    color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 9,
+    color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 10,
     textAlign: 'center', marginTop: 3, letterSpacing: 0.3,
   },
   metricDivider: { width: 1, height: 24, backgroundColor: T.BORDER_2 },

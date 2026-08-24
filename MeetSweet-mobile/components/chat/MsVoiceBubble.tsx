@@ -6,30 +6,19 @@
  *  • Left : mic icon in small accent circle (28 px)
  *  • Centre: waveform bars, flex-1, progress-coloured, animated while playing
  *  • Right : MM:SS timer (tap to cycle speed) + accent play/pause circle (26 px)
- *
- * Playback runs on expo-audio (expo-av is removed from SDK 55) and the
- * playing-waveform pulse is driven by Reanimated worklets on the UI thread.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
+  Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import Reanimated, {
-  Easing,
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withTiming,
-  type SharedValue,
-} from 'react-native-reanimated';
-import { ArrowClockwise, DownloadSimple, Microphone, Pause, Play } from 'phosphor-react-native';
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { ArrowClockwise, Microphone, Pause, Play } from 'phosphor-react-native';
+import { Audio } from 'expo-av';
 import { T } from '@/constants/theme';
 import { formatDuration } from '@/types/chat-message';
 
@@ -42,49 +31,51 @@ interface Props {
   duration:  number; // seconds (0 = unknown)
   position:  'left' | 'right';
   fileSize?: number; // unused visually, kept for API compat
-  onDownload?: () => void;
   onLongPress?: () => void;
 }
 
-/** A single waveform bar whose scaleY pulse runs as a Reanimated worklet. */
-function PlayingBar({ scale, style }: { scale: SharedValue<number>; style: any }) {
-  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: scale.value }] }));
-  return <Reanimated.View style={[style, animatedStyle]} />;
-}
-
-export function MsVoiceBubble({ uri, duration, position, onDownload, onLongPress }: Props) {
+export function MsVoiceBubble({ uri, duration, position, onLongPress }: Props) {
   const isOwn = position === 'right';
 
+  const [isPlaying,    setIsPlaying]    = useState(false);
+  const [positionSecs, setPositionSecs] = useState(0);
   const [totalSecs,    setTotalSecs]    = useState(duration);
   const [speedIdx,     setSpeedIdx]     = useState(0);
   const [isLoading,    setIsLoading]    = useState(false);
   const [hasError,     setHasError]     = useState(false);
-  const needsDownload = !uri.startsWith('file:') && !uri.startsWith('content:');
 
-  // Player is created empty; remote media is never fetched — the source is only
-  // attached after the user explicitly downloads/plays (on-demand contract).
-  const player = useAudioPlayer(needsDownload ? null : uri, { updateInterval: 100 });
-  const status = useAudioPlayerStatus(player);
-  const isPlaying   = status.playing;
-  const positionSecs = Math.floor(status.currentTime ?? 0);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const barAnims = useRef(BAR_HEIGHTS.map(() => new Animated.Value(1))).current;
+  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
 
-  const barScales = useRef(BAR_HEIGHTS.map(() => useSharedValue(1))).current;
-
-  // ── Waveform pulse (Reanimated worklets — UI thread) ────────────────────────
+  // ── Waveform animation ───────────────────────────────────────────────────────
   useEffect(() => {
     if (isPlaying) {
-      barScales.forEach((v, i) => {
-        v.value = withRepeat(
-          withSequence(
-            withDelay(i * 40, withTiming(1.25, { duration: 700 + (i % 7) * 120, easing: Easing.inOut(Easing.sin) })),
-            withTiming(0.75, { duration: 700 + (i % 7) * 120, easing: Easing.inOut(Easing.sin) }),
-          ),
-          -1,
-          false,
-        );
-      });
+      const stagger = barAnims.map((a, i) =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.delay(i * 40),
+            Animated.timing(a, {
+              toValue: 1.25,
+              duration: 700 + (i % 7) * 120,
+              easing: Easing.inOut(Easing.sin),
+              useNativeDriver: true,
+            }),
+            Animated.timing(a, {
+              toValue: 0.75,
+              duration: 700 + (i % 7) * 120,
+              easing: Easing.inOut(Easing.sin),
+              useNativeDriver: true,
+            }),
+          ]),
+        ),
+      );
+      pulseRef.current = Animated.parallel(stagger);
+      pulseRef.current.start();
     } else {
-      barScales.forEach((v) => { cancelAnimation(v); v.value = 1; });
+      pulseRef.current?.stop();
+      pulseRef.current = null;
+      barAnims.forEach((a) => a.setValue(1));
     }
   }, [isPlaying]);
 
@@ -93,37 +84,61 @@ export function MsVoiceBubble({ uri, duration, position, onDownload, onLongPress
     if (duration > 0) setTotalSecs(duration);
   }, [duration]);
 
-  // ── Probe actual duration when the prop arrives as 0 (local files only) ─────
+  // ── Probe actual duration when prop arrives as 0 ─────────────────────────────
   useEffect(() => {
-    if (duration > 0 || needsDownload) return;
-    if (status.isLoaded && status.duration > 0) setTotalSecs(Math.floor(status.duration));
-  }, [uri, duration, needsDownload, status.isLoaded, status.duration]);
-
-  // ── Reset the playhead when playback finishes ────────────────────────────────
-  useEffect(() => {
-    if (status.didJustFinish) void player.seekTo(0);
-  }, [status.didJustFinish]);
+    if (duration > 0) return;
+    let cancelled = false;
+    let probe: Audio.Sound | null = null;
+    (async () => {
+      try {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: false });
+        probe = sound;
+        const status = await sound.getStatusAsync();
+        if (!cancelled && status.isLoaded && status.durationMillis && status.durationMillis > 0) {
+          setTotalSecs(Math.floor(status.durationMillis / 1000));
+        }
+        await sound.unloadAsync();
+        probe = null;
+      } catch {/* will show 0:00 until user presses play */}
+    })();
+    return () => {
+      cancelled = true;
+      probe?.unloadAsync().catch(() => {});
+    };
+  }, [uri, duration]);
 
   // ── Cleanup ──────────────────────────────────────────────────────────────────
   useEffect(() => () => {
-    barScales.forEach((v) => cancelAnimation(v));
-    player.remove();
+    pulseRef.current?.stop();
+    soundRef.current?.unloadAsync().catch(() => {});
   }, []);
 
   // ── Playback helpers ─────────────────────────────────────────────────────────
   const loadAndPlay = async () => {
-    if (needsDownload) {
-      onDownload?.();
-      return;
-    }
     try {
       setIsLoading(true);
       setHasError(false);
-      await setAudioModeAsync({ playsInSilentMode: true });
-      if (!status.isLoaded) player.replace(uri);
-      player.setPlaybackRate(SPEEDS[speedIdx], 'high');
-      player.play();
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true, rate: SPEEDS[speedIdx] },
+        (status) => {
+          if (!status.isLoaded) return;
+          setPositionSecs(Math.floor((status.positionMillis ?? 0) / 1000));
+          if (status.durationMillis && status.durationMillis > 0)
+            setTotalSecs(Math.floor(status.durationMillis / 1000));
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            setPositionSecs(0);
+            soundRef.current?.unloadAsync().catch(() => {});
+            soundRef.current = null;
+          }
+        },
+      );
+      soundRef.current = sound;
       setIsLoading(false);
+      setIsPlaying(true);
     } catch {
       setIsLoading(false);
       setHasError(true);
@@ -133,72 +148,37 @@ export function MsVoiceBubble({ uri, duration, position, onDownload, onLongPress
   const togglePlay = async () => {
     try {
       if (isPlaying) {
-        player.pause();
+        await soundRef.current?.pauseAsync();
+        setIsPlaying(false);
         return;
       }
-      if (!status.isLoaded) {
+      if (!soundRef.current) {
         await loadAndPlay();
       } else {
-        player.play();
+        await soundRef.current.playAsync();
+        setIsPlaying(true);
       }
     } catch {
       setIsLoading(false);
     }
   };
 
-  const cycleSpeed = () => {
+  const cycleSpeed = async () => {
     const next = (speedIdx + 1) % SPEEDS.length;
     setSpeedIdx(next);
-    player.setPlaybackRate(SPEEDS[next], 'high');
+    await soundRef.current?.setRateAsync(SPEEDS[next], true).catch(() => {});
   };
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const clampedP   = totalSecs > 0 ? Math.max(0, Math.min(1, positionSecs / totalSecs)) : 0;
   const displayTime = formatDuration(isPlaying ? positionSecs : totalSecs);
 
-  if (needsDownload) {
-    return (
-      <MsPressable
-        onLongPress={onLongPress}
-        delayLongPress={350}
-        scale={0.98}
-        pressOpacity={1}
-        haptic
-      >
-        <View style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft, s.downloadBubble]}>
-          <View style={s.micCircle}>
-            <Microphone size={14} color={T.ACCENT} weight="fill" />
-          </View>
-          <View style={s.downloadInfo}>
-            <Text style={s.downloadTitle}>Voice message</Text>
-            <Text style={s.downloadSub}>Download to play</Text>
-          </View>
-          <MsPressable
-            style={s.playBtn}
-            scale={0.88}
-            pressOpacity={0.8}
-            onPress={onDownload}
-            haptic
-            accessibilityLabel="Download voice message"
-            accessibilityRole="button"
-          >
-            <DownloadSimple size={13} color="#fff" weight="bold" />
-          </MsPressable>
-        </View>
-      </MsPressable>
-    );
-  }
-
   return (
-    <MsPressable
-      onLongPress={onLongPress}
+    <Pressable
       delayLongPress={350}
-      scale={0.98}
-      pressOpacity={1}
-      haptic
+      onLongPress={onLongPress}
+      style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft]}
     >
-      <View style={[s.bubble, isOwn ? s.bubbleRight : s.bubbleLeft]}>
-
 
       {/* ── Mic icon circle ──────────────────────────────────────────────── */}
       <View style={s.micCircle}>
@@ -209,34 +189,35 @@ export function MsVoiceBubble({ uri, duration, position, onDownload, onLongPress
       <View style={s.wave}>
         {BAR_HEIGHTS.map((baseH, i) => {
           const active = i / BAR_HEIGHTS.length <= clampedP;
-          const style = [
-            s.bar,
-            {
-              height: baseH,
-              backgroundColor: active ? T.ACCENT : 'rgba(255,255,255,0.15)',
-            },
-          ];
-          return isPlaying && active
-            ? <PlayingBar key={i} scale={barScales[i]} style={style} />
-            : <View key={i} style={style} />;
+          return (
+            <Animated.View
+              key={i}
+              style={[
+                s.bar,
+                {
+                  height: baseH,
+                  transform: [{ scaleY: isPlaying && active ? barAnims[i] : 1 }],
+                  backgroundColor: active ? T.ACCENT : 'rgba(255,255,255,0.15)',
+                },
+              ]}
+            />
+          );
         })}
       </View>
 
       {/* ── Duration — tap to cycle playback speed ───────────────────────── */}
-      <MsPressable onPress={cycleSpeed} scale={0.92} pressOpacity={0.7} haptic hitSlop={8}>
+      <TouchableOpacity onPress={cycleSpeed} hitSlop={8} activeOpacity={0.7}>
         <Text style={s.duration}>
           {displayTime}{speedIdx > 0 ? ` ${SPEEDS[speedIdx]}×` : ''}
         </Text>
-      </MsPressable>
+      </TouchableOpacity>
 
-      {/* ── Play / Pause button — native press feedback + haptic ─────────── */}
-      <MsPressable
+      {/* ── Play / Pause button ──────────────────────────────────────────── */}
+      <TouchableOpacity
         style={s.playBtn}
         onPress={hasError ? loadAndPlay : togglePlay}
-        scale={0.86}
-        pressOpacity={0.85}
+        activeOpacity={0.8}
         disabled={isLoading}
-        haptic
         accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
         accessibilityRole="button"
       >
@@ -249,10 +230,9 @@ export function MsVoiceBubble({ uri, duration, position, onDownload, onLongPress
         ) : (
           <Play size={12} color="#fff" weight="fill" />
         )}
-      </MsPressable>
+      </TouchableOpacity>
 
-      </View>
-    </MsPressable>
+    </Pressable>
   );
 }
 
@@ -260,22 +240,25 @@ const s = StyleSheet.create({
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
+    gap: 9,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.pill,
-    width: 260,
+    width: 264,
     marginVertical: 1,
+    // Hairline edge so the pill stays defined over custom image wallpapers.
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
     ...T.SHADOWS.soft,
   },
   bubbleLeft:  { alignSelf: 'flex-start', marginLeft: 8 },
   bubbleRight: { alignSelf: 'flex-end',   marginRight: 8 },
 
   micCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: `${T.ACCENT}22`,
     alignItems: 'center',
     justifyContent: 'center',
@@ -297,28 +280,23 @@ const s = StyleSheet.create({
   },
 
   duration: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: T.FONT.semibold,
     color: T.TEXT_2,
     flexShrink: 0,
-    minWidth: 30,
+    minWidth: 32,
     textAlign: 'right',
   },
 
   playBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: T.ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-
-  downloadBubble: { width: 230 },
-  downloadInfo: { flex: 1, gap: 2 },
-  downloadTitle: { fontSize: 12, fontFamily: T.FONT.semibold, color: T.TEXT },
-  downloadSub: { fontSize: 10, fontFamily: T.FONT.regular, color: T.TEXT_3 },
 
   loadingDot: {
     width: 6,

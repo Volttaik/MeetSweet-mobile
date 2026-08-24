@@ -5,9 +5,9 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowRight, Sparkle, Wallet, CheckCircle } from 'phosphor-react-native';
@@ -81,6 +81,7 @@ export default function NewUserWelcomeScreen() {
   // 2. Handle Subscribe action using real wallet & subscription system
   const handleSubscribe = async (creator: MsCreatorCardData) => {
     const price = creator.subscriptionPrice ?? 0;
+    
     // Check wallet balance
     if (balance < price) {
       try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
@@ -158,9 +159,9 @@ export default function NewUserWelcomeScreen() {
           <View style={styles.centerState}>
             <Text style={styles.errorTitle}>Oops, couldn't load creators</Text>
             <Text style={styles.errorSub}>{error}</Text>
-            <MsPressable style={styles.retryBtn} onPress={handleRefresh}>
+            <TouchableOpacity style={styles.retryBtn} onPress={handleRefresh} activeOpacity={0.8}>
               <Text style={styles.retryLabel}>Try Again</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         ) : creators.length === 0 ? (
           <View style={styles.centerState}>
@@ -209,10 +210,10 @@ export default function NewUserWelcomeScreen() {
 
         {/* Footer CTA */}
         <View style={styles.footer}>
-          <MsPressable style={styles.continueBtn} onPress={handleContinueToApp}>
+          <TouchableOpacity style={styles.continueBtn} onPress={handleContinueToApp} activeOpacity={0.88}>
             <Text style={styles.continueBtnLabel}>Explore Feed</Text>
             <ArrowRight size={18} color={T.BG} weight="bold" />
-          </MsPressable>
+          </TouchableOpacity>
         </View>
 
         {/* Insufficient Funds Modal */}
@@ -228,22 +229,24 @@ export default function NewUserWelcomeScreen() {
                 <Text style={styles.highlightText}>{insufficientModal.creatorName}</Text>. Current balance: ₦
                 {balance.toLocaleString()}.
               </Text>
-              <MsPressable
+              <TouchableOpacity
                 style={styles.fundBtn}
-                           onPress={() => {
+                activeOpacity={0.88}
+                onPress={() => {
                   setInsufficientModal({ visible: false, creatorName: '', requiredPrice: 0 });
                   router.push('/wallet');
                 }}
               >
                 <Wallet size={18} color={T.BG} />
                 <Text style={styles.fundBtnLabel}>Go to Wallet & Add Funds</Text>
-              </MsPressable>
-              <MsPressable
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.cancelBtn}
-                           onPress={() => setInsufficientModal({ visible: false, creatorName: '', requiredPrice: 0 })}
+                activeOpacity={0.7}
+                onPress={() => setInsufficientModal({ visible: false, creatorName: '', requiredPrice: 0 })}
               >
                 <Text style={styles.cancelBtnLabel}>Cancel</Text>
-              </MsPressable>
+              </TouchableOpacity>
             </View>
           </View>
         )}

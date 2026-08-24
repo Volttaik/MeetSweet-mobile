@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
@@ -26,14 +29,17 @@ import {
   At,
   Camera,
   Calendar,
+  Check,
   Eye,
   EyeSlash,
   Lock,
   Envelope,
   Phone,
   User,
+  X,
 } from 'phosphor-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { checkEmailAvailability, checkUsernameAvailability } from '@/services/users';
 import { savePendingAvatar } from '@/lib/pending-avatar';
 import { clearPendingReferralCode, getPendingReferralCode, lookupReferral, savePendingReferralCode, type ReferralReferrer } from '@/services/referrals';
 
@@ -108,17 +114,91 @@ function InputRow({
   icon,
   children,
   isError,
+  trailing,
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
   isError?: boolean;
+  /** Fixed-width status slot (spinner / ✓ / ✕) — reserved so the row never
+   *  shifts horizontally when the indicator appears or disappears. */
+  trailing?: React.ReactNode;
 }) {
   return (
     <View style={[styles.inputWrapper, isError && styles.inputWrapperError]}>
       {icon}
       {children}
+      {trailing}
     </View>
   );
+}
+
+// ─── Live availability state ──────────────────────────────────────────────────
+
+type AvailState = 'idle' | 'checking' | 'available' | 'taken' | 'error';
+
+/**
+ * Debounced + race-protected server availability check.
+ *
+ * • Only fires after the user pauses typing (600 ms)
+ * • Every keystroke bumps a sequence counter — a stale response that arrives
+ *   after a newer check can never overwrite the current state
+ * • Typing resets to 'idle' immediately (no stale ✓/✕ while editing)
+ */
+function useLiveAvailability(check: (value: string) => Promise<{ available: boolean }>) {
+  const [state, setState] = useState<AvailState>('idle');
+  const seqRef    = useRef(0);
+  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const update = useCallback((value: string) => {
+    const seq = ++seqRef.current;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setState('idle');
+    if (!value) return;
+    timerRef.current = setTimeout(() => {
+      setState('checking');
+      check(value)
+        .then((res) => {
+          if (seqRef.current !== seq) return; // stale — a newer keystroke owns the state
+          setState(res.available ? 'available' : 'taken');
+        })
+        .catch(() => {
+          if (seqRef.current !== seq) return;
+          setState('error'); // network hiccup — final submit re-validates server-side
+        });
+    }, 600);
+  }, [check]);
+
+  /** Imperatively set state (e.g. a server-confirmed conflict from submit). */
+  const force = useCallback((next: AvailState) => {
+    seqRef.current++;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setState(next);
+  }, []);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  return { state, update, force };
+}
+
+/** Inline trailing indicator: spinner while checking, ✓ available, ✕ taken/invalid. */
+function AvailIndicator({ state }: { state: AvailState | 'invalid' }) {
+  return (
+    <View style={styles.availSlot}>
+      {state === 'checking' ? (
+        <ActivityIndicator size={16} color="rgba(255,255,255,0.5)" />
+      ) : state === 'available' ? (
+        <Check size={17} color="#22C55E" weight="bold" />
+      ) : state === 'taken' || state === 'invalid' ? (
+        <X size={17} color="#EF4444" weight="bold" />
+      ) : null}
+    </View>
+  );
+}
+
+/** Map raw availability state → display state (invalid format beats everything). */
+function availDisplay(state: AvailState, formatOk: boolean, hasInput: boolean): AvailState | 'invalid' {
+  if (hasInput && !formatOk) return 'invalid';
+  return state;
 }
 
 // ─── FieldLabel ───────────────────────────────────────────────────────────────
@@ -130,6 +210,18 @@ function FieldLabel({ children }: { children: string }) {
 function FieldErr({ msg }: { msg?: string }) {
   if (!msg) return null;
   return <Text style={styles.fieldError}>{msg}</Text>;
+}
+
+/** Green success status line (e.g. "Username available"). */
+function FieldStatusOk({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <Text style={[styles.fieldError, styles.fieldStatusOk]}>{msg}</Text>;
+}
+
+/** Neutral "Checking availability…" line — same reserved slot, no layout shift. */
+function FieldStatusInfo({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <Text style={[styles.fieldError, styles.fieldStatusInfo]}>{msg}</Text>;
 }
 
 // ─── Step bar ─────────────────────────────────────────────────────────────────
@@ -192,29 +284,54 @@ const Step1 = React.memo(function Step1({
 
   const country = COUNTRY_CODES[data.countryCodeIdx] ?? COUNTRY_CODES[DEFAULT_COUNTRY_IDX];
 
-  // Show server-side email error inline
+  // ── Live server availability (debounced + race-protected) ────────────────
+  const usernameAvail = useLiveAvailability(checkUsernameAvailability);
+  const emailAvail    = useLiveAvailability(checkEmailAvailability);
+
+  // The step remounts on every transition, so pre-filled values (returning to
+  // this step with a valid email/username) need their availability re-checked.
+  useEffect(() => {
+    if (usernameOk) usernameAvail.update(data.username.trim());
+    if (emailOk)    emailAvail.update(data.email.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Show server-side email error inline (e.g. 409 discovered at submit).
+  // The email is known-taken at that point, so block Continue until edited.
   useEffect(() => {
     if (serverEmailError) {
       setErrors((e) => ({ ...e, email: serverEmailError }));
+      emailAvail.force('taken');
     }
   }, [serverEmailError]);
 
-  const validate = () => {
-    const e: Record<string, string> = {};
-    if (data.name.trim().length < 2) e.name = 'Enter your full name';
-    if (data.username.trim().length < 3) e.username = 'At least 3 characters required';
-    else if (!/^[a-z0-9_.]{3,30}$/i.test(data.username.trim())) e.username = 'Letters, numbers, _ and . only';
-    if (!data.email.includes('@') || !data.email.includes('.'))
-      e.email = 'Enter a valid email address';
-    const phoneDigits = data.phone.replace(/\D/g, '');
-    if (phoneDigits.length < 7) e.phone = 'Enter a valid phone number';
-    const age = calculateAge(data.dob);
-    if (!data.dob || data.dob.length < 10) e.dob = 'Enter your date of birth (MM/DD/YYYY)';
-    else if (age < 18) e.dob = 'You must be at least 18 years old to join';
-    else if (age > 120) e.dob = 'Please enter a valid date of birth';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
+  // ── Format rules (mirror the server's register schema exactly) ────────────
+  const nameOk     = data.name.trim().length >= 2;
+  // Server: /^[a-zA-Z0-9_]{3,30}$/ — letters, numbers, underscores only.
+  const usernameOk = /^[a-zA-Z0-9_]{3,30}$/.test(data.username.trim());
+  const emailOk    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim());
+  const phoneDigits = data.phone.replace(/\D/g, '');
+  const phoneOk    = phoneDigits.length >= 7;
+  const age        = calculateAge(data.dob);
+  const dobOk      = data.dob.length === 10 && age >= 18 && age <= 120;
+
+  // Availability is authoritative once resolved; a transient network 'error'
+  // does NOT block (the final submit re-validates server-side).
+  const usernameReady = usernameOk && (usernameAvail.state === 'available' || usernameAvail.state === 'error');
+  const emailReady    = emailOk    && (emailAvail.state === 'available'    || emailAvail.state === 'error');
+  const step1Valid = nameOk && usernameReady && emailReady && phoneOk && dobOk;
+
+  const usernameHasInput = data.username.trim().length > 0;
+  const emailHasInput    = data.email.trim().length > 0;
+  const usernameDisplay  = availDisplay(usernameAvail.state, usernameOk, usernameHasInput);
+  const emailDisplay     = availDisplay(emailAvail.state, emailOk, emailHasInput);
+
+  // Live local errors for the non-availability fields — show as the user types.
+  const liveErrName  = data.name.trim().length > 0 && !nameOk ? 'Enter your full name' : '';
+  const liveErrPhone = data.phone.length > 0 && !phoneOk ? 'Enter a valid phone number' : '';
+  const liveErrDob   = data.dob.length === 10 && !dobOk
+    ? (age < 18 ? 'You must be at least 18 years old to join' : 'Please enter a valid date of birth')
+    : '';
 
   return (
     <View style={styles.stepContainer}>
@@ -236,18 +353,19 @@ const Step1 = React.memo(function Step1({
           <Text style={styles.fieldLabel}>Select Country</Text>
           <View style={{ backgroundColor: INPUT_BG, borderRadius: 16, overflow: 'hidden' }}>
             {COUNTRY_CODES.map((c, i) => (
-              <MsPressable
+              <TouchableOpacity
                 key={c.code}
                 style={[
                   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, gap: 10 },
                   i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
                 ]}
                 onPress={() => { onChange({ countryCodeIdx: i }); setShowCountryPicker(false); }}
-                      >
+                activeOpacity={0.7}
+              >
                 <Text style={{ fontSize: 18 }}>{c.flag}</Text>
                 <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Poppins_400Regular', color: '#FFFFFF' }}>{c.name}</Text>
                 <Text style={{ fontSize: 14, fontFamily: 'Poppins_500Medium', color: 'rgba(255,255,255,0.4)' }}>{c.code}</Text>
-              </MsPressable>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -256,7 +374,7 @@ const Step1 = React.memo(function Step1({
           {/* Full Name */}
           <View>
             <FieldLabel>Full Name</FieldLabel>
-            <InputRow icon={<User size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.name}>
+            <InputRow icon={<User size={20} color="rgba(255,255,255,0.35)" />} isError={!!(errors.name || liveErrName)}>
               <TextInput
                 placeholder="Jane Smith"
                 autoComplete="name"
@@ -269,13 +387,17 @@ const Step1 = React.memo(function Step1({
                 placeholderTextColor="rgba(255,255,255,0.18)"
               />
             </InputRow>
-            <FieldErr msg={errors.name} />
+            <FieldErr msg={errors.name || liveErrName} />
           </View>
 
-          {/* Username */}
+          {/* Username — live server availability check */}
           <View>
             <FieldLabel>Username</FieldLabel>
-            <InputRow icon={<At size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.username}>
+            <InputRow
+              icon={<At size={20} color="rgba(255,255,255,0.35)" />}
+              isError={usernameDisplay === 'invalid' || usernameDisplay === 'taken'}
+              trailing={<AvailIndicator state={usernameDisplay} />}
+            >
               <TextInput
                 ref={usernameRef}
                 placeholder="yourhandle"
@@ -286,18 +408,43 @@ const Step1 = React.memo(function Step1({
                 returnKeyType="next"
                 onSubmitEditing={() => emailRef.current?.focus()}
                 value={data.username}
-                onChangeText={(v) => { onChange({ username: v.replace(/\s/g, '') }); setErrors((e) => ({ ...e, username: '' })); }}
+                onChangeText={(v) => {
+                  const clean = v.replace(/\s/g, '');
+                  onChange({ username: clean });
+                  // Only query the server once the value is format-valid — no
+                  // wasted requests on clearly-invalid input.
+                  if (/^[a-zA-Z0-9_]{3,30}$/.test(clean.trim())) {
+                    usernameAvail.update(clean.trim());
+                  } else {
+                    usernameAvail.force('idle');
+                  }
+                  setErrors((e) => ({ ...e, username: '' }));
+                }}
                 style={styles.input}
                 placeholderTextColor="rgba(255,255,255,0.18)"
               />
             </InputRow>
-            <FieldErr msg={errors.username} />
+            {usernameDisplay === 'invalid' ? (
+              <FieldErr msg={usernameHasInput ? 'Letters, numbers and underscores only (3–30)' : 'At least 3 characters required'} />
+            ) : usernameDisplay === 'checking' ? (
+              <FieldStatusInfo msg="Checking availability…" />
+            ) : usernameDisplay === 'available' ? (
+              <FieldStatusOk msg="Username available" />
+            ) : usernameDisplay === 'taken' ? (
+              <FieldErr msg="Username already exists" />
+            ) : usernameDisplay === 'error' ? (
+              <FieldStatusInfo msg="Couldn't verify — will check on submit" />
+            ) : null}
           </View>
 
-          {/* Email */}
+          {/* Email — live server availability check */}
           <View>
             <FieldLabel>Email</FieldLabel>
-            <InputRow icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.email}>
+            <InputRow
+              icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />}
+              isError={emailDisplay === 'invalid' || emailDisplay === 'taken'}
+              trailing={<AvailIndicator state={emailDisplay} />}
+            >
               <TextInput
                 ref={emailRef}
                 placeholder="your@email.com"
@@ -308,12 +455,31 @@ const Step1 = React.memo(function Step1({
                 returnKeyType="next"
                 onSubmitEditing={() => phoneRef.current?.focus()}
                 value={data.email}
-                onChangeText={(v) => { onChange({ email: v }); setErrors((e) => ({ ...e, email: '' })); }}
+                onChangeText={(v) => {
+                  onChange({ email: v });
+                  // Only query the server once the value is format-valid.
+                  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())) {
+                    emailAvail.update(v.trim());
+                  } else {
+                    emailAvail.force('idle');
+                  }
+                  setErrors((e) => ({ ...e, email: '' }));
+                }}
                 style={styles.input}
                 placeholderTextColor="rgba(255,255,255,0.18)"
               />
             </InputRow>
-            <FieldErr msg={errors.email} />
+            {emailDisplay === 'invalid' ? (
+              <FieldErr msg="Enter a valid email address" />
+            ) : emailDisplay === 'checking' ? (
+              <FieldStatusInfo msg="Checking availability…" />
+            ) : emailDisplay === 'available' ? (
+              <FieldStatusOk msg="Email available" />
+            ) : emailDisplay === 'taken' ? (
+              <FieldErr msg={errors.email || 'Email already in use'} />
+            ) : emailDisplay === 'error' ? (
+              <FieldStatusInfo msg="Couldn't verify — will check on submit" />
+            ) : null}
           </View>
 
           {/* Phone */}
@@ -321,18 +487,19 @@ const Step1 = React.memo(function Step1({
             <FieldLabel>Phone Number</FieldLabel>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {/* Country code selector */}
-              <MsPressable
+              <TouchableOpacity
                 style={[styles.inputWrapper, { width: 90, justifyContent: 'center', gap: 4, paddingHorizontal: 12 }]}
                 onPress={() => setShowCountryPicker(true)}
-                      >
+                activeOpacity={0.7}
+              >
                 <Text style={{ fontSize: 14 }}>{country.flag}</Text>
                 <Text style={{ fontSize: 13, fontFamily: 'Poppins_500Medium', color: '#FFFFFF' }}>{country.code}</Text>
-              </MsPressable>
+              </TouchableOpacity>
 
               {/* Phone digits input — flex:1 keeps the row full-width so it
                   never collapses into the tiny circular pill seen before. */}
               <View style={{ flex: 1 }}>
-                <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.phone}>
+                <InputRow icon={<Phone size={20} color="rgba(255,255,255,0.35)" />} isError={!!(errors.phone || liveErrPhone)}>
                   <TextInput
                     ref={phoneRef}
                     placeholder="Phone number"
@@ -349,20 +516,20 @@ const Step1 = React.memo(function Step1({
                 </InputRow>
               </View>
             </View>
-            <FieldErr msg={errors.phone} />
+            <FieldErr msg={errors.phone || liveErrPhone} />
           </View>
 
           {/* Date of Birth */}
           <View>
             <FieldLabel>Date of Birth</FieldLabel>
             <Text style={styles.fieldHintText}>You must be 18+ to join</Text>
-            <InputRow icon={<Calendar size={20} color="rgba(255,255,255,0.35)" />} isError={!!errors.dob}>
+            <InputRow icon={<Calendar size={20} color="rgba(255,255,255,0.35)" />} isError={!!(errors.dob || liveErrDob)}>
               <TextInput
                 ref={dobRef}
                 placeholder="MM/DD/YYYY"
                 keyboardType="numeric"
                 returnKeyType="done"
-                onSubmitEditing={() => { if (validate()) onNext(); }}
+                onSubmitEditing={() => { if (step1Valid) onNext(); }}
                 value={data.dob}
                 onChangeText={(v) => { onChange({ dob: formatDOB(v) }); setErrors((e) => ({ ...e, dob: '' })); }}
                 style={styles.input}
@@ -370,15 +537,20 @@ const Step1 = React.memo(function Step1({
                 maxLength={10}
               />
             </InputRow>
-            <FieldErr msg={errors.dob} />
+            <FieldErr msg={errors.dob || liveErrDob} />
           </View>
         </View>
       )}
 
       {!showCountryPicker && (
-        <MsPressable style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }}>
+        <TouchableOpacity
+          style={[styles.primaryBtn, !step1Valid && styles.primaryBtnDisabled]}
+          onPress={() => { if (step1Valid) onNext(); }}
+          disabled={!step1Valid}
+          activeOpacity={0.85}
+        >
           <Text style={styles.btnLabel}>Continue</Text>
-        </MsPressable>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -407,14 +579,13 @@ const Step2 = React.memo(function Step2({
 
   const strength = data.password ? passwordStrength(data.password) : null;
 
-  const validate = () => {
-    const e: Record<string, string> = {};
-    if (data.password.length < 8) e.password = 'At least 8 characters required';
-    if (strength && strength.level === 'weak') e.password = 'Choose a stronger password';
-    if (data.confirm !== data.password) e.confirm = 'Passwords do not match';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
+  // ── Live validation — the Continue button stays disabled until valid ─────
+  const pwHasInput = data.password.length > 0;
+  const pwOk       = data.password.length >= 8 && strength !== null && strength.level !== 'weak';
+  const confirmOk  = data.confirm.length > 0 && data.confirm === data.password;
+  const step2Valid = pwOk && confirmOk;
+  const liveErrPw      = pwHasInput && !pwOk ? (data.password.length < 8 ? 'At least 8 characters required' : 'Choose a stronger password') : '';
+  const liveErrConfirm = data.confirm.length > 0 && !confirmOk ? 'Passwords do not match' : '';
 
   return (
     <View style={styles.stepContainer}>
@@ -427,7 +598,7 @@ const Step2 = React.memo(function Step2({
         {/* Password */}
         <View>
           <FieldLabel>Password</FieldLabel>
-          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.password}>
+          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!(errors.password || liveErrPw)}>
             <TextInput
               placeholder="••••••••"
               secureTextEntry={!showPw}
@@ -436,9 +607,9 @@ const Step2 = React.memo(function Step2({
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
-            <MsPressable onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               {showPw ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
-            </MsPressable>
+            </TouchableOpacity>
           </InputRow>
           {data.password.length > 0 && strength && (
             <View style={styles.strengthRow}>
@@ -456,13 +627,13 @@ const Step2 = React.memo(function Step2({
               </Text>
             </View>
           )}
-          <FieldErr msg={errors.password} />
+          <FieldErr msg={errors.password || liveErrPw} />
         </View>
 
         {/* Confirm Password */}
         <View>
           <FieldLabel>Confirm Password</FieldLabel>
-          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.confirm}>
+          <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!(errors.confirm || liveErrConfirm)}>
             <TextInput
               placeholder="••••••••"
               secureTextEntry={!showConfirm}
@@ -471,11 +642,11 @@ const Step2 = React.memo(function Step2({
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
-            <MsPressable onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               {showConfirm ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
-            </MsPressable>
+            </TouchableOpacity>
           </InputRow>
-          <FieldErr msg={errors.confirm} />
+          <FieldErr msg={errors.confirm || liveErrConfirm} />
         </View>
 
         <View style={styles.passwordHints}>
@@ -497,9 +668,14 @@ const Step2 = React.memo(function Step2({
         </View>
       </View>
 
-      <MsPressable style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }}>
+      <TouchableOpacity
+        style={[styles.primaryBtn, !step2Valid && styles.primaryBtnDisabled]}
+        onPress={() => { if (step2Valid) onNext(); }}
+        disabled={!step2Valid}
+        activeOpacity={0.85}
+      >
         <Text style={styles.btnLabel}>Continue</Text>
-      </MsPressable>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -565,7 +741,7 @@ const Step3 = React.memo(function Step3({
 
       {/* Avatar picker */}
       <View style={styles.avatarSection}>
-        <MsPressable onPress={pickImage} style={styles.avatarWrap}>
+        <TouchableOpacity onPress={pickImage} style={styles.avatarWrap} activeOpacity={0.8}>
           {data.avatarUri ? (
             <Image source={{ uri: data.avatarUri }} style={styles.avatarImg} />
           ) : (
@@ -576,7 +752,7 @@ const Step3 = React.memo(function Step3({
           <View style={styles.avatarBadge}>
             <Camera size={16} color="#000000" />
           </View>
-        </MsPressable>
+        </TouchableOpacity>
         <Text style={styles.avatarHint}>Tap to add a profile photo</Text>
       </View>
 
@@ -607,17 +783,18 @@ const Step3 = React.memo(function Step3({
         </View>
       )}
 
-      <MsPressable
+      <TouchableOpacity
         style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
         onPress={onNext}
         disabled={loading}
+        activeOpacity={0.85}
       >
         {loading ? (
           <Spinner size="sm" color="#FFFFFF" />
         ) : (
           <Text style={styles.btnLabel}>Complete</Text>
         )}
-      </MsPressable>
+      </TouchableOpacity>
     </View>
   );
 });
@@ -766,7 +943,7 @@ export default function RegisterScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + 28,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
             paddingBottom: insets.bottom + 48,
           },
         ]}
@@ -774,13 +951,13 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Back */}
-        <MsPressable
-          onPress={() => (step === 1 ? router.back() : transitionTo((step - 1) as StepNum))}
+        <TouchableOpacity
+          onPress={() => (step === 1 ? goBack() : transitionTo((step - 1) as StepNum))}
           style={styles.backBtn}
           hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
         >
           <ArrowLeft size={22} color="#FFFFFF" />
-        </MsPressable>
+        </TouchableOpacity>
 
         {/* Screen title */}
         <View style={styles.screenHead}>
@@ -829,9 +1006,9 @@ export default function RegisterScreen() {
         {step === 1 && (
           <View style={styles.signinRow}>
             <Text style={styles.signinText}>Already have an account? </Text>
-            <MsPressable onPress={() => router.push('/auth')}>
+            <TouchableOpacity onPress={() => router.push('/auth')} activeOpacity={0.7}>
               <Text style={styles.signinLink}>Log In</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         )}
       </KeyboardAwareScrollViewCompat>
@@ -926,7 +1103,9 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   fieldError: {
     fontFamily: 'Poppins_400Regular',
@@ -934,6 +1113,20 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginTop: 6,
     paddingHorizontal: 4,
+  },
+  fieldStatusOk: {
+    color: '#22C55E',
+  },
+  fieldStatusInfo: {
+    color: 'rgba(255,255,255,0.4)',
+  },
+  // Fixed-width trailing slot inside input rows — reserves the space for the
+  // spinner/✓/✕ so the field never shifts horizontally between states.
+  availSlot: {
+    width: 20,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Password strength
@@ -1027,7 +1220,9 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     minHeight: 92,
     backgroundColor: 'transparent',
-
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
+      : {}),
   },
   charCount: {
     fontSize: 12,
@@ -1079,6 +1274,11 @@ const styles = StyleSheet.create({
   },
   primaryBtnLoading: {
     backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  primaryBtnDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.06)',
+    opacity: 0.45,
   },
   serverErrorBox: {
     backgroundColor: 'rgba(239,68,68,0.1)',

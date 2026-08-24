@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, DotsThree } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
@@ -51,7 +52,7 @@ export default function PostDetailScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={[styles.header, { paddingTop: 8 }]}>
-          <Pressable style={styles.iconButton} onPress={() => router.back()}>
+          <Pressable style={styles.iconButton} onPress={() => goBack()}>
             <ArrowLeft size={20} color={T.TEXT} />
           </Pressable>
           <Text style={styles.headerTitle}>Post</Text>
@@ -66,7 +67,7 @@ export default function PostDetailScreen() {
   if (error || !post) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
-        <MsEmptyState title="Post unavailable" message={error} actionLabel="Go back" onAction={() => router.back()} />
+        <MsEmptyState title="Post unavailable" message={error} actionLabel="Go back" onAction={() => goBack()} />
       </View>
     );
   }
@@ -74,7 +75,7 @@ export default function PostDetailScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable style={styles.iconButton} onPress={() => router.back()} accessibilityLabel="Go back">
+        <Pressable style={styles.iconButton} onPress={() => goBack()} accessibilityLabel="Go back">
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
         <Text style={styles.headerTitle}>Post</Text>
@@ -107,6 +108,7 @@ export default function PostDetailScreen() {
           currentUserId={user?.id}
           onAuthorPress={() => router.push(`/creator/${post.author.username}`)}
           onCommentsPress={() => setCommentsVisible(true)}
+          onEditPress={(p) => router.push(`/edit-post/${p.id}`)}
           onMediaPress={() => {
             if (post.mediaType === 'video') {
               router.push(`/videos/${post.id}`);

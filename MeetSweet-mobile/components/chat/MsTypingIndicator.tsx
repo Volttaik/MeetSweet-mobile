@@ -1,79 +1,94 @@
 /**
- * Compact realtime typing presence. It is rendered outside the message array.
- *
- * The dot bounce runs as Reanimated worklets on the UI thread so it never
- * contends with the JS thread during keyboard/scroll animations.
+ * MsTypingIndicator — single compact animated typing indicator.
+ * Three small synchronized bouncing dots inside a small pill.
+ * Never renders as a message bubble with text.
  */
-import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Reanimated, {
-  Easing,
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withTiming,
-  type SharedValue,
-} from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import { T } from '@/constants/theme';
 
 const DOT_COUNT = 3;
-
-function Dot({ anim }: { anim: SharedValue<number> }) {
-  const style = useAnimatedStyle(() => ({
-    opacity: anim.value,
-    transform: [{ translateY: (anim.value - 0.45) / 0.55 * -3 }],
-  }));
-  return <Reanimated.View style={[styles.dot, style]} />;
-}
+const DOT_SIZE = 8;
+const ANIMATION_DURATION = 380;
+const STAGGER = 130;
 
 export function MsTypingIndicator() {
-  const anims = [
-    useSharedValue(0.45),
-    useSharedValue(0.45),
-    useSharedValue(0.45),
-  ];
+  const anims = useRef(
+    Array.from({ length: DOT_COUNT }, () => new Animated.Value(0)),
+  ).current;
 
   useEffect(() => {
-    anims.forEach((anim, i) => {
-      anim.value = withRepeat(
-        withSequence(
-          withDelay(i * 100, withTiming(1, { duration: 280, easing: Easing.inOut(Easing.sin) })),
-          withTiming(0.45, { duration: 280, easing: Easing.inOut(Easing.sin) }),
-        ),
-        -1,
-        false,
-      );
-    });
-    return () => anims.forEach((anim) => cancelAnimation(anim));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const animations = anims.map((anim, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * STAGGER),
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: ANIMATION_DURATION,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: ANIMATION_DURATION,
+            useNativeDriver: true,
+          }),
+        ]),
+      ),
+    );
+    Animated.parallel(animations).start();
+    return () => animations.forEach((a) => a.stop());
   }, []);
 
   return (
-    <View style={styles.row} accessible accessibilityLabel="Participant is typing">
-      {anims.map((anim, i) => (
-        <Dot key={i} anim={anim} />
-      ))}
+    <View style={styles.container}>
+      <View style={styles.bubble}>
+        {anims.map((anim, i) => (
+          <Animated.View
+            key={i}
+            style={[
+              styles.dot,
+              {
+                transform: [
+                  {
+                    translateY: anim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, -3],
+                    }),
+                  },
+                ],
+                opacity: anim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.45, 1],
+                }),
+              },
+            ]}
+          />
+        ))}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    alignSelf: 'flex-start',
+  container: {
+    paddingHorizontal: 14,
+    paddingBottom: 6,
+    alignItems: 'flex-start',
+  },
+  bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingLeft: 17,
-    paddingBottom: 5,
-    height: 20,
+    gap: 5,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: 14,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: T.ACCENT,
+    width: DOT_SIZE,
+    height: DOT_SIZE,
+    borderRadius: DOT_SIZE / 2,
+    backgroundColor: T.TEXT,
   },
 });

@@ -3,7 +3,7 @@
  *
  * Three physical cards rendered in depth:
  *   - Two back cards (rotated, semi-transparent) that peek out from behind
- *   - One front card using the ExploreImageCard design language
+ *   - One front card using the explore card design language
  *
  * The stacked-card silhouette communicates "collection" without any label.
  * The front face is identical to the explore image card so the feed feels
@@ -15,11 +15,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import {
-  SealCheck,
   Heart,
   Images,
   Lock,
@@ -27,6 +26,7 @@ import {
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { T } from '@/constants/theme';
 import type { AlbumCardData } from '@/services/albums';
 
@@ -135,13 +135,14 @@ export function ExploreAlbumCard({
                     <Text style={styles.lockPrice}>₦{album.price.toLocaleString()}</Text>
                   </View>
                 ) : null}
-                <MsPressable
+                <TouchableOpacity
                   style={styles.unlockButton}
                   onPress={onUnlockPress ?? onPress}
-                  >
+                  activeOpacity={0.85}
+                >
                   <Lock size={12} color={T.BG} weight="bold" />
                   <Text style={styles.unlockText}>Purchase</Text>
-                </MsPressable>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -158,9 +159,10 @@ export function ExploreAlbumCard({
 
             {/* Creator chip + premium pill — bottom overlay */}
             <View style={styles.imageFooter} pointerEvents="box-none">
-              <MsPressable
+              <TouchableOpacity
                 style={styles.creatorChip}
                 onPress={onCreatorPress ?? onPress}
+                activeOpacity={0.85}
                 hitSlop={6}
               >
                 <MsAvatar
@@ -173,11 +175,9 @@ export function ExploreAlbumCard({
                   <Text style={styles.creatorName} numberOfLines={1}>
                     {album.creatorName}
                   </Text>
-                  {album.creatorIsVerified && (
-                    <SealCheck size={13} color={T.TEXT} weight="fill" />
-                  )}
+                  {album.creatorIsVerified && <VerifiedBadge />}
                 </View>
-              </MsPressable>
+              </TouchableOpacity>
 
               {album.requiresPurchase && !album.isUnlockedByMe && (
                 <View style={styles.premiumPill}>
@@ -221,22 +221,24 @@ export function ExploreAlbumCard({
                 <Text style={styles.footerMeta}>{album.itemCount} items in collection</Text>
               </View>
               {album.requiresPurchase && !album.isUnlockedByMe ? (
-                <MsPressable
+                <TouchableOpacity
                   style={styles.ctaUnlock}
                   onPress={onUnlockPress ?? onPress}
-                  >
+                  activeOpacity={0.85}
+                >
                   <Lock size={11} color="#fff" weight="bold" />
                   <Text style={styles.ctaUnlockText}>
                     {album.price ? `Purchase · ₦${album.price.toLocaleString()}` : 'Purchase'}
                   </Text>
-                </MsPressable>
+                </TouchableOpacity>
               ) : (
-                <MsPressable
+                <TouchableOpacity
                   style={styles.ctaView}
                   onPress={onPress}
-                  >
+                  activeOpacity={0.85}
+                >
                   <Text style={styles.ctaViewText}>View all</Text>
-                </MsPressable>
+                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -329,7 +331,7 @@ const styles = StyleSheet.create({
   lockTitle: {
     color: T.TEXT,
     fontFamily: T.FONT.semibold,
-    fontSize: 15,
+    fontSize: 14,
     letterSpacing: -0.2,
   },
   lockPriceRow: {
@@ -340,7 +342,7 @@ const styles = StyleSheet.create({
   lockPrice: {
     color: T.ACCENT,
     fontFamily: T.FONT.bold,
-    fontSize: 17,
+    fontSize: 15,
   },
   unlockButton: {
     flexDirection: 'row',
@@ -356,7 +358,7 @@ const styles = StyleSheet.create({
   unlockText: {
     color: T.BG,
     fontFamily: T.FONT.bold,
-    fontSize: 14,
+    fontSize: 13,
   },
 
   collectionBadge: {
@@ -374,7 +376,7 @@ const styles = StyleSheet.create({
   collectionBadgeText: {
     color: '#fff',
     fontFamily: T.FONT.bold,
-    fontSize: 9,
+    fontSize: 8,
     letterSpacing: 1.1,
   },
 
@@ -389,8 +391,8 @@ const styles = StyleSheet.create({
   },
   itemCountText: {
     color: '#fff',
-    fontFamily: T.FONT.semibold,
-    fontSize: 10,
+    fontFamily: T.FONT.bold,
+    fontSize: 9,
   },
 
   imageFooter: {
@@ -423,7 +425,7 @@ const styles = StyleSheet.create({
   },
   creatorName: {
     color: '#fff',
-    fontFamily: T.FONT.semibold,
+    fontFamily: T.FONT.bold,
     fontSize: 12,
     maxWidth: 130,
   },
@@ -457,7 +459,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     color: T.TEXT_2,
-    fontFamily: T.FONT.medium,
+    fontFamily: T.FONT.semibold,
     fontSize: 12,
     flex: 1,
   },
@@ -468,19 +470,19 @@ const styles = StyleSheet.create({
   },
   countLabel: {
     color: T.TEXT_3,
-    fontFamily: T.FONT.regular,
+    fontFamily: T.FONT.semibold,
     fontSize: 11,
   },
   title: {
     color: T.TEXT,
     fontFamily: T.FONT.bold,
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 15,
+    lineHeight: 21,
     letterSpacing: -0.4,
   },
   description: {
     color: T.TEXT_2,
-    fontFamily: T.FONT.regular,
+    fontFamily: T.FONT.medium,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -498,7 +500,7 @@ const styles = StyleSheet.create({
   },
   footerMeta: {
     color: T.TEXT_3,
-    fontFamily: T.FONT.regular,
+    fontFamily: T.FONT.medium,
     fontSize: 11,
   },
 

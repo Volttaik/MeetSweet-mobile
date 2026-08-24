@@ -43,6 +43,9 @@ export function enableGlobalScreenProtection(): void {
   if (initialized) return;
   initialized = true;
 
+  // No native capture API exists on web — nothing to enforce there.
+  if (Platform.OS === 'web') return;
+
   // Android: FLAG_SECURE on the activity window. iOS: recording black-out
   // overlay + secure-text-field screenshot blanking. Idempotent on both.
   ScreenCapture.preventScreenCaptureAsync().catch(() => {});

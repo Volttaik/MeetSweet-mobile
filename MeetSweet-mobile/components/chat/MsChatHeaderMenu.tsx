@@ -9,20 +9,17 @@
  *  - Clear Chat
  *  - Delete Chat
  */
-import React, { useCallback, useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
+  Animated,
+  Easing,
   Modal,
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import Reanimated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import {
   Image as ImageIcon,
   MagnifyingGlass,
@@ -74,36 +71,39 @@ export function MsChatHeaderMenu({
 }: Props) {
   // Dropdown is anchored top-right, so it animates with a downward slide + fade
   // (no scale, no transformOrigin) — a scale-from-center is what caused the menu
-  // to visually "jump" from the wrong position on open. Runs as Reanimated
-  // worklets on the UI thread (no JS-thread Animated orchestration).
-  const translateAnim = useSharedValue(-10);
-  const opacityAnim   = useSharedValue(0);
+  // to visually "jump" from the wrong position on open.
+  const translateAnim = useRef(new Animated.Value(-10)).current;
+  const opacityAnim   = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      translateAnim.value = -10;
-      opacityAnim.value = 0;
-      opacityAnim.value = withTiming(1, { duration: 160 });
-      translateAnim.value = withTiming(0, { duration: 200 });
+      translateAnim.setValue(-10);
+      opacityAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(opacityAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+        Animated.timing(translateAnim, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
-  }, [visible, translateAnim, opacityAnim]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
-  // Animate out (worklet-driven), then close the modal and run the action.
-  // `onClose` unmounts the menu; the action (open search / profile / picker)
-  // runs after the animation so the two overlays never stack mid-transition.
-  const dismiss = useCallback((fn: () => void) => {
-    opacityAnim.value = withTiming(0, { duration: 120 });
-    translateAnim.value = withTiming(-8, { duration: 120 });
-    setTimeout(() => {
+  // Animate out, then close the modal and run the action. `onClose` unmounts the
+  // menu; the action (open search / profile / picker) runs after the animation
+  // so the two overlays never stack mid-transition (prevents flicker).
+  const dismiss = (fn: () => void) => {
+    Animated.parallel([
+      Animated.timing(opacityAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(translateAnim, { toValue: -8, duration: 120, useNativeDriver: true }),
+    ]).start(() => {
       onClose();
       fn();
-    }, 120);
-  }, [onClose, opacityAnim, translateAnim]);
-
-  const menuStyle = useAnimatedStyle(() => ({
-    opacity: opacityAnim.value,
-    transform: [{ translateY: translateAnim.value }],
-  }));
+    });
+  };
 
   const ITEMS = [
     {
@@ -170,26 +170,35 @@ export function MsChatHeaderMenu({
           accessibilityLabel="Close menu"
           accessibilityRole="button"
         />
-        <Reanimated.View style={[s.menu, menuStyle]}>
+        <Animated.View
+          style={[
+            s.menu,
+            {
+              opacity: opacityAnim,
+              transform: [{ translateY: translateAnim }],
+            },
+          ]}
+        >
           {([...ITEMS] as any[]).map((item: any) => {
             if (item.divider) {
               return <View key={item.key} style={s.divider} />;
             }
             return (
-              <MsPressable
+              <TouchableOpacity
                 key={item.key}
                 style={s.item}
                 onPress={item.onPress}
+                activeOpacity={0.7}
               >
                 <View style={s.itemIcon}>{item.icon}</View>
                 <Text style={[s.itemLabel, item.destructive && s.itemLabelDestructive]}>
                   {item.label}
                 </Text>
                 <CaretRight size={14} color={T.TEXT_3} />
-              </MsPressable>
+              </TouchableOpacity>
             );
           })}
-        </Reanimated.View>
+        </Animated.View>
       </View>
     </Modal>
   );

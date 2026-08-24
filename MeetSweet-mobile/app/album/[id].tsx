@@ -15,15 +15,15 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
-  Check,
   Images,
   Lock,
   Play,
@@ -36,11 +36,13 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 import { MsAvatar } from '@/components/MsAvatar';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T } from '@/constants/theme';
 import { useAlbum, purchaseAlbum } from '@/services/albums';
+import { soundService } from '@/services/sound-service';
 import type { AlbumItem } from '@/services/albums';
 import { MsShareSheet } from '@/components/MsShareSheet';
 import { MsModal } from '@/components/MsModal';
@@ -213,6 +215,8 @@ export default function AlbumScreen() {
           title: 'Album unlocked',
           message: `Purchase completed — you now have full access to "${album.title}".`,
         });
+        // An important successful action — subtle confirmation chime.
+        soundService.playSuccess(`album:${album.id}`);
       }
     } catch (err) {
       const msg = (err as Error).message ?? 'Please try again.';
@@ -250,7 +254,7 @@ export default function AlbumScreen() {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.backRow}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable style={styles.backButton} onPress={() => goBack()}>
             <ArrowLeft size={20} color={T.TEXT} />
           </Pressable>
         </View>
@@ -268,7 +272,7 @@ export default function AlbumScreen() {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.backRow}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable style={styles.backButton} onPress={() => goBack()}>
             <ArrowLeft size={20} color={T.TEXT} />
           </Pressable>
         </View>
@@ -277,7 +281,7 @@ export default function AlbumScreen() {
             title="Album not found"
             message="This album may have been removed or is unavailable."
             actionLabel="Go back"
-            onAction={() => router.back()}
+            onAction={() => goBack()}
           />
         </View>
       </MsAmbientBackground>
@@ -313,7 +317,7 @@ export default function AlbumScreen() {
 
           {/* Back button */}
           <View style={styles.backRow}>
-            <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Pressable style={styles.backButton} onPress={() => goBack()}>
               <ArrowLeft size={20} color={T.TEXT} />
             </Pressable>
           </View>
@@ -343,9 +347,10 @@ export default function AlbumScreen() {
           <Text style={styles.albumTitle}>{album.title}</Text>
 
           {/* Creator row */}
-          <MsPressable
+          <TouchableOpacity
             style={styles.creatorRow}
             onPress={() => router.push(`/creator/${album.creatorId}`)}
+            activeOpacity={0.8}
           >
             <MsAvatar
               size={34}
@@ -356,9 +361,7 @@ export default function AlbumScreen() {
             <View style={styles.creatorText}>
               <View style={styles.creatorNameRow}>
                 <Text style={styles.creatorName}>{album.creatorName}</Text>
-                {album.creatorIsVerified && (
-                  <Check size={12} color={T.TEXT_2} weight="fill" />
-                )}
+                {album.creatorIsVerified && <VerifiedBadge />}
               </View>
               <Text style={styles.creatorHandle}>{album.creatorHandle}</Text>
             </View>
@@ -366,7 +369,7 @@ export default function AlbumScreen() {
               <UserCircle size={14} color={T.TEXT_2} />
               <Text style={styles.viewProfileText}>Profile</Text>
             </View>
-          </MsPressable>
+          </TouchableOpacity>
 
           {/* Description */}
           {album.description ? (
@@ -402,15 +405,16 @@ export default function AlbumScreen() {
                 Purchase all {album.itemCount} items for ₦{album.price?.toLocaleString()}.
               </Text>
             </View>
-            <MsPressable
+            <TouchableOpacity
               style={[styles.unlockButton, unlocking && { opacity: 0.6 }]}
               onPress={handleUnlock}
-                disabled={unlocking}
+              activeOpacity={0.85}
+              disabled={unlocking}
             >
               {unlocking
                 ? <ActivityIndicator size="small" color={T.BG} />
                 : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Purchase</Text></>}
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -446,24 +450,26 @@ export default function AlbumScreen() {
         subtitle={`${album.title} · ₦${album.price?.toLocaleString()}`}
         footer={
           <View style={styles.confirmFooter}>
-            <MsPressable
+            <TouchableOpacity
               style={[styles.confirmCancel, unlocking && styles.confirmDisabled]}
               onPress={() => setConfirmVisible(false)}
               disabled={unlocking}
-              >
+              activeOpacity={0.7}
+            >
               <Text style={styles.confirmCancelLabel}>Cancel</Text>
-            </MsPressable>
-            <MsPressable
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.confirmBuy, unlocking && styles.confirmDisabled]}
               onPress={runPurchase}
               disabled={unlocking}
-              >
+              activeOpacity={0.85}
+            >
               {unlocking ? (
                 <ActivityIndicator size="small" color={T.BG} />
               ) : (
                 <><Star size={14} color={T.BG} weight="fill" /><Text style={styles.confirmBuyLabel}>Purchase · ₦{album.price?.toLocaleString()}</Text></>
               )}
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         }
       >
@@ -487,12 +493,7 @@ export default function AlbumScreen() {
         visible={shareVisible}
         contentType="album"
         contentId={album.id}
-        title="Share Album"
-        preview={{
-          title: album.title,
-          subtitle: album.creatorHandle ? `by @${album.creatorHandle}` : album.creatorName ? `by ${album.creatorName}` : undefined,
-          imageUrl: album.coverUrl || undefined,
-        }}
+        title={album.title}
         onClose={() => setShareVisible(false)}
       />
 
@@ -506,7 +507,7 @@ export default function AlbumScreen() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Pressable
-            style={[styles.previewClose, { top: insets.top + 12 }]}
+            style={styles.previewClose}
             onPress={() => setPreviewItem(null)}
             hitSlop={12}
             accessibilityRole="button"

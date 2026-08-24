@@ -1,16 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import { FlashList } from '@shopify/flash-list';
 import { Spinner } from 'heroui-native';
 import { MsShimmer } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, BellSlash, Check, ArrowsClockwise, Trash } from 'phosphor-react-native';
 import { router, Redirect } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -107,9 +109,10 @@ function NotifRow({
   const actorAvatar = item.actor?.avatarUrl ?? undefined;
 
   return (
-    <MsPressable
+    <TouchableOpacity
       style={[styles.notifRow, !item.isRead && styles.notifRowUnread]}
       onPress={() => onPress(item)}
+      activeOpacity={0.7}
     >
       <MsAvatar
         size={44}
@@ -124,7 +127,7 @@ function NotifRow({
         <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
       </View>
       {!item.isRead && <View style={styles.unreadDot} />}
-      <MsPressable
+      <TouchableOpacity
         style={styles.deleteBtn}
         onPress={(e) => {
           e.stopPropagation();
@@ -135,11 +138,34 @@ function NotifRow({
         accessibilityLabel="Delete notification"
       >
         <Trash size={16} color={T.TEXT_3} />
-      </MsPressable>
-    </MsPressable>
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 
+function NotifGroup({
+  title,
+  items,
+  onPress,
+  onDelete,
+}: {
+  title: string;
+  items: Notification[];
+  onPress: (n: Notification) => void;
+  onDelete: (n: Notification) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <View>
+      <View style={styles.groupHeader}>
+        <Text style={styles.groupTitle}>{title}</Text>
+      </View>
+      {items.map((item) => (
+        <NotifRow key={item.id} item={item} onPress={onPress} onDelete={onDelete} />
+      ))}
+    </View>
+  );
+}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -292,28 +318,6 @@ export default function NotificationsScreen() {
   const unreadCount = notifications.filter((n) => !n.isRead).length;
   const { today, yesterday, earlier } = groupNotifications(notifications);
 
-  // Flatten the day groups into one virtualized list (section headers + rows)
-  // so Notifications recycles cells instead of rendering every row.
-  const notifRows = useMemo(() => {
-    const rows: Array<
-      | { type: 'header'; title: string }
-      | { type: 'row'; item: Notification }
-    > = [];
-    if (today.length) {
-      rows.push({ type: 'header', title: 'Today' });
-      today.forEach((item) => rows.push({ type: 'row', item }));
-    }
-    if (yesterday.length) {
-      rows.push({ type: 'header', title: 'Yesterday' });
-      yesterday.forEach((item) => rows.push({ type: 'row', item }));
-    }
-    if (earlier.length) {
-      rows.push({ type: 'header', title: 'Earlier' });
-      earlier.forEach((item) => rows.push({ type: 'row', item }));
-    }
-    return rows;
-  }, [today, yesterday, earlier]);
-
   // Authenticated screen only — a logged-out visit (stale navigation history
   // or a direct web URL) must land on Login, never a placeholder shell.
   if (isLoading) {
@@ -327,26 +331,27 @@ export default function NotificationsScreen() {
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <MsPressable
-          onPress={() => router.back()}
+        <TouchableOpacity
+          onPress={() => goBack()}
           style={styles.backBtn}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
         {unreadCount > 0 ? (
-          <MsPressable style={styles.iconBtn} onPress={handleMarkAll}>
+          <TouchableOpacity style={styles.iconBtn} onPress={handleMarkAll} activeOpacity={0.7}>
             {marking ? (
               <Spinner size="sm" color={T.TEXT_2 as any} />
             ) : (
               <Check size={18} color={T.TEXT_2} />
             )}
-          </MsPressable>
+          </TouchableOpacity>
         ) : (
-          <MsPressable style={styles.iconBtn}>
+          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
             <BellSlash size={18} color={T.TEXT_2} />
-          </MsPressable>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -366,36 +371,43 @@ export default function NotificationsScreen() {
       ) : error ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>{error}</Text>
-          <MsPressable style={styles.retryBtn} onPress={() => load()}>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => load()} activeOpacity={0.7}>
             <ArrowsClockwise size={16} color={T.TEXT} />
             <Text style={styles.retryText}>Retry</Text>
-          </MsPressable>
+          </TouchableOpacity>
         </View>
-      ) : (
-        <FlashList
-          data={notifRows}
-          keyExtractor={(row) => (row.type === 'header' ? `h-${row.title}` : row.item.id)}
-          getItemType={(row) => row.type}
-          renderItem={({ item }) =>
-            item.type === 'header' ? (
-              <View style={styles.groupHeader}>
-                <Text style={styles.groupTitle}>{item.title}</Text>
-              </View>
-            ) : (
-              <NotifRow item={item.item} onPress={handlePress} onDelete={handleDelete} />
-            )
-          }
-          refreshing={refreshing}
-          onRefresh={() => load(true)}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          ListEmptyComponent={
-            <MsEmptyState
-              title="You're all caught up"
-              message="When someone likes your post, subscribes to you, or messages you — it'll show up here."
+      ) : notifications.length === 0 ? (
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={T.TEXT_2}
             />
           }
-        />
+        >
+          <MsEmptyState
+            title="You're all caught up"
+            message="When someone likes your post, subscribes to you, or messages you — it'll show up here."
+          />
+        </ScrollView>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={T.TEXT_2}
+            />
+          }
+        >
+          <NotifGroup title="Today" items={today} onPress={handlePress} onDelete={handleDelete} />
+          <NotifGroup title="Yesterday" items={yesterday} onPress={handlePress} onDelete={handleDelete} />
+          <NotifGroup title="Earlier" items={earlier} onPress={handlePress} onDelete={handleDelete} />
+        </ScrollView>
       )}
     </View>
   );

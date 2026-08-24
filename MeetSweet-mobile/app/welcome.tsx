@@ -2,11 +2,12 @@ import React, { useEffect } from 'react';
 import {
   Dimensions,
   Image,
+  Platform,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
+import { TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -78,8 +79,8 @@ export default function WelcomeScreen() {
         style={[
           styles.container,
           {
-            paddingTop: insets.top + 40,
-            paddingBottom: insets.bottom + 44,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 40),
+            paddingBottom: insets.bottom + (Platform.OS === 'web' ? 40 : 44),
           },
           slideStyle,
         ]}
@@ -120,12 +121,13 @@ export default function WelcomeScreen() {
         {/* Actions */}
         <View style={styles.actions}>
           <FadeUp delay={220}>
-            <MsPressable
+            <TouchableOpacity
               style={styles.primaryBtn}
               onPress={handleGetStarted}
+              activeOpacity={0.85}
             >
               <Text style={styles.primaryBtnLabel}>Get Started</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </FadeUp>
 
           <FadeUp delay={300}>

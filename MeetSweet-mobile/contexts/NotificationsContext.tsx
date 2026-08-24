@@ -28,6 +28,7 @@ import { getNotifications, registerPushTokenToBackend } from '@/services/notific
 import { getChatRoomList } from '@/services/room-service';
 import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
+import { getFocusedChatRoom } from '@/lib/chat-focus';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
@@ -35,32 +36,21 @@ import { usePostActions } from '@/contexts/PostActionsContext';
 const LAST_HANDLED_NOTIF_KEY = '@ms_last_handled_notif_id';
 
 // ─── Notification display while the app is foregrounded ──────────────────────
-// The chat screen registers the room it is actively showing; a push for THAT
-// conversation is suppressed so the user isn't banner-spammed by a chat they
-// are already looking at. The message still arrives over SweetSocket and the
-// unread badge is still updated.
-let activeChatRoomId: string | null = null;
-
-/**
- * Tell the notification handler which chat room the user is currently viewing.
- * Call with the room id while the chat screen is mounted, and with null on
- * unmount. Any push for this room is suppressed while it is set.
- */
-export function setActiveChatRoomId(roomId: string | null): void {
-  activeChatRoomId = roomId;
-}
-
+// The user is ACTIVELY VIEWING a conversation when the DM push arrives, the
+// realtime event already rendered it on screen — a native banner for the same
+// room is noise, so it is suppressed (badge still updates). Every other
+// notification displays normally.
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = (notification.request.content.data ?? {}) as Record<string, string>;
     const roomId = data.chat_room_id ?? data.chatRoomId;
-    const inOpenChat = Boolean(roomId && activeChatRoomId && String(roomId) === String(activeChatRoomId));
+    const viewingThisRoom = Boolean(roomId) && roomId === getFocusedChatRoom();
     return {
-      shouldShowAlert: !inOpenChat,
-      shouldPlaySound: !inOpenChat,
+      shouldShowAlert: !viewingThisRoom,
+      shouldPlaySound: !viewingThisRoom,
       shouldSetBadge: true,
-      shouldShowBanner: !inOpenChat,
-      shouldShowList: !inOpenChat,
+      shouldShowBanner: !viewingThisRoom,
+      shouldShowList: !viewingThisRoom,
     };
   },
 });
@@ -121,13 +111,17 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
     return { token: null, status: finalStatus };
   }
 
-  // Android needs a notification channel
+  // Android needs a notification channel. The channel carries the in-app
+  // message chime (message-received.wav, bundled via the expo-notifications
+  // plugin's `sounds` config) so native notifications sound on-brand instead
+  // of the system default. Applies to builds — Expo Go ignores channel sounds.
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
       name: 'MeetSweet',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#C45A72',
+      sound: 'message-received.wav',
     }).catch(() => {});
   }
 

@@ -8,11 +8,12 @@
 
 import React, { useRef } from 'react';
 import {
+  PanResponder,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowRight, SealCheck, X } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -75,9 +76,9 @@ export function MsUserProfileSheet({
       surfaceStyle={{ paddingHorizontal: 20, paddingTop: 0 }}
     >
       {/* Close button */}
-      <MsPressable style={s.closeBtn} onPress={onClose}>
+      <TouchableOpacity style={s.closeBtn} onPress={onClose} activeOpacity={0.7}>
         <X size={16} color={T.TEXT_2} />
-      </MsPressable>
+      </TouchableOpacity>
 
       {/* Avatar + name */}
       <View style={s.profileSection}>
@@ -112,16 +113,36 @@ export function MsUserProfileSheet({
 
       {/* Action buttons */}
       <View style={[s.actions, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        <MsPressable style={s.viewProfileBtn} onPress={handleViewProfile}>
+        <TouchableOpacity style={s.viewProfileBtn} onPress={handleViewProfile} activeOpacity={0.8}>
           <Text style={s.viewProfileText}>View Full Profile</Text>
           <ArrowRight size={16} color={T.TEXT} />
-        </MsPressable>
+        </TouchableOpacity>
       </View>
     </MsGlassSheet>
   );
 }
 
 const s = StyleSheet.create({
+  backdrop: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheet: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    backgroundColor: T.SURFACE,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+  },
+  dragHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: T.BORDER_2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
   closeBtn: {
     position: 'absolute',
     top: 16, right: 16,

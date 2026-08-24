@@ -160,9 +160,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Chat cache is shared across accounts — clear it so the next login never
     // exposes the previous user's private conversations.
     await clearChatCache().catch(() => {});
-    if (currentUserId) {
-      await import('@/services/chat-outbox').then(({ clearChatOutbox }) => clearChatOutbox(currentUserId)).catch(() => {});
-    }
     setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
   }, [state.user?.id]);
 
@@ -278,7 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // canonical chat state is scoped to the signed-in account.
   useEffect(() => {
     if (state.isAuthenticated && state.user?.id) {
-      realtime.connect(state.user.id);
+      realtime.connect();
       sweetStore.start(state.user.id);
     } else {
       realtime.disconnect();

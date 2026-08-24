@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -56,7 +56,7 @@ export default function SuccessScreen() {
         style={[
           styles.container,
           {
-            paddingTop: insets.top + 40,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 80 : 40),
             paddingBottom: insets.bottom + 48,
           },
         ]}

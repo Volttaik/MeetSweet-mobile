@@ -10,22 +10,20 @@
  * (expo-file-system) so the background survives app restarts — photo-library
  * cache URIs do not.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Dimensions,
+  Easing,
   Image as RnImage,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetScrollView,
-  BottomSheetView,
-  type BottomSheetBackdropProps,
-} from '@gorhom/bottom-sheet';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,6 +36,8 @@ import {
   type ChatBackground,
 } from '@/services/chat-background';
 
+const { height: SCREEN_H } = Dimensions.get('window');
+const SHEET_MAX_H = SCREEN_H * 0.78;
 const SWATCH = 64;
 
 interface Props {
@@ -82,35 +82,32 @@ async function removeBackgroundImage(uri?: string): Promise<void> {
 
 export function MsChatBgPicker({ visible, current, onSelect, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const sheetRef = useRef<BottomSheetModal>(null);
   const [preview, setPreview] = useState<ChatBackground>(current);
+  const slideAnim = useRef(new Animated.Value(SHEET_MAX_H)).current;
   const prevCustomRef = useRef<string | null>(
     current.type === 'image' ? current.uri : null,
   );
 
-  // Native sheet presentation: Reanimated worklet-driven slide, native
-  // swipe-to-dismiss and backdrop — no JS-thread Modal animation.
   useEffect(() => {
     if (visible) {
       setPreview(current);
       prevCustomRef.current = current.type === 'image' ? current.uri : null;
-      sheetRef.current?.present();
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        damping: 24,
+        stiffness: 230,
+        mass: 0.9,
+      }).start();
     } else {
-      sheetRef.current?.dismiss();
+      Animated.timing(slideAnim, {
+        toValue: SHEET_MAX_H,
+        duration: 200,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }).start();
     }
-  }, [visible, current]);
-
-  const renderBackdrop = useMemo(
-    () => (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        opacity={0.55}
-      />
-    ),
-    []
-  );
+  }, [visible, current, slideAnim]);
 
   const apply = useCallback((bg: ChatBackground) => {
     setPreview(bg);
@@ -150,23 +147,26 @@ export function MsChatBgPicker({ visible, current, onSelect, onClose }: Props) {
   };
 
   return (
-    <BottomSheetModal
-      ref={sheetRef}
-      index={0}
-      snapPoints={['78%']}
-      backdropComponent={renderBackdrop}
-      backgroundStyle={s.sheetBackground}
-      handleIndicatorStyle={s.handle}
-      onDismiss={onClose}
-    >
-      <BottomSheetView
-        style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: Math.max(insets.bottom + 10, 26) }}
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+      <Pressable style={s.overlay} onPress={onClose} />
+
+      <Animated.View
+        style={[
+          s.sheet,
+          {
+            maxHeight: SHEET_MAX_H,
+            paddingBottom: Math.max(insets.bottom + 10, 26),
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
       >
+        <View style={s.handle} />
+
         <View style={s.header}>
           <Text style={s.title}>Chat Background</Text>
-          <MsPressable onPress={onClose} hitSlop={12}>
+          <TouchableOpacity onPress={onClose} hitSlop={12}>
             <Text style={s.doneLabel}>Done</Text>
-          </MsPressable>
+          </TouchableOpacity>
         </View>
 
         {/* Live preview of the currently selected background */}
@@ -191,12 +191,8 @@ export function MsChatBgPicker({ visible, current, onSelect, onClose }: Props) {
             <RnImage source={{ uri: preview.uri }} style={s.previewInner} resizeMode="cover" />
           )}
         </View>
-      </BottomSheetView>
 
-      <BottomSheetScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.scrollContent}
-      >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
           {/* Default */}
           <Text style={s.sectionLabel}>Default</Text>
           <View style={s.row}>
@@ -253,7 +249,9 @@ export function MsChatBgPicker({ visible, current, onSelect, onClose }: Props) {
                 </Pressable>
               );
             })}
-          </View>          {/* Custom image */}
+          </View>
+
+          {/* Custom image */}
           <Text style={s.sectionLabel}>Custom Image</Text>
           <View style={s.row}>
             <Pressable
@@ -273,20 +271,33 @@ export function MsChatBgPicker({ visible, current, onSelect, onClose }: Props) {
               )}
             </Pressable>
           </View>
-      </BottomSheetScrollView>
-    </BottomSheetModal>
+        </ScrollView>
+      </Animated.View>
+    </Modal>
   );
 }
 
 const s = StyleSheet.create({
-  sheetBackground: {
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
     backgroundColor: T.BORDER_2,
+    alignSelf: 'center',
+    marginBottom: 16,
   },
   header: {
     flexDirection: 'row',

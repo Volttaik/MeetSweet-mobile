@@ -21,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
@@ -51,7 +52,7 @@ export default function PostMediaScreen() {
       {/* Back button — overlaid top-left */}
       <Pressable
         style={[styles.backBtn, { top: insets.top + 12 }]}
-        onPress={() => router.back()}
+        onPress={() => goBack()}
         accessibilityLabel="Go back"
         hitSlop={12}
       >

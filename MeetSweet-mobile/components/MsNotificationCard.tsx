@@ -1,6 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 
@@ -22,9 +21,10 @@ export function MsNotificationCard({
   onPress,
 }: MsNotificationCardProps) {
   return (
-    <MsPressable
+    <TouchableOpacity
       style={[styles.row, isUnread && styles.rowUnread]}
       onPress={onPress}
+      activeOpacity={0.7}
     >
       <MsAvatar size={44} initials={initials} />
       <View style={styles.content}>
@@ -35,7 +35,7 @@ export function MsNotificationCard({
         <Text style={styles.time}>{time}</Text>
       </View>
       {isUnread && <View style={styles.dot} />}
-    </MsPressable>
+    </TouchableOpacity>
   );
 }
 

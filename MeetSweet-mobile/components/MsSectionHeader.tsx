@@ -1,6 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, ViewStyle } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
+import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { T } from '@/constants/theme';
 
 interface MsSectionHeaderProps {
@@ -20,9 +19,9 @@ export function MsSectionHeader({
     <View style={[styles.row, style]}>
       <Text style={styles.title}>{title}</Text>
       {actionLabel && (
-        <MsPressable onPress={onAction} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity onPress={onAction} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.action}>{actionLabel}</Text>
-        </MsPressable>
+        </TouchableOpacity>
       )}
     </View>
   );

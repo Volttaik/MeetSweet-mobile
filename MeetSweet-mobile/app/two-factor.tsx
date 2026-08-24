@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   Easing,
@@ -95,20 +97,20 @@ export default function TwoFactorScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + 28,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
             paddingBottom: insets.bottom + 48,
           },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <MsPressable
-          onPress={() => router.back()}
+        <TouchableOpacity
+          onPress={() => goBack()}
           style={styles.backBtn}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color="#FFFFFF" />
-        </MsPressable>
+        </TouchableOpacity>
 
         <Animated.View style={[styles.inner, contentStyle]}>
           <View style={styles.iconCircle}>
@@ -142,20 +144,21 @@ export default function TwoFactorScreen() {
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-          <MsPressable
+          <TouchableOpacity
             style={[
               styles.verifyBtn,
               (!completed || loading) && styles.verifyBtnDisabled,
             ]}
             onPress={handleVerify}
             disabled={loading || !completed}
+            activeOpacity={0.85}
           >
             {loading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <Text style={styles.verifyBtnLabel}>Verify</Text>
             )}
-          </MsPressable>
+          </TouchableOpacity>
         </Animated.View>
       </KeyboardAwareScrollViewCompat>
     </MsScreenBackground>

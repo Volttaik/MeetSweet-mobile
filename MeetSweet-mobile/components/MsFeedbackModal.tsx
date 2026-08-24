@@ -14,9 +14,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { CheckCircle, XCircle, Info, Lock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { notifyError, notifySuccess } from '@/lib/haptics';
@@ -85,17 +85,18 @@ export function MsFeedbackModal({
           <Text style={styles.title}>{title}</Text>
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
-          <MsPressable
+          <TouchableOpacity
             style={styles.primaryBtn}
             onPress={onClose}
+            activeOpacity={0.85}
           >
             <Text style={styles.primaryLabel}>{confirmLabel}</Text>
-          </MsPressable>
+          </TouchableOpacity>
 
           {secondaryLabel && onSecondary ? (
-            <MsPressable style={styles.secondaryBtn} onPress={onSecondary}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={onSecondary} activeOpacity={0.7}>
               <Text style={styles.secondaryLabel}>{secondaryLabel}</Text>
-            </MsPressable>
+            </TouchableOpacity>
           ) : null}
         </Animated.View>
       </View>

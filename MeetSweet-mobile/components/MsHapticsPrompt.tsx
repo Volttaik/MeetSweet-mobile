@@ -5,8 +5,7 @@
  * via lib/haptics and controls every haptic call site in the app.
  */
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
+import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Vibrate } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
@@ -45,18 +44,20 @@ export function MsHapticsPrompt({
             Turn them on?
           </Text>
           <View style={styles.buttons}>
-            <MsPressable
+            <TouchableOpacity
               style={styles.disableBtn}
               onPress={() => choose(false)}
+              activeOpacity={0.7}
             >
               <Text style={styles.disableLabel}>Keep Off</Text>
-            </MsPressable>
-            <MsPressable
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.enableBtn}
               onPress={() => choose(true)}
+              activeOpacity={0.8}
             >
               <Text style={styles.enableLabel}>Enable</Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         </View>
       </Pressable>

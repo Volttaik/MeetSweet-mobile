@@ -3,8 +3,8 @@
  *
  * Routes by message type:
  *   text      → MsTextBubble
- *   image/vid → MsMediaCard
- *   audio     → MsVoiceBubble (voice note) / MsFileCard (audio file)
+ *   image/vid → MsMediaCard (legacy sticker media falls back to image here)
+ *   audio     → MsVoiceBubble
  *   document  → MsFileCard
  *
  * Max-width lives here (fixed px, not %) so child percentage widths
@@ -12,20 +12,16 @@
  *
  * Entrance animation: opacity + scale (0.97→1) + translateY — 200 ms.
  */
-import React, { useCallback, useEffect } from 'react';
+import React, { memo, useCallback, useEffect, useRef } from 'react';
 import {
+  Animated,
   Dimensions,
+  Easing,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import Reanimated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import { Check, Checks, Clock } from 'phosphor-react-native';
 import type { BubbleProps } from '@kesha-antonov/react-native-chat';
 import { T } from '@/constants/theme';
@@ -34,7 +30,6 @@ import { MsTextBubble }         from './MsTextBubble';
 import { MsMediaCard }          from './MsMediaCard';
 import { MsVoiceBubble }        from './MsVoiceBubble';
 import { MsFileCard }           from './MsFileCard';
-import { MsLinkPreviewCard }    from './MsLinkPreviewCard';
 import { MsReactionStrip }      from './MsReactionStrip';
 import { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
 
@@ -51,7 +46,7 @@ interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage
   currentMessage: MsMessage;
   currentUserId?:    string;
   onMediaPress?:     (message: MsMessage) => void;
-  onMediaDownload?:  (message: MsMessage) => void;
+  onRetry?:          (message: MsMessage) => void;
   onLongPressMessage?: (context?: any, message?: any) => void;
   onReactionPress?:  (message: MsMessage, emoji: string) => void;
   /** Called when the user taps the quoted-reply preview above a bubble.
@@ -60,45 +55,62 @@ interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage
   /** Briefly true after scroll-to-message/search-jump lands on this bubble,
    *  so it can flash a highlight background. */
   highlighted?:      boolean;
-  /** 0–1 upload progress while this pending media message is uploading.
-   *  Rendered as an overlay on the bubble until the server confirms. */
-  uploadProgress?:   number;
 }
 
-function MsChatBubbleView({
+/**
+ * Shallow-compare ONLY the props MsChatBubble actually renders with. The
+ * library injects a pile of volatile props (reply/reactions/user objects that
+ * are recreated on every parent render), so a default React.memo compare would
+ * never skip. Comparing the meaningful fields keeps every bubble from
+ * re-rendering when an unrelated message changes or the composer re-renders on
+ * a keystroke — the flat list only re-renders the bubbles whose message
+ * object actually changed.
+ */
+function areBubblePropsEqual(prev: MsChatBubbleProps, next: MsChatBubbleProps): boolean {
+  return (
+    prev.currentMessage === next.currentMessage &&
+    prev.position === next.position &&
+    prev.currentUserId === next.currentUserId &&
+    prev.highlighted === next.highlighted &&
+    prev.onMediaPress === next.onMediaPress &&
+    prev.onRetry === next.onRetry &&
+    prev.onLongPressMessage === next.onLongPressMessage &&
+    prev.onReactionPress === next.onReactionPress &&
+    prev.onQuotePress === next.onQuotePress
+  );
+}
+
+export const MsChatBubble = memo(function MsChatBubble({
   currentMessage,
   currentUserId,
   position,
   onMediaPress,
-  onMediaDownload,
+  onRetry,
   onLongPressMessage,
   onReactionPress,
   onQuotePress,
   highlighted,
-  uploadProgress,
 }: MsChatBubbleProps) {
   const msg   = currentMessage;
   const isOwn = position === 'right';
 
-  // ── Entrance: fade + scale 0.97→1 + 4px slide-up — Reanimated worklet on
-  //     the UI thread (no JS-thread orchestration).
-  const entrance = useSharedValue(0);
+  // ── Entrance: fade + scale 0.97→1 + 4px slide-up ─────────────────────────
+  const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    entrance.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.quad) });
-  }, [entrance]);
-  const entranceStyle = useAnimatedStyle(() => ({
-    opacity: entrance.value,
-    transform: [
-      { scale: 0.97 + entrance.value * 0.03 },
-      { translateY: (1 - entrance.value) * 4 },
-    ],
-  }));
+    Animated.timing(anim, {
+      toValue:        1,
+      duration:       200,
+      easing:         Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   const timeString = msg.createdAt
     ? formatTime(msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt))
     : '';
 
   const handleMediaPress = useCallback(() => onMediaPress?.(msg), [onMediaPress, msg]);
+  const handleRetry      = useCallback(() => onRetry?.(msg),      [onRetry, msg]);
 
   // ── Type detection ─────────────────────────────────────────────────────────
   const mediaType = msg.msMediaType;
@@ -110,13 +122,16 @@ function MsChatBubbleView({
   const hasAudio  = isVoice || mediaType === 'audio' || !!msg.audio;
   // gif messages are images (animated) — they route to MsMediaCard which
   // detects the gif container and renders it as a compact animated bubble.
-  const hasImage  = mediaType === 'image' || mediaType === 'gif'
+  const hasImage  = mediaType === 'image' || mediaType === 'gif' || mediaType === 'sticker'
     || (!!msg.image && mediaType !== 'video');
   const hasVideo  = mediaType === 'video'    || (!!msg.video && mediaType !== 'image');
   const hasDoc    = mediaType === 'file' || (mediaType as string) === 'document';
   const isDeleted = msg.msIsDeleted  ?? false;
   const isFailed  = msg.sent === false && msg.pending === false;
 
+  // Sticker support was removed (emoji input remains). Legacy sticker messages
+  // received before removal carry mediaType 'sticker' with an image payload —
+  // they route through hasImage → MsMediaCard as plain images.
   const replyMsg  = msg.replyMessage;
   const reactions = msg.reactions ?? [];
 
@@ -138,10 +153,9 @@ function MsChatBubbleView({
     bubble = (
       <View style={styles.mediaWrap}>
         <MsVoiceBubble
-          uri={msg.localUri ?? msg.audio ?? msg.msMediaUrl ?? ''}
+          uri={msg.localUri ?? msg.audio ?? ''}
           duration={msg.msAudioDuration ?? 0}
           position={position ?? 'left'}
-          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -157,7 +171,6 @@ function MsChatBubbleView({
           message={msg}
           position={position ?? 'left'}
           onPress={handleMediaPress}
-          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -169,7 +182,6 @@ function MsChatBubbleView({
           message={msg}
           position={position ?? 'left'}
           onPress={handleMediaPress}
-          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -181,7 +193,6 @@ function MsChatBubbleView({
           message={msg}
           position={position ?? 'left'}
           onPress={handleMediaPress}
-          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -194,9 +205,10 @@ function MsChatBubbleView({
         showEdited={msg.msIsEdited}
         timeString={timeString}
         showReadReceipt={isOwn && msg.received}
-        showDelivered={isOwn && !msg.received && msg.delivered}
+        showDelivered={isOwn && !!msg.msDelivered && !msg.received}
         isPending={msg.pending}
         isFailed={isFailed}
+        onRetry={isFailed && isOwn ? handleRetry : undefined}
         onLongPress={() => onLongPressMessage?.(null, msg)}
       />
     );
@@ -204,22 +216,28 @@ function MsChatBubbleView({
 
   const isMedia = !isDeleted && (hasAudio || hasImage || hasVideo || hasDoc);
 
-  // Upload progress overlay — only on this bubble while its media is uploading.
-  const uploadOverlay =
-    msg.pending && uploadProgress !== undefined ? (
-      <View style={styles.uploadOverlay} pointerEvents="none">
-        <Text style={styles.uploadText}>
-          Uploading {Math.max(0, Math.min(99, Math.round(uploadProgress * 100)))}%
-        </Text>
-      </View>
-    ) : null;
-
   return (
-    <Reanimated.View
+    <Animated.View
       style={[
         styles.row,
         isOwn ? styles.rowRight : styles.rowLeft,
-        entranceStyle,
+        {
+          opacity: anim,
+          transform: [
+            {
+              scale: anim.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [0.97, 1],
+              }),
+            },
+            {
+              translateY: anim.interpolate({
+                inputRange:  [0, 1],
+                outputRange: [4, 0],
+              }),
+            },
+          ],
+        },
       ]}
     >
       {/* Fixed-pixel max-width prevents percentage-of-percentage bugs */}
@@ -254,17 +272,6 @@ function MsChatBubbleView({
           {bubble}
         </Pressable>
 
-        {isMedia ? uploadOverlay : null}
-
-        {/* Rich link preview — server-resolved metadata shipped with the
-            message; renders from the payload (no re-fetch on chat open). */}
-        {!isDeleted && msg.linkPreview ? (
-          <MsLinkPreviewCard
-            preview={msg.linkPreview}
-            position={position ?? 'left'}
-          />
-        ) : null}
-
         {reactions.length > 0 ? (
           <MsReactionStrip
             reactions={reactions}
@@ -282,17 +289,17 @@ function MsChatBubbleView({
             </Text>
             {msg.pending && isOwn ? (
               <View style={styles.mediaStatusIcon}>
-                <Clock size={10} color={T.TEXT_3} weight="regular" />
+                <Clock size={9} color={T.TEXT_3} weight="regular" />
               </View>
             ) : null}
             {!msg.pending && !isFailed && isOwn && msg.sent ? (
               <View style={styles.mediaStatusIcon}>
                 {msg.received ? (
-                  <Checks size={11} color={T.ACCENT} weight="bold" />
-                ) : msg.delivered ? (
-                  <Checks size={11} color="rgba(255,255,255,0.45)" weight="bold" />
+                  <Checks size={9} color={T.ACCENT} weight="bold" />
+                ) : msg.msDelivered ? (
+                  <Checks size={9} color="rgba(255,255,255,0.40)" weight="bold" />
                 ) : (
-                  <Check size={11} color="rgba(255,255,255,0.40)" weight="bold" />
+                  <Check size={9} color="rgba(255,255,255,0.40)" weight="bold" />
                 )}
               </View>
             ) : null}
@@ -302,32 +309,13 @@ function MsChatBubbleView({
           </View>
         ) : null}
       </View>
-    </Reanimated.View>
+    </Animated.View>
   );
-}
-
-export const MsChatBubble = React.memo(MsChatBubbleView, (prev, next) => {
-  const a = prev.currentMessage;
-  const b = next.currentMessage;
-  return a._id === b._id
-    && a.text === b.text
-    && a.msIsEdited === b.msIsEdited
-    && a.msIsDeleted === b.msIsDeleted
-    && a.pending === b.pending
-    && a.sent === b.sent
-    && a.delivered === b.delivered
-    && a.received === b.received
-    && a.localUri === b.localUri
-    && a.msMediaStatus === b.msMediaStatus
-    && a.reactions === b.reactions
-    && prev.position === next.position
-    && prev.highlighted === next.highlighted
-    && prev.uploadProgress === next.uploadProgress;
-});
+}, areBubblePropsEqual);
 
 const styles = StyleSheet.create({
   row: {
-    marginVertical: 2,
+    marginVertical: 3,
     paddingHorizontal: 6,
   },
   rowLeft:  { alignItems: 'flex-start' },
@@ -344,37 +332,19 @@ const styles = StyleSheet.create({
 
   mediaWrap: { position: 'relative' },
 
-  uploadOverlay: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
-    alignItems: 'center',
-  },
-  uploadText: {
-    backgroundColor: 'rgba(0,0,0,0.62)',
-    color: '#fff',
-    fontSize: 11,
-    fontFamily: T.FONT.semibold,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-
   mediaMeta: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
+    gap: 5,
+    marginTop: 4,
     paddingHorizontal: 4,
   },
   mediaMetaLeft:  { justifyContent: 'flex-start' },
   mediaMetaRight: { justifyContent: 'flex-end' },
 
   mediaTime: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
     flexShrink: 0,
@@ -385,7 +355,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   failedText: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: T.FONT.medium,
     color: '#EF4444',
     flexShrink: 0,

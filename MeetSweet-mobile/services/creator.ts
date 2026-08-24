@@ -76,6 +76,10 @@ export async function becomeCreator(): Promise<{ is_creator: boolean }> {
 /**
  * Initiate the ₦1,000 creator activation payment via Paystack.
  * Returns the authorization_url for the Paystack checkout.
+ *
+ * `email` is forwarded to the backend when the signed-in user has one, so the
+ * Paystack checkout is created against a real email and the activation never
+ * fails with a spurious "Email is required" error.
  */
 export async function initiateActivation(email?: string | null): Promise<{
   transactionId: string;

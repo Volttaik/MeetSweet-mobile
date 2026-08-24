@@ -19,6 +19,7 @@
  * The API handles authorization, metadata and database rows; R2 handles the
  * actual bytes. No R2 access/secret keys ever reach the client.
  */
+import { Platform } from 'react-native';
 import { File } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
 import { getAccessToken } from '@/lib/session-storage';
@@ -84,9 +85,14 @@ function clampProgress(value: number): number {
 
 /**
  * Resolve the picker/recorder URI into a Blob-like body plus its byte size.
- * Native uses expo-file-system's File (reads the on-disk file lazily).
+ * Native uses expo-file-system's File (reads the on-disk file lazily); web
+ * resolves the blob:/data: URI into a real Blob.
  */
 async function resolveBody(uri: string, mimeType: string): Promise<Blob> {
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(uri)).blob();
+    return blob.type ? blob : new Blob([blob], { type: mimeType });
+  }
   const file = new File(uri);
   if (file.size === 0) {
     throw new Error('The selected file could not be read. Please select it again.');

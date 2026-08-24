@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   FlatList,
   Modal,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
-import { FlashList } from '@shopify/flash-list';
 import { Spinner } from 'heroui-native';
-import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   PencilSimple,
@@ -31,9 +31,10 @@ import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
+import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import {
   getChatRoomList,
-  deriveRoomId,
+  getOrCreateChatRoom,
   archiveChatRoom,
   deleteChatRoom,
   markRoomRead,
@@ -54,7 +55,7 @@ import {
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
-import { realtime } from '@/services/realtime';
+import { realtime, REALTIME_EVENT } from '@/services/realtime';
 import { useSweetStore, sweetStore } from '@/services/sweet-store';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -116,6 +117,11 @@ function ChatRoomRow({
   // action menu). Cleared shortly after the touch ends.
   const suppressTapRef = useRef(false);
   const avatarUrl = item.otherUser?.avatarUrl as string | undefined;
+  // A participant with no display name must still render a stable identity —
+  // never a blank row or a bare "U" placeholder. Fall back to the username,
+  // then to a generic label, so initials always come from real text.
+  const displayName = item.otherUser?.name
+    || (item.otherUser?.username ? `@${item.otherUser.username}` : 'Chat');
 
   // ── Typing / Online indicators ──────────────────────────────────────────
   const typingUserIds = item.typingUserIds ?? [];
@@ -148,11 +154,25 @@ function ChatRoomRow({
       : previewLabel;
 
   return (
-    <MsPressable
+    <TouchableOpacity
       style={styles.convoRow}
+      activeOpacity={0.7}
       onPress={() => {
         if (suppressTapRef.current) return;
-        router.push(`/chat-room/${item.chatRoomId}`);
+        // Pass the participant identity we already have so the chat header
+        // renders the real name/avatar immediately — no "U" → name flash.
+        router.push({
+          pathname: '/chat-room/[chatRoomId]',
+          params: {
+            chatRoomId: item.chatRoomId,
+            // Pass the same display identity the row shows (name, else @username)
+            // so the chat header avatar/name never render a bare "U" for a
+            // user who only has a username.
+            name: displayName,
+            username: item.otherUser?.username ?? '',
+            avatarUrl: item.otherUser?.avatarUrl ?? '',
+          },
+        });
       }}
       onLongPress={() => {
         suppressTapRef.current = true;
@@ -169,13 +189,13 @@ function ChatRoomRow({
     >
       <MsAvatar
         size={50}
-        initials={initials(item.otherUser.name)}
+        initials={initials(displayName)}
         imageUri={avatarUrl}
         showOnline={isOtherOnline}
       />
       <View style={styles.convoContent}>
         <Text style={[styles.convoName, isUnread && styles.bold]} numberOfLines={1}>
-          {item.otherUser.name}
+          {displayName}
         </Text>
         <View style={styles.convoMsgRow}>
           {showMediaIcon && !isOtherTyping ? (
@@ -185,7 +205,7 @@ function ChatRoomRow({
             style={[
               styles.convoMsg,
               isUnread && styles.convoMsgUnread,
-              isOtherTyping && { color: T.ACCENT, fontStyle: 'italic' as const },
+              isOtherTyping && styles.convoMsgTyping,
             ]}
             numberOfLines={1}
           >
@@ -205,7 +225,7 @@ function ChatRoomRow({
           <View style={{ width: 18 }} />
         )}
       </View>
-    </MsPressable>
+    </TouchableOpacity>
   );
 }
 
@@ -214,15 +234,14 @@ function ChatRoomRow({
 function NewMessageModal({
   visible,
   onClose,
-  currentUserId,
 }: {
   visible: boolean;
   onClose: () => void;
-  currentUserId: string;
 }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<RoomParticipant[]>([]);
   const [searching, setSearching] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSearch = (text: string) => {
@@ -245,19 +264,21 @@ function NewMessageModal({
     }, 300);
   };
 
-  const handleSelect = async (targetUser: RoomParticipant) => {
+  const handleSelect = async (user: RoomParticipant) => {
+    setCreatingRoom(true);
     try {
       // Check the recipient's current policy before opening a room. The
       // backend repeats this check, but doing it here prevents empty rooms and
       // gives the user a useful subscription/privacy explanation.
-      const access = await getCreatorMessagingSettings(targetUser.id);
+      const access = await getCreatorMessagingSettings(user.id);
       if (!access.can_message) {
+        setCreatingRoom(false);
         if (access.who_can_message === 'subscribers') {
           dialogs.alert({
             title: 'Subscription Required',
             message: 'You need to subscribe to this creator before sending a message.',
-            confirmLabel: targetUser.isCreator ? 'View Creator' : 'OK',
-            onClose: targetUser.isCreator ? () => router.push(`/creator/${targetUser.username}`) : undefined,
+            confirmLabel: user.isCreator ? 'View Creator' : 'OK',
+            onClose: user.isCreator ? () => router.push(`/creator/${user.username}`) : undefined,
           });
         } else {
           dialogs.alert({ title: 'Cannot Message', message: 'This user is not accepting messages right now.' });
@@ -265,31 +286,24 @@ function NewMessageModal({
         return;
       }
 
-      // WhatsApp-style: the room id is a pure function of the two user ids, so
-      // no HTTP get-or-create is needed — derive it locally and open instantly.
-      // The server materializes the room lazily on first send/history.
-      const chatRoomId = await deriveRoomId(currentUserId, targetUser.id);
+      // Messaging is free — ask the backend to create/find the Chat Room.
+      const { chatRoomId } = await getOrCreateChatRoom(user.id);
       onClose();
       setQ('');
       setResults([]);
       router.push({
         pathname: '/chat-room/[chatRoomId]',
-        params: {
-          chatRoomId,
-          participantId: targetUser.id,
-          name: targetUser.name,
-          username: targetUser.username,
-          avatarUrl: targetUser.avatarUrl ?? '',
-        },
+        params: { chatRoomId },
       });
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;
       const errorData = (apiError?.data as { data?: { username?: string; redirect_to?: string } } | undefined)?.data;
-      const redirectTarget = errorData?.username ?? targetUser.username;
+      const redirectTarget = errorData?.username ?? user.username;
       if (apiError?.code === 'subscription_required' && redirectTarget) {
         onClose();
         setQ('');
         setResults([]);
+        setCreatingRoom(false);
         dialogs.alert({
           title: 'Subscription Required',
           message: 'Subscribe to this creator before sending a message.',
@@ -301,6 +315,7 @@ function NewMessageModal({
       const message = error instanceof Error ? error.message : '';
       dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
     } finally {
+      setCreatingRoom(false);
     }
   };
 
@@ -309,9 +324,9 @@ function NewMessageModal({
       <View style={styles.modalBg}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Message</Text>
-          <MsPressable onPress={onClose} style={styles.modalClose}>
+          <TouchableOpacity onPress={onClose} style={styles.modalClose} activeOpacity={0.7}>
             <X size={20} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
         </View>
         <View style={styles.modalSearch}>
           <MagnifyingGlass size={15} color={T.TEXT_2} />
@@ -325,10 +340,8 @@ function NewMessageModal({
           />
         </View>
         {searching ? (
-          <View style={{ paddingTop: 8 }}>
-            {[0, 1, 2, 3].map((i) => (
-              <MsShimmerUserRow key={i} />
-            ))}
+          <View style={{ paddingTop: 24, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color={T.TEXT_3} />
           </View>
         ) : results.length > 0 ? (
           <FlatList
@@ -337,16 +350,17 @@ function NewMessageModal({
             renderItem={({ item }) => {
               const userAvatar = (item as any)?.avatarUrl as string | undefined;
               return (
-                <MsPressable
+                <TouchableOpacity
                   style={styles.userRow}
-                              onPress={() => handleSelect(item)}
+                  activeOpacity={0.7}
+                  onPress={() => handleSelect(item)}
                 >
                   <MsAvatar size={42} initials={initials(item.name)} imageUri={userAvatar} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.userName}>{item.name}</Text>
                     <Text style={styles.userHandle}>@{item.username}</Text>
                   </View>
-                </MsPressable>
+                </TouchableOpacity>
               );
             }}
           />
@@ -357,6 +371,8 @@ function NewMessageModal({
         )}
       </View>
 
+      {/* Full-screen Chat Room creation loader */}
+      <MsRoomCreationLoader visible={creatingRoom} />
     </Modal>
   );
 }
@@ -401,7 +417,7 @@ export default function MessagesScreen() {
   const [menuRoom, setMenuRoom] = useState<ChatRoom | null>(null);
 
   const load = useCallback(
-    async (showRefresh = false) => {
+    async (showRefresh = false, silent = false) => {
       if (showRefresh) setRefreshing(true);
 
       const tab = activeTab === 'Archived' ? 'archived' : 'all';
@@ -413,18 +429,27 @@ export default function MessagesScreen() {
       // instant, works offline, and a fresh install stays fresh (empty state)
       // instead of silently restoring the entire conversation history.
       if (activeTab === 'All') {
-        try {
-          const cached = await getCachedChatRooms(user?.id);
-          if (cached.length > 0) {
-            sweetStore.hydrateRooms(cached);
-            setListShimmerVisible(false);
+        // The silent post-reconnect reconciliation skips the cache hydration:
+        // the store is already live from the socket replay, so re-hydrating
+        // from disk would briefly regress the list to stale rows before the
+        // network result lands.
+        if (!silent) {
+          try {
+            const cached = await getCachedChatRooms(user?.id);
+            if (cached.length > 0) {
+              sweetStore.hydrateRooms(cached);
+              setListShimmerVisible(false);
+            }
+          } catch {
+            // Cache read failure is non-fatal — fall through.
           }
-        } catch {
-          // Cache read failure is non-fatal — fall through.
         }
-        // Normal open is local-only. The only network path for the All tab
-        // is an explicit pull-to-refresh.
-        if (!showRefresh) {
+        // Normal open is local-only. The only network paths for the All tab
+        // are an explicit pull-to-refresh and the silent post-reconnect
+        // reconciliation (socket events already converge the list from the
+        // durable replay; this fetch covers events older than the outbox
+        // retention that the replay could not deliver).
+        if (!showRefresh && !silent) {
           setLoading(false);
           setRefreshing(false);
           return;
@@ -474,6 +499,20 @@ export default function MessagesScreen() {
   // this screen still subscribes to each visible room's chat channel is to
   // receive typing/presence relays; the store listens for the rest on the
   // user channel.
+
+  // ── Reconnect reconciliation ─────────────────────────────────────────────
+  // When the socket comes back (fresh open after being closed, or a real
+  // reconnect after an outage), the durable replay converges the list from
+  // the store. One silent HTTP room-list refresh also runs so rooms whose
+  // events fell outside the outbox retention window still appear. This is a
+  // one-shot recovery fetch on reconnection — never a polling loop.
+  useEffect(() => {
+    const offReconnected = realtime.on(REALTIME_EVENT.connectionReconnected, () => {
+      if (activeTab !== 'All') return;
+      load(false, true).catch(() => {});
+    });
+    return offReconnected;
+  }, [activeTab, load]);
   const visibleRooms = activeTab === 'All'
     ? storeRooms.filter((r) => !r.isArchived)
     : archivedRooms;
@@ -540,8 +579,8 @@ export default function MessagesScreen() {
   const filtered = searchText.trim()
     ? decoratedRooms.filter(
         (c) =>
-          c.otherUser.name.toLowerCase().includes(searchText.toLowerCase()) ||
-          c.otherUser.username.toLowerCase().includes(searchText.toLowerCase()),
+          (c.otherUser.name || '').toLowerCase().includes(searchText.toLowerCase()) ||
+          (c.otherUser.username || '').toLowerCase().includes(searchText.toLowerCase()),
       )
     : decoratedRooms;
 
@@ -588,18 +627,20 @@ export default function MessagesScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
         <View style={styles.headerActions}>
-          <MsPressable
+          <TouchableOpacity
             style={styles.iconBtn}
-                  onPress={() => setShowMenu(true)}
+            activeOpacity={0.7}
+            onPress={() => setShowMenu(true)}
           >
             <DotsThreeVertical size={18} color={T.TEXT} />
-          </MsPressable>
-          <MsPressable
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.iconBtn}
-                  onPress={() => setShowNewMsg(true)}
+            activeOpacity={0.7}
+            onPress={() => setShowNewMsg(true)}
           >
             <PencilSimple size={18} color={T.TEXT} />
-          </MsPressable>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -614,12 +655,12 @@ export default function MessagesScreen() {
           onChangeText={setSearchText}
         />
         {searchText.length > 0 && (
-          <MsPressable
+          <TouchableOpacity
             onPress={() => setSearchText('')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <X size={14} color={T.TEXT_3} />
-          </MsPressable>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -628,15 +669,16 @@ export default function MessagesScreen() {
         {MSG_TABS.map((tab) => {
           const isActive = tab === activeTab;
           return (
-            <MsPressable
+            <TouchableOpacity
               key={tab}
               style={[styles.tabChip, isActive && styles.tabChipActive]}
               onPress={() => setActiveTab(tab)}
-                    >
+              activeOpacity={0.7}
+            >
               <Text style={[styles.tabChipLabel, isActive && styles.tabChipLabelActive]}>
                 {tab}
               </Text>
-            </MsPressable>
+            </TouchableOpacity>
           );
         })}
       </View>
@@ -644,7 +686,7 @@ export default function MessagesScreen() {
       {/* Content — the list is ALWAYS mounted; the shimmer sits on top and
           crossfades out when loading completes (no hard cut / flash). */}
       <View style={{ flex: 1 }}>
-        <FlashList
+        <FlatList
           data={filtered}
           keyExtractor={(item) => item.chatRoomId}
           renderItem={({ item }) => (
@@ -653,8 +695,13 @@ export default function MessagesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
-          refreshing={refreshing}
-          onRefresh={() => load(true)}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={T.TEXT}
+            />
+          }
           ListEmptyComponent={
             <MsEmptyState
               title={
@@ -682,29 +729,21 @@ export default function MessagesScreen() {
             pointerEvents={loading ? 'auto' : 'none'}
             style={[styles.listShimmerOverlay, { opacity: listShimmerOpacity }]}
           >
-            {[0, 1, 2, 3, 4].map((i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 }}>
-                <MsShimmer width={48} height={48} borderRadius={24} />
-                <View style={{ flex: 1, gap: 7 }}>
-                  <MsShimmer width="55%" height={13} />
-                  <MsShimmer width="70%" height={11} />
-                </View>
-                <MsShimmer width={32} height={10} />
-              </View>
-            ))}
+            <ActivityIndicator size="small" color={T.TEXT_3} />
           </Animated.View>
         )}
       </View>
 
       {/* FAB */}
-      <MsPressable
+      <TouchableOpacity
         style={styles.fab}
-          onPress={() => setShowNewMsg(true)}
+        activeOpacity={0.85}
+        onPress={() => setShowNewMsg(true)}
       >
         <Plus size={22} color="#000000" />
-      </MsPressable>
+      </TouchableOpacity>
 
-      <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} currentUserId={user?.id ?? ''} />
+      <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} />
 
       {/* Room long-press action sheet */}
       <MsActionSheet
@@ -836,26 +875,25 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: T.BG,
-    paddingTop: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   convoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 13,
     gap: 12,
   },
   convoContent: { flex: 1, gap: 3 },
-  convoName: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
-  bold: { fontFamily: T.FONT.semibold },
-  // Preview text uses medium weight — slightly bolder than the 400 base so
-  // previews are readable at 13px without becoming heavy. Unread rows step up
-  // to semibold to keep the emphasis hierarchy.
-  convoMsg: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2, flexShrink: 1 },
+  convoName: { fontSize: 16, fontFamily: T.FONT.bold, color: T.TEXT },
+  bold: { fontFamily: T.FONT.bold },
+  convoMsg: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2, flexShrink: 1 },
   convoMsgRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   convoMsgUnread: { color: T.TEXT, fontFamily: T.FONT.semibold },
+  convoMsgTyping: { color: T.ACCENT, fontFamily: T.FONT.semibold },
   convoRight: { alignItems: 'flex-end', gap: 4 },
-  convoTime: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3 },
+  convoTime: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_3 },
   unreadBadge: {
     minWidth: 18, height: 18, borderRadius: 9,
     backgroundColor: T.ACCENT, alignItems: 'center', justifyContent: 'center',

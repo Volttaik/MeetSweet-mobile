@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   Easing,
@@ -15,7 +17,8 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated';
-import { ArrowLeft, Envelope } from 'phosphor-react-native';
+import { ArrowLeft, ClipboardText, Envelope } from 'phosphor-react-native';
+import * as Clipboard from 'expo-clipboard';
 import OTPInput, { OTPInputRef } from '@/components/OTPInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiFetch } from '@/services/api';
@@ -111,6 +114,20 @@ export default function VerifyEmailScreen() {
     setError('');
   };
 
+  /** One-click paste: read the clipboard and fill the code boxes. */
+  const handlePasteCode = async () => {
+    try {
+      const text = await Clipboard.getStringAsync();
+      const digits = (text ?? '').replace(/\D/g, '').slice(0, 6);
+      if (!digits) return;
+      setOtp(digits);
+      setError('');
+      setCompleted(digits.length === 6);
+    } catch {
+      // Clipboard unavailable — ignore; the user can type the code manually.
+    }
+  };
+
   const handleResend = async () => {
     if (!canResend) return;
     if (!targetEmail) {
@@ -142,7 +159,7 @@ export default function VerifyEmailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + 28,
+            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
             paddingBottom: insets.bottom + 48,
           },
         ]}
@@ -150,13 +167,13 @@ export default function VerifyEmailScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Back */}
-        <MsPressable
-          onPress={() => router.back()}
+        <TouchableOpacity
+          onPress={() => goBack()}
           style={styles.backBtn}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color="#FFFFFF" />
-        </MsPressable>
+        </TouchableOpacity>
 
         <Animated.View style={[styles.inner, contentStyle]}>
           {/* Icon */}
@@ -188,6 +205,18 @@ export default function VerifyEmailScreen() {
             autoFocus
           />
 
+          {/* One-click paste from clipboard */}
+          <TouchableOpacity
+            style={styles.pasteBtn}
+            onPress={handlePasteCode}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Paste verification code from clipboard"
+          >
+            <ClipboardText size={15} color="rgba(255,255,255,0.75)" weight="regular" />
+            <Text style={styles.pasteBtnLabel}>Paste code</Text>
+          </TouchableOpacity>
+
           {!!error && (
             <Text style={styles.errorText}>{error}</Text>
           )}
@@ -197,31 +226,32 @@ export default function VerifyEmailScreen() {
           )}
 
           {/* Verify button */}
-          <MsPressable
+          <TouchableOpacity
             style={[
               styles.verifyBtn,
               (!completed || loading) && styles.verifyBtnDisabled,
             ]}
             onPress={handleVerify}
             disabled={loading || !completed}
+            activeOpacity={0.85}
           >
             {loading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <Text style={styles.verifyBtnLabel}>Verify Email</Text>
             )}
-          </MsPressable>
+          </TouchableOpacity>
 
           {/* Resend */}
           <View style={styles.resendSection}>
             <Text style={styles.resendPrompt}>Didn't receive the code?</Text>
-            <MsPressable onPress={handleResend} disabled={!canResend}>
+            <TouchableOpacity onPress={handleResend} disabled={!canResend}>
               <Text style={[styles.resendBtn, !canResend && styles.resendDisabled]}>
                 {canResend
                   ? 'Resend Code'
                   : `Resend in 0:${countdown.toString().padStart(2, '0')}`}
               </Text>
-            </MsPressable>
+            </TouchableOpacity>
           </View>
         </Animated.View>
       </KeyboardAwareScrollViewCompat>
@@ -320,6 +350,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  pasteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  pasteBtnLabel: {
+    fontFamily: 'Poppins_600SemiBold',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
   },
   resendSection: {
     alignItems: 'center',

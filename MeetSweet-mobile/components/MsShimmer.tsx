@@ -2,17 +2,8 @@
  * MsShimmer — reusable shimmer skeleton component with reflection animation.
  * The shimmer sweeps left-to-right, matching native app polish standards.
  */
-import React, { useEffect } from 'react';
-import { Dimensions, StyleSheet, View, type ViewStyle } from 'react-native';
-import Reanimated, {
-  cancelAnimation,
-  Easing,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Dimensions, StyleSheet, View, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 
@@ -33,34 +24,28 @@ const GRADIENT_DEFAULT = ['transparent', 'rgba(255,255,255,0.07)', 'rgba(255,255
 const GRADIENT_SUBTLE  = ['transparent', 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.03)', 'transparent'];
 
 export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style, subtle = false }: MsShimmerProps) {
-  // Continuous sweep driven by a Reanimated worklet on the UI thread — no
-  // JS-thread Animated.loop orchestration.
-  const progress = useSharedValue(0);
+  const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    progress.value = withRepeat(
-      withTiming(1, { duration: subtle ? 1500 : 1100, easing: Easing.linear }),
-      -1,
-      false,
+    const loop = Animated.loop(
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: subtle ? 1500 : 1100,
+        useNativeDriver: true,
+      }),
     );
-    return () => cancelAnimation(progress);
-  }, [subtle, progress]);
+    loop.start();
+    return () => loop.stop();
+  }, [subtle]);
 
-  const sweepStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        // Subtle: a shorter, gentler sweep (no full-screen travel) so dense
-        // chat rows don't feel like they're sliding around.
-        translateX: interpolate(
-          progress.value,
-          [0, 1],
-          subtle
-            ? [-SCREEN_WIDTH * 0.6, SCREEN_WIDTH * 1.1]
-            : [-SCREEN_WIDTH, SCREEN_WIDTH * 1.5],
-        ),
-      },
-    ],
-  }));
+  const translateX = anim.interpolate({
+    inputRange: [0, 1],
+    // Subtle: a shorter, gentler sweep (no full-screen travel) so dense chat
+    // rows don't feel like they're sliding around.
+    outputRange: subtle
+      ? [-SCREEN_WIDTH * 0.6, SCREEN_WIDTH * 1.1]
+      : [-SCREEN_WIDTH, SCREEN_WIDTH * 1.5],
+  });
 
   return (
     <View
@@ -69,14 +54,19 @@ export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style
         style,
       ]}
     >
-      <Reanimated.View style={[StyleSheet.absoluteFill, sweepStyle]}>
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          { transform: [{ translateX }] },
+        ]}
+      >
         <LinearGradient
           colors={(subtle ? GRADIENT_SUBTLE : GRADIENT_DEFAULT) as any}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={{ width: SCREEN_WIDTH, height: '100%' }}
         />
-      </Reanimated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -197,26 +187,25 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 }
 
 // ─── Chat message skeleton ─────────────────────────────────────────────────────
-// Matches the Notifications shimmer sizing (42px avatar, 16/10 row padding,
-// 12px avatar→content gap) but adapted to the chat layout. Each message
-// bubble is a SINGLE STATIC block in the real MsTextBubble colours
-// (#1C1C23 incoming / #28282F outgoing) with the 8px-radius tail corner — the
-// bubble itself represents the loading message. There is NO moving
-// reflection/animation inside the bubble (no MsShimmer inside); only the
-// incoming avatar carries the sweep, exactly like the notification rows.
-// Widths are deterministic (no Math.random) so the skeleton never flickers.
+// Matches the DM message-area rule: bubbles ONLY, no profile pictures beside
+// messages (avatars live in the chat header). Each message bubble is a SINGLE
+// STATIC block in the real MsTextBubble colours (#23232B incoming / #2B2B33
+// outgoing) with the 10px-radius tail corner — the bubble itself represents
+// the loading message. There is NO moving reflection/animation inside the
+// bubble (no MsShimmer inside). Widths are deterministic (no Math.random) so
+// the skeleton never flickers.
 
-const CHAT_BUBBLE_COLOR_OWN   = '#28282F'; // outgoing  (MsTextBubble BG_OWN)
-const CHAT_BUBBLE_COLOR_OTHER = '#1C1C23'; // incoming  (MsTextBubble BG_OTHER)
+const CHAT_BUBBLE_COLOR_OWN   = '#2B2B33'; // outgoing  (MsTextBubble BG_OWN)
+const CHAT_BUBBLE_COLOR_OTHER = '#23232B'; // incoming  (MsTextBubble BG_OTHER)
 // Deterministic bubble widths, cycled per row.
 const CHAT_BUBBLE_WIDTHS = [224, 232, 216, 240, 228, 220, 236, 224, 232, 218];
 
 /**
  * Height of a static bubble for `lines` message lines: real MsTextBubble
- * padding (7 top + 8 bottom) plus 12px line (+ 7px gap + 10px line for 2 lines).
+ * padding (7 top + 7 bottom) plus 25px line (+ 7px gap + 25px line for 2 lines).
  */
 function chatBubbleHeight(lines: 1 | 2): number {
-  return lines === 2 ? 7 + 12 + 7 + 10 + 8 : 7 + 12 + 8;
+  return lines === 2 ? 7 + 25 + 7 + 25 + 7 : 7 + 25 + 7;
 }
 
 export function MsShimmerChatMessage({
@@ -235,8 +224,7 @@ export function MsShimmerChatMessage({
     : { borderBottomLeftRadius: 3 };
   return (
     <View style={[shimStyles.chatMsg, own ? shimStyles.chatMsgOwn : shimStyles.chatMsgOther]}>
-      {!own && <MsShimmer width={42} height={42} borderRadius={21} />}
-      {/* Static bubble — no animated shimmer elements inside. */}
+      {/* Static bubble — no avatar, no animated shimmer elements inside. */}
       <View
         style={[
           shimStyles.chatBubble,
@@ -518,7 +506,6 @@ const shimStyles = StyleSheet.create({
   chatMsg: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 12,
     // Notification shimmer row spacing (paddingVertical 10 per row).
     paddingVertical: 10,
   },

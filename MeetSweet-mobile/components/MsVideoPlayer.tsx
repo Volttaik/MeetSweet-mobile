@@ -11,8 +11,8 @@
  * Standard features:
  *   • Auto-hiding controls overlay (2.5 s after last interaction)
  *   • Centre play/pause/restart icon
- *   • Native seek bar (platform Slider, pink brand accent) — reliable native
- *     dragging/tapping with playback position always synchronized
+ *   • Bold custom seek tracer (thick track, integrated thumb) — tap anywhere
+ *     to jump, drag to scrub; position always synchronized with playback
  *   • Current time + total duration display
  *   • Fullscreen via built-in Modal (position preserved on open and close)
  *   • Double-tap LEFT = −10 s, double-tap RIGHT = +10 s (YouTube-style)
@@ -25,8 +25,8 @@
  *
  * Shorts features (mode='shorts'):
  *   • Centre play/pause icon (auto-hides when playing)
- *   • Always-visible thin progress strip at the bottom
- *   • No seek bar, no fullscreen button
+ *   • Always-visible bold seek tracer (same component as the standard player)
+ *   • No fullscreen button
  *   • Driven by `active` prop
  *   • Double-tap to spawn flying heart
  */
@@ -39,6 +39,7 @@ import React, {
 } from 'react';
 import {
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   StatusBar,
@@ -46,9 +47,9 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Slider from '@react-native-community/slider';
 import Animated, {
   Easing,
   FadeIn,
@@ -171,11 +172,6 @@ export interface MsVideoPlayerProps {
 const DOUBLE_TAP_MS    = 260;
 const SEEK_SECONDS     = 10;
 const CONTROLS_HIDE_MS = 2500;
-// Shorts paused seek handle: the visual ball is deliberately small (matches
-// the standard seek bar's accent thumb) while its touch target is much larger.
-const SHORTS_HANDLE_SIZE  = 12;
-const SHORTS_HANDLE_TOUCH = 36;
-const SHORTS_BUBBLE_WIDTH = 46;
 // Seek-sync: react-native-video's seek() lands exactly (ExoPlayer/AVPlayer
 // seekTo with no tolerance window), so the native engine is the single
 // authority and a requested seek never snaps back to 0. While a seek is in
@@ -299,15 +295,8 @@ export function MsVideoPlayer({
   // server offers multi-variant HLS (same manifest URL, distinct `index`), a
   // quality choice picks the ACTUAL rendition — no source reload, no restart.
   const [videoTrack,           setVideoTrack]           = useState<SelectedVideoTrack | undefined>(undefined);
-  const [progress,      setProgress]      = useState(0);
   const [durationMs,    setDurationMs]    = useState(0);
   const [positionMs,    setPositionMs]    = useState(0);
-  // Native seek-bar drag state — while the user drags the Slider, its value
-  // comes from dragMs so the player's own position ticks can't snap the thumb
-  // back (the old custom tracker's jump/reset bug). On release the seek lands
-  // and dragMs clears, resuming live position tracking.
-  const [dragging,      setDragging]      = useState(false);
-  const [dragMs,        setDragMs]        = useState<number | null>(null);
   const [aspectRatio,   setAspectRatio]   = useState(initialAspectRatio ?? 16 / 9);
   const [fsVisible,     setFsVisible]     = useState(false);
   const [videoEnded,    setVideoEnded]    = useState(false);
@@ -416,7 +405,6 @@ export function MsVideoPlayer({
     videoEndedRef.current   = false;
     setPremiumGated(false);
     setError(false);
-    setProgress(0);
     setDurationMs(0);
     setPositionMs(0);
     setIsPlaying(false);
@@ -834,7 +822,6 @@ export function MsVideoPlayer({
     const target = Math.max(0, Math.min(d, positionRef.current + deltaS * 1000));
     ref.current?.seek(target / 1000);
     positionRef.current = target;
-    if (d > 0) setProgress(target / d);
     setPositionMs(target);
     requestSeek(pendingSeekRef, target);
   }, [durationMs, requestSeek]);
@@ -977,7 +964,6 @@ export function MsVideoPlayer({
       const shown = reconcileSeek(pendingSeekRef, pos);
       if (shown !== null) {
         positionRef.current = shown;
-        if (dur > 0) setProgress(shown / dur);
         setPositionMs(shown);
       }
 
@@ -1020,8 +1006,6 @@ export function MsVideoPlayer({
       pendingSeekRef.current = null;
       if (currentTime > 0) {
         positionRef.current = currentTime * 1000;
-        const dur = durationRef.current;
-        if (dur > 0) setProgress((currentTime * 1000) / dur);
         setPositionMs(currentTime * 1000);
       }
     },
@@ -1099,83 +1083,14 @@ export function MsVideoPlayer({
 
 
 
-  // ── Shorts seek handle (paused-only draggable ball) ───────────────────────
-  // The always-visible Shorts progress strip stays exactly as it is while
-  // playing. When paused, a small circular handle appears at the current
-  // position; dragging it scrubs, and releasing seeks to the exact position
-  // and resumes playback (never restarts from 0:00 — the engine's seek() + the
-  // pending-seek guard hold the target until the engine confirms).
-  const [shortsDragRatio, setShortsDragRatio] = useState<number | null>(null);
-  const shortsDragRatioRef = useRef<number | null>(null); // live during gesture
-  const grantRatioRef = useRef(0);                         // ratio at gesture start
-  const grantXRef     = useRef(0);                         // absolute x at gesture start
-  const trackWidthRef = useRef(0);                         // strip width (measured)
-  const progressRef   = useRef(0);
-  useEffect(() => { progressRef.current = progress; }, [progress]);
+  // Shorts seeking is handled by the shared VideoTracer — the same bold seek
+  // bar the standard player uses (see component below). No separate dot/handle.
 
-  // Native drag gesture (gesture-handler Pan) with the same semantics as the
-  // old PanResponder: claim on touch-down, track absolute X, seek on release.
-  // `.runOnJS(true)` keeps the callback logic on the JS thread (refs + state)
-  // while gesture recognition itself runs natively on the UI thread.
-  const shortsPanGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .runOnJS(true)
-        .minDistance(0)
-        .onBegin((e) => {
-          grantXRef.current = e.absoluteX;
-          grantRatioRef.current = shortsDragRatioRef.current ?? progressRef.current;
-          shortsDragRatioRef.current = grantRatioRef.current;
-          setShortsDragRatio(grantRatioRef.current);
-        })
-        .onUpdate((e) => {
-          const w = trackWidthRef.current;
-          if (w <= 0) return;
-          const ratio = Math.max(
-            0,
-            Math.min(1, grantRatioRef.current + (e.absoluteX - grantXRef.current) / w),
-          );
-          shortsDragRatioRef.current = ratio;
-          setShortsDragRatio(ratio);
-        })
-        .onEnd(() => {
-          const ratio = shortsDragRatioRef.current ?? progressRef.current;
-          shortsDragRatioRef.current = null;
-          setShortsDragRatio(null);
-          const d = durationRef.current;
-          if (d > 0) {
-            // Seek to the exact released position and resume playback.
-            seekToRef.current(ratio * d);
-            setIsPlaying(true);
-            // The centre icon auto-hides like any normal resume.
-            scheduleHide(shortsIconOpacity, hideTimerRef);
-          }
-        })
-        .onFinalize(() => {
-          shortsDragRatioRef.current = null;
-          setShortsDragRatio(null);
-        }),
-    // Created once; refs/seekToRef keep it on the current implementation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
-
-  const shownRatio = shortsDragRatio ?? progress;
-  const shortsHandleLeft =
-    trackWidthRef.current > 0
-      ? Math.max(0, Math.min(trackWidthRef.current - SHORTS_HANDLE_SIZE, shownRatio * trackWidthRef.current - SHORTS_HANDLE_SIZE / 2))
-      : 0;
-  // Time bubble stays centred on the handle, clamped to the player edges.
-  const shortsBubbleLeft =
-    trackWidthRef.current > 0
-      ? Math.max(2, Math.min(trackWidthRef.current - SHORTS_BUBBLE_WIDTH - 2, shortsHandleLeft + SHORTS_HANDLE_SIZE / 2 - SHORTS_BUBBLE_WIDTH / 2))
-      : 0;
-
-  // ── Seek (native Slider) ──────────────────────────────────────────────────
-  // The platform Slider drives all dragging/tapping (reliable native
-  // behaviour); these helpers just land the resulting position on the player
-  // and keep the time/progress state in sync. There is no custom drag
-  // geometry to conflict with playback ticks.
+  // ── Seek ──────────────────────────────────────────────────────────────────
+  // The shared VideoTracer reports a target position on release; these
+  // helpers land it on the player and keep the time/progress state in sync.
+  // While a seek is in flight the pending-seek guard holds the optimistic
+  // target so a stale pre-seek tick can't snap the tracer back.
   const seekTo = useCallback((ms: number) => {
     // Clamp against the best-known duration. The duration ref can be unseeded
     // for a brief moment before the engine reports its first loaded tick, and
@@ -1184,17 +1099,11 @@ export function MsVideoPlayer({
     const d = durationRef.current > 0 ? durationRef.current : durationMs;
     const t = Math.max(0, Math.min(d, ms));
     positionRef.current = t;
-    if (d > 0) setProgress(t / d);
     setPositionMs(t);
     requestSeek(pendingSeekRef, t);
     videoRef.current?.seek(t / 1000);
     showControls();
   }, [durationMs, showControls, requestSeek]);
-
-  // seekTo is re-created per render; keep the latest in a ref so the (once-
-  // created) shorts PanResponder always lands on the current implementation.
-  const seekToRef = useRef<(ms: number) => void>(() => {});
-  useEffect(() => { seekToRef.current = seekTo; }, [seekTo]);
 
   const fsSeekTo = useCallback((ms: number) => {
     // Same guard as seekTo: on fullscreen open the fs duration REF is not
@@ -1464,59 +1373,17 @@ export function MsVideoPlayer({
         ) : null}
       </Animated.View>
 
-      {/* ── Shorts: always-visible progress strip (+ paused-only seek handle) ── */}
+      {/* ── Shorts: bold seek tracer — always interactive (tap or drag), the
+          thumb is integrated into the bar (no floating dot above it). Same
+          VideoTracer as the standard player, so seeking feels identical. ── */}
       {isShorts ? (
-        <View
-          style={styles.shortsTrack}
-          pointerEvents="box-none"
-          onLayout={(e) => { trackWidthRef.current = e.nativeEvent.layout.width; }}
-        >
-          <View
-            style={[styles.shortsFill, { width: `${Math.min(100, shownRatio * 100)}%` as any }]}
-            pointerEvents="none"
+        <View style={styles.shortsTracerWrap} pointerEvents="box-none">
+          <VideoTracer
+            positionMs={positionMs}
+            durationMs={durationMs}
+            onSeek={seekTo}
+            onDragStart={() => onShortsTapRef.current?.()}
           />
-          {!isPlaying && durationMs > 0 ? (
-            <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(140)} style={StyleSheet.absoluteFill} pointerEvents="box-none">
-              {/* Tap-to-seek layer — the whole strip is scrubbable while paused.
-                  A tap seeks to that spot and resumes (same as dragging the
-                  handle and releasing). The handle below captures its own area. */}
-              <Pressable
-                style={styles.shortsSeekLayer}
-                onPress={(e) => {
-                  const w = trackWidthRef.current;
-                  if (w <= 0) return;
-                  const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / w));
-                  const d = durationRef.current;
-                  if (d > 0) {
-                    seekToRef.current(ratio * d);
-                    setIsPlaying(true);
-                    scheduleHide(shortsIconOpacity, hideTimerRef);
-                  }
-                }}
-                accessibilityRole="adjustable"
-                accessibilityLabel="Video seek bar"
-              />
-              {/* Drag handle */}
-              <GestureDetector gesture={shortsPanGesture}>
-                <View
-                  style={[styles.shortsHandleTouch, { left: shortsHandleLeft }]}
-                  accessibilityRole="adjustable"
-                  accessibilityLabel="Seek"
-                >
-                  <View style={styles.shortsHandle} />
-                </View>
-              </GestureDetector>
-              {/* Time bubble — shows the exact target while scrubbing */}
-              {shortsDragRatio !== null ? (
-                <View
-                  style={[styles.shortsTimeBubble, { left: shortsBubbleLeft }]}
-                  pointerEvents="none"
-                >
-                  <Text style={styles.shortsTimeBubbleText}>{fmtTime(shownRatio * durationMs)}</Text>
-                </View>
-              ) : null}
-            </Animated.View>
-          ) : null}
         </View>
       ) : null}
 
@@ -1605,6 +1472,182 @@ export function MsVideoPlayer({
   );
 }
 
+// ─── VideoTracer — bold, shared seek control ─────────────────────────────────
+// One thick, highly-visible tracer used by BOTH the standard player (inline +
+// fullscreen) and Shorts. Tap anywhere to jump, drag to scrub; the thumb sits
+// integrated on the bar (no floating dot above it). While scrubbing a small
+// time bubble shows the exact target; on release the seek lands and playback
+// position tracking resumes from the engine (the parent's pending-seek guard
+// holds the optimistic target until the engine confirms).
+interface VideoTracerProps {
+  positionMs: number;
+  durationMs: number;
+  onSeek: (ms: number) => void;
+  /** Fired when the user starts touching the tracer (e.g. keep controls visible). */
+  onDragStart?: () => void;
+  /** Track thickness in px — bold but not bulky. Default 7. */
+  thickness?: number;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+}
+
+const TRACER_HIT       = 36;  // full touch-target height
+const TRACER_THUMB     = 15;  // resting thumb diameter
+const TRACER_THUMB_DRAG = 19; // thumb diameter while scrubbing
+const TRACER_BUBBLE_W  = 52;
+
+function VideoTracer({
+  positionMs,
+  durationMs,
+  onSeek,
+  onDragStart,
+  thickness = 7,
+  disabled = false,
+  style,
+}: VideoTracerProps) {
+  const [dragRatio, setDragRatio] = useState<number | null>(null);
+  const dragRatioRef  = useRef<number | null>(null); // live during gesture
+  const grantRatioRef = useRef(0);                   // ratio at gesture start
+  const grantXRef     = useRef(0);                   // absolute x at gesture start
+  const widthRef      = useRef(0);                   // tracer width (measured)
+  const durationRef   = useRef(durationMs);
+  const progressRef   = useRef(0);
+  useEffect(() => { durationRef.current = durationMs; }, [durationMs]);
+  useEffect(() => { progressRef.current = positionMs; }, [positionMs]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        onDragStart?.();
+        const w = widthRef.current;
+        if (w <= 0) return;
+        // A tap jumps straight to that spot (standard tap-to-seek); a drag
+        // continues from here via the delta below.
+        grantXRef.current = evt.nativeEvent.locationX;
+        const r = Math.max(0, Math.min(1, evt.nativeEvent.locationX / w));
+        grantRatioRef.current = r;
+        dragRatioRef.current = r;
+        setDragRatio(r);
+      },
+      onPanResponderMove: (_evt, g) => {
+        const w = widthRef.current;
+        if (w <= 0) return;
+        const r = Math.max(
+          0,
+          Math.min(1, grantRatioRef.current + (g.moveX - grantXRef.current) / w),
+        );
+        dragRatioRef.current = r;
+        setDragRatio(r);
+      },
+      onPanResponderRelease: () => {
+        const r = dragRatioRef.current ?? progressRef.current;
+        dragRatioRef.current = null;
+        setDragRatio(null);
+        const d = durationRef.current;
+        if (d > 0) onSeek(r * d);
+      },
+      onPanResponderTerminate: () => {
+        dragRatioRef.current = null;
+        setDragRatio(null);
+      },
+    }),
+  ).current;
+
+  const dragging = dragRatio !== null;
+  const baseRatio = durationMs > 0 ? positionMs / durationMs : 0;
+  const ratio = Math.max(0, Math.min(1, dragRatio ?? baseRatio));
+  const thumbSize = dragging ? TRACER_THUMB_DRAG : TRACER_THUMB;
+  const thumbLeft = widthRef.current > 0
+    ? Math.max(0, Math.min(widthRef.current - thumbSize, ratio * widthRef.current - thumbSize / 2))
+    : 0;
+  const bubbleLeft = widthRef.current > 0
+    ? Math.max(2, Math.min(widthRef.current - TRACER_BUBBLE_W - 2, thumbLeft + thumbSize / 2 - TRACER_BUBBLE_W / 2))
+    : 0;
+
+  return (
+    <View
+      style={[vt.touch, style]}
+      {...(!disabled ? panResponder.panHandlers : {})}
+      onLayout={(e) => { widthRef.current = e.nativeEvent.layout.width; }}
+      accessibilityRole="adjustable"
+      accessibilityLabel="Video seek bar"
+      accessibilityValue={{ min: 0, max: Math.max(0, durationMs), now: positionMs }}
+    >
+      <View style={[vt.track, { height: thickness, borderRadius: thickness / 2 }]}>
+        <View
+          style={[vt.fill, { width: `${ratio * 100}%` as any, borderRadius: thickness / 2 }]}
+          pointerEvents="none"
+        />
+        {/* Thumb — integrated into the bar, never floating above it */}
+        <View
+          style={[vt.thumb, {
+            width: thumbSize,
+            height: thumbSize,
+            borderRadius: thumbSize / 2,
+            left: thumbLeft,
+            top: (thickness - thumbSize) / 2,
+          }]}
+          pointerEvents="none"
+        />
+      </View>
+      {/* Time bubble — exact target while scrubbing */}
+      {dragging && durationMs > 0 ? (
+        <View style={[vt.bubble, { left: bubbleLeft }]} pointerEvents="none">
+          <Text style={vt.bubbleText}>{fmtTime(ratio * durationMs)}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const vt = StyleSheet.create({
+  touch: {
+    height: TRACER_HIT,
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  track: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  fill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: T.ACCENT,
+  },
+  thumb: {
+    position: 'absolute',
+    backgroundColor: T.ACCENT,
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 4,
+  },
+  bubble: {
+    position: 'absolute',
+    bottom: TRACER_HIT / 2 + TRACER_THUMB_DRAG / 2 + 6,
+    width: TRACER_BUBBLE_W,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bubbleText: {
+    color: '#fff',
+    fontFamily: T.FONT.semibold,
+    fontSize: 10,
+    letterSpacing: 0.2,
+  },
+});
+
 // ─── SeekBar component ────────────────────────────────────────────────────────
 
 interface SeekBarProps {
@@ -1626,12 +1669,9 @@ interface SeekBarProps {
 }
 
 /**
- * Native seek tracker — the platform Slider (@react-native-community/slider)
- * handles ALL dragging/tapping with its own reliable native behaviour. The
- * only customisation is appearance: progress + thumb in the pink brand accent.
- * While dragging, the Slider value is pinned to local drag state so the
- * player's playback ticks can't snap the thumb back; on release the seek is
- * applied and live position tracking resumes.
+ * SeekBar — time labels + the shared bold VideoTracer, plus quality and
+ * fullscreen controls. The tracer handles all dragging/tapping itself; on
+ * release it reports the target position and live tracking resumes.
  */
 function SeekBar({
   positionMs,
@@ -1648,29 +1688,16 @@ function SeekBar({
   onToggleQualityMenu,
   onQualityChange,
 }: SeekBarProps) {
-  const [dragging, setDragging] = useState(false);
-  const [dragMs,   setDragMs]   = useState<number | null>(null);
-  const value = dragging && dragMs !== null ? dragMs : positionMs;
   return (
     <View style={[sb.bar, !hasBackground && sb.barNoBackground]}>
-      <Text style={sb.time}>{fmtTime(value)}</Text>
-      <Slider
-        style={sb.slider}
-        minimumValue={0}
-        maximumValue={Math.max(1, durationMs)}
-        value={value}
+      <Text style={sb.time}>{fmtTime(positionMs)}</Text>
+      <VideoTracer
+        positionMs={positionMs}
+        durationMs={durationMs}
+        onSeek={onSeek}
+        onDragStart={onDragStart}
         disabled={durationMs <= 0}
-        onSlidingStart={() => { onDragStart?.(); setDragging(true); setDragMs(positionMs); }}
-        onValueChange={(v) => setDragMs(v)}
-        onSlidingComplete={(v) => {
-          setDragging(false);
-          setDragMs(null);
-          onSeek(v);
-        }}
-        minimumTrackTintColor={T.ACCENT}
-        maximumTrackTintColor="rgba(255,255,255,0.28)"
-        thumbTintColor={T.ACCENT}
-        accessibilityLabel="Video seek bar"
+        style={sb.tracerSlot}
       />
       <Text style={sb.time}>{fmtTime(durationMs)}</Text>
       {/* Quality selector pill — only rendered when the server offered more
@@ -1724,11 +1751,8 @@ const sb = StyleSheet.create({
     minWidth: 34,
     textAlign: 'center',
   },
-  slider: {
+  tracerSlot: {
     flex: 1,
-    height: 36,
-    // Slight negative margin lets the thumb reach the very ends of the track.
-    marginHorizontal: -6,
   },
   fsBtn: {
     width: 28,
@@ -2254,61 +2278,11 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
-  // Shorts progress strip
-  shortsTrack: {
+  // Shorts seek tracer — hosts the shared VideoTracer at the bottom edge.
+  shortsTracerWrap: {
     position: 'absolute', left: 0, bottom: 0, right: 0,
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'stretch',
     zIndex: 6,
-  },
-  shortsFill: {
-    height: 3,
-    backgroundColor: T.ACCENT,
-  },
-  // Paused-only seek handle — small ball that sits on the strip; the touch
-  // target is much larger than the visual ball for easy grabbing.
-  shortsHandleTouch: {
-    position: 'absolute',
-    bottom: -9,
-    width: SHORTS_HANDLE_TOUCH,
-    height: SHORTS_HANDLE_TOUCH,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 7,
-  },
-  shortsHandle: {
-    width: SHORTS_HANDLE_SIZE,
-    height: SHORTS_HANDLE_SIZE,
-    borderRadius: SHORTS_HANDLE_SIZE / 2,
-    backgroundColor: T.ACCENT,
-    borderWidth: 2,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 4,
-  },
-  // Full-strip tap target (taller than the 3px line for easy tapping).
-  shortsSeekLayer: {
-    position: 'absolute', left: 0, right: 0, bottom: -16, height: 36,
-    zIndex: 6,
-  },
-  // Time bubble while scrubbing — small pill above the handle.
-  shortsTimeBubble: {
-    position: 'absolute', bottom: 24,
-    width: SHORTS_BUBBLE_WIDTH, height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 8,
-  },
-  shortsTimeBubbleText: {
-    color: '#fff',
-    fontFamily: T.FONT.semibold,
-    fontSize: 10,
-    letterSpacing: 0.2,
   },
 
   // Seek flash
