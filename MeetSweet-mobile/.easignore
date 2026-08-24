@@ -30,6 +30,7 @@ android/
 
 # Replit / development-only (not needed to build the app)
 .replit
+replit.nix
 .agents/
 .replit.state.json
 .antigravity-home/
