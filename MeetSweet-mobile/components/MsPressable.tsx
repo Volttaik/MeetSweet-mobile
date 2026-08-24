@@ -11,6 +11,7 @@ import React from 'react';
 import {
   Pressable,
   StyleProp,
+  StyleSheet,
   ViewStyle,
   type AccessibilityRole,
   type GestureResponderEvent,
@@ -86,6 +87,34 @@ export function MsPressable({
     onPressOut?.(event);
   };
 
+  // The caller's LAYOUT properties must reach the children, which live inside
+  // the animated wrapper — not just on the outer Pressable. The wrapper is a
+  // plain View with default column layout and inherits nothing, so converting
+  // a multi-child flex row (chat list rows, settings rows, action rows,
+  // headers, explore cards) into MsPressable collapsed its children into a
+  // vertical stack — the global "everything is misaligned" regression.
+  //
+  // Fix: apply the caller's style to the wrapper too, minus the properties
+  // that must not double up (padding/margin/opacity stay on the outer
+  // Pressable only), and force the wrapper to fill the Pressable's box so
+  // flex:1 children and justifyContent:space-between resolve correctly.
+  const flatStyle = StyleSheet.flatten(style) as ViewStyle | undefined;
+  const wrapperLayout: ViewStyle | undefined = flatStyle
+    ? (() => {
+        const copy: Record<string, unknown> = { ...flatStyle };
+        // Padding/margin stay on the outer Pressable — doubling them would
+        // inset the content twice. Opacity is animated on this wrapper.
+        delete copy.padding;        delete copy.paddingTop;    delete copy.paddingRight;
+        delete copy.paddingBottom;  delete copy.paddingLeft;   delete copy.paddingHorizontal;
+        delete copy.paddingVertical;
+        delete copy.margin;         delete copy.marginTop;     delete copy.marginRight;
+        delete copy.marginBottom;   delete copy.marginLeft;    delete copy.marginHorizontal;
+        delete copy.marginVertical;
+        delete copy.opacity;
+        return copy as ViewStyle;
+      })()
+    : undefined;
+
   return (
     <Pressable
       onPress={onPress}
@@ -100,7 +129,13 @@ export function MsPressable({
       accessibilityState={accessibilityState}
       hitSlop={hitSlop}
     >
-      <Reanimated.View style={animatedStyle}>
+      <Reanimated.View
+        style={[
+          wrapperLayout,
+          { flex: 1, alignSelf: 'stretch' },
+          animatedStyle,
+        ]}
+      >
         {children}
       </Reanimated.View>
     </Pressable>
