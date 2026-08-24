@@ -41,6 +41,9 @@ importers:
       expo-audio:
         specifier: ~55.0.17
         version: 55.0.17(expo-asset@55.0.19(expo@55.0.29)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)(typescript@5.9.2))(expo@55.0.29)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)
+      expo-build-properties:
+        specifier: ~55.0.17
+        version: 55.0.17(expo@55.0.29)
       expo-clipboard:
         specifier: ^55.0.16
         version: 55.0.16(expo@55.0.29)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)
@@ -2161,6 +2164,11 @@ packages:
       expo: '*'
       react: '*'
       react-native: '*'
+
+  expo-build-properties@55.0.17:
+    resolution: {integrity: sha512-V81fSY53h8opn8KLuCnhSOXebeA65yaU0Yki2L1Kuvy/VnxtmEIi6gmdK0xzOUrdaGJCb2qyXXvuZnzGREtA9w==}
+    peerDependencies:
+      expo: '*'
 
   expo-clipboard@55.0.16:
     resolution: {integrity: sha512-MI61Fboym8MYHSGpPg51O+KN1zLlsOVwx30Ou7ygVqmUOQaQ4ZVMeCRiCziudZoMe8fohcSBt7XaCAjdTnacRQ==}
@@ -6368,6 +6376,13 @@ snapshots:
       expo: 55.0.29(@babel/core@7.29.7)(@expo/dom-webview@55.0.6)(@expo/metro-runtime@55.0.12)(expo-router@55.0.18)(react-dom@19.2.0(react@19.2.0))(react-native-worklets@0.7.4(@babel/core@7.29.7)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0))(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)(typescript@5.9.2)
       react: 19.2.0
       react-native: 0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0)
+
+  expo-build-properties@55.0.17(expo@55.0.29):
+    dependencies:
+      '@expo/schema-utils': 55.0.5
+      expo: 55.0.29(@babel/core@7.29.7)(@expo/dom-webview@55.0.6)(@expo/metro-runtime@55.0.12)(expo-router@55.0.18)(react-dom@19.2.0(react@19.2.0))(react-native-worklets@0.7.4(@babel/core@7.29.7)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0))(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)(typescript@5.9.2)
+      resolve-from: 5.0.0
+      semver: 7.8.5
 
   expo-clipboard@55.0.16(expo@55.0.29)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0):
     dependencies:
