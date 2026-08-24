@@ -15,7 +15,6 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@expo/cli": "~55.0.35",
-    "@expo/config-plugins": "~55.0.11",
     "@expo/ngrok": "^4.1.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -55,6 +54,7 @@
     "@react-native-community/slider": "5.1.2",
     "@shopify/flash-list": "2.0.2",
     "expo": "~55.0.29",
+    "expo-asset": "~55.0.19",
     "expo-audio": "~55.0.17",
     "expo-clipboard": "^55.0.16",
     "expo-crypto": "~55.0.18",

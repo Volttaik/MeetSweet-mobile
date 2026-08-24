@@ -20,7 +20,7 @@
  * blocking (recording overlay + secure text field) and app-switcher blur
  * natively on iOS.
  */
-const { withAndroidStyles, withDangerousMod } = require('@expo/config-plugins');
+const { withAndroidStyles, withDangerousMod } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 

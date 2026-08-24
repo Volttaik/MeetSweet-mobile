@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "meetsweet",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
@@ -109,7 +108,8 @@
       "expo-secure-store",
       "react-native-video",
       "@giphy/react-native-sdk",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -677,10 +677,19 @@ export const MsChatInputBar = memo(function MsChatInputBar({
     stopMetering();
     recRef.current.meteringIntervalId = setInterval(() => {
       if (!recRef.current.recording) return;
-      const db = recorder.getStatus().metering;
-      ringBufferRef.current.push(normalizeDb(db));
-      if (ringBufferRef.current.length > WAVEFORM_BARS) ringBufferRef.current.shift();
-      waveHeights.value = ringBufferRef.current.slice();
+      // Guard the native status read: an uncaught exception inside a timer
+      // callback would crash the whole app mid-recording. If the recorder is
+      // ever in a state where getStatus() throws (released module, native
+      // error), stop metering instead of taking the app down — the recording
+      // itself keeps running and the timer keeps counting.
+      try {
+        const db = recorder.getStatus().metering;
+        ringBufferRef.current.push(normalizeDb(db));
+        if (ringBufferRef.current.length > WAVEFORM_BARS) ringBufferRef.current.shift();
+        waveHeights.value = ringBufferRef.current.slice();
+      } catch {
+        stopMetering();
+      }
     }, 100);
   };
 
