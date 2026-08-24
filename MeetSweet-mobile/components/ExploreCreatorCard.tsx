@@ -13,9 +13,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import {
   SealCheck,
   Images,
@@ -164,15 +164,14 @@ export function ExploreCreatorCard({
             <Text style={styles.freePillText}>SUBSCRIBE</Text>
           </View>
         </View>
-        <TouchableOpacity
+        <MsPressable
           style={styles.subscribeBtn}
           onPress={onSubscribe ?? onPress}
-          activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel={`Subscribe to ${creator.name}`}
         >
           <Text style={styles.subscribeBtnText}>Subscribe</Text>
-        </TouchableOpacity>
+        </MsPressable>
       </View>
     </Pressable>
   );

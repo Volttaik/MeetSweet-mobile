@@ -14,9 +14,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import {
   ChatCircle,
   SealCheck,
@@ -114,10 +114,9 @@ export function ExploreImageCard({
 
         {/* Creator chip — bottom left, always visible */}
         <View style={styles.imageFooter} pointerEvents="box-none">
-          <TouchableOpacity
+          <MsPressable
             style={styles.creatorChip}
             onPress={onCreatorPress ?? onPress}
-            activeOpacity={0.85}
             hitSlop={6}
           >
             <MsAvatar
@@ -134,7 +133,7 @@ export function ExploreImageCard({
                 <SealCheck size={13} color={T.TEXT} weight="fill" />
               )}
             </View>
-          </TouchableOpacity>
+          </MsPressable>
 
           {/* Tier badge — only shown for gated content */}
           {showTierBadge && (

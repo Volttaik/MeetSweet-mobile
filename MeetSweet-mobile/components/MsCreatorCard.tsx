@@ -5,7 +5,8 @@
  * passed as props — no fake/hardcoded data is generated internally.
  */
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { Users, SealCheck } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
@@ -49,7 +50,7 @@ export function MsCreatorCard({
 
   if (variant === 'compact') {
     return (
-      <TouchableOpacity style={styles.compact} activeOpacity={0.75} onPress={onPress}>
+      <MsPressable style={styles.compact} onPress={onPress}>
         <MsAvatar
           size={58}
           initials={avatarInitials}
@@ -63,12 +64,12 @@ export function MsCreatorCard({
           {creator.isVerified && <SealCheck size={12} color={T.TEXT} weight="fill" />}
         </View>
         <Text style={styles.compactHandle} numberOfLines={1}>{creator.handle}</Text>
-      </TouchableOpacity>
+      </MsPressable>
     );
   }
 
   return (
-    <TouchableOpacity style={styles.featured} activeOpacity={0.75} onPress={onPress}>
+    <MsPressable style={styles.featured} onPress={onPress}>
       {/* Top row: avatar + online status */}
       <View style={styles.featuredTop}>
         <MsAvatar
@@ -113,14 +114,13 @@ export function MsCreatorCard({
       ) : null}
 
       {/* Subscribe button */}
-      <TouchableOpacity
+      <MsPressable
         style={styles.subscribeBtn}
-        activeOpacity={0.8}
         onPress={onSubscribe ?? onPress}
       >
         <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
-      </TouchableOpacity>
-    </TouchableOpacity>
+      </MsPressable>
+    </MsPressable>
   );
 }
 

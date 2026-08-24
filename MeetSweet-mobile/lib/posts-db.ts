@@ -12,7 +12,6 @@
  *   • offline_queue: scoped by user_id column.
  */
 
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Post } from '@/services/posts';
 import type { ChatRoom } from '@/services/room-service';
@@ -23,7 +22,6 @@ import type { User } from '@/contexts/AuthContext';
 let _db: import('expo-sqlite').SQLiteDatabase | null = null;
 
 async function getDb() {
-  if (Platform.OS === 'web') return null;
   if (_db) return _db;
   try {
     const SQLite = await import('expo-sqlite');

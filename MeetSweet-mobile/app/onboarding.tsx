@@ -4,9 +4,9 @@ import {
   Dimensions,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -288,12 +288,12 @@ export default function OnboardingScreen() {
         {/* ── Header: dots + skip ─────────────────────────────── */}
         <View style={styles.header}>
           <Dots count={PAGES.length} active={activeIndex} />
-          <TouchableOpacity
+          <MsPressable
             onPress={skip}
             hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
           >
             <Text style={styles.skipText}>Skip</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
 
         {/* ── Fading page content ─────────────────────────────── */}
@@ -336,11 +336,11 @@ export default function OnboardingScreen() {
         </Animated.View>
 
         {/* ── CTA button ──────────────────────────────────────── */}
-        <TouchableOpacity style={styles.nextBtn} onPress={goToNext} activeOpacity={0.88}>
+        <MsPressable style={styles.nextBtn} onPress={goToNext}>
           <Text style={styles.nextBtnLabel}>
             {isLast ? 'Get Started' : 'Continue'}
           </Text>
-        </TouchableOpacity>
+        </MsPressable>
 
         {/* ── Page indicator below button ─────────────────────── */}
         <Text style={styles.pageHint}>

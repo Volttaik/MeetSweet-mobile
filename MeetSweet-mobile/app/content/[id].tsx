@@ -19,14 +19,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -38,7 +36,8 @@ import {
   ShareNetwork,
   UserPlus,
 } from 'phosphor-react-native';
-import { getPost, likePost, unlikePost, bookmarkPost, type Post } from '@/services/posts';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { getPost, normalizePost, likePost, unlikePost, bookmarkPost, type Post } from '@/services/posts';
 import { trackVideoView } from '@/services/content';
 import {
   submitRoomComment,
@@ -64,7 +63,7 @@ export default function ContentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { likeOverrides, bookmarkOverrides, commentCounts, markLiked, markBookmarked, setCommentCount: publishCommentCount } = usePostActions();
+  const { likeOverrides, bookmarkOverrides, commentCounts, editedPosts, markLiked, markBookmarked, setCommentCount: publishCommentCount } = usePostActions();
 
   // ── Post state ─────────────────────────────────────────────────────────────
   const [post, setPost] = useState<Post | null>(null);
@@ -85,18 +84,30 @@ export default function ContentDetailScreen() {
   // comments reflect immediately, no refresh.
   useEffect(() => {
     if (!id) return;
+    realtime.subscribe(`post:${id}`);
     const offLike = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
       if (event.resourceId !== id) return;
       const p = event.payload as { liked?: boolean; likeCount?: number };
       if (typeof p.likeCount === 'number') setLikeCount(p.likeCount);
     });
-    return () => offLike();
+    const offUpdate = realtime.on(REALTIME_EVENT.postUpdated, (event) => {
+      if (event.resourceId !== id) return;
+      const raw = (event.payload as { post?: unknown }).post;
+      if (!raw) return;
+      setPost((current) => ({ ...(current ?? normalizePost(raw)), ...normalizePost(raw) }));
+    });
+    return () => {
+      realtime.unsubscribe(`post:${id}`);
+      offLike();
+      offUpdate();
+    };
   }, [id]);
   useEffect(() => {
     if (liveCommentCount != null) setCommentCount(liveCommentCount);
   }, [liveCommentCount]);
 
   const currentUserId = user?.id ?? '';
+  const visiblePost: Post | null = post ? { ...post, ...(editedPosts[post.id] ?? {}) } : null;
 
   // ── Load post ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -236,7 +247,7 @@ export default function ContentDetailScreen() {
     );
   }
 
-  if (!post) {
+  if (!post || !visiblePost) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
         <MsEmptyState
@@ -249,8 +260,9 @@ export default function ContentDetailScreen() {
     );
   }
 
-  const isVideo = post.mediaType === 'video';
-  const isLocked = post.isLocked ?? false;
+  const postForView = visiblePost;
+  const isVideo = postForView.mediaType === 'video';
+  const isLocked = visiblePost.isLocked ?? false;
 
   // ── Post header rendered inside FlatList ListHeaderComponent ───────────────
   const PostHeader = (
@@ -258,60 +270,60 @@ export default function ContentDetailScreen() {
       {/* Media */}
       {isVideo ? (
         <MsVideoPlayer
-          videoId={post.id}
-          uri={post.mediaUrl ?? null}
-          posterUri={post.thumbnailUrl}
-          qualities={post.qualities}
+          videoId={postForView.id}
+          uri={postForView.mediaUrl ?? null}
+          posterUri={postForView.thumbnailUrl}
+          qualities={postForView.qualities}
           isPremium={isLocked}
-          onPremiumRequired={() => router.push(`/creator/${post.author.id}` as any)}
+          onPremiumRequired={() => router.push(`/creator/${postForView.author.id}` as any)}
           // Report watch time to the server (authoritative counting). The
           // screen itself has no view counter; feeds refetch the live count.
           onViewProgress={(seconds) => {
-            if (seconds > 0) trackVideoView(post.id, seconds, post.durationSecs ?? undefined).catch(() => {});
+            if (seconds > 0) trackVideoView(postForView.id, seconds, postForView.durationSecs ?? undefined).catch(() => {});
           }}
         />
-      ) : post.mediaUrl ? (
+      ) : postForView.mediaUrl ? (
         <View style={styles.imageWrap}>
           <MsMediaLoader
-            uri={post.mediaUrl}
+            uri={postForView.mediaUrl}
             style={styles.image}
             resizeMode="cover"
-            accessibleLabel={post.caption || 'Post image'}
+            accessibleLabel={postForView.caption || 'Post image'}
             errorMessage="Could not load image"
           />
         </View>
       ) : null}
 
       {/* Caption */}
-      {post.caption ? (
-        <Text style={styles.caption}>{post.caption}</Text>
+      {postForView.caption ? (
+        <Text style={styles.caption}>{postForView.caption}</Text>
       ) : null}
 
       {/* Creator row */}
       <View style={styles.creatorRow}>
         <Pressable
           style={styles.creatorPress}
-          onPress={() => router.push(`/creator/${post.author.id}`)}
+          onPress={() => router.push(`/creator/${postForView.author.id}`)}
         >
           <MsAvatar
             size={42}
-            initials={(post.author.name || post.author.username || 'U').slice(0, 2).toUpperCase()}
-            imageUri={post.author.avatarUrl ?? undefined}
+            initials={(postForView.author.name || postForView.author.username || 'U').slice(0, 2).toUpperCase()}
+            imageUri={postForView.author.avatarUrl ?? undefined}
           />
           <View style={styles.creatorCopy}>
             <View style={styles.creatorNameRow}>
               <Text style={styles.creatorName} numberOfLines={1}>
-                {post.author.name || post.author.username}
+                {postForView.author.name || postForView.author.username}
               </Text>
-              {post.author.isVerified && <SealCheck size={14} color={T.TEXT} weight="fill" />}
+              {postForView.author.isVerified && <SealCheck size={14} color={T.TEXT} weight="fill" />}
             </View>
-            <Text style={styles.creatorHandle}>@{post.author.username}</Text>
+            <Text style={styles.creatorHandle}>@{postForView.author.username}</Text>
           </View>
         </Pressable>
-        {currentUserId !== post.author.id && (
+        {currentUserId !== postForView.author.id && (
           <Pressable
             style={styles.subscribe}
-            onPress={() => router.push(`/creator/${post.author.id}`)}
+            onPress={() => router.push(`/creator/${postForView.author.id}`)}
           >
             <UserPlus size={14} color={T.BG} />
             <Text style={styles.subscribeText}>Subscribe</Text>
@@ -339,7 +351,7 @@ export default function ContentDetailScreen() {
         </Pressable>
       </View>
 
-      <Text style={styles.metaText}>{timeAgo(post.createdAt)}</Text>
+      <Text style={styles.metaText}>{timeAgo(postForView.createdAt)}</Text>
 
       {/* Comments section header */}
       <View style={styles.commentsSectionHeader}>
@@ -365,16 +377,11 @@ export default function ContentDetailScreen() {
         </Pressable>
       </View>
 
-      {/* Comments + post in a single FlatList — only comments scroll */}
-      {/* iOS: pad for the keyboard. Android: the app window resizes
-          (softwareKeyboardLayoutMode=resize), so no extra padding — adding
-          'height' here would double-compensate and float the composer. */}
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={insets.top + 62}
-      >
-        <FlatList
+      {/* Comments + post in a single FlatList — only comments scroll.
+          Native keyboard sync via keyboard-controller (KeyboardProvider is
+          mounted in _layout.tsx) — no hardcoded vertical offsets. */}
+      <KeyboardAvoidingView style={styles.flex}>
+        <FlashList
           data={comments}
           keyExtractor={(c, i) => `${c.id || 'c'}-${i}`}
           renderItem={({ item, index }) => (
@@ -419,8 +426,13 @@ export default function ContentDetailScreen() {
       <MsShareSheet
         visible={shareVisible}
         contentType={isVideo ? 'video' : 'post'}
-        contentId={post.id}
-        title={post.caption || 'Post'}
+        contentId={postForView.id}
+        title="Share"
+        preview={{
+          title: postForView.caption || postForView.title || postForView.author.name || 'MeetSweet post',
+          subtitle: postForView.author.username ? `by @${postForView.author.username}` : undefined,
+          imageUrl: postForView.thumbnailUrl || undefined,
+        }}
         onClose={() => setShareVisible(false)}
       />
     </MsAmbientBackground>

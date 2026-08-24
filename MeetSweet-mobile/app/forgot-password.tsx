@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -135,18 +134,17 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
         </View>
       </View>
 
-      <TouchableOpacity
+      <MsPressable
         style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
         onPress={handleSend}
         disabled={loading}
-        activeOpacity={0.85}
       >
         {loading ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
           <Text style={styles.btnLabel}>Send Reset Code</Text>
         )}
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 }
@@ -245,26 +243,25 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
       {!!error && <Text style={styles.errorText}>{error}</Text>}
       {!!resendMsg && <Text style={styles.successText}>{resendMsg}</Text>}
 
-      <TouchableOpacity
+      <MsPressable
         style={[styles.primaryBtn, (!completed || loading) && styles.primaryBtnDisabled]}
         onPress={handleVerify}
         disabled={!completed || loading}
-        activeOpacity={0.85}
       >
         {loading ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
           <Text style={styles.btnLabel}>Verify Code</Text>
         )}
-      </TouchableOpacity>
+      </MsPressable>
 
-      <TouchableOpacity onPress={handleResend} style={styles.resendRow} disabled={!canResend}>
+      <MsPressable onPress={handleResend} style={styles.resendRow} disabled={!canResend}>
         <Text style={[styles.resendText, !canResend && styles.resendDisabled]}>
           {canResend
             ? 'Resend code'
             : `Resend in 0:${countdown.toString().padStart(2, '0')}`}
         </Text>
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 }
@@ -329,9 +326,9 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
-            <TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <MsPressable onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               {showPw ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
-            </TouchableOpacity>
+            </MsPressable>
           </InputRow>
           {password.length > 0 && strength && (
             <View style={styles.strengthRow}>
@@ -366,26 +363,25 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
-            <TouchableOpacity onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <MsPressable onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               {showConfirm ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
-            </TouchableOpacity>
+            </MsPressable>
           </InputRow>
           <FieldErr msg={errors.confirm} />
         </View>
       </View>
 
-      <TouchableOpacity
+      <MsPressable
         style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
         onPress={handleReset}
         disabled={loading}
-        activeOpacity={0.85}
       >
         {loading ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
           <Text style={styles.btnLabel}>Reset Password</Text>
         )}
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 }
@@ -404,13 +400,12 @@ function StepDone() {
           Your password has been reset successfully. Log in with your new password.
         </Text>
       </View>
-      <TouchableOpacity
+      <MsPressable
         style={styles.primaryBtn}
         onPress={() => router.replace('/auth')}
-        activeOpacity={0.85}
       >
         <Text style={styles.btnLabel}>Back to Log In</Text>
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 }
@@ -479,7 +474,7 @@ export default function ForgotPasswordScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingTop: insets.top + 28,
             paddingBottom: insets.bottom + 48,
           },
         ]}
@@ -488,13 +483,13 @@ export default function ForgotPasswordScreen() {
       >
         {/* Back */}
         {currentStep !== 'done' && (
-          <TouchableOpacity
+          <MsPressable
             onPress={() => router.back()}
             style={styles.backBtn}
             hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
           >
             <ArrowLeft size={22} color="#FFFFFF" />
-          </TouchableOpacity>
+          </MsPressable>
         )}
 
         {/* Screen title */}
@@ -615,9 +610,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-    ...(Platform.OS === 'web'
-      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
-      : {}),
+
   },
   fieldError: {
     fontFamily: 'Poppins_400Regular',

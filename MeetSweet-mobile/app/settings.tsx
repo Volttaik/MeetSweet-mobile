@@ -13,9 +13,9 @@ import {
   Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -113,9 +113,9 @@ function BottomSheet({
             {title ? (
               <View style={bss.header}>
                 <Text style={bss.title}>{title}</Text>
-                <TouchableOpacity onPress={onClose} hitSlop={12} style={bss.closeBtn}>
+                <MsPressable onPress={onClose} hitSlop={12} style={bss.closeBtn}>
                   <X size={18} color={T.TEXT_2} />
-                </TouchableOpacity>
+                </MsPressable>
               </View>
             ) : null}
             {children}
@@ -357,7 +357,7 @@ function Row({
   noChevron?: boolean;
 }) {
   return (
-    <TouchableOpacity style={rs.row} onPress={onPress} activeOpacity={0.7}>
+    <MsPressable style={rs.row} onPress={onPress}>
       <View style={rs.rowText}>
         <Text style={[rs.rowLabel, danger && { color: T.ERROR }]}>{label}</Text>
         {sub ? <Text style={rs.rowSub}>{sub}</Text> : null}
@@ -368,7 +368,7 @@ function Row({
         </View>
       ) : null}
       {!noChevron ? <CaretRight size={14} color={T.TEXT_3} /> : null}
-    </TouchableOpacity>
+    </MsPressable>
   );
 }
 
@@ -505,19 +505,18 @@ function EditProfileModal({
           <Text style={ms.hint}>{bio.length}/160</Text>
         </View>
         <View style={ms.buttons}>
-          <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+          <MsPressable style={ms.cancelBtn} onPress={onClose}>
             <Text style={ms.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={[ms.saveBtn, saving && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={saving}
-            activeOpacity={0.8}
-          >
+            >
             {saving
               ? <ActivityIndicator size="small" color={T.BG} />
               : <Text style={ms.saveLabel}>Save</Text>}
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
     </BottomSheet>
@@ -601,17 +600,16 @@ function UsernameModal({
           </Text>
         )}
         <View style={ms.buttons}>
-          <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+          <MsPressable style={ms.cancelBtn} onPress={onClose}>
             <Text style={ms.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={[ms.saveBtn, (!available || checking) && { opacity: 0.4 }]}
             onPress={handleSave}
             disabled={!available || checking}
-            activeOpacity={0.8}
-          >
+            >
             <Text style={ms.saveLabel}>Save</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
     </BottomSheet>
@@ -675,19 +673,18 @@ function EmailModal({
         />
         <Text style={ms.sub}>A verification link will be sent to your new address.</Text>
         <View style={ms.buttons}>
-          <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+          <MsPressable style={ms.cancelBtn} onPress={onClose}>
             <Text style={ms.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={[ms.saveBtn, saving && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={saving}
-            activeOpacity={0.8}
-          >
+            >
             {saving
               ? <ActivityIndicator size="small" color={T.BG} />
               : <Text style={ms.saveLabel}>Update Email</Text>}
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
     </BottomSheet>
@@ -771,16 +768,15 @@ function PhoneModal({
       <BottomSheet visible={visible} onClose={() => setShowCountryPicker(false)} title="Select Country">
         <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
           {COUNTRY_CODES.map((c, i) => (
-            <TouchableOpacity
+            <MsPressable
               key={c.code}
               style={[rs.row, i > 0 && { borderTopWidth: 1, borderTopColor: T.BORDER }]}
               onPress={() => { setCountryIdx(i); setShowCountryPicker(false); }}
-              activeOpacity={0.7}
-            >
+                >
               <Text style={{ fontSize: 20 }}>{c.flag}</Text>
               <Text style={[rs.rowLabel, { flex: 1, marginLeft: 8 }]}>{c.name}</Text>
               <Text style={rs.rowSub}>{c.code}</Text>
-            </TouchableOpacity>
+            </MsPressable>
           ))}
         </ScrollView>
       </BottomSheet>
@@ -791,12 +787,12 @@ function PhoneModal({
     <BottomSheet visible={visible} onClose={onClose} title="Phone Number">
       <View style={{ gap: 12 }}>
         <Text style={ms.label}>Country</Text>
-        <TouchableOpacity style={[inp.wrap, { justifyContent: 'space-between' }]} onPress={() => setShowCountryPicker(true)} activeOpacity={0.7}>
+        <MsPressable style={[inp.wrap, { justifyContent: 'space-between' }]} onPress={() => setShowCountryPicker(true)}>
           <Text style={{ color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 15 }}>
             {country.flag}  {country.name} ({country.code})
           </Text>
           <CaretRight size={14} color={T.TEXT_3} />
-        </TouchableOpacity>
+        </MsPressable>
         <Text style={ms.label}>Phone Number</Text>
         <View style={[inp.wrap, { gap: 0 }]}>
           <Text style={{ color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 15, marginRight: 8 }}>{country.code}</Text>
@@ -812,19 +808,18 @@ function PhoneModal({
           />
         </View>
         <View style={ms.buttons}>
-          <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+          <MsPressable style={ms.cancelBtn} onPress={onClose}>
             <Text style={ms.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={[ms.saveBtn, saving && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={saving}
-            activeOpacity={0.8}
-          >
+            >
             {saving
               ? <ActivityIndicator size="small" color={T.BG} />
               : <Text style={ms.saveLabel}>Save Number</Text>}
-          </TouchableOpacity>
+          </MsPressable>
         </View>
         <Text style={[ms.sub, { textAlign: 'center' }]}>
           Your number is saved to your profile and visible only to you.
@@ -878,9 +873,9 @@ function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: 
             secureTextEntry={!showCurrent}
             autoFocus
             rightElement={
-              <TouchableOpacity onPress={() => setShowCurrent(!showCurrent)} hitSlop={8}>
+              <MsPressable onPress={() => setShowCurrent(!showCurrent)} hitSlop={8}>
                 {showCurrent ? <EyeSlash size={18} color={T.TEXT_3} /> : <Eye size={18} color={T.TEXT_3} />}
-              </TouchableOpacity>
+              </MsPressable>
             }
           />
         </View>
@@ -892,9 +887,9 @@ function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: 
             placeholder="New password (min. 8 characters)"
             secureTextEntry={!showNext}
             rightElement={
-              <TouchableOpacity onPress={() => setShowNext(!showNext)} hitSlop={8}>
+              <MsPressable onPress={() => setShowNext(!showNext)} hitSlop={8}>
                 {showNext ? <EyeSlash size={18} color={T.TEXT_3} /> : <Eye size={18} color={T.TEXT_3} />}
-              </TouchableOpacity>
+              </MsPressable>
             }
           />
           {str.label ? (
@@ -911,19 +906,18 @@ function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: 
           <MsInput value={confirm} onChangeText={setConfirm} placeholder="Confirm new password" secureTextEntry />
         </View>
         <View style={ms.buttons}>
-          <TouchableOpacity style={ms.cancelBtn} onPress={handleClose} activeOpacity={0.7}>
+          <MsPressable style={ms.cancelBtn} onPress={handleClose}>
             <Text style={ms.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={[ms.saveBtn, loading && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={loading}
-            activeOpacity={0.8}
-          >
+            >
             {loading
               ? <ActivityIndicator size="small" color={T.BG} />
               : <Text style={ms.saveLabel}>Update Password</Text>}
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
     </BottomSheet>
@@ -985,13 +979,12 @@ function ActiveSessionsModal({
             <Text style={[ms.sub, { flex: 1 }]}>No other active sessions found.</Text>
           </View>
 
-          <TouchableOpacity
+          <MsPressable
             style={[ms.saveBtn, { marginTop: 20, backgroundColor: 'rgba(239,68,68,0.12)' }]}
             onPress={() => setSignOutAllConfirm(true)}
-            activeOpacity={0.8}
-          >
+            >
             <Text style={[ms.saveLabel, { color: T.ERROR }]}>Sign Out All Other Devices</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       )}
       <MsConfirmDialog
@@ -1050,17 +1043,16 @@ function ChoiceModal({
         {options.map((opt, i) => (
           <React.Fragment key={opt.value}>
             {i > 0 && <Divider />}
-            <TouchableOpacity
+            <MsPressable
               style={[rs.row, { justifyContent: 'space-between' }]}
               onPress={() => { onChange(opt.value); onClose(); toast.success('Preference updated'); }}
-              activeOpacity={0.7}
-            >
+                >
               <View style={{ flex: 1 }}>
                 <Text style={rs.rowLabel}>{opt.label}</Text>
                 <Text style={rs.rowSub}>{opt.sub}</Text>
               </View>
               {value === opt.value && <CheckCircle size={20} color={T.TEXT} weight="fill" />}
-            </TouchableOpacity>
+            </MsPressable>
           </React.Fragment>
         ))}
       </View>
@@ -1139,18 +1131,17 @@ function SupportModal({
             { label: 'Creator Resources', sub: 'Tips for creators and monetisation' },
             { label: 'Community Guidelines', sub: 'Rules and standards for our community' },
           ].map((item, i) => (
-            <TouchableOpacity
+            <MsPressable
               key={i}
               style={[rs.row, { backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md }]}
               onPress={() => toast.info('Visit meetsweet.io/help')}
-              activeOpacity={0.7}
-            >
+                >
               <View style={rs.rowText}>
                 <Text style={rs.rowLabel}>{item.label}</Text>
                 <Text style={rs.rowSub}>{item.sub}</Text>
               </View>
               <CaretRight size={14} color={T.TEXT_3} />
-            </TouchableOpacity>
+            </MsPressable>
           ))}
         </View>
       </BottomSheet>
@@ -1171,14 +1162,14 @@ function SupportModal({
             maxLength={500}
           />
           <View style={ms.buttons}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+            <MsPressable style={ms.cancelBtn} onPress={onClose}>
               <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[ms.saveBtn, sending && { opacity: 0.6 }]} onPress={handleSend} disabled={sending} activeOpacity={0.8}>
+            </MsPressable>
+            <MsPressable style={[ms.saveBtn, sending && { opacity: 0.6 }]} onPress={handleSend} disabled={sending}>
               {sending
                 ? <ActivityIndicator size="small" color={T.BG} />
                 : <Text style={ms.saveLabel}>Send Report</Text>}
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </View>
       </BottomSheet>
@@ -1194,9 +1185,9 @@ function SupportModal({
             <Text style={rs.rowSub}>support@meetsweet.io</Text>
             <Text style={[rs.rowSub, { marginTop: 4 }]}>We respond within 24 hours, Monday to Friday.</Text>
           </View>
-          <TouchableOpacity style={ms.saveBtn} onPress={() => { toast.info('Opening email…'); onClose(); }} activeOpacity={0.8}>
+          <MsPressable style={ms.saveBtn} onPress={() => { toast.info('Opening email…'); onClose(); }}>
             <Text style={ms.saveLabel}>Send Email</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </BottomSheet>
     );
@@ -1218,13 +1209,13 @@ function SupportModal({
           { label: 'Terms of Service', url: 'meetsweet.io/terms' },
           { label: 'Privacy Policy', url: 'meetsweet.io/privacy' },
         ].map((item) => (
-          <TouchableOpacity key={item.label} onPress={() => toast.info(`Visit ${item.url}`)} activeOpacity={0.7}>
+          <MsPressable key={item.label} onPress={() => toast.info(`Visit ${item.url}`)}>
             <Text style={[ms.sub, { color: T.TEXT_2, textDecorationLine: 'underline' }]}>{item.label}</Text>
-          </TouchableOpacity>
+          </MsPressable>
         ))}
-        <TouchableOpacity style={[ms.cancelBtn, { width: '100%', marginTop: 8 }]} onPress={onClose} activeOpacity={0.7}>
+        <MsPressable style={[ms.cancelBtn, { width: '100%', marginTop: 8 }]} onPress={onClose}>
           <Text style={ms.cancelLabel}>Close</Text>
-        </TouchableOpacity>
+        </MsPressable>
       </View>
     </BottomSheet>
   );
@@ -1281,19 +1272,18 @@ function DeleteAccountModal({
           />
         </View>
         <View style={ms.buttons}>
-          <TouchableOpacity style={ms.cancelBtn} onPress={onClose} disabled={loading} activeOpacity={0.7}>
+          <MsPressable style={ms.cancelBtn} onPress={onClose} disabled={loading}>
             <Text style={ms.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={[ms.saveBtn, { backgroundColor: 'rgba(239,68,68,0.15)' }, loading && { opacity: 0.6 }]}
             onPress={handleDelete}
             disabled={loading}
-            activeOpacity={0.8}
-          >
+            >
             {loading
               ? <ActivityIndicator size="small" color={T.ERROR} />
               : <Text style={[ms.saveLabel, { color: T.ERROR }]}>Delete Account</Text>}
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
     </BottomSheet>
@@ -1417,12 +1407,12 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
             6-digit code each time you log in — enter it to finish signing in.
           </Text>
           <View style={ms.buttons}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+            <MsPressable style={ms.cancelBtn} onPress={onClose}>
               <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={sendCode} disabled={busy} activeOpacity={0.8}>
+            </MsPressable>
+            <MsPressable style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={sendCode} disabled={busy}>
               {busy ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={ms.saveLabel}>Enable</Text>}
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </View>
       ) : phase === 'setup' ? (
@@ -1445,20 +1435,20 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
             />
           </View>
           {codeSent && (
-            <TouchableOpacity onPress={sendCode} disabled={busy} hitSlop={8} style={{ alignSelf: 'flex-start' }}>
+            <MsPressable onPress={sendCode} disabled={busy} hitSlop={8} style={{ alignSelf: 'flex-start' }}>
               <Text style={{ color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 }}>
                 {busy ? 'Sending…' : 'Resend code'}
               </Text>
-            </TouchableOpacity>
+            </MsPressable>
           )}
           {!!error && <Text style={{ color: T.ERROR, fontSize: 12, fontFamily: T.FONT.regular }}>{error}</Text>}
           <View style={ms.buttons}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+            <MsPressable style={ms.cancelBtn} onPress={onClose}>
               <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={confirmEnable} disabled={busy} activeOpacity={0.8}>
+            </MsPressable>
+            <MsPressable style={[ms.saveBtn, busy && { opacity: 0.6 }]} onPress={confirmEnable} disabled={busy}>
               {busy ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={ms.saveLabel}>Enable</Text>}
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </View>
       ) : (
@@ -1471,14 +1461,13 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
             To turn it off, confirm your password and a current 6-digit code from your email.
           </Text>
           {!codeSent && (
-            <TouchableOpacity
+            <MsPressable
               style={[ms.saveBtn, { backgroundColor: T.SURFACE_2 }, busy && { opacity: 0.6 }]}
               onPress={sendCode}
               disabled={busy}
-              activeOpacity={0.8}
-            >
+                >
               {busy ? <ActivityIndicator size="small" color={T.TEXT} /> : <Text style={[ms.saveLabel, { color: T.TEXT }]}>Send code to email</Text>}
-            </TouchableOpacity>
+            </MsPressable>
           )}
           <View style={{ gap: 6 }}>
             <Text style={ms.label}>Password</Text>
@@ -1507,12 +1496,12 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
           </View>
           {!!error && <Text style={{ color: T.ERROR, fontSize: 12, fontFamily: T.FONT.regular }}>{error}</Text>}
           <View style={ms.buttons}>
-            <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+            <MsPressable style={ms.cancelBtn} onPress={onClose}>
               <Text style={ms.cancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[ms.saveBtn, { backgroundColor: 'rgba(239,68,68,0.15)' }, busy && { opacity: 0.6 }]} onPress={confirmDisable} disabled={busy} activeOpacity={0.8}>
+            </MsPressable>
+            <MsPressable style={[ms.saveBtn, { backgroundColor: 'rgba(239,68,68,0.15)' }, busy && { opacity: 0.6 }]} onPress={confirmDisable} disabled={busy}>
               {busy ? <ActivityIndicator size="small" color={T.ERROR} /> : <Text style={[ms.saveLabel, { color: T.ERROR }]}>Disable</Text>}
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </View>
       )}
@@ -1709,14 +1698,13 @@ export default function SettingsScreen() {
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
+        <MsPressable
           onPress={() => router.back()}
           style={styles.backBtn}
-          activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color={T.TEXT} />
-        </TouchableOpacity>
+        </MsPressable>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={{ width: 38 }} />
       </View>
@@ -1726,9 +1714,8 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 48 }]}
       >
         {/* Profile card */}
-        <TouchableOpacity
+        <MsPressable
           style={styles.profileCard}
-          activeOpacity={0.8}
           onPress={() => setModal('editProfile')}
         >
           <MsAvatar size={54} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
@@ -1737,7 +1724,7 @@ export default function SettingsScreen() {
             <Text style={styles.profileHandle}>@{user?.username ?? 'username'} · Edit profile</Text>
           </View>
           <CaretRight size={17} color={T.TEXT_3} />
-        </TouchableOpacity>
+        </MsPressable>
 
         {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Account" />
@@ -1880,10 +1867,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* Log out */}
-        <TouchableOpacity style={styles.logoutBtn} onPress={() => setLogoutConfirm(true)} activeOpacity={0.8}>
+        <MsPressable style={styles.logoutBtn} onPress={() => setLogoutConfirm(true)}>
           <SignOut size={17} color={T.ERROR} />
           <Text style={styles.logoutLabel}>Log Out</Text>
-        </TouchableOpacity>
+        </MsPressable>
 
         <Text style={styles.version}>MeetSweet v1.0.0</Text>
       </ScrollView>

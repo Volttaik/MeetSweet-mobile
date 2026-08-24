@@ -9,9 +9,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { T } from '@/constants/theme';
 import { tapLight, tapHeavy } from '@/lib/haptics';
 
@@ -79,14 +79,13 @@ export function MsConfirmDialog({
             <Text style={styles.title}>{title}</Text>
             {!!message && <Text style={styles.message}>{message}</Text>}
             <View style={styles.buttons}>
-              <TouchableOpacity
+              <MsPressable
                 style={styles.cancelBtn}
                 onPress={() => { tapLight(); onCancel(); }}
-                activeOpacity={0.7}
               >
                 <Text style={styles.cancelLabel}>{cancelLabel}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </MsPressable>
+              <MsPressable
                 style={[
                   styles.confirmBtn,
                   destructive && styles.confirmBtnDestructive,
@@ -96,7 +95,6 @@ export function MsConfirmDialog({
                   onCancel();
                   setTimeout(onConfirm, 80);
                 }}
-                activeOpacity={0.8}
               >
                 <Text
                   style={[
@@ -106,7 +104,7 @@ export function MsConfirmDialog({
                 >
                   {confirmLabel}
                 </Text>
-              </TouchableOpacity>
+              </MsPressable>
             </View>
           </Pressable>
         </Animated.View>

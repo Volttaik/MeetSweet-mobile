@@ -6,9 +6,9 @@ import {
   Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -269,11 +269,10 @@ function SettingsSection({
   const [open, setOpen] = useState(defaultOpen);
   return (
     <View style={styles.settingsCard}>
-      <TouchableOpacity
+      <MsPressable
         style={styles.settingsHeader}
         onPress={() => setOpen((v) => !v)}
-        activeOpacity={0.75}
-      >
+        >
         <View style={styles.settingsIconWrap}>
           <IconComp size={18} color={T.TEXT_2} />
         </View>
@@ -283,7 +282,7 @@ function SettingsSection({
           color={T.TEXT_3}
           style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
         />
-      </TouchableOpacity>
+      </MsPressable>
       {open && <View style={styles.settingsBody}>{children}</View>}
     </View>
   );
@@ -303,10 +302,9 @@ function SettingsRow({
   icon?: Icon;
 }) {
   return (
-    <TouchableOpacity
+    <MsPressable
       style={styles.settingsRow}
       onPress={onPress}
-      activeOpacity={0.7}
     >
       <View style={styles.settingsRowLabelWrap}>
         {RowIcon ? <RowIcon size={16} color={T.TEXT_2} /> : null}
@@ -316,7 +314,7 @@ function SettingsRow({
         {value ? <Text style={styles.settingsRowValue}>{value}</Text> : null}
         <CaretRight size={13} color={T.TEXT_3} />
       </View>
-    </TouchableOpacity>
+    </MsPressable>
   );
 }
 
@@ -498,14 +496,13 @@ export default function CreatorDashboardScreen() {
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
+        <MsPressable
           onPress={() => router.back()}
           style={styles.backBtn}
-          activeOpacity={0.7}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color={T.TEXT} />
-        </TouchableOpacity>
+        </MsPressable>
         <Text style={styles.headerTitle}>Creator Dashboard</Text>
         <View style={{ width: 38 }} />
       </View>
@@ -540,14 +537,13 @@ export default function CreatorDashboardScreen() {
                   {latestPeriod ? `${shortPeriod(latestPeriod)}: ${formatNaira(monthRevenue)}` : 'No earnings recorded yet'}
                 </Text>
               </View>
-              <TouchableOpacity
+              <MsPressable
                 style={styles.withdrawBtn}
                 onPress={() => router.push('/creator-payout')}
-                activeOpacity={0.85}
-              >
+                        >
                 <ArrowCircleUp size={16} color="#fff" weight="fill" />
                 <Text style={styles.withdrawLabel}>Withdraw</Text>
-              </TouchableOpacity>
+              </MsPressable>
             </View>
 
             <View style={styles.heroMetaRow}>
@@ -647,36 +643,33 @@ export default function CreatorDashboardScreen() {
           {/* ── Quick actions ─────────────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsRow}>
-            <TouchableOpacity
+            <MsPressable
               style={styles.actionCard}
               onPress={() => router.push('/create-post')}
-              activeOpacity={0.8}
-            >
+                    >
               <View style={styles.actionIconWrap}>
                 <Camera size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>New Post</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </MsPressable>
+            <MsPressable
               style={styles.actionCard}
               onPress={() => router.push('/creator-payout')}
-              activeOpacity={0.8}
-            >
+                    >
               <View style={styles.actionIconWrap}>
                 <Wallet size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>Payout</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </MsPressable>
+            <MsPressable
               style={styles.actionCard}
               onPress={() => router.push('/settings')}
-              activeOpacity={0.8}
-            >
+                    >
               <View style={styles.actionIconWrap}>
                 <GearSix size={22} color={T.TEXT_2} />
               </View>
               <Text style={styles.actionLabel}>Settings</Text>
-            </TouchableOpacity>
+            </MsPressable>
           </View>
 
               {/* ── Referral link ─────────────────────────────────────────────── */}
@@ -690,7 +683,7 @@ export default function CreatorDashboardScreen() {
               <Text style={styles.referralUrl} numberOfLines={1}>{referral?.url ?? 'Loading referral link…'}</Text>
             </View>
             <View style={styles.referralActions}>
-              <TouchableOpacity
+              <MsPressable
                 style={styles.referralAction}
                 disabled={!referral?.url || referralBusy}
                 onPress={async () => {
@@ -702,14 +695,14 @@ export default function CreatorDashboardScreen() {
                 }}
               >
                 <Text style={styles.referralActionText}>Copy Link</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </MsPressable>
+              <MsPressable
                 style={[styles.referralAction, styles.referralActionPrimary]}
                 disabled={!referral?.url || referralBusy}
                 onPress={() => referral?.url && Share.share({ title: 'Join MeetSweet', message: `Join MeetSweet with my referral link: ${referral.url}`, url: referral.url })}
               >
                 <Text style={[styles.referralActionText, styles.referralActionPrimaryText]}>Share</Text>
-              </TouchableOpacity>
+              </MsPressable>
             </View>
           </View>
 
@@ -750,12 +743,12 @@ export default function CreatorDashboardScreen() {
                     autoFocus
                     selectTextOnFocus
                   />
-                  <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber')}>
+                  <MsPressable style={styles.priceSave} onPress={() => savePrice('subscriber')}>
                     <Text style={styles.priceSaveText}>Save</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
+                  </MsPressable>
+                  <MsPressable onPress={() => setEditingPrice(null)} hitSlop={8}>
                     <Text style={styles.priceCancelText}>Cancel</Text>
-                  </TouchableOpacity>
+                  </MsPressable>
                 </View>
               </View>
             ) : (
@@ -784,12 +777,12 @@ export default function CreatorDashboardScreen() {
                     autoFocus
                     selectTextOnFocus
                   />
-                  <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber_plus')}>
+                  <MsPressable style={styles.priceSave} onPress={() => savePrice('subscriber_plus')}>
                     <Text style={styles.priceSaveText}>Save</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
+                  </MsPressable>
+                  <MsPressable onPress={() => setEditingPrice(null)} hitSlop={8}>
                     <Text style={styles.priceCancelText}>Cancel</Text>
-                  </TouchableOpacity>
+                  </MsPressable>
                 </View>
               </View>
             ) : (

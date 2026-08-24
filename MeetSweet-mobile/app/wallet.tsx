@@ -20,9 +20,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { router, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWallet } from '@/contexts/WalletContext';
@@ -246,12 +246,12 @@ function PaymentPendingView({
             <Text style={pendStyles.cardKey}>ACCOUNT NUMBER</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={pendStyles.cardValLarge}>{result.accountNumber}</Text>
-              <TouchableOpacity onPress={copyAccount} hitSlop={8}>
+              <MsPressable onPress={copyAccount} hitSlop={8}>
                 {copied
                   ? <CheckCircle size={18} color={T.SUCCESS} weight="fill" />
                   : <Copy size={18} color={T.TEXT_2} />
                 }
-              </TouchableOpacity>
+              </MsPressable>
             </View>
           </View>
           <View style={pendStyles.separator} />
@@ -274,11 +274,10 @@ function PaymentPendingView({
       )}
 
       {result.authorizationUrl && (
-        <TouchableOpacity
+        <MsPressable
           style={[pendStyles.primaryBtn, openingPayment && pendStyles.primaryBtnLoading]}
           onPress={openPayment}
-          activeOpacity={0.85}
-          disabled={openingPayment}
+            disabled={openingPayment}
         >
           {openingPayment ? (
             <>
@@ -288,7 +287,7 @@ function PaymentPendingView({
           ) : (
             <Text style={pendStyles.primaryLabel}>Continue to payment</Text>
           )}
-        </TouchableOpacity>
+        </MsPressable>
       )}
 
       {verifyState === 'failed' && (
@@ -299,10 +298,9 @@ function PaymentPendingView({
         </View>
       )}
 
-      <TouchableOpacity
+      <MsPressable
         style={[pendStyles.secondaryBtn, verifyState === 'checking' && pendStyles.paidBtnLoading]}
         onPress={onVerify}
-        activeOpacity={0.85}
         disabled={verifyState === 'checking'}
       >
         {verifyState === 'checking' ? (
@@ -310,11 +308,11 @@ function PaymentPendingView({
         ) : (
           <Text style={[pendStyles.paidLabel, { color: T.TEXT }]}>I have paid</Text>
         )}
-      </TouchableOpacity>
+      </MsPressable>
 
-      <TouchableOpacity style={pendStyles.backBtn} onPress={onBack} activeOpacity={0.7}>
+      <MsPressable style={pendStyles.backBtn} onPress={onBack}>
         <Text style={pendStyles.backLabel}>Back to wallet</Text>
-      </TouchableOpacity>
+      </MsPressable>
     </KeyboardAwareScrollViewCompat>
   );
 }
@@ -402,9 +400,9 @@ function SuccessView({
         <Wallet size={16} color={T.TEXT_2} />
         <Text style={successStyles.balanceText}>New balance: {formatNaira(balance)}</Text>
       </View>
-      <TouchableOpacity style={successStyles.btn} onPress={onDone} activeOpacity={0.85}>
+      <MsPressable style={successStyles.btn} onPress={onDone}>
         <Text style={successStyles.btnLabel}>Back to Wallet</Text>
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 }
@@ -680,11 +678,10 @@ export default function WalletScreen() {
                 {transactions.length > 2 && (
                   <>
                     <View style={styles.txDivider} />
-                    <TouchableOpacity
+                    <MsPressable
                       style={styles.txToggleBtn}
                       onPress={() => setTransactionsExpanded((v) => !v)}
-                      activeOpacity={0.7}
-                    >
+                                  >
                       <Text style={styles.txToggleLabel}>
                         {transactionsExpanded
                           ? 'Collapse'
@@ -693,7 +690,7 @@ export default function WalletScreen() {
                       {transactionsExpanded
                         ? <CaretUp size={14} color={T.TEXT_2} weight="bold" />
                         : <CaretDown size={14} color={T.TEXT_2} weight="bold" />}
-                    </TouchableOpacity>
+                    </MsPressable>
                   </>
                 )}
               </View>
@@ -750,11 +747,10 @@ export default function WalletScreen() {
             <Text style={styles.infoText}>Minimum deposit is ₦500. Funds appear within minutes after transfer confirmation.</Text>
           </View>
 
-          <TouchableOpacity
+          <MsPressable
             style={[styles.addBtn, (initiating || effectiveAmount < 500) && styles.addBtnDisabled]}
             onPress={handleAddMoney}
-            activeOpacity={0.85}
-            disabled={initiating || effectiveAmount < 500}
+                disabled={initiating || effectiveAmount < 500}
           >
             {initiating ? (
               <ActivityIndicator color={T.BG} size="small" />
@@ -763,7 +759,7 @@ export default function WalletScreen() {
                 Add {effectiveAmount >= 500 ? formatNaira(effectiveAmount) : 'Money'} to Wallet
               </Text>
             )}
-          </TouchableOpacity>
+          </MsPressable>
 
           <Text style={styles.secureText}>Secure payment via Paystack bank transfer</Text>
 

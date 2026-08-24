@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -143,7 +142,7 @@ export default function VerifyEmailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingTop: insets.top + 28,
             paddingBottom: insets.bottom + 48,
           },
         ]}
@@ -151,13 +150,13 @@ export default function VerifyEmailScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Back */}
-        <TouchableOpacity
+        <MsPressable
           onPress={() => router.back()}
           style={styles.backBtn}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color="#FFFFFF" />
-        </TouchableOpacity>
+        </MsPressable>
 
         <Animated.View style={[styles.inner, contentStyle]}>
           {/* Icon */}
@@ -198,32 +197,31 @@ export default function VerifyEmailScreen() {
           )}
 
           {/* Verify button */}
-          <TouchableOpacity
+          <MsPressable
             style={[
               styles.verifyBtn,
               (!completed || loading) && styles.verifyBtnDisabled,
             ]}
             onPress={handleVerify}
             disabled={loading || !completed}
-            activeOpacity={0.85}
           >
             {loading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <Text style={styles.verifyBtnLabel}>Verify Email</Text>
             )}
-          </TouchableOpacity>
+          </MsPressable>
 
           {/* Resend */}
           <View style={styles.resendSection}>
             <Text style={styles.resendPrompt}>Didn't receive the code?</Text>
-            <TouchableOpacity onPress={handleResend} disabled={!canResend}>
+            <MsPressable onPress={handleResend} disabled={!canResend}>
               <Text style={[styles.resendBtn, !canResend && styles.resendDisabled]}>
                 {canResend
                   ? 'Resend Code'
                   : `Resend in 0:${countdown.toString().padStart(2, '0')}`}
               </Text>
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </Animated.View>
       </KeyboardAwareScrollViewCompat>

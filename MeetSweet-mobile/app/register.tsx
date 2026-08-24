@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { Spinner } from 'heroui-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -237,19 +236,18 @@ const Step1 = React.memo(function Step1({
           <Text style={styles.fieldLabel}>Select Country</Text>
           <View style={{ backgroundColor: INPUT_BG, borderRadius: 16, overflow: 'hidden' }}>
             {COUNTRY_CODES.map((c, i) => (
-              <TouchableOpacity
+              <MsPressable
                 key={c.code}
                 style={[
                   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, gap: 10 },
                   i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
                 ]}
                 onPress={() => { onChange({ countryCodeIdx: i }); setShowCountryPicker(false); }}
-                activeOpacity={0.7}
-              >
+                      >
                 <Text style={{ fontSize: 18 }}>{c.flag}</Text>
                 <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Poppins_400Regular', color: '#FFFFFF' }}>{c.name}</Text>
                 <Text style={{ fontSize: 14, fontFamily: 'Poppins_500Medium', color: 'rgba(255,255,255,0.4)' }}>{c.code}</Text>
-              </TouchableOpacity>
+              </MsPressable>
             ))}
           </View>
         </View>
@@ -323,14 +321,13 @@ const Step1 = React.memo(function Step1({
             <FieldLabel>Phone Number</FieldLabel>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {/* Country code selector */}
-              <TouchableOpacity
+              <MsPressable
                 style={[styles.inputWrapper, { width: 90, justifyContent: 'center', gap: 4, paddingHorizontal: 12 }]}
                 onPress={() => setShowCountryPicker(true)}
-                activeOpacity={0.7}
-              >
+                      >
                 <Text style={{ fontSize: 14 }}>{country.flag}</Text>
                 <Text style={{ fontSize: 13, fontFamily: 'Poppins_500Medium', color: '#FFFFFF' }}>{country.code}</Text>
-              </TouchableOpacity>
+              </MsPressable>
 
               {/* Phone digits input — flex:1 keeps the row full-width so it
                   never collapses into the tiny circular pill seen before. */}
@@ -379,9 +376,9 @@ const Step1 = React.memo(function Step1({
       )}
 
       {!showCountryPicker && (
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }} activeOpacity={0.85}>
+        <MsPressable style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }}>
           <Text style={styles.btnLabel}>Continue</Text>
-        </TouchableOpacity>
+        </MsPressable>
       )}
     </View>
   );
@@ -439,9 +436,9 @@ const Step2 = React.memo(function Step2({
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
-            <TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <MsPressable onPress={() => setShowPw((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               {showPw ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
-            </TouchableOpacity>
+            </MsPressable>
           </InputRow>
           {data.password.length > 0 && strength && (
             <View style={styles.strengthRow}>
@@ -474,9 +471,9 @@ const Step2 = React.memo(function Step2({
               style={[styles.input, { flex: 1 }]}
               placeholderTextColor="rgba(255,255,255,0.18)"
             />
-            <TouchableOpacity onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <MsPressable onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               {showConfirm ? <EyeSlash size={20} color="rgba(255,255,255,0.35)" /> : <Eye size={20} color="rgba(255,255,255,0.35)" />}
-            </TouchableOpacity>
+            </MsPressable>
           </InputRow>
           <FieldErr msg={errors.confirm} />
         </View>
@@ -500,9 +497,9 @@ const Step2 = React.memo(function Step2({
         </View>
       </View>
 
-      <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }} activeOpacity={0.85}>
+      <MsPressable style={styles.primaryBtn} onPress={() => { if (validate()) onNext(); }}>
         <Text style={styles.btnLabel}>Continue</Text>
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 });
@@ -568,7 +565,7 @@ const Step3 = React.memo(function Step3({
 
       {/* Avatar picker */}
       <View style={styles.avatarSection}>
-        <TouchableOpacity onPress={pickImage} style={styles.avatarWrap} activeOpacity={0.8}>
+        <MsPressable onPress={pickImage} style={styles.avatarWrap}>
           {data.avatarUri ? (
             <Image source={{ uri: data.avatarUri }} style={styles.avatarImg} />
           ) : (
@@ -579,7 +576,7 @@ const Step3 = React.memo(function Step3({
           <View style={styles.avatarBadge}>
             <Camera size={16} color="#000000" />
           </View>
-        </TouchableOpacity>
+        </MsPressable>
         <Text style={styles.avatarHint}>Tap to add a profile photo</Text>
       </View>
 
@@ -610,18 +607,17 @@ const Step3 = React.memo(function Step3({
         </View>
       )}
 
-      <TouchableOpacity
+      <MsPressable
         style={[styles.primaryBtn, loading && styles.primaryBtnLoading]}
         onPress={onNext}
         disabled={loading}
-        activeOpacity={0.85}
       >
         {loading ? (
           <Spinner size="sm" color="#FFFFFF" />
         ) : (
           <Text style={styles.btnLabel}>Complete</Text>
         )}
-      </TouchableOpacity>
+      </MsPressable>
     </View>
   );
 });
@@ -770,7 +766,7 @@ export default function RegisterScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + (Platform.OS === 'web' ? 72 : 28),
+            paddingTop: insets.top + 28,
             paddingBottom: insets.bottom + 48,
           },
         ]}
@@ -778,13 +774,13 @@ export default function RegisterScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Back */}
-        <TouchableOpacity
+        <MsPressable
           onPress={() => (step === 1 ? router.back() : transitionTo((step - 1) as StepNum))}
           style={styles.backBtn}
           hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
         >
           <ArrowLeft size={22} color="#FFFFFF" />
-        </TouchableOpacity>
+        </MsPressable>
 
         {/* Screen title */}
         <View style={styles.screenHead}>
@@ -833,9 +829,9 @@ export default function RegisterScreen() {
         {step === 1 && (
           <View style={styles.signinRow}>
             <Text style={styles.signinText}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => router.push('/auth')} activeOpacity={0.7}>
+            <MsPressable onPress={() => router.push('/auth')}>
               <Text style={styles.signinLink}>Log In</Text>
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         )}
       </KeyboardAwareScrollViewCompat>
@@ -930,9 +926,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-    ...(Platform.OS === 'web'
-      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
-      : {}),
+
   },
   fieldError: {
     fontFamily: 'Poppins_400Regular',
@@ -1033,9 +1027,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     minHeight: 92,
     backgroundColor: 'transparent',
-    ...(Platform.OS === 'web'
-      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
-      : {}),
+
   },
   charCount: {
     fontSize: 12,

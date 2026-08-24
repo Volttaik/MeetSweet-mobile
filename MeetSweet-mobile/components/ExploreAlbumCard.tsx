@@ -15,9 +15,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import {
   SealCheck,
   Heart,
@@ -135,14 +135,13 @@ export function ExploreAlbumCard({
                     <Text style={styles.lockPrice}>₦{album.price.toLocaleString()}</Text>
                   </View>
                 ) : null}
-                <TouchableOpacity
+                <MsPressable
                   style={styles.unlockButton}
                   onPress={onUnlockPress ?? onPress}
-                  activeOpacity={0.85}
-                >
+                  >
                   <Lock size={12} color={T.BG} weight="bold" />
                   <Text style={styles.unlockText}>Purchase</Text>
-                </TouchableOpacity>
+                </MsPressable>
               </View>
             )}
 
@@ -159,10 +158,9 @@ export function ExploreAlbumCard({
 
             {/* Creator chip + premium pill — bottom overlay */}
             <View style={styles.imageFooter} pointerEvents="box-none">
-              <TouchableOpacity
+              <MsPressable
                 style={styles.creatorChip}
                 onPress={onCreatorPress ?? onPress}
-                activeOpacity={0.85}
                 hitSlop={6}
               >
                 <MsAvatar
@@ -179,7 +177,7 @@ export function ExploreAlbumCard({
                     <SealCheck size={13} color={T.TEXT} weight="fill" />
                   )}
                 </View>
-              </TouchableOpacity>
+              </MsPressable>
 
               {album.requiresPurchase && !album.isUnlockedByMe && (
                 <View style={styles.premiumPill}>
@@ -223,24 +221,22 @@ export function ExploreAlbumCard({
                 <Text style={styles.footerMeta}>{album.itemCount} items in collection</Text>
               </View>
               {album.requiresPurchase && !album.isUnlockedByMe ? (
-                <TouchableOpacity
+                <MsPressable
                   style={styles.ctaUnlock}
                   onPress={onUnlockPress ?? onPress}
-                  activeOpacity={0.85}
-                >
+                  >
                   <Lock size={11} color="#fff" weight="bold" />
                   <Text style={styles.ctaUnlockText}>
                     {album.price ? `Purchase · ₦${album.price.toLocaleString()}` : 'Purchase'}
                   </Text>
-                </TouchableOpacity>
+                </MsPressable>
               ) : (
-                <TouchableOpacity
+                <MsPressable
                   style={styles.ctaView}
                   onPress={onPress}
-                  activeOpacity={0.85}
-                >
+                  >
                   <Text style={styles.ctaViewText}>View all</Text>
-                </TouchableOpacity>
+                </MsPressable>
               )}
             </View>
           </View>

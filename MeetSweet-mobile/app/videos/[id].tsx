@@ -525,7 +525,12 @@ export default function VideoWatchScreen() {
         visible={shareVisible}
         contentType="video"
         contentId={post.id}
-        title={post.caption || 'Video'}
+        title="Share Video"
+        preview={{
+          title: post.title || post.caption || post.author.name || 'Video',
+          subtitle: post.author.username ? `by @${post.author.username}` : undefined,
+          imageUrl: post.thumbnailUrl || undefined,
+        }}
         onClose={() => setShareVisible(false)}
       />
 

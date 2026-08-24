@@ -27,8 +27,9 @@ interface Props {
  * searchable/trending UI and returns a GIPHY media object; this component only
  * converts the selected rendition into MeetSweet's attachment contract.
  *
- * GIF and sticker dialogs are deliberately configured with different content
- * types. This component never opens the device emoji keyboard or image picker.
+ * Supports GIFs and animated stickers (kind 'sticker'). Sticker renditions
+ * are animated WebP — they render through expo-image, which decodes animated
+ * WebP natively.
  */
 export function MsGifPicker({ visible, kind = 'gif', onClose, onPick }: Props) {
   const kindRef = useRef(kind);
@@ -73,13 +74,15 @@ export function MsGifPicker({ visible, kind = 'gif', onClose, onPick }: Props) {
 
   useEffect(() => {
     if (!visible || !configureNativeGiphy()) return;
+    // Both tabs are always available in the dialog; `selectedContentType`
+    // opens on the tab the caller asked for (GIF vs Sticker).
     GiphyDialog.configure({
-      mediaTypeConfig: [kind === 'gif' ? GiphyContentType.Gif : GiphyContentType.Sticker],
-      selectedContentType: kind === 'gif' ? GiphyContentType.Gif : GiphyContentType.Sticker,
+      mediaTypeConfig: [GiphyContentType.Gif, GiphyContentType.Sticker],
+      selectedContentType: kind === 'sticker' ? GiphyContentType.Sticker : GiphyContentType.Gif,
       theme: GiphyThemePreset.Dark,
       showConfirmationScreen: false,
       showSuggestionsBar: true,
-      showCheckeredBackground: kind === 'sticker',
+      showCheckeredBackground: false,
     });
     GiphyDialog.show();
   }, [visible, kind]);

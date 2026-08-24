@@ -7,9 +7,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -329,6 +329,15 @@ export default function ShortsScreen() {
           contentType="short"
           contentId={shareId}
           title="Share Short"
+          preview={(() => {
+            const item = shorts.find((s) => s.id === shareId);
+            if (!item) return undefined;
+            return {
+              title: item.caption || item.creator.name || 'Short',
+              subtitle: item.creator.username ? `by @${item.creator.username}` : undefined,
+              imageUrl: item.thumbnailUrl || undefined,
+            };
+          })()}
           onClose={() => setShareId(null)}
         />
       ) : null}

@@ -2,8 +2,17 @@
  * MsShimmer — reusable shimmer skeleton component with reflection animation.
  * The shimmer sweeps left-to-right, matching native app polish standards.
  */
-import React, { useEffect, useRef } from 'react';
-import { Animated, Dimensions, StyleSheet, View, type ViewStyle } from 'react-native';
+import React, { useEffect } from 'react';
+import { Dimensions, StyleSheet, View, type ViewStyle } from 'react-native';
+import Reanimated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { T } from '@/constants/theme';
 
@@ -24,28 +33,34 @@ const GRADIENT_DEFAULT = ['transparent', 'rgba(255,255,255,0.07)', 'rgba(255,255
 const GRADIENT_SUBTLE  = ['transparent', 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.03)', 'transparent'];
 
 export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style, subtle = false }: MsShimmerProps) {
-  const anim = useRef(new Animated.Value(0)).current;
+  // Continuous sweep driven by a Reanimated worklet on the UI thread — no
+  // JS-thread Animated.loop orchestration.
+  const progress = useSharedValue(0);
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: subtle ? 1500 : 1100,
-        useNativeDriver: true,
-      }),
+    progress.value = withRepeat(
+      withTiming(1, { duration: subtle ? 1500 : 1100, easing: Easing.linear }),
+      -1,
+      false,
     );
-    loop.start();
-    return () => loop.stop();
-  }, [subtle]);
+    return () => cancelAnimation(progress);
+  }, [subtle, progress]);
 
-  const translateX = anim.interpolate({
-    inputRange: [0, 1],
-    // Subtle: a shorter, gentler sweep (no full-screen travel) so dense chat
-    // rows don't feel like they're sliding around.
-    outputRange: subtle
-      ? [-SCREEN_WIDTH * 0.6, SCREEN_WIDTH * 1.1]
-      : [-SCREEN_WIDTH, SCREEN_WIDTH * 1.5],
-  });
+  const sweepStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        // Subtle: a shorter, gentler sweep (no full-screen travel) so dense
+        // chat rows don't feel like they're sliding around.
+        translateX: interpolate(
+          progress.value,
+          [0, 1],
+          subtle
+            ? [-SCREEN_WIDTH * 0.6, SCREEN_WIDTH * 1.1]
+            : [-SCREEN_WIDTH, SCREEN_WIDTH * 1.5],
+        ),
+      },
+    ],
+  }));
 
   return (
     <View
@@ -54,19 +69,14 @@ export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style
         style,
       ]}
     >
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          { transform: [{ translateX }] },
-        ]}
-      >
+      <Reanimated.View style={[StyleSheet.absoluteFill, sweepStyle]}>
         <LinearGradient
           colors={(subtle ? GRADIENT_SUBTLE : GRADIENT_DEFAULT) as any}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={{ width: SCREEN_WIDTH, height: '100%' }}
         />
-      </Animated.View>
+      </Reanimated.View>
     </View>
   );
 }

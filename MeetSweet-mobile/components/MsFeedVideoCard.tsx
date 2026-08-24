@@ -12,10 +12,10 @@ import {
   StyleSheet,
   StyleProp,
   Text,
-  TouchableOpacity,
   View,
   ViewStyle,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -98,8 +98,7 @@ function ScalePressable({
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
     <Animated.View style={[animStyle, style]}>
-      <TouchableOpacity
-        activeOpacity={1}
+      <MsPressable
         onPress={onPress}
         onLongPress={onLongPress}
         onPressIn={() => {
@@ -111,7 +110,7 @@ function ScalePressable({
         delayLongPress={400}
       >
         {children}
-      </TouchableOpacity>
+      </MsPressable>
     </Animated.View>
   );
 }
@@ -181,14 +180,13 @@ export function MsFeedVideoCard({
 
       {/* ── Info row (matches MsPostCard author row style) ── */}
       <View style={[styles.infoRow, compact && styles.infoRowCompact]}>
-        <TouchableOpacity
+        <MsPressable
           onPress={(e) => {
             e?.stopPropagation?.();
             (onCreatorPress ?? onPress)();
           }}
           style={styles.creatorLeft}
-          activeOpacity={0.7}
-          hitSlop={8}
+            hitSlop={8}
         >
           <MsAvatar
             size={compact ? 24 : 34}
@@ -211,7 +209,7 @@ export function MsFeedVideoCard({
               </Text>
             ) : null}
           </View>
-        </TouchableOpacity>
+        </MsPressable>
 
         {/* Stats — right side */}
         <View style={styles.stats}>

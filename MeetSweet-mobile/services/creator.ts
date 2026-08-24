@@ -77,13 +77,16 @@ export async function becomeCreator(): Promise<{ is_creator: boolean }> {
  * Initiate the ₦1,000 creator activation payment via Paystack.
  * Returns the authorization_url for the Paystack checkout.
  */
-export async function initiateActivation(): Promise<{
+export async function initiateActivation(email?: string | null): Promise<{
   transactionId: string;
   reference: string;
   authorizationUrl: string;
   amount: number;
 }> {
-  return authedRequest('/creator/activation', { method: 'POST' });
+  return authedRequest('/creator/activation', {
+    method: 'POST',
+    body: email ? JSON.stringify({ email }) : undefined,
+  });
 }
 
 /**

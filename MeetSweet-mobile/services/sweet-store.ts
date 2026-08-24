@@ -28,7 +28,7 @@ import {
   type ChatRoom,
   type RoomMessage,
 } from '@/services/room-service';
-import { cacheChatRooms, removeCachedRoom } from '@/services/chat-cache';
+import { cacheChatRooms, cacheMessages, removeCachedRoom } from '@/services/chat-cache';
 import { useEffect, useState } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,7 +54,8 @@ function sortRooms(rooms: ChatRoom[]): ChatRoom[] {
 }
 
 function roomIdOf(event: RealtimeEvent): string {
-  return String(event.channel ?? '').replace(/^chat:/, '');
+  const payloadRoomId = (event.payload as { roomId?: unknown })?.roomId;
+  return String(event.roomId ?? payloadRoomId ?? String(event.channel ?? '').replace(/^chat:/, ''));
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -170,22 +171,39 @@ class SweetStore {
     if (!roomId) return;
     const raw = (event.payload as { message?: unknown })?.message;
     if (!raw) return;
-    const msg = normalizeMessage(raw);
+    const msg = normalizeMessage(raw, this.currentUserId ?? undefined);
     if (!msg?.id) return;
+    // The user channel is active for the whole authenticated session. Persist
+    // incoming messages here so a room opened later can render from the local
+    // replica without requiring a refresh or a history fallback.
+    if (this.currentUserId) {
+      cacheMessages(roomId, [msg], this.currentUserId).catch(() => {});
+    }
 
     // Update the room's preview if we know the room (newest message wins).
     const room = this.rooms.get(roomId);
     if (room) {
       const incomingAt = new Date(msg.createdAt).getTime();
       const currentAt = new Date(room.lastMessageAt ?? 0).getTime();
-      if (incomingAt >= currentAt) {
+      const isNewer = incomingAt > currentAt || (
+        incomingAt === currentAt && msg.id > String(room.lastMessageId ?? '')
+      );
+      if (isNewer) {
+        const isOtherSender = msg.sender?.id && msg.sender.id !== this.currentUserId;
+        const unreadCount = isOtherSender
+          ? (this.unread.get(roomId) ?? room.unreadCount ?? 0) + 1
+          : (this.unread.get(roomId) ?? room.unreadCount ?? 0);
         this.rooms.set(roomId, {
           ...room,
-          lastMessageBody: msg.body ?? room.lastMessageBody,
+          lastMessageId: msg.id,
+          lastMessageBody: msg.body ?? null,
           lastMessageAt: msg.createdAt ?? room.lastMessageAt,
-          lastMessageMediaType: (msg.mediaType ?? room.lastMessageMediaType ?? null) as ChatRoom['lastMessageMediaType'],
-          lastMessageSenderId: msg.sender?.id ?? room.lastMessageSenderId,
+          lastMessageMediaType: (msg.mediaType ?? null) as ChatRoom['lastMessageMediaType'],
+          lastMessageSenderId: msg.sender?.id ?? null,
+          unreadCount,
         });
+        this.unread.set(roomId, unreadCount);
+        cacheChatRooms([this.rooms.get(roomId)!], this.currentUserId).catch(() => {});
       }
     }
     this.notify();

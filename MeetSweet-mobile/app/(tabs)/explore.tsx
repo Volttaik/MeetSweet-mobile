@@ -10,9 +10,10 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -140,6 +141,44 @@ const toggleStyles = StyleSheet.create({
 });
 
 // ─── Map explore ContentPreview + Creator → Post shape for MsPostCard ─────────
+
+/**
+ * FeedPostRow — memoized post row so scrolling/state changes don't re-render
+ * every visible card. Navigation closures are created here, per row, only when
+ * the row actually re-renders; the parent passes stable callbacks + data.
+ */
+const FeedPostRow = React.memo(function FeedPostRow({
+  item,
+  onAuthorPress,
+  onCreatorHidden,
+  isSubscribed,
+}: {
+  item: { type: 'post'; post: Post; id: string; contentType?: string | null };
+  onAuthorPress: (creatorId: string, creatorHandle?: string) => void;
+  onCreatorHidden: (creatorId: string) => void;
+  isSubscribed: boolean;
+}) {
+  const navToContent = () => {
+    if (item.contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: item.id } });
+    } else if (item.post.mediaType === 'video') {
+      router.push(`/videos/${item.id}`);
+    } else {
+      router.push(`/post/${item.id}`);
+    }
+  };
+  return (
+    <MsPostCard
+      post={item.post}
+      onPress={navToContent}
+      onMediaPress={navToContent}
+      onAuthorPress={() => onAuthorPress(item.post.author.id, item.post.author.username)}
+      tier={item.post.tier as import('@/constants/tiers').ContentTier | undefined}
+      onCreatorHidden={onCreatorHidden}
+      subscribedToAuthor={isSubscribed}
+    />
+  );
+});
 
 function previewToPost(preview: import('@/lib/api-client-react').ContentPreview, creator: import('@/lib/api-client-react').Creator): Post {
   const isVideo = preview.kind === 'video' || preview.kind === 'audio';
@@ -630,31 +669,20 @@ export default function ExploreScreen() {
       }
     };
 
-    const renderFeedItem = ({ item }: { item: FeedItem }) => {
-      if (item.type === 'post') {
-        const navToContent = () => {
-          if (item.contentType === 'short') {
-            router.push({ pathname: '/shorts', params: { startId: item.id } });
-          } else if (item.post.mediaType === 'video') {
-            router.push(`/videos/${item.id}`);
-          } else {
-            router.push(`/post/${item.id}`);
-          }
-        };
-        return (
-          <MsPostCard
-            post={item.post}
-            onPress={navToContent}
-            onMediaPress={navToContent}
-            onAuthorPress={() => navToCreatorId(item.post.author.id, item.post.author.username)}
-            tier={item.post.tier as import('@/constants/tiers').ContentTier | undefined}
-            onCreatorHidden={(creatorId) => markCreatorHidden(creatorId)}
-            subscribedToAuthor={isSubscribedCreator(item.post.author.id)}
-          />
-        );
-      }
+    const renderFeedItem = useCallback(
+      ({ item }: { item: FeedItem }) => {
+        if (item.type === 'post') {
+          return (
+            <FeedPostRow
+              item={item}
+              onAuthorPress={navToCreatorId}
+              onCreatorHidden={markCreatorHidden}
+              isSubscribed={isSubscribedCreator(item.post.author.id)}
+            />
+          );
+        }
 
-      if (item.type === 'album-row') {
+        if (item.type === 'album-row') {
         return (
           <View style={styles.albumRowWrap}>
             <View style={styles.albumRowHeader}>
@@ -681,17 +709,20 @@ export default function ExploreScreen() {
         );
       }
 
-      return null;
-    };
+        return null;
+      },
+      [navToCreatorId, markCreatorHidden, isSubscribedCreator],
+    );
 
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
         {pageHeader}
         {stickyControls}
 
-        <FlatList
+        <FlashList
           data={feedItems}
           keyExtractor={(item) => item.id}
+          getItemType={(item) => item.type}
           renderItem={renderFeedItem}
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
@@ -722,13 +753,8 @@ export default function ExploreScreen() {
           onEndReachedThreshold={0.4}
           contentContainerStyle={styles.feedListContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={T.TEXT} />
-          }
-          removeClippedSubviews
-          windowSize={5}
-          maxToRenderPerBatch={4}
-          initialNumToRender={5}
+          refreshing={refreshing}
+          onRefresh={refresh}
         />
 
         <MsActionSheet

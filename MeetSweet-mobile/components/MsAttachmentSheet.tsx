@@ -1,29 +1,29 @@
 /**
  * MsAttachmentSheet — media-selection action sheet, 4-column grid.
  *
- * GIFs and stickers use the official native GIPHY SDK. They are separate
- * content types and both return binary media attachments; neither uses the
- * device emoji keyboard or the photo picker.
+ * Presentation is a native bottom sheet (@gorhom/bottom-sheet) driven by
+ * Reanimated worklets on the UI thread — no JS-thread Modal animation, no
+ * web-style transitions. The GIF/sticker picker it launches is the official
+ * native GIPHY iOS/Android SDK.
  *
- * Deep-black, high-contrast bottom sheet. Solid surface (no glass / no blur /
- * no translucent backdrop effects). Smooth spring slide-up and timing slide-
- * down. Safe-area aware and stable across keyboard open/close and light/dark
- * system settings. Only the presentation is custom — every picker action is
- * unchanged.
+ * Solid deep-black surface (no glass / no blur / no translucent backdrop).
+ * Safe-area aware and stable across keyboard open/close. Only the
+ * presentation is custom — every picker action is unchanged.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Easing,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
@@ -35,14 +35,12 @@ import {
   Camera,
   Waveform,
   Gif as GifIcon,
-  SmileySticker,
+  Sticker as StickerIcon,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { MsPressable } from '@/components/MsPressable';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { MsGifPicker, type GiphyPickResult } from '@/components/chat/MsGifPicker';
-
-const { height: SCREEN_H } = Dimensions.get('window');
 
 /**
  * Resolve a reliable MIME type for a picked image asset. expo-image-picker
@@ -77,11 +75,34 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onResult: (result: AttachmentResult) => void;
-  /** Called when the user picks a native GIPHY sticker. */
-  onSticker?: (result: AttachmentResult) => void;
 }
 
-export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Props) {
+export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const insets = useSafeAreaInsets();
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [gifPickerKind, setGifPickerKind] = useState<'gif' | 'sticker'>('gif');
+
+  // Present/dismiss natively when the parent toggles `visible`. Dismissals
+  // initiated inside the sheet (backdrop tap / swipe down) report back
+  // through onDismiss.
+  useEffect(() => {
+    if (visible) sheetRef.current?.present();
+    else sheetRef.current?.dismiss();
+  }, [visible]);
+
+  const renderBackdrop = useMemo(
+    () => (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.55}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  );
 
   const pickImage = async () => {
     onClose();
@@ -183,12 +204,17 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
     }
   };
 
-  const [showStickerPicker, setShowStickerPicker] = useState(false);
-  const [showGifPicker, setShowGifPicker] = useState(false);
-
   const pickGif = async () => {
     onClose();
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setGifPickerKind('gif');
+    setShowGifPicker(true);
+  };
+
+  const pickSticker = async () => {
+    onClose();
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setGifPickerKind('sticker');
     setShowGifPicker(true);
   };
 
@@ -196,17 +222,6 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
     setShowGifPicker(false);
     onResult({
       type: picked.kind,
-      uri: picked.uri,
-      mimeType: picked.mimeType,
-      fileName: picked.fileName,
-      fileSize: picked.fileSize,
-    });
-  };
-
-  const handleStickerPick = (picked: GiphyPickResult) => {
-    setShowStickerPicker(false);
-    onSticker?.({
-      type: 'sticker',
       uri: picked.uri,
       mimeType: picked.mimeType,
       fileName: picked.fileName,
@@ -240,74 +255,28 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
   const OPTIONS = [
     { icon: ImageIcon,     label: 'Photo',    color: '#4CAF82', onPress: pickImage    },
     { icon: GifIcon,       label: 'GIF',      color: '#FF4D8D', onPress: pickGif      },
-    { icon: SmileySticker, label: 'Sticker',  color: '#F59E0B', onPress: () => { onClose(); setShowStickerPicker(true); } },
+    { icon: StickerIcon,   label: 'Sticker',  color: '#FFB74D', onPress: pickSticker  },
     { icon: Video,         label: 'Video',    color: '#9B6ECA', onPress: pickVideo    },
     { icon: Camera,        label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
     { icon: Waveform,      label: 'Audio',    color: '#FF9800', onPress: pickAudio    },
     { icon: File,          label: 'Document', color: '#2196F3', onPress: pickDocument },
   ];
 
-  const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(SCREEN_H)).current;
-  const bgAnim    = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 24,
-          stiffness: 220,
-          mass: 0.9,
-        }),
-        Animated.timing(bgAnim, {
-          toValue: 1,
-          duration: 240,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: SCREEN_H,
-          duration: 200,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(bgAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible, slideAnim, bgAnim]);
-
   const paddingBottom = Math.max(insets.bottom, 16);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
-      {/* Solid dim backdrop (no blur) */}
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.55)', opacity: bgAnim }]}
+    <>
+      <BottomSheetModal
+        ref={sheetRef}
+        index={0}
+        snapPoints={['auto']}
+        enableDynamicSizing
+        backdropComponent={renderBackdrop}
+        backgroundStyle={s.surface}
+        handleIndicatorStyle={s.handle}
+        onDismiss={onClose}
       >
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-      </Animated.View>
-
-      {/* Deep-black sheet */}
-      <Animated.View
-        style={[s.sheetOuter, { transform: [{ translateY: slideAnim }] }]}
-      >
-        <View style={[s.surface, { paddingBottom }]}>
-          <View style={s.handle} />
+        <BottomSheetView style={[s.content, { paddingBottom }]}>
           <Text style={s.title}>Share</Text>
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -328,58 +297,36 @@ export function MsAttachmentSheet({ visible, onClose, onResult, onSticker }: Pro
               </MsPressable>
             ))}
           </ScrollView>
-        </View>
-      </Animated.View>
+        </BottomSheetView>
+      </BottomSheetModal>
 
-      {/* Official native GIPHY GIF dialog. */}
+      {/* Official native GIPHY dialog (GIFs + animated stickers). */}
       <MsGifPicker
         visible={showGifPicker}
-        kind="gif"
+        kind={gifPickerKind}
         onClose={() => setShowGifPicker(false)}
         onPick={handleGifPick}
       />
-
-      {/* Official native GIPHY sticker dialog. */}
-      <MsGifPicker
-        visible={showStickerPicker}
-        kind="sticker"
-        onClose={() => setShowStickerPicker(false)}
-        onPick={handleStickerPick}
-      />
-    </Modal>
+    </>
   );
 }
 
 const s = StyleSheet.create({
-  sheetOuter: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    overflow: 'hidden',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 22,
-    elevation: 24,
-  },
   // Solid deep-black surface — no translucency, no blur.
   surface: {
     backgroundColor: '#000000',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 12,
-    paddingHorizontal: 24,
   },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.22)',
-    alignSelf: 'center',
-    marginBottom: 22,
+  },
+  content: {
+    paddingTop: 12,
+    paddingHorizontal: 24,
   },
   title: {
     fontSize: 17,

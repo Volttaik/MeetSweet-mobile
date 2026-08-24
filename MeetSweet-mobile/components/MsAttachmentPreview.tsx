@@ -8,7 +8,7 @@
  * - Documents: rich file card
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -18,12 +18,22 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Audio } from 'expo-av';
-import { BlurView } from 'expo-blur';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import Reanimated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { dialogs } from '@/components/MsGlobalDialogs';
@@ -38,7 +48,7 @@ import {
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const { height: SCREEN_H } = Dimensions.get('window');
 
 // Pre-computed waveform bars
 const VOICE_BARS = Array.from({ length: 30 }, (_, i) =>
@@ -57,9 +67,16 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** A single waveform bar whose scaleY pulse runs as a Reanimated worklet. */
+function PlayingBar({ scale, style }: { scale: SharedValue<number>; style: any }) {
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: scale.value }] }));
+  return <Reanimated.View style={[style, animatedStyle]} />;
+}
+
 export interface PendingAttachment {
   // 'gif' is supported as a media-first type (renders through the image path);
   // the preview modal renders it with expo-image which animates GIFs.
+  // 'sticker' is the same pipeline with an animated WebP file.
   type: 'image' | 'video' | 'audio' | 'voice' | 'document' | 'gif' | 'sticker';
   uri: string;
   mimeType: string;
@@ -86,40 +103,42 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
   const [caption, setCaption] = useState('');
 
-  // Audio/voice playback
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [audioPosition, setAudioPosition] = useState(0);
+  // Audio/voice playback (expo-audio)
+  const player = useAudioPlayer(null, { updateInterval: 100 });
+  const status  = useAudioPlayerStatus(player);
+  const isPlaying  = status.playing;
+  const audioPosition = Math.floor(status.currentTime ?? 0);
 
-  // Waveform bar anims
-  const barAnims = useRef(VOICE_BARS.map(() => new Animated.Value(1))).current;
-  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
+  // Waveform bar pulse — Reanimated worklets on the UI thread
+  const barScales = useRef(VOICE_BARS.map(() => useSharedValue(1))).current;
 
   useEffect(() => {
     if (isPlaying) {
-      const stagger = barAnims.map((a, i) =>
-        Animated.loop(
-          Animated.sequence([
-            Animated.delay(i * 22),
-            Animated.timing(a, { toValue: 1.5, duration: 300 + (i % 5) * 40, useNativeDriver: true }),
-            Animated.timing(a, { toValue: 1,   duration: 300 + (i % 5) * 40, useNativeDriver: true }),
-          ]),
-        ),
-      );
-      pulseRef.current = Animated.parallel(stagger);
-      pulseRef.current.start();
+      barScales.forEach((v, i) => {
+        v.value = withRepeat(
+          withSequence(
+            withDelay(i * 22, withTiming(1.5, { duration: 300 + (i % 5) * 40, easing: Easing.inOut(Easing.sin) })),
+            withTiming(1,   { duration: 300 + (i % 5) * 40, easing: Easing.inOut(Easing.sin) }),
+          ),
+          -1,
+          false,
+        );
+      });
     } else {
-      pulseRef.current?.stop();
-      pulseRef.current = null;
-      barAnims.forEach((a) => a.setValue(1));
+      barScales.forEach((v) => { cancelAnimation(v); v.value = 1; });
     }
   }, [isPlaying]);
+
+  // Point the shared player at the current attachment whenever it changes.
+  useEffect(() => {
+    if (attachment && (attachment.type === 'audio' || attachment.type === 'voice')) {
+      player.replace(attachment.uri);
+    }
+  }, [attachment?.uri]);
 
   useEffect(() => {
     if (attachment) {
       setCaption('');
-      setIsPlaying(false);
-      setAudioPosition(0);
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -150,39 +169,20 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
   }, [!!attachment]);
 
   useEffect(() => () => {
-    pulseRef.current?.stop();
-    soundRef.current?.unloadAsync().catch(() => {});
+    barScales.forEach((v) => cancelAnimation(v));
+    player.remove();
   }, []);
 
   const togglePlayback = async () => {
     if (!attachment) return;
     try {
       if (isPlaying) {
-        await soundRef.current?.pauseAsync();
-        setIsPlaying(false);
+        player.pause();
         return;
       }
-      if (!soundRef.current) {
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: attachment.uri },
-          { shouldPlay: true },
-          (status) => {
-            if (!status.isLoaded) return;
-            setAudioPosition(Math.floor((status.positionMillis ?? 0) / 1000));
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setAudioPosition(0);
-              soundRef.current?.unloadAsync().catch(() => {});
-              soundRef.current = null;
-            }
-          },
-        );
-        soundRef.current = sound;
-      } else {
-        await soundRef.current.playAsync();
-      }
-      setIsPlaying(true);
+      await setAudioModeAsync({ playsInSilentMode: true });
+      if (status.didJustFinish) await player.seekTo(0);
+      player.play();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     } catch {
       dialogs.alert({ variant: 'error', title: 'Playback error', message: 'Could not play the audio.' });
@@ -192,8 +192,7 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
   const handleSend = () => {
     if (!attachment) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    soundRef.current?.unloadAsync().catch(() => {});
-    soundRef.current = null;
+    player.pause();
     onSend({
       ...attachment,
       caption: caption.trim() || undefined,
@@ -202,10 +201,7 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
   const handleCancel = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    soundRef.current?.stopAsync().catch(() => {});
-    soundRef.current?.unloadAsync().catch(() => {});
-    soundRef.current = null;
-    setIsPlaying(false);
+    player.pause();
     onCancel();
   };
 
@@ -220,7 +216,6 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
     : attachment.type === 'document' ? 'Document'
     : attachment.type === 'video' ? 'Video'
     : attachment.type === 'gif' ? 'GIF'
-    : attachment.type === 'sticker' ? 'Sticker'
     : 'Photo';
 
   return (
@@ -246,9 +241,9 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
 
         {/* ── Header ── */}
         <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-          <TouchableOpacity style={s.headerBtn} onPress={handleCancel} activeOpacity={0.7}>
+          <MsPressable style={s.headerBtn} onPress={handleCancel}>
             <X size={18} color={T.TEXT} />
-          </TouchableOpacity>
+          </MsPressable>
           <Text style={s.headerTitle}>{typeLabel}</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -303,42 +298,38 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
               <View style={s.waveRow}>
                 {VOICE_BARS.map((h, i) => {
                   const filled = i / VOICE_BARS.length <= progress;
-                  return (
-                    <Animated.View
-                      key={i}
-                      style={[
-                        s.waveBar,
-                        {
-                          height: h,
-                          transform: [{ scaleY: isPlaying && filled ? barAnims[i] : 1 }],
-                          backgroundColor: filled ? T.ACCENT : 'rgba(255,255,255,0.12)',
-                        },
-                      ]}
-                    />
-                  );
+                  const style = [
+                    s.waveBar,
+                    {
+                      height: h,
+                      backgroundColor: filled ? T.ACCENT : 'rgba(255,255,255,0.12)',
+                    },
+                  ];
+                  return isPlaying && filled
+                    ? <PlayingBar key={i} scale={barScales[i]} style={style} />
+                    : <View key={i} style={style} />;
                 })}
               </View>
 
               {/* Controls */}
               <View style={s.audioControls}>
-                <TouchableOpacity style={s.playBtn} onPress={togglePlayback} activeOpacity={0.8}>
+                <MsPressable style={s.playBtn} onPress={togglePlayback}>
                   {isPlaying
                     ? <Pause size={20} color="#fff" weight="fill" />
                     : <Play size={20} color="#fff" weight="fill" />
                   }
-                </TouchableOpacity>
+                </MsPressable>
                 <Text style={s.audioDuration}>
                   {isPlaying ? formatDuration(audioPosition) : formatDuration(duration)}
                 </Text>
                 {attachment.type === 'voice' && onReRecord && (
-                  <TouchableOpacity
+                  <MsPressable
                     style={s.rerecordBtn}
                     onPress={() => { handleCancel(); onReRecord(); }}
-                    activeOpacity={0.7}
                   >
                     <ArrowClockwise size={16} color={T.TEXT_2} />
                     <Text style={s.rerecordText}>Re-record</Text>
-                  </TouchableOpacity>
+                  </MsPressable>
                 )}
               </View>
             </View>
@@ -381,14 +372,14 @@ export function MsAttachmentPreview({ attachment, onSend, onCancel, onReRecord }
         {/* ── Action buttons ── */}
         <View style={s.actions}>
           {isAudio && (
-            <TouchableOpacity style={s.deleteBtn} onPress={handleCancel} activeOpacity={0.7}>
+            <MsPressable style={s.deleteBtn} onPress={handleCancel}>
               <Trash size={18} color={T.ERROR} />
-            </TouchableOpacity>
+            </MsPressable>
           )}
-          <TouchableOpacity style={s.sendBtn} onPress={handleSend} activeOpacity={0.85}>
+          <MsPressable style={s.sendBtn} onPress={handleSend}>
             <PaperPlaneRight size={18} color="#fff" weight="fill" />
             <Text style={s.sendBtnText}>Send</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </Animated.View>
     </Modal>

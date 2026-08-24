@@ -18,9 +18,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { PaperPlaneRight, Smiley, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
@@ -90,13 +90,13 @@ export function MsComposer({
           <Text style={styles.replyText} numberOfLines={1}>
             Replying to {replyTo.authorName}
           </Text>
-          <TouchableOpacity
+          <MsPressable
             onPress={replyTo.onDismiss}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={styles.replyClose}
           >
             <X size={14} color={T.TEXT_2} />
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       )}
 
@@ -105,13 +105,12 @@ export function MsComposer({
         {/* Pill: emoji icon + text input */}
         <View style={styles.pill}>
           {/* Emoji — left inside pill */}
-          <TouchableOpacity
+          <MsPressable
             style={styles.pillIcon}
             onPress={onEmojiToggle}
-            activeOpacity={0.7}
           >
             <Smiley size={22} color={T.TEXT_2} />
-          </TouchableOpacity>
+          </MsPressable>
 
           {/* Text input */}
           <TextInput
@@ -155,14 +154,13 @@ export function MsComposer({
             ]}
             pointerEvents={canSend ? 'auto' : 'none'}
           >
-            <TouchableOpacity
+            <MsPressable
               style={styles.actionBtn}
               onPress={onSend}
-              activeOpacity={0.8}
-              disabled={!canSend}
+                disabled={!canSend}
             >
               <PaperPlaneRight size={20} color="#fff" weight="fill" />
-            </TouchableOpacity>
+            </MsPressable>
           </Animated.View>
         </View>
       </View>

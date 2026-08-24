@@ -45,6 +45,8 @@ export interface CreatorProfileFull {
    *  the owner) must NOT see any of this creator's content on the profile.
    *  Authoritative from the server — never derived from local state. */
   contentLocked: boolean;
+  /** Server-authoritative account state; normal profiles have no creator UI. */
+  isCreator: boolean;
 }
 
 /**
@@ -118,6 +120,7 @@ export async function getCreatorById(usernameOrId: string): Promise<CreatorProfi
     category: rawUser.category ? String(rawUser.category) : null,
     isOnline: Boolean(rawUser.is_online ?? rawUser.isOnline ?? false),
     contentLocked: Boolean(rawUser.content_locked ?? rawUser.contentLocked ?? false),
+    isCreator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? false),
   };
 }
 

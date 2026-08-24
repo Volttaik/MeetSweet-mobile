@@ -15,9 +15,9 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -343,10 +343,9 @@ export default function AlbumScreen() {
           <Text style={styles.albumTitle}>{album.title}</Text>
 
           {/* Creator row */}
-          <TouchableOpacity
+          <MsPressable
             style={styles.creatorRow}
             onPress={() => router.push(`/creator/${album.creatorId}`)}
-            activeOpacity={0.8}
           >
             <MsAvatar
               size={34}
@@ -367,7 +366,7 @@ export default function AlbumScreen() {
               <UserCircle size={14} color={T.TEXT_2} />
               <Text style={styles.viewProfileText}>Profile</Text>
             </View>
-          </TouchableOpacity>
+          </MsPressable>
 
           {/* Description */}
           {album.description ? (
@@ -403,16 +402,15 @@ export default function AlbumScreen() {
                 Purchase all {album.itemCount} items for ₦{album.price?.toLocaleString()}.
               </Text>
             </View>
-            <TouchableOpacity
+            <MsPressable
               style={[styles.unlockButton, unlocking && { opacity: 0.6 }]}
               onPress={handleUnlock}
-              activeOpacity={0.85}
-              disabled={unlocking}
+                disabled={unlocking}
             >
               {unlocking
                 ? <ActivityIndicator size="small" color={T.BG} />
                 : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Purchase</Text></>}
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         )}
 
@@ -448,26 +446,24 @@ export default function AlbumScreen() {
         subtitle={`${album.title} · ₦${album.price?.toLocaleString()}`}
         footer={
           <View style={styles.confirmFooter}>
-            <TouchableOpacity
+            <MsPressable
               style={[styles.confirmCancel, unlocking && styles.confirmDisabled]}
               onPress={() => setConfirmVisible(false)}
               disabled={unlocking}
-              activeOpacity={0.7}
-            >
+              >
               <Text style={styles.confirmCancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </MsPressable>
+            <MsPressable
               style={[styles.confirmBuy, unlocking && styles.confirmDisabled]}
               onPress={runPurchase}
               disabled={unlocking}
-              activeOpacity={0.85}
-            >
+              >
               {unlocking ? (
                 <ActivityIndicator size="small" color={T.BG} />
               ) : (
                 <><Star size={14} color={T.BG} weight="fill" /><Text style={styles.confirmBuyLabel}>Purchase · ₦{album.price?.toLocaleString()}</Text></>
               )}
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         }
       >
@@ -491,7 +487,12 @@ export default function AlbumScreen() {
         visible={shareVisible}
         contentType="album"
         contentId={album.id}
-        title={album.title}
+        title="Share Album"
+        preview={{
+          title: album.title,
+          subtitle: album.creatorHandle ? `by @${album.creatorHandle}` : album.creatorName ? `by ${album.creatorName}` : undefined,
+          imageUrl: album.coverUrl || undefined,
+        }}
         onClose={() => setShareVisible(false)}
       />
 
@@ -505,7 +506,7 @@ export default function AlbumScreen() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Pressable
-            style={styles.previewClose}
+            style={[styles.previewClose, { top: insets.top + 12 }]}
             onPress={() => setPreviewItem(null)}
             hitSlop={12}
             accessibilityRole="button"

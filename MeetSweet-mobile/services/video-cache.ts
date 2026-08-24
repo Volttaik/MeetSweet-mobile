@@ -18,13 +18,11 @@
  * - Corruption detection (ignores and cleans up 0-byte or failed downloads).
  */
 
-import { Platform } from 'react-native';
 
 type FileSystemModule = typeof import('expo-file-system/legacy');
 let _fs: FileSystemModule | null | undefined;
 
 async function getFs(): Promise<FileSystemModule | null> {
-  if (Platform.OS === 'web') return null;
   if (_fs === undefined) {
     try {
       _fs = await import('expo-file-system/legacy');
@@ -153,7 +151,7 @@ export async function getCachedVideoFile(
   remoteUrl: string | null | undefined,
   videoId?: string,
 ): Promise<string | null> {
-  if (!remoteUrl || Platform.OS === 'web') return null;
+  if (!remoteUrl) return null;
   if (remoteUrl.startsWith('file://')) return remoteUrl;
   // Adaptive streams (HLS) must play from the network, never from a local file.
   if (!isCacheableVideo(remoteUrl)) return null;
@@ -193,7 +191,7 @@ export async function downloadAndCacheVideo(
   remoteUrl: string,
   videoId?: string,
 ): Promise<string | null> {
-  if (!remoteUrl || Platform.OS === 'web' || remoteUrl.startsWith('file://')) {
+  if (!remoteUrl || remoteUrl.startsWith('file://')) {
     return null;
   }
   if (!isCacheableVideo(remoteUrl)) return null;
@@ -258,7 +256,7 @@ export async function downloadAndCacheVideo(
  * Used for prebuffering upcoming Shorts and Feed videos.
  */
 export function preloadVideo(remoteUrl: string | null | undefined, videoId?: string): void {
-  if (!remoteUrl || Platform.OS === 'web' || remoteUrl.startsWith('file://')) return;
+  if (!remoteUrl || remoteUrl.startsWith('file://')) return;
   if (!isCacheableVideo(remoteUrl)) return;
   downloadAndCacheVideo(remoteUrl, videoId).catch(() => {});
 }

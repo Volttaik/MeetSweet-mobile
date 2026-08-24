@@ -1,15 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
   Modal,
-  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import { FlashList } from '@shopify/flash-list';
 import { Spinner } from 'heroui-native';
 import { MsShimmer, MsShimmerUserRow } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,7 +24,6 @@ import {
   Microphone,
   Paperclip,
   Sparkle,
-  SmileySticker,
   type Icon,
 } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -32,7 +31,6 @@ import { T } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
-import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
 import {
   getChatRoomList,
   getOrCreateChatRoom,
@@ -125,11 +123,10 @@ function ChatRoomRow({
   const isOtherOnline = item.otherUser?.isOnline === true;
 
   // Contextual preview label per feature doc §1.2 (media messages show vector
-  // icons + labels: Photo, GIF, Sticker, Video, Voice message, Document).
+  // icons + labels: Photo, GIF, Video, Voice message, Document).
   const previewLabel = (() => {
     if (item.lastMessageMediaType === 'image') return 'Photo';
     if (item.lastMessageMediaType === 'gif') return 'GIF';
-    if (item.lastMessageMediaType === 'sticker') return 'Sticker';
     if (item.lastMessageMediaType === 'video') return 'Video';
     if (item.lastMessageMediaType === 'audio') return 'Voice message';
     if (item.lastMessageMediaType === 'document') return 'Document';
@@ -138,7 +135,6 @@ function ChatRoomRow({
   const PreviewIcon: Icon | null =
     item.lastMessageMediaType === 'image' ? Image :
     item.lastMessageMediaType === 'gif' ? Sparkle :
-    item.lastMessageMediaType === 'sticker' ? SmileySticker :
     item.lastMessageMediaType === 'video' ? VideoCamera :
     item.lastMessageMediaType === 'audio' ? Microphone :
     item.lastMessageMediaType === 'document' ? Paperclip : null;
@@ -152,9 +148,8 @@ function ChatRoomRow({
       : previewLabel;
 
   return (
-    <TouchableOpacity
+    <MsPressable
       style={styles.convoRow}
-      activeOpacity={0.7}
       onPress={() => {
         if (suppressTapRef.current) return;
         router.push(`/chat-room/${item.chatRoomId}`);
@@ -210,7 +205,7 @@ function ChatRoomRow({
           <View style={{ width: 18 }} />
         )}
       </View>
-    </TouchableOpacity>
+    </MsPressable>
   );
 }
 
@@ -226,7 +221,6 @@ function NewMessageModal({
   const [q, setQ] = useState('');
   const [results, setResults] = useState<RoomParticipant[]>([]);
   const [searching, setSearching] = useState(false);
-  const [creatingRoom, setCreatingRoom] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSearch = (text: string) => {
@@ -250,14 +244,12 @@ function NewMessageModal({
   };
 
   const handleSelect = async (user: RoomParticipant) => {
-    setCreatingRoom(true);
     try {
       // Check the recipient's current policy before opening a room. The
       // backend repeats this check, but doing it here prevents empty rooms and
       // gives the user a useful subscription/privacy explanation.
       const access = await getCreatorMessagingSettings(user.id);
       if (!access.can_message) {
-        setCreatingRoom(false);
         if (access.who_can_message === 'subscribers') {
           dialogs.alert({
             title: 'Subscription Required',
@@ -288,7 +280,6 @@ function NewMessageModal({
         onClose();
         setQ('');
         setResults([]);
-        setCreatingRoom(false);
         dialogs.alert({
           title: 'Subscription Required',
           message: 'Subscribe to this creator before sending a message.',
@@ -300,7 +291,6 @@ function NewMessageModal({
       const message = error instanceof Error ? error.message : '';
       dialogs.alert({ variant: 'error', title: 'Could not open chat', message: message || 'Please try again.' });
     } finally {
-      setCreatingRoom(false);
     }
   };
 
@@ -309,9 +299,9 @@ function NewMessageModal({
       <View style={styles.modalBg}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Message</Text>
-          <TouchableOpacity onPress={onClose} style={styles.modalClose} activeOpacity={0.7}>
+          <MsPressable onPress={onClose} style={styles.modalClose}>
             <X size={20} color={T.TEXT} />
-          </TouchableOpacity>
+          </MsPressable>
         </View>
         <View style={styles.modalSearch}>
           <MagnifyingGlass size={15} color={T.TEXT_2} />
@@ -337,17 +327,16 @@ function NewMessageModal({
             renderItem={({ item }) => {
               const userAvatar = (item as any)?.avatarUrl as string | undefined;
               return (
-                <TouchableOpacity
+                <MsPressable
                   style={styles.userRow}
-                  activeOpacity={0.7}
-                  onPress={() => handleSelect(item)}
+                              onPress={() => handleSelect(item)}
                 >
                   <MsAvatar size={42} initials={initials(item.name)} imageUri={userAvatar} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.userName}>{item.name}</Text>
                     <Text style={styles.userHandle}>@{item.username}</Text>
                   </View>
-                </TouchableOpacity>
+                </MsPressable>
               );
             }}
           />
@@ -358,8 +347,6 @@ function NewMessageModal({
         )}
       </View>
 
-      {/* Full-screen Chat Room creation loader */}
-      <MsRoomCreationLoader visible={creatingRoom} />
     </Modal>
   );
 }
@@ -591,20 +578,18 @@ export default function MessagesScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity
+          <MsPressable
             style={styles.iconBtn}
-            activeOpacity={0.7}
-            onPress={() => setShowMenu(true)}
+                  onPress={() => setShowMenu(true)}
           >
             <DotsThreeVertical size={18} color={T.TEXT} />
-          </TouchableOpacity>
-          <TouchableOpacity
+          </MsPressable>
+          <MsPressable
             style={styles.iconBtn}
-            activeOpacity={0.7}
-            onPress={() => setShowNewMsg(true)}
+                  onPress={() => setShowNewMsg(true)}
           >
             <PencilSimple size={18} color={T.TEXT} />
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
 
@@ -619,12 +604,12 @@ export default function MessagesScreen() {
           onChangeText={setSearchText}
         />
         {searchText.length > 0 && (
-          <TouchableOpacity
+          <MsPressable
             onPress={() => setSearchText('')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <X size={14} color={T.TEXT_3} />
-          </TouchableOpacity>
+          </MsPressable>
         )}
       </View>
 
@@ -633,16 +618,15 @@ export default function MessagesScreen() {
         {MSG_TABS.map((tab) => {
           const isActive = tab === activeTab;
           return (
-            <TouchableOpacity
+            <MsPressable
               key={tab}
               style={[styles.tabChip, isActive && styles.tabChipActive]}
               onPress={() => setActiveTab(tab)}
-              activeOpacity={0.7}
-            >
+                    >
               <Text style={[styles.tabChipLabel, isActive && styles.tabChipLabelActive]}>
                 {tab}
               </Text>
-            </TouchableOpacity>
+            </MsPressable>
           );
         })}
       </View>
@@ -650,7 +634,7 @@ export default function MessagesScreen() {
       {/* Content — the list is ALWAYS mounted; the shimmer sits on top and
           crossfades out when loading completes (no hard cut / flash). */}
       <View style={{ flex: 1 }}>
-        <FlatList
+        <FlashList
           data={filtered}
           keyExtractor={(item) => item.chatRoomId}
           renderItem={({ item }) => (
@@ -659,13 +643,8 @@ export default function MessagesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 100 }}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => load(true)}
-              tintColor={T.TEXT}
-            />
-          }
+          refreshing={refreshing}
+          onRefresh={() => load(true)}
           ListEmptyComponent={
             <MsEmptyState
               title={
@@ -708,13 +687,12 @@ export default function MessagesScreen() {
       </View>
 
       {/* FAB */}
-      <TouchableOpacity
+      <MsPressable
         style={styles.fab}
-        activeOpacity={0.85}
-        onPress={() => setShowNewMsg(true)}
+          onPress={() => setShowNewMsg(true)}
       >
         <Plus size={22} color="#000000" />
-      </TouchableOpacity>
+      </MsPressable>
 
       <NewMessageModal visible={showNewMsg} onClose={() => setShowNewMsg(false)} />
 
@@ -860,9 +838,12 @@ const styles = StyleSheet.create({
   convoContent: { flex: 1, gap: 3 },
   convoName: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
   bold: { fontFamily: T.FONT.semibold },
-  convoMsg: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, flexShrink: 1 },
+  // Preview text uses medium weight — slightly bolder than the 400 base so
+  // previews are readable at 13px without becoming heavy. Unread rows step up
+  // to semibold to keep the emphasis hierarchy.
+  convoMsg: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2, flexShrink: 1 },
   convoMsgRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  convoMsgUnread: { color: T.TEXT, fontFamily: T.FONT.medium },
+  convoMsgUnread: { color: T.TEXT, fontFamily: T.FONT.semibold },
   convoRight: { alignItems: 'flex-end', gap: 4 },
   convoTime: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3 },
   unreadBadge: {

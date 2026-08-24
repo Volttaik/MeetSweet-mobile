@@ -39,7 +39,6 @@ import React, {
 } from 'react';
 import {
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   StatusBar,
@@ -48,6 +47,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Slider from '@react-native-community/slider';
 import Animated, {
   Easing,
@@ -1113,45 +1113,52 @@ export function MsVideoPlayer({
   const progressRef   = useRef(0);
   useEffect(() => { progressRef.current = progress; }, [progress]);
 
-  const shortsPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (_evt, g) => {
-        grantXRef.current = g.x0;
-        grantRatioRef.current = shortsDragRatioRef.current ?? progressRef.current;
-        shortsDragRatioRef.current = grantRatioRef.current;
-        setShortsDragRatio(grantRatioRef.current);
-      },
-      onPanResponderMove: (_evt, g) => {
-        const w = trackWidthRef.current;
-        if (w <= 0) return;
-        const ratio = Math.max(
-          0,
-          Math.min(1, grantRatioRef.current + (g.moveX - grantXRef.current) / w),
-        );
-        shortsDragRatioRef.current = ratio;
-        setShortsDragRatio(ratio);
-      },
-      onPanResponderRelease: () => {
-        const ratio = shortsDragRatioRef.current ?? progressRef.current;
-        shortsDragRatioRef.current = null;
-        setShortsDragRatio(null);
-        const d = durationRef.current;
-        if (d > 0) {
-          // Seek to the exact released position and resume playback.
-          seekToRef.current(ratio * d);
-          setIsPlaying(true);
-          // The centre icon auto-hides like any normal resume.
-          scheduleHide(shortsIconOpacity, hideTimerRef);
-        }
-      },
-      onPanResponderTerminate: () => {
-        shortsDragRatioRef.current = null;
-        setShortsDragRatio(null);
-      },
-    }),
-  ).current;
+  // Native drag gesture (gesture-handler Pan) with the same semantics as the
+  // old PanResponder: claim on touch-down, track absolute X, seek on release.
+  // `.runOnJS(true)` keeps the callback logic on the JS thread (refs + state)
+  // while gesture recognition itself runs natively on the UI thread.
+  const shortsPanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .minDistance(0)
+        .onBegin((e) => {
+          grantXRef.current = e.absoluteX;
+          grantRatioRef.current = shortsDragRatioRef.current ?? progressRef.current;
+          shortsDragRatioRef.current = grantRatioRef.current;
+          setShortsDragRatio(grantRatioRef.current);
+        })
+        .onUpdate((e) => {
+          const w = trackWidthRef.current;
+          if (w <= 0) return;
+          const ratio = Math.max(
+            0,
+            Math.min(1, grantRatioRef.current + (e.absoluteX - grantXRef.current) / w),
+          );
+          shortsDragRatioRef.current = ratio;
+          setShortsDragRatio(ratio);
+        })
+        .onEnd(() => {
+          const ratio = shortsDragRatioRef.current ?? progressRef.current;
+          shortsDragRatioRef.current = null;
+          setShortsDragRatio(null);
+          const d = durationRef.current;
+          if (d > 0) {
+            // Seek to the exact released position and resume playback.
+            seekToRef.current(ratio * d);
+            setIsPlaying(true);
+            // The centre icon auto-hides like any normal resume.
+            scheduleHide(shortsIconOpacity, hideTimerRef);
+          }
+        })
+        .onFinalize(() => {
+          shortsDragRatioRef.current = null;
+          setShortsDragRatio(null);
+        }),
+    // Created once; refs/seekToRef keep it on the current implementation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const shownRatio = shortsDragRatio ?? progress;
   const shortsHandleLeft =
@@ -1469,7 +1476,7 @@ export function MsVideoPlayer({
             pointerEvents="none"
           />
           {!isPlaying && durationMs > 0 ? (
-            <>
+            <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(140)} style={StyleSheet.absoluteFill} pointerEvents="box-none">
               {/* Tap-to-seek layer — the whole strip is scrubbable while paused.
                   A tap seeks to that spot and resumes (same as dragging the
                   handle and releasing). The handle below captures its own area. */}
@@ -1490,14 +1497,15 @@ export function MsVideoPlayer({
                 accessibilityLabel="Video seek bar"
               />
               {/* Drag handle */}
-              <View
-                {...shortsPanResponder.panHandlers}
-                style={[styles.shortsHandleTouch, { left: shortsHandleLeft }]}
-                accessibilityRole="adjustable"
-                accessibilityLabel="Seek"
-              >
-                <View style={styles.shortsHandle} />
-              </View>
+              <GestureDetector gesture={shortsPanGesture}>
+                <View
+                  style={[styles.shortsHandleTouch, { left: shortsHandleLeft }]}
+                  accessibilityRole="adjustable"
+                  accessibilityLabel="Seek"
+                >
+                  <View style={styles.shortsHandle} />
+                </View>
+              </GestureDetector>
               {/* Time bubble — shows the exact target while scrubbing */}
               {shortsDragRatio !== null ? (
                 <View
@@ -1507,7 +1515,7 @@ export function MsVideoPlayer({
                   <Text style={styles.shortsTimeBubbleText}>{fmtTime(shownRatio * durationMs)}</Text>
                 </View>
               ) : null}
-            </>
+            </Animated.View>
           ) : null}
         </View>
       ) : null}

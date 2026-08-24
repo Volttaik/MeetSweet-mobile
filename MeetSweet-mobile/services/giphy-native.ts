@@ -26,7 +26,6 @@ let configured = false;
  * key used by the retired HTTP proxy.
  */
 export function configureNativeGiphy(): boolean {
-  if (Platform.OS === 'web') return false;
   if (configured) return true;
 
   const apiKey = Platform.OS === 'android'
@@ -39,9 +38,18 @@ export function configureNativeGiphy(): boolean {
   return true;
 }
 
-function firstAsset(media: GiphyMedia): { url: string; width?: number; height?: number } | null {
+function firstAsset(
+  media: GiphyMedia,
+  kind: NativeGiphyKind,
+): { url: string; width?: number; height?: number } | null {
   const images = media.data?.images as unknown as Record<string, { url?: string; width?: string | number; height?: string | number }> | undefined;
-  const asset = images?.original ?? images?.downsized ?? images?.fixed_width ?? images?.fixed_width_small;
+  // Sticker renditions are animated WebP; `fixed_width` keeps the download
+  // small (sticker packs are tapped at full size rarely), falling back to the
+  // original rendition when the fixed sizes are missing. GIFs keep using the
+  // original/downsized renditions as before.
+  const asset = kind === 'sticker'
+    ? images?.fixed_width ?? images?.fixed_width_small ?? images?.original ?? images?.downsized
+    : images?.original ?? images?.downsized ?? images?.fixed_width ?? images?.fixed_width_small;
   if (!asset?.url) return null;
   return {
     url: asset.url,
@@ -54,7 +62,7 @@ function extensionFor(kind: NativeGiphyKind, url: string): string {
   const path = url.split('?')[0].toLowerCase();
   const match = path.match(/\.([a-z0-9]{2,5})$/);
   if (match?.[1] === 'gif' || match?.[1] === 'png' || match?.[1] === 'webp') return match[1];
-  return kind === 'gif' ? 'gif' : 'png';
+  return 'gif';
 }
 
 /** Convert an SDK-selected media object into the shared attachment contract. */
@@ -62,7 +70,7 @@ export function nativeGiphyPick(
   media: GiphyMedia,
   kind: NativeGiphyKind,
 ): { remoteUrl: string; pick: Omit<NativeGiphyPick, 'uri' | 'fileSize'> } | null {
-  const asset = firstAsset(media);
+  const asset = firstAsset(media, kind);
   if (!asset) return null;
   const extension = extensionFor(kind, asset.url);
   return {
@@ -83,7 +91,6 @@ export async function downloadNativeGiphy(
   remoteUrl: string,
   fileName: string,
 ): Promise<{ uri: string; fileSize?: number }> {
-  if (Platform.OS === 'web') throw new Error('Native GIPHY media requires a custom development client.');
   const destination = new File(Paths.cache, fileName);
   if (destination.exists && destination.size > 0) {
     return { uri: destination.uri, fileSize: destination.size };

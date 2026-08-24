@@ -1,8 +1,8 @@
 import '../global.css';
 import React, { useEffect } from 'react';
-import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { HeroUINativeProvider } from 'heroui-native';
@@ -26,7 +26,6 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
-import { MsOfflineBanner } from '@/components/MsOfflineBanner';
 import { MsToastHost } from '@/components/MsToast';
 import { MsGlobalDialogsHost } from '@/components/MsGlobalDialogs';
 import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
@@ -177,21 +176,19 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // On web, a native splash screen is not displayed and returning null here
-  // leaves the preview as a blank dark page if a font request stalls. The
-  // theme fonts have sensible fallbacks, so render the navigation immediately
-  // while the font faces finish loading.
-  if (!fontsLoaded && !fontError) {
-    // Keep the native splash behavior unchanged; the web preview must not wait
-    // indefinitely for a font resource before mounting the router.
-    if (Platform.OS !== 'web') return null;
-  }
+  // Hold the native splash until the theme fonts are ready (or failed); the
+  // fonts have sensible fallbacks, so render immediately on error.
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: T.BG }}>
+            {/* Native bottom sheets (sticker/GIF picker, action sheets) render
+                through this provider — @gorhom/bottom-sheet runs on the
+                Reanimated UI thread, no JS-driven modal animation. */}
+            <BottomSheetModalProvider>
             <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
               <KeyboardProvider>
                 <AuthProvider>
@@ -201,7 +198,6 @@ export default function RootLayout() {
                         <GlobalScreenProtection />
                         <AppServices />
                         <RootLayoutNav />
-                        <MsOfflineBanner />
                         <MsToastHost />
                         <MsGlobalDialogsHost />
                         <HapticsGate />
@@ -211,6 +207,7 @@ export default function RootLayout() {
                 </AuthProvider>
               </KeyboardProvider>
             </HeroUINativeProvider>
+            </BottomSheetModalProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
       </ErrorBoundary>

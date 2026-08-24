@@ -10,9 +10,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { SealCheck, Heart } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
@@ -103,10 +103,9 @@ export function MsImageCard({
 
         {/* Bottom: creator chip + tier badge */}
         <View style={styles.imageFooter}>
-          <TouchableOpacity
+          <MsPressable
             style={styles.creatorChip}
             onPress={onCreatorPress ?? onPress}
-            activeOpacity={0.85}
             hitSlop={6}
           >
             <MsAvatar
@@ -123,7 +122,7 @@ export function MsImageCard({
                 <SealCheck size={10} color="rgba(255,255,255,0.75)" weight="fill" />
               )}
             </View>
-          </TouchableOpacity>
+          </MsPressable>
 
           {showTierBadge && (
             <MsTierBadge tier={card.tier!} size="xs" />

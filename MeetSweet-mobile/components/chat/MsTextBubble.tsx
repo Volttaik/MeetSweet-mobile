@@ -14,10 +14,12 @@
  * fights the parent for percentage calculations.
  */
 import React from 'react';
-import { Linking, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Check, Checks, Clock } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import type { MsMessage } from '@/types/chat-message';
+import { openRawLink } from '@/lib/open-link';
+import { MsPressable } from '@/components/MsPressable';
 
 // ── URL detection ─────────────────────────────────────────────────────────────
 
@@ -60,9 +62,11 @@ interface Props {
   showDeleted?: boolean;
   timeString?: string;
   showReadReceipt?: boolean;
+  /** True when the server confirmed persistence but the recipient has not yet
+   *  read past this message — renders the double-gray "delivered" tick. */
+  showDelivered?: boolean;
   isPending?: boolean;
   isFailed?: boolean;
-  onRetry?: () => void;
   onPress?: () => void;
   onLongPress?: () => void;
 }
@@ -74,9 +78,9 @@ export function MsTextBubble({
   showDeleted,
   timeString,
   showReadReceipt,
+  showDelivered,
   isPending,
   isFailed,
-  onRetry,
   onPress,
   onLongPress,
 }: Props) {
@@ -85,17 +89,22 @@ export function MsTextBubble({
 
   return (
     <View style={[styles.container, isOwn ? styles.containerRight : styles.containerLeft]}>
-      <Pressable
-        delayLongPress={350}
+      <MsPressable
         onPress={onPress}
         onLongPress={onLongPress}
-        style={[
-          styles.bubble,
-          isOwn ? styles.bubbleRight : styles.bubbleLeft,
-          isDeleted && styles.bubbleDeleted,
-          isFailed && styles.bubbleFailed,
-        ]}
+        delayLongPress={350}
+        scale={0.98}
+        pressOpacity={1}
+        haptic
       >
+        <View
+          style={[
+            styles.bubble,
+            isOwn ? styles.bubbleRight : styles.bubbleLeft,
+            isDeleted && styles.bubbleDeleted,
+            isFailed && styles.bubbleFailed,
+          ]}
+        >
         {isDeleted ? (
           <Text style={styles.deletedText}>This message was deleted</Text>
         ) : (
@@ -107,7 +116,7 @@ export function MsTextBubble({
                     key={i}
                     style={[styles.textLink, isOwn ? styles.textLinkOwn : styles.textLinkOther]}
                     onPress={() => {
-                      if (seg.url) Linking.openURL(seg.url).catch(() => {});
+                      if (seg.url) openRawLink(seg.url);
                     }}
                   >
                     {seg.text}
@@ -144,18 +153,17 @@ export function MsTextBubble({
               {timeString}
             </Text>
             {isOwn ? (
-              <StatusIcon isPending={isPending} isFailed={isFailed} isRead={showReadReceipt} />
+              <StatusIcon
+                isPending={isPending}
+                isFailed={isFailed}
+                isRead={showReadReceipt}
+                isDelivered={showDelivered}
+              />
             ) : null}
           </View>
         ) : null}
-      </Pressable>
-
-      {/* Failed — retry affordance below bubble */}
-      {isFailed && isOwn && onRetry ? (
-        <TouchableOpacity style={styles.retryRow} onPress={onRetry} activeOpacity={0.7}>
-          <Text style={styles.retryText}>Not delivered · Tap to retry</Text>
-        </TouchableOpacity>
-      ) : null}
+        </View>
+      </MsPressable>
     </View>
   );
 }
@@ -165,10 +173,12 @@ function StatusIcon({
   isPending,
   isFailed,
   isRead,
+  isDelivered,
 }: {
   isPending?: boolean;
   isFailed?: boolean;
   isRead?: boolean;
+  isDelivered?: boolean;
 }) {
   if (isFailed) return null; // retry row handles failed state
   if (isPending) {
@@ -186,7 +196,15 @@ function StatusIcon({
       </View>
     );
   }
-  // Sent / delivered (server-confirmed, not yet read) — single muted check
+  if (isDelivered) {
+    // Double muted check = delivered (server-confirmed, recipient received)
+    return (
+      <View style={styles.statusIcon}>
+        <Checks size={11} color="rgba(255,255,255,0.45)" weight="bold" />
+      </View>
+    );
+  }
+  // Sent — single muted check
   return (
     <View style={styles.statusIcon}>
       <Check size={11} color="rgba(255,255,255,0.40)" weight="bold" />
@@ -236,7 +254,9 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 14,
     lineHeight: 19,
-    fontFamily: T.FONT.regular,
+    // Medium weight — noticeably more readable than the 400 base without
+    // tipping into heavy. Keeps the MeetSweet Poppins look.
+    fontFamily: T.FONT.medium,
     letterSpacing: 0.06,
   },
   textOwn:   { color: '#FFFFFF' },
@@ -295,14 +315,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  retryRow: {
-    marginTop: 3,
-    alignSelf: 'flex-end',
-    paddingHorizontal: 4,
-  },
-  retryText: {
-    fontSize: 10,
-    fontFamily: T.FONT.medium,
-    color: '#EF4444',
-  },
 });

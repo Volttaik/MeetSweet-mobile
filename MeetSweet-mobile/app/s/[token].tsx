@@ -7,7 +7,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { router, useLocalSearchParams } from 'expo-router';
 import { resolveShareLink } from '@/services/sharing';
 import { useAuth } from '@/contexts/AuthContext';
@@ -100,13 +101,12 @@ export default function ShareTokenResolver() {
       {error ? (
         <View style={styles.errorContainer}>
           <Text style={styles.error}>{error}</Text>
-          <TouchableOpacity
+          <MsPressable
             style={styles.homeBtn}
             onPress={() => router.replace('/(tabs)')}
-            activeOpacity={0.8}
           >
             <Text style={styles.homeBtnText}>Go to Home Feed</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       ) : (
         <>

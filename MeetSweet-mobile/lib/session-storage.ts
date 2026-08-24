@@ -6,7 +6,6 @@
  * with AsyncStorage synchronization for web compatibility and fast fallback.
  */
 
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { User } from '@/contexts/AuthContext';
 
@@ -21,7 +20,6 @@ const KEYS = {
 let _db: import('expo-sqlite').SQLiteDatabase | null = null;
 
 async function getAuthDb(): Promise<import('expo-sqlite').SQLiteDatabase | null> {
-  if (Platform.OS === 'web') return null;
   if (_db) return _db;
   try {
     const SQLite = await import('expo-sqlite');
@@ -43,7 +41,6 @@ async function getAuthDb(): Promise<import('expo-sqlite').SQLiteDatabase | null>
 // ─── SecureStore Helper ──────────────────────────────────────────────────────
 
 async function getSecureStore() {
-  if (Platform.OS === 'web') return null;
   try {
     return await import('expo-secure-store');
   } catch {
@@ -78,13 +75,12 @@ export async function saveSessionTokens(
     }
   } catch {}
 
-  // 2. AsyncStorage — the (non-secret) user profile always; tokens on web and
-  //    as a fallback whenever SecureStore is unavailable or its write failed,
-  //    so a lost SecureStore write can never silently drop the session.
-  const isWeb = Platform.OS === 'web';
+  // 2. AsyncStorage — the (non-secret) user profile always; tokens as a
+  //    fallback whenever SecureStore is unavailable or its write failed, so a
+  //    lost SecureStore write can never silently drop the session.
   try {
     const items: [string, string][] = [[KEYS.USER, userJson]];
-    if (isWeb || !secureStoreOk) {
+    if (!secureStoreOk) {
       items.push([KEYS.ACCESS_TOKEN, accessToken], [KEYS.REFRESH_TOKEN, refreshToken]);
     }
     await AsyncStorage.multiSet(items);

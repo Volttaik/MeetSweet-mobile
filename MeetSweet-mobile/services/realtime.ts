@@ -1,4 +1,5 @@
 import { AppState, type AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAccessToken, clearSessionStorage } from '@/lib/session-storage';
 import { getApiBase, refreshAccessToken } from '@/services/api';
 import { REALTIME_EVENT, REALTIME_EVENT_ALIASES } from '@/services/realtime-events';
@@ -54,6 +55,8 @@ const RECONNECT_MAX_MS = 30_000;
 const COMMAND_TIMEOUT_MS = 45_000;
 const DEDUP_CAP = 2_000;
 const CLOSE_UNAUTHORIZED = 4401;
+const CLIENT_ID_KEY = '@meetsweet_sweet_socket_client_id_v1';
+const CURSOR_KEY_PREFIX = '@meetsweet_sweet_socket_cursor_v1_';
 const DEBUG = typeof __DEV__ !== 'undefined' && __DEV__;
 
 function wsUrl(token: string): string {
@@ -88,9 +91,15 @@ class SweetSocketClient {
   private lifecycleSubscription: { remove: () => void } | null = null;
   private connectSeq = 0;
   private lastSequence: number | null = null;
+  private clientId: string | null = null;
+  private sessionUserId: string | null = null;
+  private cursorLoaded = false;
+  private syncInFlight = false;
+  private deferredSequence: number | null = null;
   private helloReceived = false;
   private reconnecting = false;
   private desiredChannels = new Set<string>();
+  private channelRefs = new Map<string, number>();
   private activeChannels = new Set<string>();
   private pendingSubscribe = new Set<string>();
   private pendingUnsubscribe = new Set<string>();
@@ -102,7 +111,14 @@ class SweetSocketClient {
   private ackHandlers = new Set<AckHandler>();
   private statusHandlers = new Set<StatusHandler>();
 
-  connect(): void {
+  connect(userId?: string): void {
+    if (userId && this.sessionUserId && userId !== this.sessionUserId) {
+      // A singleton socket cannot be reused across accounts: the server binds
+      // the authenticated user at upgrade time. Close the old transport before
+      // opening one with the new token and cursor namespace.
+      this.disconnect();
+    }
+    this.sessionUserId = userId ?? this.sessionUserId;
     this.suspended = false;
     this.manualClosed = false;
     this.installLifecycleListener();
@@ -114,12 +130,16 @@ class SweetSocketClient {
     this.manualClosed = true;
     this.suspended = false;
     this.desiredChannels.clear();
+    this.channelRefs.clear();
     this.activeChannels.clear();
     this.pendingSubscribe.clear();
     this.pendingUnsubscribe.clear();
     this.clearTimers();
     this.lifecycleSubscription?.remove();
     this.lifecycleSubscription = null;
+    this.cursorLoaded = false;
+    this.lastSequence = null;
+    this.sessionUserId = null;
     const ws = this.ws;
     this.ws = null;
     this.rejectPending(new Error('SweetSocket disconnected'));
@@ -148,6 +168,9 @@ class SweetSocketClient {
 
   subscribe(channel: string): void {
     if (!channel) return;
+    const refs = this.channelRefs.get(channel) ?? 0;
+    this.channelRefs.set(channel, refs + 1);
+    if (refs > 0) return;
     this.desiredChannels.add(channel);
     this.pendingSubscribe.add(channel);
     this.pendingUnsubscribe.delete(channel);
@@ -155,6 +178,13 @@ class SweetSocketClient {
   }
 
   unsubscribe(channel: string): void {
+    if (!channel) return;
+    const refs = this.channelRefs.get(channel) ?? 0;
+    if (refs > 1) {
+      this.channelRefs.set(channel, refs - 1);
+      return;
+    }
+    this.channelRefs.delete(channel);
     this.desiredChannels.delete(channel);
     this.activeChannels.delete(channel);
     this.pendingSubscribe.delete(channel);
@@ -246,10 +276,38 @@ class SweetSocketClient {
     });
   }
 
+  private async loadCursorState(): Promise<void> {
+    if (this.cursorLoaded) return;
+    this.cursorLoaded = true;
+    try {
+      let clientId = await AsyncStorage.getItem(CLIENT_ID_KEY);
+      if (!clientId) {
+        clientId = `mobile_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+        await AsyncStorage.setItem(CLIENT_ID_KEY, clientId);
+      }
+      this.clientId = clientId;
+      const scope = this.sessionUserId ?? 'anonymous';
+      const raw = await AsyncStorage.getItem(`${CURSOR_KEY_PREFIX}${clientId}_${scope}`);
+      const cursor = raw ? Number(raw) : 0;
+      this.lastSequence = Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
+    } catch {
+      this.clientId = this.clientId ?? `mobile_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+      this.lastSequence = this.lastSequence ?? 0;
+    }
+  }
+
+  private async persistCursor(sequence: number): Promise<void> {
+    if (!this.clientId || !Number.isFinite(sequence)) return;
+    const scope = this.sessionUserId ?? 'anonymous';
+    try { await AsyncStorage.setItem(`${CURSOR_KEY_PREFIX}${this.clientId}_${scope}`, String(sequence)); }
+    catch { /* cursor persistence retries on the next event */ }
+  }
+
   private async open(): Promise<void> {
     if (this.manualClosed || this.suspended) return;
     const flow = ++this.connectSeq;
-    const wasReconnect = this.reconnecting || this.lastSequence !== null;
+    await this.loadCursorState();
+    const wasReconnect = this.reconnecting || (this.lastSequence ?? 0) > 0;
     this.setStatus(wasReconnect ? 'reconnecting' : 'connecting');
     log(wasReconnect ? 'reconnecting' : 'connecting');
 
@@ -278,8 +336,9 @@ class SweetSocketClient {
 
     ws.onopen = () => {
       if (flow !== this.connectSeq) return;
-      this.retryDelay = RECONNECT_BASE_MS;
-      this.helloReceived = false;
+      this.retryDelay = RECONNECT_BASE_MS;        this.helloReceived = false;
+        this.syncInFlight = false;
+
       this.setStatus('open');
       this.startHeartbeat();
       log('socket open');
@@ -293,8 +352,10 @@ class SweetSocketClient {
       if (flow !== this.connectSeq) return;
       this.stopHeartbeat();
       this.activeChannels.clear();
-      this.ws = null;
-      this.helloReceived = false;
+      this.ws = null;        this.helloReceived = false;
+        this.syncInFlight = false;
+        this.deferredSequence = null;
+
       if (this.manualClosed || this.suspended) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
         void refreshAccessToken().then(async (fresh) => {
@@ -312,10 +373,16 @@ class SweetSocketClient {
     this.reconnecting = true;
     this.setStatus('reconnecting');
     this.emitLifecycle(REALTIME_EVENT.connectionReconnecting);
+    // Full jitter on the backoff: when many clients drop together (network
+    // blip, deploy), scheduling every reconnect at the same fixed delay would
+    // make them re-connect in lock-step — a thundering herd against the realtime
+    // gateway. Randomizing within the current window spreads the reconnects.
+    // The exponential window still doubles per attempt and caps at RECONNECT_MAX_MS.
+    const delay = Math.floor(Math.random() * this.retryDelay);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       void this.open();
-    }, this.retryDelay);
+    }, delay);
     this.retryDelay = Math.min(this.retryDelay * 2, RECONNECT_MAX_MS);
   }
 
@@ -400,9 +467,13 @@ class SweetSocketClient {
         // The hello value is a baseline only on the first connection. On a
         // reconnect, retain the last received sequence so the server replays
         // everything after the client's real cursor.
-        const shouldReplay = this.reconnecting;
-        if (this.lastSequence === null) this.lastSequence = sequence;
-        if (shouldReplay) this.sendJson({ type: 'sync', since: this.lastSequence ?? 0 });
+        // Sync is mandatory on every authenticated connection, including the
+        // first app launch. The server owns the durable cursor and clamps any
+        // stale client value safely.
+        if (this.clientId && !this.syncInFlight) {
+          this.syncInFlight = true;
+          this.sendJson({ type: 'sync', since: this.lastSequence ?? 0, clientId: this.clientId });
+        }
         if (this.reconnecting) {
           this.reconnecting = false;
           log('reconnected');
@@ -417,7 +488,36 @@ class SweetSocketClient {
       }
       case 'unsubscribed': return;
       case 'pong': return;
-      case 'synced': log('resync complete'); return;
+      case 'synced': {
+        const through = typeof message.through === 'number' ? message.through : null;
+        const hasMore = message.hasMore === true;
+        if (through !== null) {
+          this.lastSequence = Math.max(this.lastSequence ?? 0, through);
+          if (hasMore && this.clientId) {
+            // Keep the cursor unacknowledged until the final replay page has
+            // been applied. A live event may arrive during replay; acknowledging
+            // it early would let a crash skip older missed events.
+            this.sendJson({ type: 'sync', since: this.lastSequence, clientId: this.clientId });
+            return;
+          }
+          const finalSequence = Math.max(this.lastSequence, this.deferredSequence ?? 0);
+          this.lastSequence = finalSequence;
+          this.deferredSequence = null;
+          void this.persistCursor(finalSequence);
+          if (this.clientId) this.sendJson({ type: 'ack', clientId: this.clientId, sequence: finalSequence });
+        }
+        this.syncInFlight = false;
+        log('resync complete');
+        return;
+      }
+      case 'sync_ack': {
+        const sequence = typeof message.sequence === 'number' ? message.sequence : null;
+        if (sequence !== null) {
+          this.lastSequence = Math.max(this.lastSequence ?? 0, sequence);
+          void this.persistCursor(this.lastSequence);
+        }
+        return;
+      }
       case 'ack': this.handleAck(message); return;
       case 'event': {
         const event = normalizedEvent(message.event as RealtimeEvent);
@@ -453,19 +553,32 @@ class SweetSocketClient {
   }
 
   private handleEvent(event: RealtimeEvent): void {
-    // Advance the cursor even when a durable replay is a duplicate of an event
-    // that arrived live before the disconnect. Otherwise every reconnect would
-    // request that same already-seen event forever.
-    const sequence = event.sequence ?? event.seq ?? null;
-    if (typeof sequence === 'number' && (this.lastSequence === null || sequence > this.lastSequence)) this.lastSequence = sequence;
-    if (!event.id || this.seenIds.has(event.id)) return;
-    this.seenIds.add(event.id);
-    if (this.seenIds.size > DEDUP_CAP) {
-      const oldest = this.seenIds.values().next().value;
-      if (oldest) this.seenIds.delete(oldest);
+    // Apply first, then advance and acknowledge the cursor. This ordering is
+    // important: a process crash cannot leave a locally advanced cursor for an
+    // event that never reached the store/cache.
+    const alreadySeen = Boolean(event.id && this.seenIds.has(event.id));
+    if (!alreadySeen) {
+      if (event.id) {
+        this.seenIds.add(event.id);
+        if (this.seenIds.size > DEDUP_CAP) {
+          const oldest = this.seenIds.values().next().value;
+          if (oldest) this.seenIds.delete(oldest);
+        }
+      }
+      log('received', event.type, event.channel);
+      this.dispatch(event);
     }
-    log('received', event.type, event.channel);
-    this.dispatch(event);
+
+    const sequence = event.sequence ?? event.seq ?? null;
+    if (typeof sequence === 'number' && (this.lastSequence === null || sequence > this.lastSequence)) {
+      if (this.syncInFlight) {
+        this.deferredSequence = Math.max(this.deferredSequence ?? 0, sequence);
+      } else {
+        this.lastSequence = sequence;
+        void this.persistCursor(sequence);
+        if (this.clientId) this.sendJson({ type: 'ack', clientId: this.clientId, sequence });
+      }
+    }
   }
 
   private dispatch(event: RealtimeEvent): void {

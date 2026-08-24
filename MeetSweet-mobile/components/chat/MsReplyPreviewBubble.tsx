@@ -18,6 +18,7 @@ interface Props {
 export function MsReplyPreviewBubble({ reply, position }: Props) {
   const isOwn = position === 'right';
   const senderName = reply.user?.name ?? 'Someone';
+  const isDeleted = Boolean((reply as { deleted?: boolean }).deleted);
   const hasImage = !!reply.image;
   const hasAudio = !!reply.audio;
 
@@ -41,7 +42,16 @@ export function MsReplyPreviewBubble({ reply, position }: Props) {
             {senderName}
           </Text>
         </View>
-        {hasImage ? (
+        {isDeleted ? (
+          <View style={styles.mediaRow}>
+            <Text
+              style={[styles.deletedText, isOwn ? styles.textOwn : styles.textOther]}
+              numberOfLines={2}
+            >
+              Original message deleted
+            </Text>
+          </View>
+        ) : hasImage ? (
           <View style={styles.imageRow}>
             <Image source={{ uri: reply.image }} style={styles.thumb} />
             <Text style={[styles.text, isOwn ? styles.textOwn : styles.textOther]} numberOfLines={1}>
@@ -133,4 +143,11 @@ const styles = StyleSheet.create({
   },
   textOwn: { color: 'rgba(255,255,255,0.8)' },
   textOther: { color: T.TEXT_2 },
+  deletedText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: T.FONT.regular,
+    fontStyle: 'italic',
+    lineHeight: 17,
+  },
 });

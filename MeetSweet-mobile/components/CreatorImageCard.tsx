@@ -15,9 +15,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import {
   SealCheck,
 } from 'phosphor-react-native';
@@ -96,10 +96,9 @@ export function CreatorImageCard({
         )}
 
         {/* Creator chip — bottom left */}
-        <TouchableOpacity
+        <MsPressable
           style={styles.creatorChip}
           onPress={onCreatorPress ?? onPress}
-          activeOpacity={0.85}
           hitSlop={6}
         >
           <MsAvatar
@@ -111,7 +110,7 @@ export function CreatorImageCard({
           {card.creatorIsVerified && (
             <SealCheck size={11} color={T.TEXT} weight="fill" />
           )}
-        </TouchableOpacity>
+        </MsPressable>
 
         {/* Caption overlay — bottom, truncated */}
         {card.caption ? (

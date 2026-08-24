@@ -1,5 +1,12 @@
-import React, { useCallback, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { Tabs, router, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -134,103 +141,111 @@ function CreateActionSheet({
     }
     push();
   }, [user?.isCreator]);
+
+  const sheetRef = useRef<BottomSheetModal>(null);
+  useEffect(() => {
+    if (visible) sheetRef.current?.present();
+    else sheetRef.current?.dismiss();
+  }, [visible]);
+
+  const renderBackdrop = useMemo(
+    () => (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.55}
+      />
+    ),
+    []
+  );
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
+    <BottomSheetModal
+      ref={sheetRef}
+      index={0}
+      snapPoints={['auto']}
+      enableDynamicSizing
+      backdropComponent={renderBackdrop}
+      backgroundStyle={sheetStyles.sheetBackground}
+      handleIndicatorStyle={sheetStyles.handle}
+      onDismiss={onClose}
     >
-      <Pressable style={sheetStyles.overlay} onPress={onClose}>
-        <View style={[sheetStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-          <View style={sheetStyles.handle} />
-          <Text style={sheetStyles.title}>Create</Text>
-          <Text style={sheetStyles.subtitle}>What would you like to share?</Text>
+      <BottomSheetView
+        style={{ paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 20) }}
+      >
+        <Text style={sheetStyles.title}>Create</Text>
+        <Text style={sheetStyles.subtitle}>What would you like to share?</Text>
 
-          <TouchableOpacity
-            style={sheetStyles.option}
-            activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'post' } }), 150); }}
-          >
-            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(196,90,114,0.14)' }]}>
-              <TextT size={22} color={T.ACCENT} weight="bold" />
-            </View>
-            <View style={sheetStyles.optionText}>
-              <Text style={sheetStyles.optionLabel}>Post</Text>
-              <Text style={sheetStyles.optionDesc}>Text + images · shows in Home feed</Text>
-            </View>
-          </TouchableOpacity>
+        <MsPressable
+          style={sheetStyles.option}
+          onPress={() => { onClose(); setTimeout(() => router.push({ pathname: '/create-post', params: { type: 'post' } }), 150); }}
+        >
+          <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(196,90,114,0.14)' }]}>
+            <TextT size={22} color={T.ACCENT} weight="bold" />
+          </View>
+          <View style={sheetStyles.optionText}>
+            <Text style={sheetStyles.optionLabel}>Post</Text>
+            <Text style={sheetStyles.optionDesc}>Text + images · shows in Home feed</Text>
+          </View>
+        </MsPressable>
 
-          <TouchableOpacity
-            style={sheetStyles.option}
-            activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push('/create-album'), 'Albums are a creator feature — set a price and sell your collection.'), 150); }}
-          >
-            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(124,92,202,0.14)' }]}>
-              <Images size={22} color="#7C5CCA" />
-            </View>
-            <View style={sheetStyles.optionText}>
-              <Text style={sheetStyles.optionLabel}>Album</Text>
-              <Text style={sheetStyles.optionDesc}>Gallery of photos/videos · Home feed</Text>
-            </View>
-          </TouchableOpacity>
+        <MsPressable
+          style={sheetStyles.option}
+          onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push('/create-album'), 'Albums are a creator feature — set a price and sell your collection.'), 150); }}
+        >
+          <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(124,92,202,0.14)' }]}>
+            <Images size={22} color="#7C5CCA" />
+          </View>
+          <View style={sheetStyles.optionText}>
+            <Text style={sheetStyles.optionLabel}>Album</Text>
+            <Text style={sheetStyles.optionDesc}>Gallery of photos/videos · Home feed</Text>
+          </View>
+        </MsPressable>
 
-          <TouchableOpacity
-            style={sheetStyles.option}
-            activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push({ pathname: '/create-post', params: { type: 'video' } }), 'Long-form videos are a creator feature.'), 150); }}
-          >
-            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(37,99,235,0.14)' }]}>
-              <MonitorPlay size={22} color="#2563EB" />
-            </View>
-            <View style={sheetStyles.optionText}>
-              <Text style={sheetStyles.optionLabel}>Video</Text>
-              <Text style={sheetStyles.optionDesc}>Long-form video · shows in Explore</Text>
-            </View>
-          </TouchableOpacity>
+        <MsPressable
+          style={sheetStyles.option}
+          onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push({ pathname: '/create-post', params: { type: 'video' } }), 'Long-form videos are a creator feature.'), 150); }}
+        >
+          <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(37,99,235,0.14)' }]}>
+            <MonitorPlay size={22} color="#2563EB" />
+          </View>
+          <View style={sheetStyles.optionText}>
+            <Text style={sheetStyles.optionLabel}>Video</Text>
+            <Text style={sheetStyles.optionDesc}>Long-form video · shows in Explore</Text>
+          </View>
+        </MsPressable>
 
-          <TouchableOpacity
-            style={sheetStyles.option}
-            activeOpacity={0.8}
-            onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push({ pathname: '/create-post', params: { type: 'shorts' } }), 'Shorts are a creator feature.'), 150); }}
-          >
-            <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(220,38,38,0.14)' }]}>
-              <VideoCamera size={22} color="#DC2626" />
-            </View>
-            <View style={sheetStyles.optionText}>
-              <Text style={sheetStyles.optionLabel}>Shorts</Text>
-              <Text style={sheetStyles.optionDesc}>Vertical video up to 60s · Shorts feed</Text>
-            </View>
-          </TouchableOpacity>
+        <MsPressable
+          style={sheetStyles.option}
+          onPress={() => { onClose(); setTimeout(() => openCreatorOnly(() => router.push({ pathname: '/create-post', params: { type: 'shorts' } }), 'Shorts are a creator feature.'), 150); }}
+        >
+          <View style={[sheetStyles.optionIcon, { backgroundColor: 'rgba(220,38,38,0.14)' }]}>
+            <VideoCamera size={22} color="#DC2626" />
+          </View>
+          <View style={sheetStyles.optionText}>
+            <Text style={sheetStyles.optionLabel}>Shorts</Text>
+            <Text style={sheetStyles.optionDesc}>Vertical video up to 60s · Shorts feed</Text>
+          </View>
+        </MsPressable>
 
-          <TouchableOpacity style={sheetStyles.cancelBtn} onPress={onClose} activeOpacity={0.75}>
-            <Text style={sheetStyles.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </Pressable>
-    </Modal>
+        <MsPressable style={sheetStyles.cancelBtn} onPress={onClose}>
+          <Text style={sheetStyles.cancelLabel}>Cancel</Text>
+        </MsPressable>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
 const sheetStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
+  sheetBackground: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    gap: 4,
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
     backgroundColor: T.BORDER_2,
-    alignSelf: 'center',
-    marginBottom: 16,
   },
   title: {
     fontSize: 20,
@@ -238,6 +253,7 @@ const sheetStyles = StyleSheet.create({
     color: T.TEXT,
     letterSpacing: -0.4,
     marginBottom: 4,
+    marginTop: 4,
   },
   subtitle: {
     fontSize: 13,

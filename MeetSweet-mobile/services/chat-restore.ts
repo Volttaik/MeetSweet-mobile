@@ -22,7 +22,7 @@
  * id so they are never re-downloaded afterwards.
  */
 
-import { getChatRoomList, getRoomMessages } from './room-service';
+import { fetchRoomHistory, getChatRoomList } from './room-service';
 import { cacheChatRooms, cacheMessages } from './chat-cache';
 
 export interface RestoreProgress {
@@ -34,7 +34,7 @@ export interface RestoreProgress {
   roomName?: string;
 }
 
-/** The server returns one page of messages at a time (listRoomMessages limit). */
+/** The server returns one page of messages at a time (SweetSocket limit). */
 const PAGE_SIZE = 30;
 /** Safety cap: never fetch more than this many pages per conversation. */
 const MAX_PAGES_PER_ROOM = 100;
@@ -48,8 +48,8 @@ export interface RestoreResult {
  * Restore previous conversations from the backend into the local store.
  *
  * - Fetches the conversation (room) list.
- * - For each conversation, fetches the full message history (paginated
- *   oldest-direction) and persists it to SQLite.
+ * - For each conversation, requests full message history through SweetSocket
+ *   (paginated backwards) and persists it to SQLite.
  * - Persists the conversation list metadata.
  *
  * `onProgress` is invoked as conversations complete so the UI can show a
@@ -78,16 +78,15 @@ export async function restoreChatHistory(
       roomName: room.otherUser?.name ?? undefined,
     });
 
-    // 3. Fetch the full message history for this conversation, paginating
-    //    backwards from the newest message. The server returns pages of
-    //    PAGE_SIZE (newest first); the `before` cursor is the oldest
-    //    created_at in the previous page. hasMore is not reliably reported
-    //    by the backend, so a short page signals the end.
+    // 3. Fetch the full message history for this conversation over the
+    //    authenticated SweetSocket command, paginating backwards. The server
+    //    returns newest-first pages; the cursor includes timestamp + message id
+    //    so same-millisecond messages cannot be skipped or repeated.
     let before: string | undefined;
     let pages = 0;
     let sawShortPage = false;
     while (!sawShortPage && pages < MAX_PAGES_PER_ROOM) {
-      const { messages } = await getRoomMessages(room.chatRoomId, before ? { before } : undefined);
+      const { messages, hasMore } = await fetchRoomHistory(room.chatRoomId, before ? { before } : undefined);
       pages += 1;
       if (messages.length === 0) break;
 
@@ -96,8 +95,8 @@ export async function restoreChatHistory(
       messagesRestored += messages.length;
 
       const oldest = messages[messages.length - 1];
-      before = oldest?.createdAt;
-      if (messages.length < PAGE_SIZE) sawShortPage = true;
+      before = oldest ? `${oldest.createdAt}::${oldest.id}` : undefined;
+      if (!hasMore || messages.length < PAGE_SIZE) sawShortPage = true;
     }
 
     done += 1;

@@ -13,9 +13,18 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import Reanimated, {
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MagnifyingGlass, X, ClockCounterClockwise, TrendUp, Hash } from 'phosphor-react-native';
 import { router } from 'expo-router';
@@ -59,25 +68,29 @@ async function removeRecent(q: string): Promise<void> {
 // ─── Shimmer ─────────────────────────────────────────────────────────────────
 
 function ShimmerRow() {
-  const anim = useRef(new Animated.Value(0)).current;
+  // Worklet-driven pulse on the UI thread (no JS-thread Animated.loop).
+  const pulse = useSharedValue(0);
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 900, useNativeDriver: true }),
-      ]),
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 900 }),
+        withTiming(0, { duration: 900 }),
+      ),
+      -1,
+      false,
     );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.06, 0.14] });
+    return () => cancelAnimation(pulse);
+  }, [pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(pulse.value, [0, 1], [0.06, 0.14]),
+  }));
 
   return (
     <View style={shimStyles.row}>
-      <Animated.View style={[shimStyles.avatar, { opacity }]} />
+      <Reanimated.View style={[shimStyles.avatar, pulseStyle]} />
       <View style={shimStyles.lines}>
-        <Animated.View style={[shimStyles.line, { width: '60%', opacity }]} />
-        <Animated.View style={[shimStyles.line, { width: '35%', opacity }]} />
+        <Reanimated.View style={[shimStyles.line, { width: '60%' }, pulseStyle]} />
+        <Reanimated.View style={[shimStyles.line, { width: '35%' }, pulseStyle]} />
       </View>
     </View>
   );
@@ -296,19 +309,19 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
               autoCorrect={false}
             />
             {query.length > 0 && (
-              <TouchableOpacity
+              <MsPressable
                 onPress={() => { setQuery(''); setResults([]); }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <View style={styles.clearBtn}>
                   <X size={10} color={T.TEXT_2} weight="bold" />
                 </View>
-              </TouchableOpacity>
+              </MsPressable>
             )}
           </View>
-          <TouchableOpacity onPress={onClose} style={styles.cancelBtn} activeOpacity={0.7}>
+          <MsPressable onPress={onClose} style={styles.cancelBtn}>
             <Text style={styles.cancelLabel}>Cancel</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
 
         {/* Content */}
@@ -322,29 +335,27 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
               <View style={styles.section}>
                 <View style={styles.sectionRow}>
                   <Text style={styles.sectionLabel}>RECENT</Text>
-                  <TouchableOpacity onPress={handleClearRecent} hitSlop={8}>
+                  <MsPressable onPress={handleClearRecent} hitSlop={8}>
                     <Text style={styles.sectionAction}>Clear all</Text>
-                  </TouchableOpacity>
+                  </MsPressable>
                 </View>
                 {recent.map((s) => (
                   <View key={s} style={styles.listRow}>
                     <View style={styles.listIcon}>
                       <ClockCounterClockwise size={13} color={T.TEXT_3} />
                     </View>
-                    <TouchableOpacity
+                    <MsPressable
                       style={{ flex: 1 }}
                       onPress={() => handleRecentPress(s)}
-                      activeOpacity={0.7}
-                    >
+                          >
                       <Text style={styles.listLabel}>{s}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                    </MsPressable>
+                    <MsPressable
                       onPress={() => handleDeleteRecent(s)}
                       hitSlop={10}
-                      activeOpacity={0.7}
-                    >
+                          >
                       <X size={12} color={T.TEXT_3} />
-                    </TouchableOpacity>
+                    </MsPressable>
                   </View>
                 ))}
               </View>
@@ -361,15 +372,14 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
                 contentContainerStyle={styles.chipsScroll}
               >
                 {TRENDING_TOPICS.map((t) => (
-                  <TouchableOpacity
+                  <MsPressable
                     key={t}
                     style={styles.chip}
                     onPress={() => handleRecentPress(t.replace('#', ''))}
-                    activeOpacity={0.75}
-                  >
+                      >
                     <Hash size={10} color={T.ACCENT} weight="bold" />
                     <Text style={styles.chipLabel}>{t.replace('#', '')}</Text>
-                  </TouchableOpacity>
+                  </MsPressable>
                 ))}
               </ScrollView>
             </View>
@@ -391,10 +401,9 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
               ) : null
             }
             renderItem={({ item }) => (
-              <TouchableOpacity
+              <MsPressable
                 style={styles.resultRow}
                 onPress={() => handleResultPress(item)}
-                activeOpacity={0.75}
               >
                 <MsAvatar
                   size={32}
@@ -407,7 +416,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
                   </Text>
                   <Text style={styles.resultSub}>{item.subtitle}</Text>
                 </View>
-              </TouchableOpacity>
+              </MsPressable>
             )}
           />
         )}
@@ -445,9 +454,6 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-    ...(Platform.OS === 'web'
-      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
-      : {}),
   },
   clearBtn: {
     width: 18,

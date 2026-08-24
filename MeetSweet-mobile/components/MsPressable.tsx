@@ -2,71 +2,88 @@
  * MsPressable — spring micro-interaction wrapper.
  * Wraps any child with a scale-down + spring bounce press feedback.
  * Use anywhere you want premium interactive feel.
+ *
+ * The press animation runs as a Reanimated worklet on the UI thread (no
+ * JS-thread Animated orchestration), and an optional native haptic can fire
+ * on press-in.
  */
-import React, { useRef } from 'react';
+import React from 'react';
 import {
-  Animated,
   Pressable,
   StyleProp,
   ViewStyle,
+  type AccessibilityRole,
+  type GestureResponderEvent,
+  type Insets,
 } from 'react-native';
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
 interface Props {
   children: React.ReactNode;
-  onPress?: () => void;
-  onLongPress?: () => void;
+  onPress?: (event: GestureResponderEvent) => void;
+  onLongPress?: (event: GestureResponderEvent) => void;
+  /** Called on press-in in addition to the scale/opacity feedback. */
+  onPressIn?: (event: GestureResponderEvent) => void;
+  /** Called on press-out in addition to the scale/opacity feedback. */
+  onPressOut?: (event: GestureResponderEvent) => void;
   style?: StyleProp<ViewStyle>;
   /** Scale when pressed (default 0.93) */
   scale?: number;
   /** Opacity when pressed (default 0.82) */
   pressOpacity?: number;
   disabled?: boolean;
+  /** Fire a light selection haptic on press-in. */
+  haptic?: boolean;
+  /** Long-press delay in ms (default 350). */
+  delayLongPress?: number;
+  accessibilityLabel?: string;
+  accessibilityRole?: AccessibilityRole;
+  accessibilityState?: { disabled?: boolean };
+  hitSlop?: Insets | number;
 }
 
 export function MsPressable({
   children,
   onPress,
   onLongPress,
+  onPressIn,
+  onPressOut,
   style,
   scale = 0.93,
   pressOpacity = 0.82,
   disabled = false,
+  haptic = false,
+  delayLongPress = 350,
+  accessibilityLabel,
+  accessibilityRole,
+  accessibilityState,
+  hitSlop,
 }: Props) {
-  const scaleAnim   = useRef(new Animated.Value(1)).current;
-  const opacityAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim   = useSharedValue(1);
+  const opacityAnim = useSharedValue(1);
 
-  const handlePressIn = () => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: scale,
-        useNativeDriver: true,
-        damping: 15,
-        stiffness: 320,
-        mass: 0.6,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: pressOpacity,
-        duration: 70,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scaleAnim.value }],
+    opacity: opacityAnim.value,
+  }));
+
+  const handlePressIn = (event: GestureResponderEvent) => {
+    scaleAnim.value = withSpring(scale, { damping: 15, stiffness: 320, mass: 0.6 });
+    opacityAnim.value = withTiming(pressOpacity, { duration: 70 });
+    if (haptic) Haptics.selectionAsync().catch(() => {});
+    onPressIn?.(event);
   };
 
-  const handlePressOut = () => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        damping: 12,
-        stiffness: 240,
-        mass: 0.6,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  const handlePressOut = (event: GestureResponderEvent) => {
+    scaleAnim.value = withSpring(1, { damping: 12, stiffness: 240, mass: 0.6 });
+    opacityAnim.value = withTiming(1, { duration: 100 });
+    onPressOut?.(event);
   };
 
   return (
@@ -76,16 +93,16 @@ export function MsPressable({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled}
+      delayLongPress={delayLongPress}
       style={style}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
+      hitSlop={hitSlop}
     >
-      <Animated.View
-        style={{
-          transform: [{ scale: scaleAnim }],
-          opacity: opacityAnim,
-        }}
-      >
+      <Reanimated.View style={animatedStyle}>
         {children}
-      </Animated.View>
+      </Reanimated.View>
     </Pressable>
   );
 }

@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { Sparkle } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
@@ -24,9 +25,9 @@ export function MsEmptyState({
       <Text style={styles.title}>{title}</Text>
       {message && <Text style={styles.message}>{message}</Text>}
       {actionLabel && onAction && (
-        <TouchableOpacity style={styles.btn} onPress={onAction} activeOpacity={0.8}>
+        <MsPressable style={styles.btn} onPress={onAction}>
           <Text style={styles.btnLabel}>{actionLabel}</Text>
-        </TouchableOpacity>
+        </MsPressable>
       )}
     </View>
   );

@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -57,7 +57,7 @@ function formatCount(n: number): string {
 
 /**
  * Duration badge label — always from the backend's real media metadata
- * (post.durationSecs), never guessed or hardcoded client-side.
+ * (viewPost.durationSecs), never guessed or hardcoded client-side.
  * Returns null when no duration is known so no fake badge is rendered.
  */
 function fmtDuration(secs: number | null | undefined): string | null {
@@ -121,8 +121,7 @@ function ScalePressable({
 
   return (
     <Animated.View style={[animStyle, style]}>
-      <TouchableOpacity
-        activeOpacity={1}
+      <MsPressable
         onPress={handlePress}
         onLongPress={onLongPress}
         onPressIn={() => {
@@ -134,7 +133,7 @@ function ScalePressable({
         delayLongPress={400}
       >
         {children}
-      </TouchableOpacity>
+      </MsPressable>
     </Animated.View>
   );
 }
@@ -184,15 +183,14 @@ function ActionButton({
 
   return (
     <Animated.View style={animStyle}>
-      <TouchableOpacity
+      <MsPressable
         style={[baseActionStyles.btn, style]}
         onPress={onPress}
-        activeOpacity={1}
         onPressIn={() => { scale.value = withSpring(0.82, SPRING_PRESS); }}
         onPressOut={() => { scale.value = withSpring(1, SPRING_BOUNCE); }}
       >
         {children}
-      </TouchableOpacity>
+      </MsPressable>
     </Animated.View>
   );
 }
@@ -250,20 +248,20 @@ interface MsPostCardProps {
    * free = no badge (public/Explore content).
    * subscriber = Subscriber pill badge.
    * subscriber_plus = Subscriber+ pill badge.
-   * Omit to derive from post.tier.
+   * Omit to derive from viewPost.tier.
    */
   tier?: ContentTier;
   /**
    * Force the card into a locked state (subscriber-gated content). When true,
    * media is replaced by a lock overlay + subscribe CTA. Defaults to deriving
-   * from post.isLocked / post.is_locked.
+   * from viewPost.isLocked / viewPost.is_locked.
    */
   locked?: boolean;
   /** Called when the user taps the locked content's subscribe CTA. */
   onSubscribe?: () => void;
 }
 
-export function MsPostCard({
+export const MsPostCard = React.memo(function MsPostCard({
   post,
   onPress,
   onMediaPress,
@@ -305,19 +303,23 @@ export function MsPostCard({
     likeOverrides,
     bookmarkOverrides,
     commentCounts,
+    editedPosts,
     markLiked,
     markBookmarked,
   } = usePostActions();
-  const likeOverride = likeOverrides[post.id];
-  const bookmarkOverride = bookmarkOverrides[post.id];
-  const liked = likeOverride?.likedByMe ?? post.likedByMe;
-  const likeCount = likeOverride?.likeCount ?? post.likeCount;
-  const bookmarked = bookmarkOverride?.bookmarkedByMe ?? post.bookmarkedByMe ?? false;
-  const bookmarkCount = bookmarkOverride?.bookmarkCount ?? post.bookmarkCount ?? 0;
-  const commentCount = commentCounts[post.id] ?? post.commentCount ?? post.comments_count ?? 0;
+  // Use the shared edit mirror immediately while feeds/detail screens catch up
+  // with their next durable load. This keeps post text consistent everywhere.
+  const viewPost: Post = { ...post, ...(editedPosts[post.id] ?? {}) };
+  const likeOverride = likeOverrides[viewPost.id];
+  const bookmarkOverride = bookmarkOverrides[viewPost.id];
+  const liked = likeOverride?.likedByMe ?? viewPost.likedByMe;
+  const likeCount = likeOverride?.likeCount ?? viewPost.likeCount;
+  const bookmarked = bookmarkOverride?.bookmarkedByMe ?? viewPost.bookmarkedByMe ?? false;
+  const bookmarkCount = bookmarkOverride?.bookmarkCount ?? viewPost.bookmarkCount ?? 0;
+  const commentCount = commentCounts[viewPost.id] ?? viewPost.commentCount ?? viewPost.comments_count ?? 0;
 
-  const isOwn = Boolean(currentUserId && currentUserId === post.author.id);
-  const isLocked = Boolean(locked ?? post.isLocked ?? post.is_locked);
+  const isOwn = Boolean(currentUserId && currentUserId === viewPost.author.id);
+  const isLocked = Boolean(locked ?? viewPost.isLocked ?? viewPost.is_locked);
 
   // ── Realtime: live like counts for this post (feeds update in place) ────
   // Subscribing to post:{id} while this card is mounted lets other users'
@@ -328,20 +330,20 @@ export function MsPostCard({
     likedRef.current = liked;
   }, [liked]);
   useEffect(() => {
-    const channel = `post:${post.id}`;
+    const channel = `post:${viewPost.id}`;
     realtime.subscribe(channel);
     const off = realtime.on(REALTIME_EVENT.postLikeUpdated, (event) => {
-      if (event.resourceId !== post.id) return;
+      if (event.resourceId !== viewPost.id) return;
       const p = event.payload as { likeCount?: number };
       if (typeof p.likeCount !== 'number') return;
-      markLiked(post.id, likedRef.current, p.likeCount);
-      updateCachedPost(post.id, userId, { likeCount: p.likeCount }).catch(() => {});
+      markLiked(viewPost.id, likedRef.current, p.likeCount);
+      updateCachedPost(viewPost.id, userId, { likeCount: p.likeCount }).catch(() => {});
     });
     return () => {
       realtime.unsubscribe(channel);
       off();
     };
-  }, [post.id, markLiked, userId]);
+  }, [viewPost.id, markLiked, userId]);
 
   const handleLike = async () => {
     if (liking) return;
@@ -351,33 +353,33 @@ export function MsPostCard({
     const delta = nextLiked ? 1 : -1;
     const nextCount = Math.max(0, likeCount + delta);
     // Publish optimistically — every mounted view of this post updates now.
-    markLiked(post.id, nextLiked, nextCount);
+    markLiked(viewPost.id, nextLiked, nextCount);
     tapMedium();
 
     // Update SQLite cache optimistically
-    updateCachedPost(post.id, userId, {
+    updateCachedPost(viewPost.id, userId, {
       likedByMe: nextLiked,
       likeCount: nextCount,
     }).catch(() => {});
 
     if (!isOnline) {
-      enqueueOfflineAction({ type: 'like_post', postId: post.id, liked: nextLiked }, userId).catch(() => {});
+      enqueueOfflineAction({ type: 'like_post', postId: viewPost.id, liked: nextLiked }, userId).catch(() => {});
       setLiking(false);
       return;
     }
 
     try {
       if (wasLiked) {
-        await unlikePost(post.id);
+        await unlikePost(viewPost.id);
       } else {
-        await likePost(post.id);
+        await likePost(viewPost.id);
       }
       // Server confirmed — keep the shared state authoritative.
-      markLiked(post.id, nextLiked, nextCount);
+      markLiked(viewPost.id, nextLiked, nextCount);
     } catch {
       // Revert on API failure
-      markLiked(post.id, wasLiked, Math.max(0, likeCount - delta));
-      updateCachedPost(post.id, userId, {
+      markLiked(viewPost.id, wasLiked, Math.max(0, likeCount - delta));
+      updateCachedPost(viewPost.id, userId, {
         likedByMe: wasLiked,
         likeCount: Math.max(0, likeCount - delta),
       }).catch(() => {});
@@ -393,28 +395,28 @@ export function MsPostCard({
     const next = !was;
     const delta = next ? 1 : -1;
     const nextCount = Math.max(0, bookmarkCount + delta);
-    markBookmarked(post.id, next, nextCount);
+    markBookmarked(viewPost.id, next, nextCount);
     tapLight();
 
     // Update SQLite cache optimistically
-    updateCachedPost(post.id, userId, {
+    updateCachedPost(viewPost.id, userId, {
       bookmarkedByMe: next,
       bookmarkCount: nextCount,
     }).catch(() => {});
 
     if (!isOnline) {
-      enqueueOfflineAction({ type: 'save_post', postId: post.id, saved: next }, userId).catch(() => {});
+      enqueueOfflineAction({ type: 'save_post', postId: viewPost.id, saved: next }, userId).catch(() => {});
       setBookmarking(false);
       return;
     }
 
     try {
-      if (was) await unbookmarkPost(post.id);
-      else await bookmarkPost(post.id);
-      markBookmarked(post.id, next, nextCount);
+      if (was) await unbookmarkPost(viewPost.id);
+      else await bookmarkPost(viewPost.id);
+      markBookmarked(viewPost.id, next, nextCount);
     } catch {
-      markBookmarked(post.id, was, Math.max(0, bookmarkCount - delta));
-      updateCachedPost(post.id, userId, {
+      markBookmarked(viewPost.id, was, Math.max(0, bookmarkCount - delta));
+      updateCachedPost(viewPost.id, userId, {
         bookmarkedByMe: was,
         bookmarkCount: Math.max(0, bookmarkCount - delta),
       }).catch(() => {});
@@ -432,12 +434,12 @@ export function MsPostCard({
       destructive: true,
       onConfirm: async () => {
         try {
-          await deletePost(post.id);
-          markDeleted(post.id);
+          await deletePost(viewPost.id);
+          markDeleted(viewPost.id);
           // Purge the server-confirmed deleted post from the local feed cache
           // so it can never reappear from stale cache/local state.
-          removeCachedPost(post.id, userId).catch(() => {});
-          onDeleted?.(post.id);
+          removeCachedPost(viewPost.id, userId).catch(() => {});
+          onDeleted?.(viewPost.id);
         } catch {
           dialogs.alert({ variant: 'error', title: 'Could not delete post' });
         }
@@ -446,7 +448,7 @@ export function MsPostCard({
   };
 
   const doReport = (reason: string) =>
-    reportPost(post.id, reason).catch(() =>
+    reportPost(viewPost.id, reason).catch(() =>
       dialogs.alert({ variant: 'error', title: 'Could not report post' }),
     );
 
@@ -459,13 +461,13 @@ export function MsPostCard({
       },
     },
     {
-      label: (post.commentsEnabled ?? true) ? 'Turn Off Comments' : 'Turn On Comments',
+      label: (viewPost.commentsEnabled ?? true) ? 'Turn Off Comments' : 'Turn On Comments',
       onPress: async () => {
         setSheetVisible(false);
-        const nextState = !(post.commentsEnabled ?? true);
+        const nextState = !(viewPost.commentsEnabled ?? true);
         try {
-          await setCommentsEnabled(post.id, nextState);
-          post.commentsEnabled = nextState;
+          await setCommentsEnabled(viewPost.id, nextState);
+          viewPost.commentsEnabled = nextState;
           toast.success(
             nextState ? 'Comments turned on' : 'Comments turned off',
           );
@@ -489,10 +491,10 @@ export function MsPostCard({
   const doNotInterested = () => {
     setSheetVisible(false);
     setFeedback({ variant: 'info', title: 'Noted', message: "We'll show you less of this content." });
-    hidePost(post.id)
+    hidePost(viewPost.id)
       .then(() => {
-        markHidden(post.id);
-        onDeleted?.(post.id);
+        markHidden(viewPost.id);
+        onDeleted?.(viewPost.id);
       })
       .catch(() => setFeedback({ variant: 'error', title: 'Could not hide', message: 'Please try again.' }));
   };
@@ -501,15 +503,15 @@ export function MsPostCard({
   // cards from the current list immediately.
   const doHideCreator = () => {
     setSheetVisible(false);
-    hideCreator(post.author.username)
+    hideCreator(viewPost.author.username)
       .then(() => {
-        markCreatorHidden(post.author.id);
-        onCreatorHidden?.(post.author.id);
-        onDeleted?.(post.id);
+        markCreatorHidden(viewPost.author.id);
+        onCreatorHidden?.(viewPost.author.id);
+        onDeleted?.(viewPost.id);
         setFeedback({
           variant: 'success',
           title: 'Creator hidden',
-          message: `${post.author.name}'s content will no longer appear in your feeds.`,
+          message: `${viewPost.author.name}'s content will no longer appear in your feeds.`,
         });
       })
       .catch(() => setFeedback({ variant: 'error', title: 'Could not hide creator', message: 'Please try again.' }));
@@ -529,7 +531,7 @@ export function MsPostCard({
     { label: 'Report', destructive: true, onPress: () => doReport('inappropriate') },
   ];
 
-  const inits = post.author.name
+  const inits = viewPost.author.name
     .split(' ')
     .map((w) => w[0]?.toUpperCase() ?? '')
     .slice(0, 2)
@@ -538,74 +540,70 @@ export function MsPostCard({
   const openSheet = () => { tapLight(); setSheetVisible(true); };
 
   return (
-    <TouchableOpacity
-      activeOpacity={onPress && !doubleTapToOpen ? 0.95 : 1}
+    <MsPressable
       onPress={doubleTapToOpen ? undefined : onPress}
       disabled={!onPress || doubleTapToOpen}
       style={styles.card}
     >
       {/* Author row */}
       <View style={styles.authorRow}>
-        <TouchableOpacity
+        <MsPressable
           onPress={onAuthorPress}
           style={styles.authorLeft}
-          activeOpacity={0.75}
-          onLongPress={openSheet}
+            onLongPress={openSheet}
           delayLongPress={400}
         >
           <MsAvatar
             size={38}
             initials={inits}
-            imageUri={post.author.avatarUrl ?? undefined}
+            imageUri={viewPost.author.avatarUrl ?? undefined}
           />
           <View style={styles.authorInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.authorName} numberOfLines={1}>
-                {post.author.name}
+                {viewPost.author.name}
               </Text>
-              {post.author.isVerified && (
+              {viewPost.author.isVerified && (
                 <SealCheck size={14} color={T.TEXT} weight="fill" />
               )}
             </View>
             <Text style={styles.authorMeta}>
-              @{post.author.username} · {formatTime(post.createdAt)}
+              @{viewPost.author.username} · {formatTime(viewPost.createdAt)}
             </Text>
           </View>
-        </TouchableOpacity>
+        </MsPressable>
 
         <View style={styles.authorRight}>
-          {/* Tier badge — prefer explicit prop, then post.tier (skip free — no badge for public posts). */}
+          {/* Tier badge — prefer explicit prop, then viewPost.tier (skip free — no badge for public posts). */}
           {(() => {
-            const effectiveTier = tier ?? post.tier;
+            const effectiveTier = tier ?? viewPost.tier;
             // New tier system
             if (effectiveTier === 'subscriber' || effectiveTier === 'subscriber_plus') {
               return <MsTierBadge tier={effectiveTier} size="xs" />;
             }
             return null;
           })()}
-          <TouchableOpacity
+          <MsPressable
             style={styles.moreBtn}
-            activeOpacity={0.7}
-            onPress={openSheet}
+                onPress={openSheet}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <DotsThree size={18} color={T.TEXT_2} />
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </View>
 
       {/* Video title — shown for video/short posts that carry a title from the backend */}
-      {!!(post.title && (post.contentType === 'video' || post.contentType === 'short' || post.mediaType === 'video')) && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={onPress}
+      {!!(viewPost.title && (viewPost.contentType === 'video' || viewPost.contentType === 'short' || viewPost.mediaType === 'video')) && (
+        <MsPressable
+            onPress={onPress}
           onLongPress={openSheet}
           delayLongPress={400}
         >
           <Text style={styles.videoTitle} numberOfLines={2}>
-            {post.title}
+            {viewPost.title}
           </Text>
-        </TouchableOpacity>
+        </MsPressable>
       )}
 
       {/* Caption
@@ -613,7 +611,7 @@ export function MsPostCard({
           Other screens: single tap navigates (original behaviour).
           For video/short posts the description is shown below the title.
       */}
-      {!!post.caption && (
+      {!!viewPost.caption && (
         doubleTapToOpen ? (
           <ScalePressable
             onPress={undefined}
@@ -622,20 +620,19 @@ export function MsPostCard({
             style={styles.captionPressable}
           >
             <Text style={styles.caption} numberOfLines={3}>
-              {post.caption}
+              {viewPost.caption}
             </Text>
           </ScalePressable>
         ) : (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={onPress}
+          <MsPressable
+                onPress={onPress}
             onLongPress={openSheet}
             delayLongPress={400}
           >
             <Text style={styles.caption} numberOfLines={3}>
-              {post.caption}
+              {viewPost.caption}
             </Text>
-          </TouchableOpacity>
+          </MsPressable>
         )
       )}
 
@@ -643,10 +640,9 @@ export function MsPostCard({
           Stack-of-cards effect: two offset cards behind the main cover.
           Tapping always opens the album detail page.
       */}
-      {post.contentType === 'album' && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => router.push(`/album/${post.id}`)}
+      {viewPost.contentType === 'album' && (
+        <MsPressable
+            onPress={() => router.push(`/album/${viewPost.id}`)}
           onLongPress={openSheet}
           delayLongPress={400}
         >
@@ -657,9 +653,9 @@ export function MsPostCard({
             <View style={[styles.albumCard, styles.albumCardBack1, { borderRadius: T.RADIUS.xl }]} />
             {/* Card 1 — front (actual cover) */}
             <View style={[styles.albumCard, { borderRadius: T.RADIUS.xl, overflow: 'hidden', zIndex: 3 }]}>
-              {post.mediaUrl ? (
+              {viewPost.mediaUrl ? (
                 <MsMediaLoader
-                  uri={post.mediaUrl}
+                  uri={viewPost.mediaUrl}
                   style={StyleSheet.absoluteFill}
                   resizeMode="cover"
                   accessibleLabel="Album cover"
@@ -678,39 +674,38 @@ export function MsPostCard({
               </View>
             </View>
           </View>
-        </TouchableOpacity>
+        </MsPressable>
       )}
 
       {/* Locked media — subscriber-gated content shows a lock state with a
           subscribe CTA instead of the media itself. */}
       {isLocked && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={onSubscribe ?? onMediaPress ?? onPress}
+        <MsPressable
+            onPress={onSubscribe ?? onMediaPress ?? onPress}
           onLongPress={openSheet}
           delayLongPress={400}
-          accessibilityLabel={post.tier === 'subscriber_plus' ? 'Subscriber+ locked content' : 'Subscriber locked content'}
+          accessibilityLabel={viewPost.tier === 'subscriber_plus' ? 'Subscriber+ locked content' : 'Subscriber locked content'}
         >
           <View style={styles.lockedMedia}>
             <View style={styles.lockedIcon}>
               <LockSimple size={20} color={T.TEXT_2} weight="bold" />
             </View>
             <Text style={styles.lockedTitle}>
-              {post.tier === 'subscriber_plus' ? 'Subscriber+ only' : 'Subscribers only'}
+              {viewPost.tier === 'subscriber_plus' ? 'Subscriber+ only' : 'Subscribers only'}
             </Text>
             <Text style={styles.lockedSub}>Subscribe to unlock this content</Text>
             <View style={styles.lockedCta}>
               <Text style={styles.lockedCtaLabel}>Subscribe</Text>
             </View>
           </View>
-        </TouchableOpacity>
+        </MsPressable>
       )}
 
       {/* Media — image
           feedMode: single tap = nothing, double-tap = open Full View.
           Other screens: single tap = open Full View, double-tap = like.
       */}
-      {!isLocked && post.mediaUrl && post.mediaType === 'image' && post.contentType !== 'album' && (
+      {!isLocked && viewPost.mediaUrl && viewPost.mediaType === 'image' && viewPost.contentType !== 'album' && (
         <ScalePressable
           onPress={doubleTapToOpen ? undefined : (onMediaPress ?? onPress)}
           onLongPress={openSheet}
@@ -719,10 +714,10 @@ export function MsPostCard({
           <View style={[
             styles.media,
             { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
-            post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
+            viewPost.width && viewPost.height ? { aspectRatio: viewPost.width / viewPost.height } : undefined,
           ]}>
             <MsMediaLoader
-              uri={post.mediaUrl}
+              uri={viewPost.mediaUrl}
               style={StyleSheet.absoluteFill}
               resizeMode="cover"
               accessibleLabel="Post image"
@@ -738,21 +733,20 @@ export function MsPostCard({
           Note: we render the card even when mediaUrl is null (Explore preview objects
           may only carry thumbnailUrl), because the card taps navigate to /videos/:id.
       */}
-      {!isLocked && post.mediaType === 'video' && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={onMediaPress ?? onPress}
+      {!isLocked && viewPost.mediaType === 'video' && (
+        <MsPressable
+            onPress={onMediaPress ?? onPress}
           onLongPress={openSheet}
           delayLongPress={400}
         >
           <View style={[
             styles.videoPlaceholder,
             { borderRadius: T.RADIUS.xl, overflow: 'hidden' },
-            post.width && post.height ? { aspectRatio: post.width / post.height } : undefined,
+            viewPost.width && viewPost.height ? { aspectRatio: viewPost.width / viewPost.height } : undefined,
           ]}>
-            {(post.thumbnailUrl || post.thumbnail_url) ? (
+            {(viewPost.thumbnailUrl || viewPost.thumbnail_url) ? (
               <MsMediaLoader
-                uri={(post.thumbnailUrl || post.thumbnail_url)!}
+                uri={(viewPost.thumbnailUrl || viewPost.thumbnail_url)!}
                 style={StyleSheet.absoluteFill}
                 resizeMode="cover"
                 accessibleLabel="Video thumbnail"
@@ -760,20 +754,20 @@ export function MsPostCard({
             ) : (
               <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
             )}
-            {/* Play button overlay — decorative, tap is handled by the TouchableOpacity */}
+            {/* Play button overlay — decorative, tap is handled by the card press */}
             <View style={styles.videoPlayOverlay} pointerEvents="none">
               <View style={styles.videoPlayBtn}>
                 <Play size={20} color="#fff" weight="fill" />
               </View>
             </View>
             {/* Duration badge — real media metadata (e.g. 0:42 / 12:38) */}
-            {fmtDuration(post.durationSecs) && (
+            {fmtDuration(viewPost.durationSecs) && (
               <View style={styles.durationBadge} pointerEvents="none">
-                <Text style={styles.durationBadgeText}>{fmtDuration(post.durationSecs)}</Text>
+                <Text style={styles.durationBadgeText}>{fmtDuration(viewPost.durationSecs)}</Text>
               </View>
             )}
           </View>
-        </TouchableOpacity>
+        </MsPressable>
       )}
 
       {/* Actions */}
@@ -813,16 +807,22 @@ export function MsPostCard({
       {/* Context menu */}
       <MsActionSheet
         visible={sheetVisible}
-        title={isOwn ? 'Your Post' : post.author.name}
-        subtitle={isOwn ? undefined : `@${post.author.username}`}
+        title={isOwn ? 'Your Post' : viewPost.author.name}
+        subtitle={isOwn ? undefined : `@${viewPost.author.username}`}
         actions={isOwn ? ownActions : guestActions}
         onClose={() => setSheetVisible(false)}
       />
       <MsShareSheet
         visible={shareVisible}
-        contentType={post.contentType || (post.mediaType === 'video' ? 'video' : 'post')}
-        contentId={post.id}
-        title={post.caption || 'MeetSweet post'}
+        contentType={viewPost.contentType || (viewPost.mediaType === 'video' ? 'video' : 'post')}
+        contentId={viewPost.id}
+        title={viewPost.caption || 'MeetSweet post'}
+        preview={{
+          title: viewPost.caption || viewPost.author.name || 'MeetSweet post',
+          subtitle: viewPost.author.username ? `@${viewPost.author.username}` : undefined,
+          imageUrl: viewPost.thumbnailUrl || viewPost.mediaUrl || undefined,
+          avatarUrl: undefined,
+        }}
         onClose={() => setShareVisible(false)}
       />
 
@@ -834,9 +834,9 @@ export function MsPostCard({
         message={feedback?.message}
         onClose={() => setFeedback(null)}
       />
-    </TouchableOpacity>
+    </MsPressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: { backgroundColor: T.BG },

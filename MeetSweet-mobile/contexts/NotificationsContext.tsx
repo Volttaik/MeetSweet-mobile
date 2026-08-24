@@ -35,14 +35,34 @@ import { usePostActions } from '@/contexts/PostActionsContext';
 const LAST_HANDLED_NOTIF_KEY = '@ms_last_handled_notif_id';
 
 // ─── Notification display while the app is foregrounded ──────────────────────
+// The chat screen registers the room it is actively showing; a push for THAT
+// conversation is suppressed so the user isn't banner-spammed by a chat they
+// are already looking at. The message still arrives over SweetSocket and the
+// unread badge is still updated.
+let activeChatRoomId: string | null = null;
+
+/**
+ * Tell the notification handler which chat room the user is currently viewing.
+ * Call with the room id while the chat screen is mounted, and with null on
+ * unmount. Any push for this room is suppressed while it is set.
+ */
+export function setActiveChatRoomId(roomId: string | null): void {
+  activeChatRoomId = roomId;
+}
+
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = (notification.request.content.data ?? {}) as Record<string, string>;
+    const roomId = data.chat_room_id ?? data.chatRoomId;
+    const inOpenChat = Boolean(roomId && activeChatRoomId && String(roomId) === String(activeChatRoomId));
+    return {
+      shouldShowAlert: !inOpenChat,
+      shouldPlaySound: !inOpenChat,
+      shouldSetBadge: true,
+      shouldShowBanner: !inOpenChat,
+      shouldShowList: !inOpenChat,
+    };
+  },
 });
 
 // ─── Types ────────────────────────────────────────────────────────────────────

@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  FlatList,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, Compass, MagnifyingGlass, MonitorPlay } from 'phosphor-react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -27,6 +26,70 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { getHomeFeed, likePost, unlikePost, bookmarkPost, unbookmarkPost, type Post } from '@/services/posts';
+
+/**
+ * HomePostRow — memoized home-feed row. Navigation closures live here (per row,
+ * only when the row actually re-renders); the parent passes stable callbacks so
+ * unrelated state changes don't re-render every visible card.
+ */
+const HomePostRow = React.memo(function HomePostRow({
+  item,
+  videoPreviewActive,
+  currentUserId,
+  onDeleted,
+  onCreatorHidden,
+}: {
+  item: Post;
+  videoPreviewActive: boolean;
+  currentUserId?: string;
+  onDeleted: (id: string) => void;
+  onCreatorHidden: (creatorId: string) => void;
+}) {
+  const openPost = () => {
+    if (item.contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: item.id } });
+    } else if (item.contentType === 'video') {
+      router.push(`/videos/${item.id}`);
+    } else if (item.contentType === 'album') {
+      router.push(`/album/${item.id}`);
+    } else {
+      router.push(`/post/${item.id}`);
+    }
+  };
+  const openMedia = () => {
+    if (item.contentType === 'short') {
+      router.push({ pathname: '/shorts', params: { startId: item.id } });
+    } else if (item.mediaType === 'video') {
+      router.push(`/videos/${item.id}`);
+    } else if (item.mediaUrl) {
+      router.push({
+        pathname: '/post-media',
+        params: {
+          uri: item.mediaUrl,
+          type: 'image',
+          postId: item.id,
+          aspectRatio: item.width && item.height ? String(item.width / item.height) : '',
+        },
+      });
+    } else {
+      router.push(`/post/${item.id}`);
+    }
+  };
+  return (
+    <MsPostCard
+      post={item}
+      tier={item.tier as import('@/constants/tiers').ContentTier | undefined}
+      videoPreviewActive={videoPreviewActive}
+      onPress={openPost}
+      onMediaPress={openMedia}
+      currentUserId={currentUserId}
+      onAuthorPress={() => router.push(`/creator/${item.author.id || item.author.username}`)}
+      onDeleted={onDeleted}
+      onCreatorHidden={onCreatorHidden}
+      subscribedToAuthor
+    />
+  );
+});
 import {
   getCachedPosts,
   cachePosts,
@@ -100,14 +163,13 @@ function DiscoveryState() {
         </View>
       )}
 
-      <TouchableOpacity
+      <MsPressable
         style={discoveryStyles.exploreBtn}
-        activeOpacity={0.85}
         onPress={() => router.push('/(tabs)/explore')}
       >
         <Compass size={18} color={T.BG} />
         <Text style={discoveryStyles.exploreBtnLabel}>Explore All Creators</Text>
-      </TouchableOpacity>
+      </MsPressable>
       <View style={discoveryStyles.howCard}>
         <Text style={discoveryStyles.howTitle}>How the Posts feed works</Text>
         <View style={discoveryStyles.howRow}>
@@ -268,6 +330,23 @@ export default function HomeScreen() {
     if (!loadingMore && hasMore && !loading) { setLoadingMore(true); loadFeed(); }
   };
 
+  // Stable renderItem: rows are memoized (HomePostRow), so unrelated state
+  // changes never re-render the whole visible feed.
+  const renderHomeItem = useCallback(
+    ({ item }: { item: Post }) => (
+      <HomePostRow
+        item={item}
+        videoPreviewActive={visiblePostIds.has(item.id)}
+        currentUserId={user?.id}
+        onDeleted={(id) => setPosts((prev) => prev.filter((p) => p.id !== id))}
+        onCreatorHidden={(creatorId) =>
+          setPosts((prev) => prev.filter((p) => p.author.id !== creatorId))
+        }
+      />
+    ),
+    [visiblePostIds, user?.id],
+  );
+
   // ── Optimistic like — offline-queue aware ──────────────────────────────────
   const handleLike = useCallback(async (post: Post) => {
     const wasLiked = post.likedByMe;
@@ -351,7 +430,7 @@ export default function HomeScreen() {
         <View style={{ flex: 1 }} />
         <View style={styles.topActions}>
           <MsWalletBadge balance={walletBalance.balance} />
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => router.push('/notifications')}>
+          <MsPressable style={styles.iconBtn} onPress={() => router.push('/notifications')}>
             <View style={{ position: 'relative' }}>
               <Bell size={20} color={T.TEXT} />
               {notifUnread > 0 && (
@@ -360,19 +439,18 @@ export default function HomeScreen() {
                 </View>
               )}
             </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => setSearchVisible(true)}>
+          </MsPressable>
+          <MsPressable style={styles.iconBtn} onPress={() => setSearchVisible(true)}>
             <MagnifyingGlass size={20} color={T.TEXT} />
-          </TouchableOpacity>
+          </MsPressable>
           {user?.isCreator ? (
-            <TouchableOpacity
+            <MsPressable
               style={styles.iconBtn}
-              activeOpacity={0.7}
-              onPress={() => pushOnce('/creator-dashboard')}
+                    onPress={() => pushOnce('/creator-dashboard')}
               accessibilityLabel="Creator Dashboard"
             >
               <MonitorPlay size={20} color={T.TEXT} />
-            </TouchableOpacity>
+            </MsPressable>
           ) : null}
         </View>
       </View>
@@ -392,7 +470,7 @@ export default function HomeScreen() {
       ) : posts.length === 0 ? (
         <DiscoveryState />
       ) : (
-        <FlatList
+        <FlashList
           data={posts.filter(
             (p) =>
               !deletedIds.includes(p.id) &&
@@ -402,57 +480,9 @@ export default function HomeScreen() {
           keyExtractor={(item) => item.id}
           viewabilityConfig={feedViewabilityConfig}
           onViewableItemsChanged={onFeedViewableItemsChanged}
-          renderItem={({ item }) => (
-            <MsPostCard
-              post={item}
-              tier={item.tier as import('@/constants/tiers').ContentTier | undefined}
-              videoPreviewActive={visiblePostIds.has(item.id)}
-              onPress={() => {
-                if (item.contentType === 'short') {
-                  // Shorts only live in the Shorts player — shouldn't reach here after
-                  // home feed filtering, but guard just in case
-                  router.push({ pathname: '/shorts', params: { startId: item.id } });
-                } else if (item.contentType === 'video') {
-                  router.push(`/videos/${item.id}`);
-                } else if (item.contentType === 'album') {
-                  router.push(`/album/${item.id}`);
-                } else {
-                  router.push(`/post/${item.id}`);
-                }
-              }}
-              onMediaPress={() => {
-                if (item.contentType === 'short') {
-                  router.push({ pathname: '/shorts', params: { startId: item.id } });
-                } else if (item.mediaType === 'video') {
-                  router.push(`/videos/${item.id}`);
-                } else if (item.mediaUrl) {
-                  router.push({
-                    pathname: '/post-media',
-                    params: {
-                      uri: item.mediaUrl,
-                      type: 'image',
-                      postId: item.id,
-                      aspectRatio: item.width && item.height ? String(item.width / item.height) : '',
-                    },
-                  });
-                } else {
-                  router.push(`/post/${item.id}`);
-                }
-              }}
-              currentUserId={user?.id}
-              onAuthorPress={() => router.push(`/creator/${item.author.id || item.author.username}`)}
-              onDeleted={(id) => setPosts((prev) => prev.filter((p) => p.id !== id))}
-              onCreatorHidden={(creatorId) =>
-                setPosts((prev) => prev.filter((p) => p.author.id !== creatorId))
-              }
-              // Home feed = subscribed creators' content → discovery actions
-              // (Not Interested / Hide Creator) never apply here.
-              subscribedToAuthor
-            />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.TEXT} />
-          }
+          renderItem={renderHomeItem}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.4}
           ListHeaderComponent={<MsSectionHeader title="Home Feed" />}

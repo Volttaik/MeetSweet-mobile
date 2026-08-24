@@ -19,6 +19,7 @@ interface Props {
   message: MsMessage;
   position: 'left' | 'right';
   onPress?: () => void;
+  onDownload?: () => void;
   onLongPress?: () => void;
 }
 
@@ -47,7 +48,7 @@ function getFileLabel(mimeType?: string, fileName?: string): string {
   return 'File';
 }
 
-export function MsFileCard({ message, position, onPress, onLongPress }: Props) {
+export function MsFileCard({ message, position, onPress, onDownload, onLongPress }: Props) {
   const isOwn    = position === 'right';
   const filename = message.msFileName ?? message.fileName ?? 'Attachment';
   const sizeVal  = message.msFileSize ?? message.fileSize;
@@ -66,7 +67,7 @@ export function MsFileCard({ message, position, onPress, onLongPress }: Props) {
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={status === 'local' ? onPress : onDownload}
       delayLongPress={350}
       onLongPress={onLongPress}
       style={[styles.container, isOwn ? styles.containerRight : styles.containerLeft]}

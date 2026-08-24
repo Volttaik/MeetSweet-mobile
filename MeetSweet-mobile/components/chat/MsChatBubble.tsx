@@ -2,9 +2,9 @@
  * MsChatBubble — main bubble router for renderBubble in the Chat component.
  *
  * Routes by message type:
- *   text      → MsTextBubble  (or large-emoji/sticker render if single emoji)
+ *   text      → MsTextBubble
  *   image/vid → MsMediaCard
- *   audio     → MsVoiceBubble
+ *   audio     → MsVoiceBubble (voice note) / MsFileCard (audio file)
  *   document  → MsFileCard
  *
  * Max-width lives here (fixed px, not %) so child percentage widths
@@ -12,17 +12,20 @@
  *
  * Entrance animation: opacity + scale (0.97→1) + translateY — 200 ms.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
-  Animated,
   Dimensions,
-  Easing,
-  Image,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Check, Checks, Clock } from 'phosphor-react-native';
 import type { BubbleProps } from '@kesha-antonov/react-native-chat';
 import { T } from '@/constants/theme';
@@ -31,6 +34,7 @@ import { MsTextBubble }         from './MsTextBubble';
 import { MsMediaCard }          from './MsMediaCard';
 import { MsVoiceBubble }        from './MsVoiceBubble';
 import { MsFileCard }           from './MsFileCard';
+import { MsLinkPreviewCard }    from './MsLinkPreviewCard';
 import { MsReactionStrip }      from './MsReactionStrip';
 import { MsReplyPreviewBubble } from './MsReplyPreviewBubble';
 
@@ -47,7 +51,7 @@ interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage
   currentMessage: MsMessage;
   currentUserId?:    string;
   onMediaPress?:     (message: MsMessage) => void;
-  onRetry?:          (message: MsMessage) => void;
+  onMediaDownload?:  (message: MsMessage) => void;
   onLongPressMessage?: (context?: any, message?: any) => void;
   onReactionPress?:  (message: MsMessage, emoji: string) => void;
   /** Called when the user taps the quoted-reply preview above a bubble.
@@ -56,39 +60,45 @@ interface MsChatBubbleProps extends Omit<BubbleProps<MsMessage>, 'currentMessage
   /** Briefly true after scroll-to-message/search-jump lands on this bubble,
    *  so it can flash a highlight background. */
   highlighted?:      boolean;
+  /** 0–1 upload progress while this pending media message is uploading.
+   *  Rendered as an overlay on the bubble until the server confirms. */
+  uploadProgress?:   number;
 }
 
-export function MsChatBubble({
+function MsChatBubbleView({
   currentMessage,
   currentUserId,
   position,
   onMediaPress,
-  onRetry,
+  onMediaDownload,
   onLongPressMessage,
   onReactionPress,
   onQuotePress,
   highlighted,
+  uploadProgress,
 }: MsChatBubbleProps) {
   const msg   = currentMessage;
   const isOwn = position === 'right';
 
-  // ── Entrance: fade + scale 0.97→1 + 4px slide-up ─────────────────────────
-  const anim = useRef(new Animated.Value(0)).current;
+  // ── Entrance: fade + scale 0.97→1 + 4px slide-up — Reanimated worklet on
+  //     the UI thread (no JS-thread orchestration).
+  const entrance = useSharedValue(0);
   useEffect(() => {
-    Animated.timing(anim, {
-      toValue:        1,
-      duration:       200,
-      easing:         Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, []);
+    entrance.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.quad) });
+  }, [entrance]);
+  const entranceStyle = useAnimatedStyle(() => ({
+    opacity: entrance.value,
+    transform: [
+      { scale: 0.97 + entrance.value * 0.03 },
+      { translateY: (1 - entrance.value) * 4 },
+    ],
+  }));
 
   const timeString = msg.createdAt
     ? formatTime(msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt))
     : '';
 
   const handleMediaPress = useCallback(() => onMediaPress?.(msg), [onMediaPress, msg]);
-  const handleRetry      = useCallback(() => onRetry?.(msg),      [onRetry, msg]);
 
   // ── Type detection ─────────────────────────────────────────────────────────
   const mediaType = msg.msMediaType;
@@ -101,20 +111,11 @@ export function MsChatBubble({
   // gif messages are images (animated) — they route to MsMediaCard which
   // detects the gif container and renders it as a compact animated bubble.
   const hasImage  = mediaType === 'image' || mediaType === 'gif'
-    || (!!msg.image && mediaType !== 'video' && mediaType !== 'sticker');
+    || (!!msg.image && mediaType !== 'video');
   const hasVideo  = mediaType === 'video'    || (!!msg.video && mediaType !== 'image');
   const hasDoc    = mediaType === 'file' || (mediaType as string) === 'document';
   const isDeleted = msg.msIsDeleted  ?? false;
   const isFailed  = msg.sent === false && msg.pending === false;
-
-  // Stickers are explicit message types. Plain Unicode emoji remains a normal
-  // text message and must never be silently reclassified as a sticker.
-  const isSticker = !isDeleted && !hasAudio && !hasImage && !hasVideo && !hasDoc
-    && (msg.messageType === 'sticker' || msg.msMediaType === 'sticker');
-
-  // Image sticker: sticker media messages (mediaType 'sticker') render as a
-  // floating image (no card background) — same as the legacy msStickerImage path.
-  const isStickerImage = !isDeleted && (mediaType === 'sticker' || !!msg.msStickerImage) && !!msg.image;
 
   const replyMsg  = msg.replyMessage;
   const reactions = msg.reactions ?? [];
@@ -132,49 +133,15 @@ export function MsChatBubble({
         onLongPress={() => onLongPressMessage?.(null, msg)}
       />
     );
-  } else if (isStickerImage) {
-    // Floating image sticker — no card background, transparent, 120px
-    bubble = (
-      <Pressable
-        delayLongPress={350}
-        onLongPress={() => onLongPressMessage?.(null, msg)}
-        style={[styles.stickerWrap, isOwn ? styles.stickerRight : styles.stickerLeft]}
-        accessibilityLabel="Image sticker"
-      >
-        <Image
-          source={{ uri: msg.localUri ?? msg.image }}
-          style={styles.stickerImage}
-          resizeMode="contain"
-          accessibilityLabel="Sticker"
-        />
-        <Text style={[styles.stickerTime, isOwn ? styles.stickerTimeRight : styles.stickerTimeLeft]}>
-          {timeString}
-        </Text>
-      </Pressable>
-    );
-  } else if (isSticker) {
-    // Large emoji sticker — no bubble background, floats in chat
-    bubble = (
-      <Pressable
-        delayLongPress={350}
-        onLongPress={() => onLongPressMessage?.(null, msg)}
-        style={[styles.stickerWrap, isOwn ? styles.stickerRight : styles.stickerLeft]}
-        accessibilityLabel={`Sticker: ${msg.text?.trim()}`}
-      >
-        <Text style={styles.stickerEmoji}>{msg.text?.trim()}</Text>
-        <Text style={[styles.stickerTime, isOwn ? styles.stickerTimeRight : styles.stickerTimeLeft]}>
-          {timeString}
-        </Text>
-      </Pressable>
-    );
   } else if (isVoice) {
     // Voice note — inline waveform bubble with local-first URI.
     bubble = (
       <View style={styles.mediaWrap}>
         <MsVoiceBubble
-          uri={msg.localUri ?? msg.audio ?? ''}
+          uri={msg.localUri ?? msg.audio ?? msg.msMediaUrl ?? ''}
           duration={msg.msAudioDuration ?? 0}
           position={position ?? 'left'}
+          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -190,6 +157,7 @@ export function MsChatBubble({
           message={msg}
           position={position ?? 'left'}
           onPress={handleMediaPress}
+          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -201,6 +169,7 @@ export function MsChatBubble({
           message={msg}
           position={position ?? 'left'}
           onPress={handleMediaPress}
+          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -212,6 +181,7 @@ export function MsChatBubble({
           message={msg}
           position={position ?? 'left'}
           onPress={handleMediaPress}
+          onDownload={() => onMediaDownload?.(msg)}
           onLongPress={() => onLongPressMessage?.(null, msg)}
         />
       </View>
@@ -224,45 +194,39 @@ export function MsChatBubble({
         showEdited={msg.msIsEdited}
         timeString={timeString}
         showReadReceipt={isOwn && msg.received}
+        showDelivered={isOwn && !msg.received && msg.delivered}
         isPending={msg.pending}
         isFailed={isFailed}
-        onRetry={isFailed && isOwn ? handleRetry : undefined}
         onLongPress={() => onLongPressMessage?.(null, msg)}
       />
     );
   }
 
-  const isMedia = !isDeleted && !isSticker && !isStickerImage && (hasAudio || hasImage || hasVideo || hasDoc);
+  const isMedia = !isDeleted && (hasAudio || hasImage || hasVideo || hasDoc);
+
+  // Upload progress overlay — only on this bubble while its media is uploading.
+  const uploadOverlay =
+    msg.pending && uploadProgress !== undefined ? (
+      <View style={styles.uploadOverlay} pointerEvents="none">
+        <Text style={styles.uploadText}>
+          Uploading {Math.max(0, Math.min(99, Math.round(uploadProgress * 100)))}%
+        </Text>
+      </View>
+    ) : null;
 
   return (
-    <Animated.View
+    <Reanimated.View
       style={[
         styles.row,
         isOwn ? styles.rowRight : styles.rowLeft,
-        {
-          opacity: anim,
-          transform: [
-            {
-              scale: anim.interpolate({
-                inputRange:  [0, 1],
-                outputRange: [0.97, 1],
-              }),
-            },
-            {
-              translateY: anim.interpolate({
-                inputRange:  [0, 1],
-                outputRange: [4, 0],
-              }),
-            },
-          ],
-        },
+        entranceStyle,
       ]}
     >
       {/* Fixed-pixel max-width prevents percentage-of-percentage bugs */}
       <View
         style={[
           styles.column,
-          { maxWidth: isSticker ? undefined : MAX_BUBBLE },
+          { maxWidth: MAX_BUBBLE },
           highlighted ? styles.highlighted : null,
         ]}
       >
@@ -290,6 +254,17 @@ export function MsChatBubble({
           {bubble}
         </Pressable>
 
+        {isMedia ? uploadOverlay : null}
+
+        {/* Rich link preview — server-resolved metadata shipped with the
+            message; renders from the payload (no re-fetch on chat open). */}
+        {!isDeleted && msg.linkPreview ? (
+          <MsLinkPreviewCard
+            preview={msg.linkPreview}
+            position={position ?? 'left'}
+          />
+        ) : null}
+
         {reactions.length > 0 ? (
           <MsReactionStrip
             reactions={reactions}
@@ -299,7 +274,7 @@ export function MsChatBubble({
           />
         ) : null}
 
-        {/* Media meta row — text/sticker bubbles show time inside themselves */}
+        {/* Media meta row — text bubbles show time inside themselves */}
         {isMedia ? (
           <View style={[styles.mediaMeta, isOwn ? styles.mediaMetaRight : styles.mediaMetaLeft]}>
             <Text numberOfLines={1} style={styles.mediaTime}>
@@ -314,6 +289,8 @@ export function MsChatBubble({
               <View style={styles.mediaStatusIcon}>
                 {msg.received ? (
                   <Checks size={11} color={T.ACCENT} weight="bold" />
+                ) : msg.delivered ? (
+                  <Checks size={11} color="rgba(255,255,255,0.45)" weight="bold" />
                 ) : (
                   <Check size={11} color="rgba(255,255,255,0.40)" weight="bold" />
                 )}
@@ -325,9 +302,28 @@ export function MsChatBubble({
           </View>
         ) : null}
       </View>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
+
+export const MsChatBubble = React.memo(MsChatBubbleView, (prev, next) => {
+  const a = prev.currentMessage;
+  const b = next.currentMessage;
+  return a._id === b._id
+    && a.text === b.text
+    && a.msIsEdited === b.msIsEdited
+    && a.msIsDeleted === b.msIsDeleted
+    && a.pending === b.pending
+    && a.sent === b.sent
+    && a.delivered === b.delivered
+    && a.received === b.received
+    && a.localUri === b.localUri
+    && a.msMediaStatus === b.msMediaStatus
+    && a.reactions === b.reactions
+    && prev.position === next.position
+    && prev.highlighted === next.highlighted
+    && prev.uploadProgress === next.uploadProgress;
+});
 
 const styles = StyleSheet.create({
   row: {
@@ -348,31 +344,23 @@ const styles = StyleSheet.create({
 
   mediaWrap: { position: 'relative' },
 
-  // Explicit text sticker: large emoji, no background
-  stickerWrap: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
+  uploadOverlay: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 8,
     alignItems: 'center',
   },
-  stickerLeft:  { alignSelf: 'flex-start', marginLeft: 8 },
-  stickerRight: { alignSelf: 'flex-end',   marginRight: 8 },
-  stickerEmoji: {
-    fontSize: 72,
-    lineHeight: 88,
-    includeFontPadding: false,
+  uploadText: {
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    color: '#fff',
+    fontSize: 11,
+    fontFamily: T.FONT.semibold,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
   },
-  stickerImage: {
-    width: 120,
-    height: 120,
-  },
-  stickerTime: {
-    fontSize: 10,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT_3,
-    marginTop: 2,
-  },
-  stickerTimeLeft:  { textAlign: 'left' },
-  stickerTimeRight: { textAlign: 'right' },
 
   mediaMeta: {
     flexDirection: 'row',

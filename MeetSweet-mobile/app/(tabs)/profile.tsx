@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -10,11 +10,30 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+
+/** Shared native-sheet backdrop for the profile's edit/analytics sheets. */
+function SheetBackdrop(props: BottomSheetBackdropProps) {
+  return (
+    <BottomSheetBackdrop
+      {...props}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      opacity={0.6}
+    />
+  );
+}
+
 import { createShareLink } from '@/services/sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -92,10 +111,10 @@ function formatDuration(secs: number): string {
 function StatItem({ label, value, onPress }: { label: string; value: string | number; onPress?: () => void }) {
   if (onPress) {
     return (
-      <TouchableOpacity style={statStyles.wrap} onPress={onPress} activeOpacity={0.7}>
+      <MsPressable style={statStyles.wrap} onPress={onPress}>
         <Text style={statStyles.value}>{value}</Text>
         <Text style={statStyles.label}>{label}</Text>
-      </TouchableOpacity>
+      </MsPressable>
     );
   }
   return (
@@ -128,13 +147,32 @@ function EditProfileModal({
   onSave: (fields: { name: string; bio: string }) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [name, setName] = useState(initialName);
   const [bio, setBio] = useState(initialBio);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (visible) { setName(initialName); setBio(initialBio); }
+    if (visible) {
+      setName(initialName);
+      setBio(initialBio);
+      sheetRef.current?.present();
+    } else {
+      sheetRef.current?.dismiss();
+    }
   }, [visible, initialName, initialBio]);
+
+  const renderBackdrop = useMemo(
+    () => (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.6}
+      />
+    ),
+    []
+  );
 
   const handleSave = async () => {
     if (!name.trim() || name.trim().length < 2) {
@@ -154,38 +192,45 @@ function EditProfileModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        <Pressable style={epm.overlay} onPress={onClose}>
-          <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]} onPress={(e) => e.stopPropagation()}>
-            <View style={epm.handle} />
-            <View style={epm.header}>
-              <Text style={epm.title}>Edit Profile</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={12}><Text style={epm.closeLabel}>Cancel</Text></TouchableOpacity>
-            </View>
-            <View style={epm.fields}>
-              <View style={epm.field}>
-                <Text style={epm.label}>Display Name</Text>
-                <TextInput style={epm.input} value={name} onChangeText={setName} placeholder="Your display name" placeholderTextColor={T.TEXT_3} maxLength={50} autoFocus autoCorrect={false} />
-              </View>
-              <View style={epm.field}>
-                <Text style={epm.label}>Bio</Text>
-                <TextInput style={[epm.input, epm.bioInput]} value={bio} onChangeText={setBio} placeholder="Tell the community who you are…" placeholderTextColor={T.TEXT_3} multiline maxLength={160} textAlignVertical="top" />
-                <Text style={epm.hint}>{bio.length}/160</Text>
-              </View>
-              <View style={epm.buttons}>
-                <TouchableOpacity style={epm.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-                  <Text style={epm.cancelLabel}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[epm.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving} activeOpacity={0.8}>
-                  {saving ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={epm.saveLabel}>Save</Text>}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+    <BottomSheetModal
+      ref={sheetRef}
+      index={0}
+      snapPoints={['auto']}
+      enableDynamicSizing
+      backdropComponent={renderBackdrop}
+      backgroundStyle={epm.sheetBackground}
+      handleIndicatorStyle={epm.handle}
+      keyboardBehavior="extend"
+      onDismiss={onClose}
+    >
+      <BottomSheetView
+        style={[epm.sheetBody, { paddingBottom: Math.max(insets.bottom + 8, 24) }]}
+      >
+        <View style={epm.header}>
+          <Text style={epm.title}>Edit Profile</Text>
+          <MsPressable onPress={onClose} hitSlop={12}><Text style={epm.closeLabel}>Cancel</Text></MsPressable>
+        </View>
+        <View style={epm.fields}>
+          <View style={epm.field}>
+            <Text style={epm.label}>Display Name</Text>
+            <TextInput style={epm.input} value={name} onChangeText={setName} placeholder="Your display name" placeholderTextColor={T.TEXT_3} maxLength={50} autoFocus autoCorrect={false} />
+          </View>
+          <View style={epm.field}>
+            <Text style={epm.label}>Bio</Text>
+            <TextInput style={[epm.input, epm.bioInput]} value={bio} onChangeText={setBio} placeholder="Tell the community who you are…" placeholderTextColor={T.TEXT_3} multiline maxLength={160} textAlignVertical="top" />
+            <Text style={epm.hint}>{bio.length}/160</Text>
+          </View>
+          <View style={epm.buttons}>
+            <MsPressable style={epm.cancelBtn} onPress={onClose}>
+              <Text style={epm.cancelLabel}>Cancel</Text>
+            </MsPressable>
+            <MsPressable style={[epm.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+              {saving ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={epm.saveLabel}>Save</Text>}
+            </MsPressable>
+          </View>
+        </View>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
@@ -203,6 +248,7 @@ function EditPostSheet({
   onSaved: (updated: { id: string; caption: string; visibility: string }) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [caption, setCaption] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'subscribers' | 'draft'>('public');
   const [saving, setSaving] = useState(false);
@@ -211,6 +257,9 @@ function EditPostSheet({
     if (visible && post) {
       setCaption(post.caption ?? '');
       setVisibility((post.visibility as any) ?? 'public');
+      sheetRef.current?.present();
+    } else {
+      sheetRef.current?.dismiss();
     }
   }, [visible, post]);
 
@@ -230,70 +279,74 @@ function EditPostSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        <Pressable style={epm.overlay} onPress={onClose}>
-          <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]} onPress={(e) => e.stopPropagation()}>
-            <View style={epm.handle} />
-            <View style={epm.header}>
-              <Text style={epm.title}>Edit Post</Text>
-              <TouchableOpacity onPress={onClose} hitSlop={12}><X size={18} color={T.TEXT_2} /></TouchableOpacity>
-            </View>
+    <BottomSheetModal
+      ref={sheetRef}
+      index={0}
+      snapPoints={['auto']}
+      enableDynamicSizing
+      backdropComponent={SheetBackdrop}
+      backgroundStyle={epm.sheetBackground}
+      handleIndicatorStyle={epm.handle}
+      keyboardBehavior="extend"
+      onDismiss={onClose}
+    >
+      <BottomSheetView style={[epm.sheetBody, { paddingBottom: Math.max(insets.bottom + 8, 24) }]}>
+        <View style={epm.header}>
+          <Text style={epm.title}>Edit Post</Text>
+          <MsPressable onPress={onClose} hitSlop={12}><X size={18} color={T.TEXT_2} /></MsPressable>
+        </View>
 
-            {/* Caption */}
-            <View style={epm.field}>
-              <Text style={epm.label}>Caption</Text>
-              <TextInput
-                style={[epm.input, epm.bioInput]}
-                value={caption}
-                onChangeText={setCaption}
-                placeholder="What's this post about?"
-                placeholderTextColor={T.TEXT_3}
-                multiline
-                maxLength={2200}
-                textAlignVertical="top"
-              />
-              <Text style={epm.hint}>{caption.length}/2200</Text>
-            </View>
+        {/* Caption */}
+        <View style={epm.field}>
+          <Text style={epm.label}>Caption</Text>
+          <TextInput
+            style={[epm.input, epm.bioInput]}
+            value={caption}
+            onChangeText={setCaption}
+            placeholder="What's this post about?"
+            placeholderTextColor={T.TEXT_3}
+            multiline
+            maxLength={2200}
+            textAlignVertical="top"
+          />
+          <Text style={epm.hint}>{caption.length}/2200</Text>
+        </View>
 
-            {/* Visibility */}
-            <View style={[epm.field, { marginTop: 12 }]}>
-              <Text style={epm.label}>Visibility</Text>
-              <View style={{ gap: 6, marginTop: 4 }}>
-                {VISIBILITY_OPTIONS.map((opt) => {
-                  const active = opt.value === visibility;
-                  return (
-                    <TouchableOpacity
-                      key={opt.value}
-                      style={[eps.visOpt, active && eps.visOptActive]}
-                      onPress={() => setVisibility(opt.value)}
-                      activeOpacity={0.75}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={[eps.visLabel, active && eps.visLabelActive]}>{opt.label}</Text>
-                        <Text style={eps.visDesc}>{opt.description}</Text>
-                      </View>
-                      <View style={[eps.radio, active && eps.radioActive]}>
-                        {active && <View style={eps.radioDot} />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
+        {/* Visibility */}
+        <View style={[epm.field, { marginTop: 12 }]}>
+          <Text style={epm.label}>Visibility</Text>
+          <View style={{ gap: 6, marginTop: 4 }}>
+            {VISIBILITY_OPTIONS.map((opt) => {
+              const active = opt.value === visibility;
+              return (
+                <MsPressable
+                  key={opt.value}
+                  style={[eps.visOpt, active && eps.visOptActive]}
+                  onPress={() => setVisibility(opt.value)}
+                          >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[eps.visLabel, active && eps.visLabelActive]}>{opt.label}</Text>
+                    <Text style={eps.visDesc}>{opt.description}</Text>
+                  </View>
+                  <View style={[eps.radio, active && eps.radioActive]}>
+                    {active && <View style={eps.radioDot} />}
+                  </View>
+                </MsPressable>
+              );
+            })}
+          </View>
+        </View>
 
-            <View style={[epm.buttons, { marginTop: 16 }]}>
-              <TouchableOpacity style={epm.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-                <Text style={epm.cancelLabel}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[epm.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving} activeOpacity={0.8}>
-                {saving ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={epm.saveLabel}>Save Changes</Text>}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+        <View style={[epm.buttons, { marginTop: 16 }]}>
+          <MsPressable style={epm.cancelBtn} onPress={onClose}>
+            <Text style={epm.cancelLabel}>Cancel</Text>
+          </MsPressable>
+          <MsPressable style={[epm.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving}>
+            {saving ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={epm.saveLabel}>Save Changes</Text>}
+          </MsPressable>
+        </View>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
@@ -336,6 +389,7 @@ function AnalyticsSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [freshPost, setFreshPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -347,6 +401,9 @@ function AnalyticsSheet({
         .then((p) => setFreshPost(p))
         .catch(() => setFreshPost(post))
         .finally(() => setLoading(false));
+      sheetRef.current?.present();
+    } else {
+      sheetRef.current?.dismiss();
     }
   }, [visible, post?.id]);
 
@@ -361,44 +418,50 @@ function AnalyticsSheet({
     : [];
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable style={epm.overlay} onPress={onClose}>
-        <Pressable style={[epm.sheet, { paddingBottom: Math.max(insets.bottom + 8, 32) }]} onPress={(e) => e.stopPropagation()}>
-          <View style={epm.handle} />
-          <View style={epm.header}>
-            <Text style={epm.title}>Post Analytics</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12}><X size={18} color={T.TEXT_2} /></TouchableOpacity>
+    <BottomSheetModal
+      ref={sheetRef}
+      index={0}
+      snapPoints={['auto']}
+      enableDynamicSizing
+      backdropComponent={SheetBackdrop}
+      backgroundStyle={epm.sheetBackground}
+      handleIndicatorStyle={epm.handle}
+      onDismiss={onClose}
+    >
+      <BottomSheetView style={[epm.sheetBody, { paddingBottom: Math.max(insets.bottom + 8, 32) }]}>
+        <View style={epm.header}>
+          <Text style={epm.title}>Post Analytics</Text>
+          <MsPressable onPress={onClose} hitSlop={12}><X size={18} color={T.TEXT_2} /></MsPressable>
+        </View>
+
+        {loading ? (
+          <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+            <ActivityIndicator color={T.TEXT} />
+            <Text style={{ color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, marginTop: 12 }}>Loading stats…</Text>
           </View>
+        ) : (
+          <>
+            {data?.caption ? (
+              <Text style={ans.caption} numberOfLines={2}>{data.caption}</Text>
+            ) : null}
 
-          {loading ? (
-            <View style={{ alignItems: 'center', paddingVertical: 32 }}>
-              <ActivityIndicator color={T.TEXT} />
-              <Text style={{ color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, marginTop: 12 }}>Loading stats…</Text>
+            <View style={ans.statsGrid}>
+              {stats.map((s) => (
+                <View key={s.label} style={ans.statCard}>
+                  <s.Icon size={22} color={T.TEXT_2} />
+                  <Text style={ans.statValue}>{formatCount(s.value ?? 0)}</Text>
+                  <Text style={ans.statLabel}>{s.label}</Text>
+                </View>
+              ))}
             </View>
-          ) : (
-            <>
-              {data?.caption ? (
-                <Text style={ans.caption} numberOfLines={2}>{data.caption}</Text>
-              ) : null}
 
-              <View style={ans.statsGrid}>
-                {stats.map((s) => (
-                  <View key={s.label} style={ans.statCard}>
-                    <s.Icon size={22} color={T.TEXT_2} />
-                    <Text style={ans.statValue}>{formatCount(s.value ?? 0)}</Text>
-                    <Text style={ans.statLabel}>{s.label}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <Text style={ans.note}>
-                Stats reflect data returned by the server. View counts and share metrics will appear when your backend supports them.
-              </Text>
-            </>
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+            <Text style={ans.note}>
+              Stats reflect data returned by the server. View counts and share metrics will appear when your backend supports them.
+            </Text>
+          </>
+        )}
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
@@ -437,12 +500,16 @@ const ans = StyleSheet.create({
 // ─── ImageViewer ──────────────────────────────────────────────────────────────
 
 function ImageViewer({ uri, visible, onClose }: { uri: string | null; visible: boolean; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={viewerStyles.bg}>
-        <TouchableOpacity style={viewerStyles.close} onPress={onClose} activeOpacity={0.8}>
+        <MsPressable
+          style={[viewerStyles.close, { top: insets.top + 12 }]}
+          onPress={onClose}
+          >
           <Text style={viewerStyles.closeLabel}>×</Text>
-        </TouchableOpacity>
+        </MsPressable>
         {uri ? (
           <MsMediaLoader uri={uri} style={viewerStyles.image} resizeMode="contain" accessibleLabel="Profile photo" />
         ) : (
@@ -726,9 +793,8 @@ export default function ProfileScreen() {
     };
 
     return (
-      <TouchableOpacity
+      <MsPressable
         style={{ width: gridItemSize, height: gridItemSize, backgroundColor: T.SURFACE }}
-        activeOpacity={0.8}
         onPress={handlePress}
         onLongPress={isOwn ? () => openPostActions(item) : undefined}
         delayLongPress={400}
@@ -766,7 +832,7 @@ export default function ProfileScreen() {
             <MsTierBadge tier={item.tier as any} size="xs" />
           </View>
         )}
-      </TouchableOpacity>
+      </MsPressable>
     );
   }, [user, gridItemSize]);
 
@@ -904,11 +970,10 @@ export default function ProfileScreen() {
       return (
         <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
           {videoPosts.map((p) => (
-            <TouchableOpacity
+            <MsPressable
               key={p.id}
               style={{ width: videoColSize, backgroundColor: T.BG }}
-              activeOpacity={0.82}
-              onPress={() => router.push(`/videos/${p.id}`)}
+                    onPress={() => router.push(`/videos/${p.id}`)}
               onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
               delayLongPress={400}
             >
@@ -972,7 +1037,7 @@ export default function ProfileScreen() {
                   {p.title || p.caption || 'Video'}
                 </Text>
               </View>
-            </TouchableOpacity>
+            </MsPressable>
           ))}
         </View>
       );
@@ -1004,11 +1069,10 @@ export default function ProfileScreen() {
       return (
         <View style={[styles.grid, { gap: 1, backgroundColor: T.BORDER }]}>
           {shortPosts.map((p) => (
-            <TouchableOpacity
+            <MsPressable
               key={p.id}
               style={{ width: shortColSize, height: shortColSize * 16 / 9, backgroundColor: T.SURFACE }}
-              activeOpacity={0.8}
-              onPress={() => router.push(`/shorts?startId=${p.id}`)}
+                    onPress={() => router.push(`/shorts?startId=${p.id}`)}
               onLongPress={Boolean(user && user.id === p.author.id) ? () => openPostActions(p) : undefined}
               delayLongPress={400}
             >
@@ -1032,7 +1096,7 @@ export default function ProfileScreen() {
                 </View>
               )}
               {/* Shorts are always free — no lock badge */}
-            </TouchableOpacity>
+            </MsPressable>
           ))}
         </View>
       );
@@ -1139,17 +1203,17 @@ export default function ProfileScreen() {
         <View style={styles.topBar}>
           <Text style={styles.topUsername}>@{user?.username ?? 'username'}</Text>
           <View style={styles.topActions}>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={handleShareProfile}>
+            <MsPressable style={styles.iconBtn} onPress={handleShareProfile}>
               <ShareNetwork size={18} color={T.TEXT} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/settings')} activeOpacity={0.7}>
+            </MsPressable>
+            <MsPressable style={styles.iconBtn} onPress={() => router.push('/settings')}>
               <Gear size={18} color={T.TEXT} />
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </View>
 
         {/* Banner — uses shared MsMediaLoader with shimmer + fade */}
-        <TouchableOpacity activeOpacity={0.85} onPress={() => setBannerSheetVisible(true)}>
+        <MsPressable onPress={() => setBannerSheetVisible(true)}>
           {bannerUrl ? (
             <MsMediaLoader
               uri={bannerUrl}
@@ -1162,24 +1226,23 @@ export default function ProfileScreen() {
               <Camera size={20} color={T.TEXT_3} />
             </View>
           )}
-        </TouchableOpacity>
+        </MsPressable>
 
         {/* Avatar row */}
         <View style={styles.avatarRow}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => { if (user?.avatarUrl) setAvatarViewerVisible(true); else setAvatarSheetVisible(true); }}
+          <MsPressable
+                onPress={() => { if (user?.avatarUrl) setAvatarViewerVisible(true); else setAvatarSheetVisible(true); }}
             onLongPress={() => setAvatarSheetVisible(true)}
             delayLongPress={400}
             style={styles.avatarBorder}
           >
             <MsAvatar size={82} initials={initials} imageUri={user?.avatarUrl ?? undefined} />
-          </TouchableOpacity>
+          </MsPressable>
           <View style={{ flex: 1 }} />
           <View style={[styles.profileActions, { paddingBottom: 6 }]}>
-            <TouchableOpacity style={styles.editBtn} activeOpacity={0.8} onPress={() => setEditProfileVisible(true)}>
+            <MsPressable style={styles.editBtn} onPress={() => setEditProfileVisible(true)}>
               <Text style={styles.editLabel}>Edit Profile</Text>
-            </TouchableOpacity>
+            </MsPressable>
           </View>
         </View>
 
@@ -1208,10 +1271,9 @@ export default function ProfileScreen() {
         {/* Become a Creator — shown only when the SERVER reports the account
             is not a creator yet; taps route into the (previously dead) flow. */}
         {user && !user.isCreator ? (
-          <TouchableOpacity
+          <MsPressable
             style={styles.becomeCreatorCard}
-            activeOpacity={0.85}
-            onPress={() => router.push('/become-creator')}
+                onPress={() => router.push('/become-creator')}
           >
             <View style={styles.becomeCreatorIcon}>
               <Sparkle size={18} color={T.ACCENT} weight="fill" />
@@ -1221,7 +1283,7 @@ export default function ProfileScreen() {
               <Text style={styles.becomeCreatorSub}>Earn from subscriptions, albums and exclusive content</Text>
             </View>
             <ArrowRight size={18} color={T.TEXT_3} />
-          </TouchableOpacity>
+          </MsPressable>
         ) : null}
 
         {/* Content tabs */}
@@ -1229,9 +1291,9 @@ export default function ProfileScreen() {
           {PROFILE_TABS.map((tab) => {
             const isActive = tab === activeTab;
             return (
-              <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)} style={[styles.contentTab, isActive && styles.contentTabActive]} activeOpacity={0.7}>
+              <MsPressable key={tab} onPress={() => setActiveTab(tab)} style={[styles.contentTab, isActive && styles.contentTabActive]}>
                 <Text style={[styles.contentTabLabel, isActive && styles.contentTabLabelActive]}>{tab}</Text>
-              </TouchableOpacity>
+              </MsPressable>
             );
           })}
         </ScrollView>
@@ -1480,12 +1542,13 @@ const styles = StyleSheet.create({
 });
 
 const epm = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
-  sheet: {
+  sheetBackground: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: T.RADIUS.xl,
     borderTopRightRadius: T.RADIUS.xl,
-    paddingTop: 12,
+  },
+  sheetBody: {
+    paddingTop: 4,
     paddingHorizontal: 20,
   },
   handle: {
@@ -1493,8 +1556,6 @@ const epm = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: T.TEXT_3,
-    alignSelf: 'center',
-    marginBottom: 18,
   },
   header: {
     flexDirection: 'row',

@@ -13,21 +13,26 @@
  *   POST /api/creator/wallet/withdraw              { amount, bankDetails } → { success, withdrawalId, status }
  *   GET  /api/creator/wallet/withdrawals           → { withdrawals: [...] }
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,6 +66,18 @@ import {
   finalizeWithdrawal,
   getWithdrawalHistory,
 } from '@/services/wallet';
+
+/** Shared native-sheet backdrop for the payout sheets. */
+function SheetBackdrop(props: BottomSheetBackdropProps) {
+  return (
+    <BottomSheetBackdrop
+      {...props}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      opacity={0.6}
+    />
+  );
+}
 
 const MIN_WITHDRAWAL_NAIRA = 1000;
 const MAX_FRACTION_DIGITS = 0;
@@ -153,6 +170,7 @@ function BankDetailsSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [bankName, setBankName]           = useState(initial?.bankName ?? '');
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? '');
   const [accountName, setAccountName]     = useState(initial?.accountName ?? '');
@@ -165,6 +183,7 @@ function BankDetailsSheet({
 
   useEffect(() => {
     if (visible) {
+      sheetRef.current?.present();
       setBankName(initial?.bankName ?? '');
       setAccountNumber(initial?.accountNumber ?? '');
       setAccountName(initial?.accountName ?? '');
@@ -175,6 +194,8 @@ function BankDetailsSheet({
         .then(setBanks)
         .catch(() => setBanks([]))
         .finally(() => setBanksLoading(false));
+    } else {
+      sheetRef.current?.dismiss();
     }
   }, [visible, initial]);
 
@@ -213,23 +234,28 @@ function BankDetailsSheet({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
-      {/* iOS pads; Android resizes the window natively (softwareKeyboardLayoutMode=resize) */}
-      <KeyboardAvoidingView
-        behavior="padding"
-        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
+    <>
+      <BottomSheetModal
+        ref={sheetRef}
+        index={0}
+        snapPoints={['auto']}
+        enableDynamicSizing
+        backdropComponent={SheetBackdrop}
+        backgroundStyle={bankS.sheetBackground}
+        handleIndicatorStyle={bankS.handle}
+        keyboardBehavior="extend"
+        onDismiss={onClose}
       >
-        <View style={[bankS.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={bankS.handle} />
+        <BottomSheetView style={[bankS.sheetBody, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={bankS.titleRow}>
             <Text style={bankS.title}>Bank Details</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12}>
+            <MsPressable onPress={onClose} hitSlop={12}>
               <X size={18} color={T.TEXT_2} />
-            </TouchableOpacity>
+            </MsPressable>
           </View>
 
           {/* Bank picker */}
-          <TouchableOpacity style={bankS.field} onPress={() => setShowBanks(true)} activeOpacity={0.8}>
+          <MsPressable style={bankS.field} onPress={() => setShowBanks(true)}>
             <Text style={bankS.fieldLabel}>Bank Name</Text>
             <View style={bankS.fieldRow}>
               <Text style={[bankS.fieldValue, !bankName && bankS.placeholder]}>
@@ -237,7 +263,7 @@ function BankDetailsSheet({
               </Text>
               <ArrowDown size={14} color={T.TEXT_2} />
             </View>
-          </TouchableOpacity>
+          </MsPressable>
 
           {/* Account number */}
           <View style={bankS.field}>
@@ -274,19 +300,19 @@ function BankDetailsSheet({
             ) : null}
           </View>
 
-          <TouchableOpacity
+          <MsPressable
             style={[bankS.saveBtn, saving && { opacity: 0.7 }]}
             onPress={handleSave}
             disabled={saving}
-            activeOpacity={0.85}
-          >
+            >
             {saving ? <ActivityIndicator color={T.BG} size="small" /> : <Text style={bankS.saveBtnLabel}>Save Details</Text>}
-          </TouchableOpacity>
-        </View>
+          </MsPressable>
+        </BottomSheetView>
+      </BottomSheetModal>
 
-        {/* Bank list modal */}
-        {showBanks && (
-          <Modal visible transparent animationType="fade" onRequestClose={() => setShowBanks(false)}>
+      {/* Bank list modal */}
+      {showBanks && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setShowBanks(false)}>
             <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={() => setShowBanks(false)}>
               <View style={bankS.bankList}>
                 <Text style={bankS.bankListTitle}>Select Bank</Text>
@@ -297,38 +323,37 @@ function BankDetailsSheet({
                     <Text style={bankS.bankEmpty}>Could not load banks — check your connection and try again.</Text>
                   ) : (
                     banks.map((b) => (
-                      <TouchableOpacity
+                      <MsPressable
                         key={b.code}
                         style={bankS.bankRow}
                         onPress={() => { setBankName(b.name); setBankCode(b.code); setShowBanks(false); }}
-                        activeOpacity={0.7}
-                      >
+                                    >
                         <Text style={bankS.bankName}>{b.name}</Text>
                         {bankName === b.name && <Check size={15} color={T.TEXT} weight="bold" />}
-                      </TouchableOpacity>
+                      </MsPressable>
                     ))
                   )}
-                </ScrollView>
-              </View>
-            </Pressable>
-          </Modal>
-        )}
-      </KeyboardAvoidingView>
-    </Modal>
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
+    </>
   );
 }
 
 const bankS = StyleSheet.create({
-  sheet: {
+  sheetBackground: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 12,
+  },
+  sheetBody: {
+    paddingTop: 4,
     paddingHorizontal: 20,
     gap: 4,
-    maxHeight: '90%',
   },
-  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 16 },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
   title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18 },
   field: { marginBottom: 16 },
@@ -389,25 +414,35 @@ function WithdrawAmountSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [amount, setAmount] = useState('');
   const parsed = parseInt(amount.replace(/,/g, ''), 10) || 0;
   const isValid = parsed >= MIN_WITHDRAWAL_NAIRA && parsed <= availableBalance;
 
+  useEffect(() => {
+    if (visible) sheetRef.current?.present();
+    else sheetRef.current?.dismiss();
+  }, [visible]);
+
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
-      {/* iOS pads; Android resizes the window natively (softwareKeyboardLayoutMode=resize) */}
-      <KeyboardAvoidingView
-        behavior="padding"
-        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
-      >
-        <View style={[amtS.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-          <View style={amtS.handle} />
-          <View style={amtS.titleRow}>
-            <Text style={amtS.title}>Withdraw Funds</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12}>
-              <X size={18} color={T.TEXT_2} />
-            </TouchableOpacity>
-          </View>
+    <BottomSheetModal
+      ref={sheetRef}
+      index={0}
+      snapPoints={['auto']}
+      enableDynamicSizing
+      backdropComponent={SheetBackdrop}
+      backgroundStyle={amtS.sheetBackground}
+      handleIndicatorStyle={amtS.handle}
+      keyboardBehavior="extend"
+      onDismiss={onClose}
+    >
+      <BottomSheetView style={[amtS.sheetBody, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <View style={amtS.titleRow}>
+          <Text style={amtS.title}>Withdraw Funds</Text>
+          <MsPressable onPress={onClose} hitSlop={12}>
+            <X size={18} color={T.TEXT_2} />
+          </MsPressable>
+        </View>
 
           <Text style={amtS.availLabel}>
             Available: <Text style={amtS.availAmount}>{formatNaira(availableBalance)}</Text>
@@ -450,31 +485,31 @@ function WithdrawAmountSheet({
             </Text>
           </View>
 
-          <TouchableOpacity
+          <MsPressable
             style={[amtS.withdrawBtn, !isValid && amtS.withdrawBtnDisabled]}
             onPress={() => isValid && onConfirm(parsed)}
             disabled={!isValid}
-            activeOpacity={0.85}
-          >
+            >
             <Text style={[amtS.withdrawLabel, !isValid && { color: T.TEXT_3 }]}>
               {isValid ? `Withdraw ${formatNaira(parsed)}` : 'Enter valid amount'}
             </Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+          </MsPressable>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 }
 
 const amtS = StyleSheet.create({
-  sheet: {
+  sheetBackground: {
     backgroundColor: T.SURFACE,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+  },
+  sheetBody: {
     paddingTop: 12,
     paddingHorizontal: 24,
   },
-  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2, alignSelf: 'center', marginBottom: 16 },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 18 },
   availLabel: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12, marginBottom: 20 },
@@ -558,6 +593,12 @@ export default function CreatorPayoutScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  const otpSheetRef = useRef<BottomSheetModal>(null);
+  useEffect(() => {
+    if (showOtpSheet) otpSheetRef.current?.present();
+    else otpSheetRef.current?.dismiss();
+  }, [showOtpSheet]);
+
   const handleRefresh = () => { setRefreshing(true); load(true); };
 
   const handleWithdrawRequest = (amount: number) => {
@@ -618,14 +659,13 @@ export default function CreatorPayoutScreen() {
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
+        <MsPressable
           style={styles.backBtn}
           onPress={() => router.back()}
-          activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <ArrowLeft size={22} color={T.TEXT} />
-        </TouchableOpacity>
+        </MsPressable>
         <Text style={styles.headerTitle}>Payouts</Text>
         <View style={{ width: 38 }} />
       </View>
@@ -668,15 +708,14 @@ export default function CreatorPayoutScreen() {
                 </>
               )}
 
-              <TouchableOpacity
+              <MsPressable
                 style={[styles.withdrawBtn, (!canWithdraw || withdrawing) && styles.withdrawBtnDisabled]}
                 onPress={() => {
                   if (!canWithdraw) return;
                   if (!bankDetails) { setShowBankSheet(true); return; }
                   setShowWithdrawAmt(true);
                 }}
-                activeOpacity={0.85}
-                disabled={!canWithdraw || withdrawing}
+                      disabled={!canWithdraw || withdrawing}
               >
                 {withdrawing ? (
                   <ActivityIndicator color={T.BG} size="small" />
@@ -688,15 +727,14 @@ export default function CreatorPayoutScreen() {
                     </Text>
                   </>
                 )}
-              </TouchableOpacity>
+              </MsPressable>
             </View>
 
             {/* Bank account card */}
-            <TouchableOpacity
+            <MsPressable
               style={styles.bankCard}
               onPress={() => setShowBankSheet(true)}
-              activeOpacity={0.8}
-            >
+                >
               <View style={styles.bankIcon}>
                 <Bank size={20} color={T.TEXT_2} />
               </View>
@@ -716,7 +754,7 @@ export default function CreatorPayoutScreen() {
                 )}
               </View>
               <PencilSimple size={15} color={T.TEXT_2} />
-            </TouchableOpacity>
+            </MsPressable>
 
             {/* History header */}
             {withdrawals.length > 0 && (
@@ -775,18 +813,23 @@ export default function CreatorPayoutScreen() {
       />
 
       {/* Paystack OTP sheet (transfer requires finalizing) */}
-      <Modal visible={showOtpSheet} animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowOtpSheet(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}
-        >
-          <View style={[amtS.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-            <View style={amtS.handle} />
-            <View style={amtS.titleRow}>
+      <BottomSheetModal
+        ref={otpSheetRef}
+        index={0}
+        snapPoints={['auto']}
+        enableDynamicSizing
+        backdropComponent={SheetBackdrop}
+        backgroundStyle={amtS.sheetBackground}
+        handleIndicatorStyle={amtS.handle}
+        keyboardBehavior="extend"
+        onDismiss={() => setShowOtpSheet(false)}
+      >
+        <BottomSheetView style={[amtS.sheetBody, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={amtS.titleRow}>
               <Text style={amtS.title}>Confirm Transfer</Text>
-              <TouchableOpacity onPress={() => setShowOtpSheet(false)} hitSlop={12}>
+              <MsPressable onPress={() => setShowOtpSheet(false)} hitSlop={12}>
                 <X size={18} color={T.TEXT_2} />
-              </TouchableOpacity>
+              </MsPressable>
             </View>
             <Text style={amtS.availLabel}>
               Enter the one-time password (OTP) emailed to you by Paystack to complete this transfer.
@@ -800,17 +843,15 @@ export default function CreatorPayoutScreen() {
               keyboardType="number-pad"
               autoFocus
             />
-            <TouchableOpacity
+            <MsPressable
               style={[amtS.withdrawBtn, (!otpValue || finalizing) && amtS.withdrawBtnDisabled]}
               onPress={() => { if (otpValue && !finalizing) doFinalize(); }}
               disabled={!otpValue || finalizing}
-              activeOpacity={0.85}
-            >
+                >
               {finalizing ? <ActivityIndicator color={T.BG} size="small" /> : <Text style={amtS.withdrawLabel}>Confirm & Send</Text>}
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+          </MsPressable>
+        </BottomSheetView>
+      </BottomSheetModal>
     </View>
   );
 }

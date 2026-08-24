@@ -22,8 +22,6 @@
  *
  *   chat_rooms_cache     (user_id, chat_room_id, data, updated_at)
  *   chat_messages_cache  (user_id, chat_room_id, message_id, data, created_at)
- *   chat_drafts_cache    (user_id, chat_room_id, text)
- *   chat_auth_cache      (key, value)
  *
  * On logout/account switch, clearChatCache() wipes every table so a different
  * account can never see the previous user's private conversations.
@@ -32,7 +30,6 @@
  * functions there no-op and the app naturally falls back to the network.
  */
 
-import { Platform } from 'react-native';
 import type { ChatRoom, RoomMessage } from './room-service';
 
 // ─── Database singleton (same pattern as lib/posts-db.ts) ────────────────────
@@ -42,7 +39,6 @@ type SQLiteDatabase = import('expo-sqlite').SQLiteDatabase;
 let _db: SQLiteDatabase | null | undefined;
 
 async function getDb(): Promise<SQLiteDatabase | null> {
-  if (Platform.OS === 'web') return null;
   if (_db !== undefined) return _db;
   try {
     const SQLite = await import('expo-sqlite');
@@ -71,20 +67,6 @@ async function getDb(): Promise<SQLiteDatabase | null> {
       );
       CREATE INDEX IF NOT EXISTS idx_chat_messages_room_created
         ON chat_messages_cache (user_id, chat_room_id, created_at DESC);
-
-      -- Per-room draft text.
-      CREATE TABLE IF NOT EXISTS chat_drafts_cache (
-        user_id      TEXT NOT NULL,
-        chat_room_id TEXT NOT NULL,
-        text         TEXT NOT NULL,
-        PRIMARY KEY (user_id, chat_room_id)
-      );
-
-      -- Shared auth key/value cache.
-      CREATE TABLE IF NOT EXISTS chat_auth_cache (
-        key   TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
     `);
     // One-time best-effort migration of the legacy FileSystem JSON cache
     // (pre-SQLite chat-cache/) into the new structured tables, then removal of
@@ -112,7 +94,6 @@ async function getDb(): Promise<SQLiteDatabase | null> {
  * individually guarded so a malformed legacy file never breaks the new cache.
  */
 async function migrateLegacyFileCache(db: SQLiteDatabase): Promise<void> {
-  if (Platform.OS === 'web') return;
   let fs: typeof import('expo-file-system');
   try {
     fs = await import('expo-file-system');
@@ -173,32 +154,8 @@ async function migrateLegacyFileCache(db: SQLiteDatabase): Promise<void> {
           }
         }
 
-        // drafts.json
-        const drafts = readJson(new fs.File(fs.Paths.document, 'chat-cache', userId, 'drafts.json')) as
-          Record<string, string> | null;
-        if (drafts && typeof drafts === 'object') {
-          for (const [roomId, text] of Object.entries(drafts)) {
-            if (!text) continue;
-            await db.runAsync(
-              `INSERT OR REPLACE INTO chat_drafts_cache (user_id, chat_room_id, text) VALUES (?, ?, ?)`,
-              [userId, roomId, text],
-            );
-          }
-        }
       } catch (e) {
         console.warn('[chat-cache] migration skipped for user', userId, e);
-      }
-    }
-
-    // auth.json (shared, no user scoping)
-    const auth = readJson(new fs.File(fs.Paths.document, 'chat-cache', 'auth.json')) as
-      Record<string, string> | null;
-    if (auth && typeof auth === 'object') {
-      for (const [key, value] of Object.entries(auth)) {
-        await db.runAsync(
-          `INSERT OR REPLACE INTO chat_auth_cache (key, value) VALUES (?, ?)`,
-          [key, String(value)],
-        );
       }
     }
   } catch (e) {
@@ -304,8 +261,6 @@ export async function clearChatCache(): Promise<void> {
     await db.execAsync(`
       DELETE FROM chat_rooms_cache;
       DELETE FROM chat_messages_cache;
-      DELETE FROM chat_drafts_cache;
-      DELETE FROM chat_auth_cache;
     `);
   } catch (e) {
     console.warn('[chat-cache] clearChatCache error:', e);
@@ -361,31 +316,6 @@ export async function getCachedMessages(chatRoomId: string, userId?: string | nu
   } catch (e) {
     console.warn('[chat-cache] getCachedMessages error:', e);
     return [];
-  }
-}
-
-/** Mark a message as soft-deleted in the local replica (server copy unchanged). */
-export async function deleteCachedMessage(
-  chatRoomId: string,
-  messageId: string,
-  userId?: string | null,
-): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
-  const uid = userId || 'shared';
-  try {
-    const row = await db.getFirstAsync<{ data: string }>(
-      `SELECT data FROM chat_messages_cache WHERE user_id = ? AND chat_room_id = ? AND message_id = ?`,
-      [uid, chatRoomId, messageId],
-    );
-    const msg = parseData<RoomMessage>(row);
-    if (!msg) return;
-    await db.runAsync(
-      `UPDATE chat_messages_cache SET data = ? WHERE user_id = ? AND chat_room_id = ? AND message_id = ?`,
-      [JSON.stringify({ ...msg, isDeleted: true, body: null }), uid, chatRoomId, messageId],
-    );
-  } catch (e) {
-    console.warn('[chat-cache] deleteCachedMessage error:', e);
   }
 }
 
@@ -501,73 +431,5 @@ export async function removeCachedRoom(chatRoomId: string, userId?: string | nul
     );
   } catch (e) {
     console.warn('[chat-cache] removeCachedRoom error:', e);
-  }
-}
-
-// ─── Auth cache ───────────────────────────────────────────────────────────────
-
-export async function cacheAuthValue(key: string, value: string): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
-  try {
-    await db.runAsync(
-      `INSERT OR REPLACE INTO chat_auth_cache (key, value) VALUES (?, ?)`,
-      [key, value],
-    );
-  } catch (e) {
-    console.warn('[chat-cache] cacheAuthValue error:', e);
-  }
-}
-
-export async function getAuthValue(key: string): Promise<string | null> {
-  const db = await getDb();
-  if (!db) return null;
-  try {
-    const row = await db.getFirstAsync<{ value: string }>(
-      `SELECT value FROM chat_auth_cache WHERE key = ?`,
-      [key],
-    );
-    return row?.value ?? null;
-  } catch (e) {
-    console.warn('[chat-cache] getAuthValue error:', e);
-    return null;
-  }
-}
-
-// ─── Drafts ───────────────────────────────────────────────────────────────────
-
-export async function saveDraft(chatRoomId: string, text: string, userId?: string | null): Promise<void> {
-  const db = await getDb();
-  if (!db || !chatRoomId) return;
-  const uid = userId || 'shared';
-  try {
-    if (text.trim()) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO chat_drafts_cache (user_id, chat_room_id, text) VALUES (?, ?, ?)`,
-        [uid, chatRoomId, text],
-      );
-    } else {
-      await db.runAsync(
-        `DELETE FROM chat_drafts_cache WHERE user_id = ? AND chat_room_id = ?`,
-        [uid, chatRoomId],
-      );
-    }
-  } catch (e) {
-    console.warn('[chat-cache] saveDraft error:', e);
-  }
-}
-
-export async function getDraft(chatRoomId: string, userId?: string | null): Promise<string> {
-  const db = await getDb();
-  if (!db || !chatRoomId) return '';
-  try {
-    const row = await db.getFirstAsync<{ text: string }>(
-      `SELECT text FROM chat_drafts_cache WHERE user_id = ? AND chat_room_id = ?`,
-      [userId || 'shared', chatRoomId],
-    );
-    return row?.text ?? '';
-  } catch (e) {
-    console.warn('[chat-cache] getDraft error:', e);
-    return '';
   }
 }

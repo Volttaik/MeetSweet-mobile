@@ -14,9 +14,9 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Sparkle } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
@@ -83,9 +83,8 @@ export function MsCreatorGateSheet({
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          <TouchableOpacity
+          <MsPressable
             style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
-            activeOpacity={0.85}
             onPress={handleBecomeCreator}
             disabled={submitting}
           >
@@ -94,15 +93,14 @@ export function MsCreatorGateSheet({
             ) : (
               <Text style={styles.primaryLabel}>Become a Creator</Text>
             )}
-          </TouchableOpacity>
+          </MsPressable>
 
-          <TouchableOpacity
+          <MsPressable
             style={styles.secondaryBtn}
             onPress={() => { tapLight(); onClose(); }}
-            activeOpacity={0.7}
           >
             <Text style={styles.secondaryLabel}>Not now</Text>
-          </TouchableOpacity>
+          </MsPressable>
         </View>
       </Pressable>
     </Modal>

@@ -7,14 +7,13 @@
  */
 import React, { ReactNode, useState } from 'react';
 import {
-  Platform,
   StyleSheet,
   Text,
   TextInput,
   TextInputProps,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { MsPressable } from '@/components/MsPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { T } from '@/constants/theme';
 
@@ -62,14 +61,10 @@ export default function MsInput({
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           secureTextEntry={secureTextEntry && !showPassword}
-          // Remove web browser default outline
-          {...(Platform.OS === 'web'
-            ? ({ outlineStyle: 'none', outlineWidth: 0 } as object)
-            : {})}
           {...props}
         />
         {secureTextEntry && (
-          <TouchableOpacity
+          <MsPressable
             onPress={() => setShowPassword((v) => !v)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -78,7 +73,7 @@ export default function MsInput({
               size={18}
               color={T.TEXT_3}
             />
-          </TouchableOpacity>
+          </MsPressable>
         )}
         {!secureTextEntry && rightElement}
       </View>
@@ -135,10 +130,6 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-    // Remove any browser default outline on web
-    ...(Platform.OS === 'web'
-      ? { outlineStyle: 'none' as never, outlineWidth: 0 }
-      : {}),
   },
   inputCompact: {
     fontSize: 13,
