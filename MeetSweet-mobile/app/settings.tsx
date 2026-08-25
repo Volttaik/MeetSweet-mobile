@@ -225,6 +225,7 @@ function MsInput({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={T.TEXT_3}
+        selectionColor={T.CARET}
         secureTextEntry={secureTextEntry}
         autoFocus={autoFocus}
         keyboardType={keyboardType}
@@ -292,19 +293,15 @@ function getPrefKey(baseKey: string, userId?: string): string {
 
 interface PrivacyPrefs {
   privateAccount: boolean;
-  onlineStatus: boolean;
-  readReceipts: boolean;
-  typingIndicator: boolean;
   profileVisibility: 'everyone' | 'subscribers' | 'nobody';
-  messagePerm: 'everyone' | 'subscribers' | 'nobody';
   mentionPerm: boolean;
   tagPerm: boolean;
+  commentsPerm: boolean;
 }
 
 interface NotifPrefs {
   push: boolean;
   messages: boolean;
-  comments: boolean;
   likes: boolean;
   mentions: boolean;
   marketing: boolean;
@@ -312,19 +309,15 @@ interface NotifPrefs {
 
 const PRIVACY_DEFAULTS: PrivacyPrefs = {
   privateAccount: false,
-  onlineStatus: true,
-  readReceipts: true,
-  typingIndicator: true,
   profileVisibility: 'everyone',
-  messagePerm: 'everyone',
   mentionPerm: true,
   tagPerm: true,
+  commentsPerm: true,
 };
 
 const NOTIF_DEFAULTS: NotifPrefs = {
   push: true,
   messages: true,
-  comments: true,
   likes: true,
   mentions: true,
   marketing: false,
@@ -544,6 +537,7 @@ function UsernameModal({
   onClose: () => void;
   currentUsername: string;
 }) {
+  const { refreshUser } = useAuth();
   const [value, setValue] = useState('');
   const [checking, setChecking] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -571,16 +565,18 @@ function UsernameModal({
     checkAvailability(v);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!available) return;
-    updateMe({ username: value.trim().toLowerCase() })
-      .then(() => {
-        toast.success('Username updated');
-        onClose();
-      })
-      .catch((e: unknown) => {
-        toast.error(e instanceof Error ? e.message : 'Failed to update username');
-      });
+    try {
+      // Refresh the app's user state so the new username shows immediately
+      // everywhere (profile, headers, shares) — not just on the next login.
+      await updateMe({ username: value.trim().toLowerCase() });
+      await refreshUser();
+      toast.success('Username updated');
+      onClose();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update username');
+    }
   };
 
   const statusEl = checking
@@ -817,6 +813,7 @@ function PhoneModal({
             onChangeText={setPhone}
             placeholder="Phone number"
             placeholderTextColor={T.TEXT_3}
+            selectionColor={T.CARET}
             keyboardType="phone-pad"
             autoFocus
             maxLength={15}
@@ -1094,25 +1091,6 @@ function ProfileVisibilityModal(props: {
         { value: 'everyone', label: 'Everyone', sub: 'Anyone can see your profile' },
         { value: 'subscribers', label: 'Subscribers only', sub: 'Only your subscribers can see your full profile' },
         { value: 'nobody', label: 'Nobody', sub: 'Your profile is completely private' },
-      ]}
-    />
-  );
-}
-
-function MessagePermModal(props: {
-  visible: boolean;
-  onClose: () => void;
-  value: string;
-  onChange: (v: 'everyone' | 'subscribers' | 'nobody') => void;
-}) {
-  return (
-    <ChoiceModal
-      {...props}
-      title="Who Can Message Me"
-      options={[
-        { value: 'everyone', label: 'Everyone', sub: 'Anyone can start a conversation with you' },
-        { value: 'subscribers', label: 'Subscribers only', sub: 'Only active subscribers can message you' },
-        { value: 'nobody', label: 'Nobody', sub: 'No one can message you' },
       ]}
     />
   );
@@ -1542,7 +1520,7 @@ export default function SettingsScreen() {
   const [modal, setModal] = useState<
     | 'editProfile' | 'username' | 'email' | 'phone'
     | 'changePassword' | 'activeSessions'
-    | 'profileVisibility' | 'messagePerm' | 'mentionPerm'
+    | 'profileVisibility' | 'mentionPerm'
     | 'help' | 'bug' | 'contact' | 'about'
     | 'twoFactor'
     | null
@@ -1574,13 +1552,10 @@ export default function SettingsScreen() {
         const p = privResult.value;
         setPrivacy({
           privateAccount: p.private_account ?? PRIVACY_DEFAULTS.privateAccount,
-          onlineStatus: p.online_status ?? PRIVACY_DEFAULTS.onlineStatus,
-          readReceipts: p.read_receipts ?? PRIVACY_DEFAULTS.readReceipts,
-          typingIndicator: p.typing_indicator ?? PRIVACY_DEFAULTS.typingIndicator,
           profileVisibility: p.profile_visibility ?? PRIVACY_DEFAULTS.profileVisibility,
-          messagePerm: p.message_perm ?? PRIVACY_DEFAULTS.messagePerm,
           mentionPerm: p.allow_mentions ?? PRIVACY_DEFAULTS.mentionPerm,
           tagPerm: p.allow_tags ?? PRIVACY_DEFAULTS.tagPerm,
+          commentsPerm: p.allow_comments ?? PRIVACY_DEFAULTS.commentsPerm,
         });
       } else {
         setPrivacy(await loadPref(PRIVACY_KEY, PRIVACY_DEFAULTS, userId));
@@ -1590,7 +1565,6 @@ export default function SettingsScreen() {
       if (notifResult.status === 'fulfilled') {
         const n = notifResult.value;
         notifBase.messages = n.notif_messages ?? NOTIF_DEFAULTS.messages;
-        notifBase.comments = n.notif_comments ?? NOTIF_DEFAULTS.comments;
         notifBase.likes = n.notif_likes ?? NOTIF_DEFAULTS.likes;
         notifBase.mentions = n.notif_mentions ?? NOTIF_DEFAULTS.mentions;
         notifBase.marketing = n.notif_marketing ?? NOTIF_DEFAULTS.marketing;
@@ -1635,13 +1609,10 @@ export default function SettingsScreen() {
   const privacyApiMap = useCallback((key: keyof PrivacyPrefs, value: any): Record<string, any> => {
     switch (key) {
       case 'privateAccount': return { private_account: value };
-      case 'onlineStatus': return { online_status: value };
-      case 'readReceipts': return { read_receipts: value };
-      case 'typingIndicator': return { typing_indicator: value };
       case 'profileVisibility': return { profile_visibility: value };
-      case 'messagePerm': return { message_perm: value };
       case 'mentionPerm': return { allow_mentions: value };
       case 'tagPerm': return { allow_tags: value };
+      case 'commentsPerm': return { allow_comments: value };
       default: return {};
     }
   }, []);
@@ -1665,7 +1636,6 @@ export default function SettingsScreen() {
   const notifApiKey: Record<keyof NotifPrefs, string | null> = {
     push: null, // handled via /settings
     messages: 'notif_messages',
-    comments: 'notif_comments',
     likes: 'notif_likes',
     mentions: 'notif_mentions',
     marketing: 'notif_marketing',
@@ -1791,37 +1761,10 @@ export default function SettingsScreen() {
             }}
           />
           <Divider />
-          <ToggleRow
-            label="Online Status"
-            sub="Show when you're active"
-            value={privacy.onlineStatus}
-            onValueChange={togglePrivacy('onlineStatus')}
-          />
-          <Divider />
-          <ToggleRow
-            label="Read Receipts"
-            sub="Show when you've read messages"
-            value={privacy.readReceipts}
-            onValueChange={togglePrivacy('readReceipts')}
-          />
-          <Divider />
-          <ToggleRow
-            label="Typing Indicator"
-            sub="Show when you're typing"
-            value={privacy.typingIndicator}
-            onValueChange={togglePrivacy('typingIndicator')}
-          />
-          <Divider />
           <Row
             label="Profile Visibility"
             sub={privacy.profileVisibility === 'everyone' ? 'Everyone' : privacy.profileVisibility === 'subscribers' ? 'Subscribers only' : 'Nobody'}
             onPress={() => setModal('profileVisibility')}
-          />
-          <Divider />
-          <Row
-            label="Who Can Message Me"
-            sub={privacy.messagePerm === 'everyone' ? 'Everyone' : privacy.messagePerm === 'subscribers' ? 'Subscribers only' : 'Nobody'}
-            onPress={() => setModal('messagePerm')}
           />
           <Divider />
           <ToggleRow
@@ -1833,9 +1776,16 @@ export default function SettingsScreen() {
           <Divider />
           <ToggleRow
             label="Allow Tags"
-            sub="Let others tag you in content"
+            sub="Off means nobody can tag you"
             value={privacy.tagPerm}
             onValueChange={togglePrivacy('tagPerm')}
+          />
+          <Divider />
+          <ToggleRow
+            label="Comments"
+            sub="Off turns off all comments on your posts"
+            value={privacy.commentsPerm}
+            onValueChange={togglePrivacy('commentsPerm')}
           />
         </GradientBorder>
 
@@ -1880,8 +1830,6 @@ export default function SettingsScreen() {
           />
           <Divider />
           <ToggleRow label="Messages" sub="New direct messages" value={notif.messages} onValueChange={setN('messages')} />
-          <Divider />
-          <ToggleRow label="Comments" sub="Comments on your posts" value={notif.comments} onValueChange={setN('comments')} />
           <Divider />
           <ToggleRow label="Likes" sub="Likes on your posts" value={notif.likes} onValueChange={setN('likes')} />
           <Divider />
@@ -1953,12 +1901,6 @@ export default function SettingsScreen() {
         onClose={() => setModal(null)}
         value={privacy.profileVisibility}
         onChange={setP('profileVisibility')}
-      />
-      <MessagePermModal
-        visible={modal === 'messagePerm'}
-        onClose={() => setModal(null)}
-        value={privacy.messagePerm}
-        onChange={setP('messagePerm')}
       />
       <SupportModal visible={modal === 'help'} onClose={() => setModal(null)} type="help" />
       <SupportModal visible={modal === 'bug'} onClose={() => setModal(null)} type="bug" />

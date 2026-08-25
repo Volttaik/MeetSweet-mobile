@@ -6,14 +6,10 @@ import { apiFetch, authFetch } from './api';
 
 export interface PrivacySettings {
   private_account?: boolean;
-  online_status?: boolean;
-  read_receipts?: boolean;
-  typing_indicator?: boolean;
-  allow_dms?: boolean;
   allow_mentions?: boolean;
   allow_tags?: boolean;
+  allow_comments?: boolean;
   profile_visibility?: 'everyone' | 'subscribers' | 'nobody';
-  message_perm?: 'everyone' | 'subscribers' | 'nobody';
 }
 
 export interface NotificationSettings {
