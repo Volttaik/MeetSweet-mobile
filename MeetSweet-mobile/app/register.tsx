@@ -26,6 +26,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { GradientText } from '@/components/GradientText';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import {
   ArrowLeft,
   At,
@@ -238,6 +240,8 @@ function StepBar({ current }: { current: StepNum }) {
         <React.Fragment key={label}>
           <View style={bar.step}>
             <View style={[bar.dot, i <= idx && bar.dotActive]}>
+              {/* Active/completed steps wear the platform-gradient circle */}
+              {i <= idx && <BrandGradientFill />}
               <Text style={[bar.num, i <= idx && bar.numActive]}>
                 {i < idx ? '✓' : String(i + 1)}
               </Text>
@@ -338,7 +342,7 @@ const Step1 = React.memo(function Step1({
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>About You</Text>
+        <GradientText text="About You" style={styles.stepTitle} />
         <Text style={styles.stepSubtitle}>Tell us a little about yourself to get started.</Text>
       </View>
 
@@ -379,6 +383,7 @@ const Step1 = React.memo(function Step1({
             <InputRow icon={<User size={20} color="rgba(255,255,255,0.35)" />} isError={!!(errors.name || liveErrName)}>
               <TextInput
                 placeholder="Jane Smith"
+                selectionColor={T.CARET}
                 autoComplete="name"
                 textContentType="name"
                 returnKeyType="next"
@@ -403,6 +408,7 @@ const Step1 = React.memo(function Step1({
               <TextInput
                 ref={usernameRef}
                 placeholder="yourhandle"
+                selectionColor={T.CARET}
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="username"
@@ -450,6 +456,7 @@ const Step1 = React.memo(function Step1({
               <TextInput
                 ref={emailRef}
                 placeholder="your@email.com"
+                selectionColor={T.CARET}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
@@ -505,6 +512,7 @@ const Step1 = React.memo(function Step1({
                   <TextInput
                     ref={phoneRef}
                     placeholder="Phone number"
+                    selectionColor={T.CARET}
                     keyboardType="phone-pad"
                     autoComplete="tel"
                     textContentType="telephoneNumber"
@@ -529,6 +537,7 @@ const Step1 = React.memo(function Step1({
               <TextInput
                 ref={dobRef}
                 placeholder="MM/DD/YYYY"
+                selectionColor={T.CARET}
                 keyboardType="numeric"
                 returnKeyType="done"
                 onSubmitEditing={() => { if (step1Valid) onNext(); }}
@@ -593,7 +602,7 @@ const Step2 = React.memo(function Step2({
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Secure Password</Text>
+        <GradientText text="Secure Password" style={styles.stepTitle} />
         <Text style={styles.stepSubtitle}>Create a strong password to protect your account.</Text>
       </View>
 
@@ -604,6 +613,7 @@ const Step2 = React.memo(function Step2({
           <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!(errors.password || liveErrPw)}>
             <TextInput
               placeholder="••••••••"
+              selectionColor={T.CARET}
               secureTextEntry={!showPw}
               value={data.password}
               onChangeText={(v) => { onChange({ password: v }); setErrors((e) => ({ ...e, password: '' })); }}
@@ -639,6 +649,7 @@ const Step2 = React.memo(function Step2({
           <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!(errors.confirm || liveErrConfirm)}>
             <TextInput
               placeholder="••••••••"
+              selectionColor={T.CARET}
               secureTextEntry={!showConfirm}
               value={data.confirm}
               onChangeText={(v) => { onChange({ confirm: v }); setErrors((e) => ({ ...e, confirm: '' })); }}
@@ -739,7 +750,7 @@ const Step3 = React.memo(function Step3({
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Your Profile</Text>
+        <GradientText text="Your Profile" style={styles.stepTitle} />
         <Text style={styles.stepSubtitle}>Add a photo and a short bio so others can get to know you.</Text>
       </View>
 
@@ -768,6 +779,7 @@ const Step3 = React.memo(function Step3({
           <View style={styles.bioWrapper}>
             <TextInput
               placeholder="A little about yourself…"
+              selectionColor={T.CARET}
               multiline
               numberOfLines={4}
               value={data.bio}
@@ -966,7 +978,7 @@ export default function RegisterScreen() {
 
         {/* Screen title */}
         <View style={styles.screenHead}>
-          <Text style={styles.screenTitle}>Create Account</Text>
+          <GradientText text="Create Account" style={styles.screenTitle} />
           <Text style={styles.screenSubtitle}>Step {step} of 3</Text>
         </View>
 
@@ -1269,8 +1281,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: T.ACCENT,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
@@ -1315,7 +1326,7 @@ const styles = StyleSheet.create({
   signinLink: {
     fontSize: 14,
     fontFamily: 'Poppins_600SemiBold',
-    color: T.ACCENT_FG,
+    color: T.SECONDARY,
   },
 });
 
@@ -1331,12 +1342,15 @@ const bar = StyleSheet.create({
     backgroundColor: T.SURFACE_2,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dotActive: {
-    borderColor: T.ACCENT_FG,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    // The brand gradient fill paints the whole circle; drop the white ring so
+    // the active step reads as a solid gradient disc with a white number.
+    borderColor: 'transparent',
+    backgroundColor: T.SURFACE_2,
   },
   num: {
     fontSize: 12,

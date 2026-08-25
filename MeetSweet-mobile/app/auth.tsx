@@ -19,6 +19,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientText } from '@/components/GradientText';
 import { T, alpha } from '@/constants/theme';
 import * as Haptics from 'expo-haptics';
 import { shouldShowOnboarding } from '@/services/onboarding';
@@ -144,7 +146,7 @@ export default function AuthScreen() {
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.title}>Welcome back</Text>
+            <GradientText text="Welcome back" style={styles.title} />
             <Text style={styles.subtitle}>Sign in to continue to MeetSweet</Text>
           </View>
 
@@ -167,6 +169,7 @@ export default function AuthScreen() {
               >
                 <TextInput
                   placeholder="you@email.com"
+                  selectionColor={T.CARET}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoComplete="email"
@@ -201,6 +204,7 @@ export default function AuthScreen() {
                 <TextInput
                   ref={passwordInputRef}
                   placeholder="••••••••"
+                  selectionColor={T.CARET}
                   secureTextEntry={!showPw}
                   autoComplete="password"
                   textContentType="password"
@@ -259,6 +263,7 @@ export default function AuthScreen() {
               disabled={loading}
               activeOpacity={0.85}
             >
+              <BrandGradientFill />
               {loading ? (
                 <ActivityIndicator size="small" color={T.ACCENT_FG} />
               ) : (
@@ -338,7 +343,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   inputWrapperFocused: {
-    backgroundColor: 'rgba(255,255,255,0.085)',
+    backgroundColor: alpha(T.PRIMARY, 0.14),
   },
   inputWrapperError: {
     backgroundColor: alpha(T.ERROR, 0.08),
@@ -381,26 +386,25 @@ const styles = StyleSheet.create({
   forgotText: {
     fontSize: 14,
     fontFamily: T.FONT.medium,
-    color: 'rgba(255,255,255,0.7)',
+    color: T.PRIMARY_LIGHT,
   },
 
   submitBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: T.ACCENT,
     borderRadius: T.RADIUS.pill,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
     marginTop: 4,
   },
   submitBtnLoading: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    opacity: 0.7,
   },
   submitBtnLabel: {
     fontFamily: T.FONT.semibold,
@@ -425,6 +429,6 @@ const styles = StyleSheet.create({
   createLink: {
     fontSize: 14,
     fontFamily: T.FONT.semibold,
-    color: 'rgba(255,255,255,0.85)',
+    color: T.SECONDARY,
   },
 });

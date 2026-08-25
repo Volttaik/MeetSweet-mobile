@@ -22,11 +22,12 @@ import {
   Heart,
   Images,
   Lock,
+  SealCheck,
   Star,
 } from 'phosphor-react-native';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { VerifiedBadge } from '@/components/VerifiedBadge';
+import { GradientText } from '@/components/GradientText';
 import { T, ALBUM_TONES } from '@/constants/theme';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { GradientBorder } from '@/components/GradientBorder';
@@ -68,23 +69,25 @@ export function ExploreAlbumCard({
      */
     <View style={styles.stackWrapper}>
 
-      {/* ── Back card 2 (furthest) ─────────────────────────────────────── */}
+      {/* ── Back card 2 (furthest) — platform-gradient stack edge ──────── */}
       <View
         style={[
           styles.backCard,
           styles.backCard2,
-          { backgroundColor: bg },
         ]}
-      />
+      >
+        <BrandGradientFill />
+      </View>
 
-      {/* ── Back card 1 (middle) ──────────────────────────────────────── */}
+      {/* ── Back card 1 (middle) — platform-gradient stack edge ───────── */}
       <View
         style={[
           styles.backCard,
           styles.backCard1,
-          { backgroundColor: bg },
         ]}
-      />
+      >
+        <BrandGradientFill />
+      </View>
 
       {/* ── Front card ────────────────────────────────────────────────── */}
       <Pressable
@@ -125,8 +128,8 @@ export function ExploreAlbumCard({
                 <Text style={styles.lockTitle}>Purchase to Unlock</Text>
                 {album.price ? (
                   <View style={styles.lockPriceRow}>
-                    <Star size={12} color={T.GOLD} weight="fill" />
-                    <Text style={styles.lockPrice}>₦{album.price.toLocaleString()}</Text>
+                    <Star size={12} color="#FFFFFF" weight="fill" />
+                    <GradientText text={`₦${album.price.toLocaleString()}`} style={styles.lockPrice} />
                   </View>
                 ) : null}
                 <TouchableOpacity
@@ -170,7 +173,7 @@ export function ExploreAlbumCard({
                   <Text style={styles.creatorName} numberOfLines={1}>
                     {album.creatorName}
                   </Text>
-                  {album.creatorIsVerified && <VerifiedBadge />}
+                  {album.creatorIsVerified && <SealCheck size={12} color={T.TEXT} weight="fill" />}
                 </View>
               </TouchableOpacity>
 
@@ -268,8 +271,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 20, // == paddingBottom of stackWrapper
     borderRadius: T.RADIUS.xl,
-    // No border/outline — separation comes from the soft gradient fade and
-    // the surface colour contrast, never a white line.
+    // Clip the brand-gradient fill to the rounded corners. No border/outline —
+    // separation comes from the gradient edge and the surface contrast.
+    overflow: 'hidden',
     ...T.SHADOWS.medium,
   },
   backCard2: {
@@ -318,7 +322,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: T.GOLD,
+    backgroundColor: T.SECONDARY,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -336,7 +340,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   lockPrice: {
-    color: T.GOLD,
     fontFamily: T.FONT.bold,
     fontSize: 15,
   },
@@ -429,7 +432,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: T.GOLD,
+    backgroundColor: T.SECONDARY,
     overflow: 'hidden',
     paddingHorizontal: 9,
     paddingVertical: 5,
@@ -505,7 +508,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: T.GOLD,
+    backgroundColor: T.SECONDARY,
     overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 9,

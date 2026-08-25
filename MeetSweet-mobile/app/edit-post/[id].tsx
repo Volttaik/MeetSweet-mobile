@@ -176,7 +176,7 @@ export default function EditPostScreen() {
                 multiline
                 maxLength={2200}
                 textAlignVertical="top"
-                selectionColor={T.ACCENT}
+                selectionColor={T.CARET}
               />
               <Text style={styles.charCount}>{caption.length}/2200</Text>
             </View>

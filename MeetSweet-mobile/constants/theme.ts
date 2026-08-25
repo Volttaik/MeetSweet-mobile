@@ -237,6 +237,12 @@ export const T = {
   SUCCESS: dark.SUCCESS,
   ERROR:   dark.ERROR,
 
+  // Text-input caret — the platform gradient's signature magenta (#FF1493,
+  // the brand gradient's hot-pink stop). A caret can't be a gradient, so the
+  // typing cursor/selection wears the gradient's most identifiable colour
+  // everywhere the user types.
+  CARET: '#FF1493',
+
   // Typography (Poppins loaded in root layout)
   FONT: {
     regular:  'Poppins_400Regular'  as const,

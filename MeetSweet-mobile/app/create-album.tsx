@@ -664,7 +664,7 @@ export default function CreateAlbumScreen() {
               onChangeText={setTitle}
               maxLength={80}
               style={styles.inputField}
-              selectionColor={T.ACCENT}
+              selectionColor={T.CARET}
             />
             <Text style={styles.inputCount}>{title.length}/80</Text>
           </View>
@@ -684,7 +684,7 @@ export default function CreateAlbumScreen() {
               maxLength={500}
               style={styles.captionInput}
               textAlignVertical="top"
-              selectionColor={T.ACCENT}
+              selectionColor={T.CARET}
             />
             <Text style={styles.captionCount}>{description.length}/500</Text>
           </View>
@@ -702,7 +702,7 @@ export default function CreateAlbumScreen() {
                 keyboardType="number-pad"
                 style={styles.priceField}
                 placeholderTextColor={T.TEXT_3}
-                selectionColor={T.ACCENT}
+                selectionColor={T.CARET}
               />
             </View>
           </View>

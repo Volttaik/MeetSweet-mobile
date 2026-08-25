@@ -590,7 +590,7 @@ export default function ExploreScreen() {
             : 'Search posts, creators'
           }
           placeholderTextColor={T.TEXT_3}
-          selectionColor={T.ACCENT}
+          selectionColor={T.CARET}
           style={styles.searchInput}
           returnKeyType="search"
           autoCorrect={false}

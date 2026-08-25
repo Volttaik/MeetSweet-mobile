@@ -121,7 +121,7 @@ function OtpBox({
           // No maxLength — the controlled `digit` value keeps each box to one
           // character while allowing full-code pastes through handleChange.
           textAlign="center"
-          selectionColor="rgba(255,255,255,0.5)"
+          selectionColor={T.CARET}
           caretHidden
           autoFocus={autoFocus}
           style={styles.boxText}

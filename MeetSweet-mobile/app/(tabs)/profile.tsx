@@ -167,11 +167,11 @@ function EditProfileModal({
             <View style={epm.fields}>
               <View style={epm.field}>
                 <Text style={epm.label}>Display Name</Text>
-                <TextInput style={epm.input} value={name} onChangeText={setName} placeholder="Your display name" placeholderTextColor={T.TEXT_3} maxLength={50} autoFocus autoCorrect={false} />
+                <TextInput style={epm.input} value={name} onChangeText={setName} placeholder="Your display name" placeholderTextColor={T.TEXT_3} selectionColor={T.CARET} maxLength={50} autoFocus autoCorrect={false} />
               </View>
               <View style={epm.field}>
                 <Text style={epm.label}>Bio</Text>
-                <TextInput style={[epm.input, epm.bioInput]} value={bio} onChangeText={setBio} placeholder="Tell the community who you are…" placeholderTextColor={T.TEXT_3} multiline maxLength={160} textAlignVertical="top" />
+                <TextInput style={[epm.input, epm.bioInput]} value={bio} onChangeText={setBio} placeholder="Tell the community who you are…" placeholderTextColor={T.TEXT_3} selectionColor={T.CARET} multiline maxLength={160} textAlignVertical="top" />
                 <Text style={epm.hint}>{bio.length}/160</Text>
               </View>
               <View style={epm.buttons}>
@@ -251,6 +251,7 @@ function EditPostSheet({
                 onChangeText={setCaption}
                 placeholder="What's this post about?"
                 placeholderTextColor={T.TEXT_3}
+                selectionColor={T.CARET}
                 multiline
                 maxLength={2200}
                 textAlignVertical="top"

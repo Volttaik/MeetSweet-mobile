@@ -288,6 +288,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
               style={styles.input}
               placeholder="Search creators, posts, topics…"
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               value={query}
               onChangeText={handleChangeText}
               onSubmitEditing={handleSubmit}

@@ -23,6 +23,8 @@ import OTPInput, { OTPInputRef } from '@/components/OTPInput';
 import { apiFetch } from '@/services/api';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientText } from '@/components/GradientText';
 
 type Step = 'email' | 'code' | 'new_password' | 'done';
 
@@ -109,7 +111,7 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Forgot Password?</Text>
+        <GradientText text="Forgot Password?" style={styles.stepTitle} />
         <Text style={styles.stepSubtitle}>
           Enter the email address on your account and we'll send you a reset code.
         </Text>
@@ -121,6 +123,7 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
           <InputRow icon={<Envelope size={20} color="rgba(255,255,255,0.35)" />} isError={!!error}>
             <TextInput
               placeholder="your@email.com"
+              selectionColor={T.CARET}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
@@ -143,6 +146,7 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
         disabled={loading}
         activeOpacity={0.85}
       >
+        <BrandGradientFill />
         {loading ? (
           <ActivityIndicator size="small" color={T.ACCENT_FG} />
         ) : (
@@ -227,7 +231,7 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Check Your Email</Text>
+        <GradientText text="Check Your Email" style={styles.stepTitle} />
         <Text style={styles.stepSubtitle}>
           We sent a 6-digit code to{'\n'}
           <Text style={styles.emailHighlight}>{email}</Text>
@@ -253,6 +257,7 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
         disabled={!completed || loading}
         activeOpacity={0.85}
       >
+        <BrandGradientFill />
         {loading ? (
           <ActivityIndicator size="small" color={T.ACCENT_FG} />
         ) : (
@@ -313,7 +318,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
   return (
     <View style={styles.stepContainer}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>New Password</Text>
+        <GradientText text="New Password" style={styles.stepTitle} />
         <Text style={styles.stepSubtitle}>Choose a strong password of at least 8 characters.</Text>
       </View>
 
@@ -323,6 +328,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
           <InputRow icon={<Lock size={18} color="rgba(255,255,255,0.35)" />} isError={!!errors.password}>
             <TextInput
               placeholder="••••••••"
+              selectionColor={T.CARET}
               secureTextEntry={!showPw}
               value={password}
               returnKeyType="next"
@@ -360,6 +366,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
             <TextInput
               ref={confirmRef}
               placeholder="••••••••"
+              selectionColor={T.CARET}
               secureTextEntry={!showConfirm}
               value={confirm}
               returnKeyType="done"
@@ -382,6 +389,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
         disabled={loading}
         activeOpacity={0.85}
       >
+        <BrandGradientFill />
         {loading ? (
           <ActivityIndicator size="small" color={T.ACCENT_FG} />
         ) : (
@@ -401,7 +409,7 @@ function StepDone() {
         <Text style={styles.successCheck}>✓</Text>
       </View>
       <View style={[styles.stepHeader, { alignItems: 'center' }]}>
-        <Text style={[styles.stepTitle, { textAlign: 'center' }]}>Password Reset!</Text>
+        <GradientText text="Password Reset!" style={[styles.stepTitle, { textAlign: 'center' }]} />
         <Text style={[styles.stepSubtitle, { textAlign: 'center' }]}>
           Your password has been reset successfully. Log in with your new password.
         </Text>
@@ -411,6 +419,7 @@ function StepDone() {
         onPress={() => router.replace('/auth')}
         activeOpacity={0.85}
       >
+        <BrandGradientFill />
         <Text style={styles.btnLabel}>Back to Log In</Text>
       </TouchableOpacity>
     </View>
@@ -501,7 +510,7 @@ export default function ForgotPasswordScreen() {
 
         {/* Screen title */}
         <View style={styles.screenHead}>
-          <Text style={styles.screenTitle}>Reset Password</Text>
+          <GradientText text="Reset Password" style={styles.screenTitle} />
           <Text style={styles.screenSubtitle}>Step {stepNum} of 4</Text>
         </View>
 
@@ -659,13 +668,12 @@ const styles = StyleSheet.create({
 
   // Buttons
   primaryBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: T.ACCENT,
     borderRadius: 50,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
@@ -673,11 +681,10 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   primaryBtnLoading: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    opacity: 0.7,
   },
   primaryBtnDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: 'rgba(255,255,255,0.08)',
+    opacity: 0.35,
   },
   btnLabel: {
     fontFamily: 'Poppins_600SemiBold',

@@ -758,6 +758,7 @@ export default function CreatePostScreen() {
                 onChangeText={setVideoTitle}
                 placeholder="Give your video a title…"
                 placeholderTextColor={T.TEXT_3}
+                selectionColor={T.CARET}
                 maxLength={150}
                 autoFocus
               />
@@ -780,6 +781,7 @@ export default function CreatePostScreen() {
                 "Add a caption…"
               }
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               multiline
               maxLength={contentType === 'video' ? 2000 : 2200}
               textAlignVertical="top"
@@ -915,6 +917,7 @@ export default function CreatePostScreen() {
                 onSubmitEditing={addTag}
                 placeholder="Add a tag…"
                 placeholderTextColor={T.TEXT_3}
+                selectionColor={T.CARET}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="done"

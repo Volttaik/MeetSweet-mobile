@@ -27,6 +27,7 @@ import {
   Images,
   Lock,
   Play,
+  SealCheck,
   Star,
   UserCircle,
   ShareNetwork,
@@ -36,13 +37,13 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsVideoThumbnail } from '@/components/MsVideoThumbnail';
 import { MsAvatar } from '@/components/MsAvatar';
-import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { T, alpha, MEDIA_BG, ALBUM_TONES } from '@/constants/theme';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { GradientBorder } from '@/components/GradientBorder';
+import { GradientText } from '@/components/GradientText';
 import { useScrollMotion } from '@/lib/scroll-motion';
 import { useAlbum, purchaseAlbum } from '@/services/albums';
 import { soundService } from '@/services/sound-service';
@@ -357,7 +358,7 @@ export default function AlbumScreen() {
             <View style={styles.creatorText}>
               <View style={styles.creatorNameRow}>
                 <Text style={styles.creatorName}>{album.creatorName}</Text>
-                {album.creatorIsVerified && <VerifiedBadge />}
+                {album.creatorIsVerified && <SealCheck size={13} color={T.TEXT} weight="fill" />}
               </View>
               <Text style={styles.creatorHandle}>{album.creatorHandle}</Text>
             </View>
@@ -380,10 +381,11 @@ export default function AlbumScreen() {
             </View>
             {album.requiresPurchase && (
               <View style={styles.stat}>
-                <Text style={[styles.statValue, { color: T.GOLD }]}>
-                  {album.price}
-                </Text>
-                <Text style={styles.statLabel}>Naira</Text>
+                <GradientText
+                  text={`₦${(album.price ?? 0).toLocaleString()}`}
+                  style={styles.statPrice}
+                />
+                <Text style={styles.statLabel}>Price</Text>
               </View>
             )}
           </View>
@@ -702,6 +704,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     letterSpacing: -0.4,
   },
+  statPrice: {
+    fontFamily: T.FONT.bold,
+    fontSize: 18,
+    letterSpacing: -0.4,
+  },
   statLabel: {
     color: T.TEXT_3,
     fontFamily: T.FONT.regular,
@@ -748,7 +755,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: T.GOLD,
+    backgroundColor: T.SECONDARY,
     overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -882,7 +889,7 @@ const styles = StyleSheet.create({
     flex: 1.4,
     height: 48,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.GOLD,
+    backgroundColor: T.SECONDARY,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
