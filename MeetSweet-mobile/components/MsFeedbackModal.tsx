@@ -18,7 +18,8 @@ import {
   View,
 } from 'react-native';
 import { CheckCircle, XCircle, Info, Lock } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, alpha, MEDIA_BG } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { notifyError, notifySuccess } from '@/lib/haptics';
 
 export type FeedbackVariant = 'success' | 'error' | 'info';
@@ -36,9 +37,9 @@ interface MsFeedbackModalProps {
 }
 
 const VARIANT_CONFIG: Record<FeedbackVariant, { icon: React.ReactNode; color: string; bg: string }> = {
-  success: { icon: <CheckCircle size={30} color={T.SUCCESS} weight="fill" />, color: T.SUCCESS, bg: 'rgba(52,201,123,0.12)' },
-  error:   { icon: <XCircle size={30} color={T.DANGER} weight="fill" />, color: T.DANGER, bg: 'rgba(239,68,68,0.12)' },
-  info:    { icon: <Info size={30} color={T.PURPLE} weight="fill" />, color: T.PURPLE, bg: 'rgba(155,110,202,0.14)' },
+  success: { icon: <CheckCircle size={30} color={T.SUCCESS} weight="fill" />, color: T.SUCCESS, bg: alpha(T.SUCCESS, 0.12) },
+  error:   { icon: <XCircle size={30} color={T.DANGER} weight="fill" />, color: T.DANGER, bg: alpha(T.ERROR, 0.12) },
+  info:    { icon: <Info size={30} color={T.PURPLE} weight="fill" />, color: T.PURPLE, bg: alpha(T.PURPLE, 0.14) },
 };
 
 export function MsFeedbackModal({
@@ -90,6 +91,7 @@ export function MsFeedbackModal({
             onPress={onClose}
             activeOpacity={0.85}
           >
+            <BrandGradientFill />
             <Text style={styles.primaryLabel}>{confirmLabel}</Text>
           </TouchableOpacity>
 
@@ -156,12 +158,13 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 16,
   },
   primaryLabel: {
-    color: T.BG,
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 14,
   },

@@ -3,7 +3,6 @@ import {
   RefreshControl,
   Share,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -19,7 +18,9 @@ import {
   CaretRight,
   ChatText,
   CurrencyNgn,
+  Envelope,
   GearSix,
+  Images,
   Star,
   Users,
   Wallet,
@@ -28,11 +29,16 @@ import {
 import { router } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import * as Clipboard from 'expo-clipboard';
-import { T } from '@/constants/theme';
+import { T, alpha, AppGradients } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientBorder } from '@/components/GradientBorder';
+import { GradientText } from '@/components/GradientText';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsFeedbackModal, type FeedbackVariant } from '@/components/MsFeedbackModal';
+import { MsSwitch } from '@/components/MsSwitch';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import {
   getCreatorDashboard,
@@ -76,12 +82,14 @@ function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
 
   if (totalViews === 0) {
     return (
+      <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.chartCardBorder}>
       <View style={styles.chartCard}>
         <MsEmptyState
           title="No analytics yet"
           message="Views, likes and revenue for each period will appear here once your content gets engagement."
         />
       </View>
+      </GradientBorder>
     );
   }
 
@@ -155,18 +163,25 @@ function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
   })();
 
   return (
+    <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.chartCardBorder}>
     <View style={styles.chartCard}>
       <Svg width="100%" height={CHART_H} viewBox={`0 0 100 ${CHART_H}`} preserveAspectRatio="none">
         <Defs>
-          <LinearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#C45A72" stopOpacity="0.25" />
-            <Stop offset="1" stopColor="#C45A72" stopOpacity="0" />
+          <LinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={AppGradients.brand[0]} stopOpacity="0.35" />
+            <Stop offset="0.5" stopColor={AppGradients.brand[1]} stopOpacity="0.18" />
+            <Stop offset="1" stopColor={AppGradients.brand[2]} stopOpacity="0" />
+          </LinearGradient>
+          <LinearGradient id="lineStroke" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor={AppGradients.brand[0]} />
+            <Stop offset="0.5" stopColor={AppGradients.brand[1]} />
+            <Stop offset="1" stopColor={AppGradients.brand[2]} />
           </LinearGradient>
         </Defs>
         {/* Gradient fill under the line */}
-        {fillD ? <Path d={fillD} fill="url(#lineGrad)" /> : null}
+        {fillD ? <Path d={fillD} fill="url(#areaGrad)" /> : null}
         {/* Smooth line */}
-        <Path d={smoothD} fill="none" stroke="#C45A72" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d={smoothD} fill="none" stroke="url(#lineStroke)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         {/* Data points */}
         {points.map((p, i) => (
           <Circle
@@ -174,8 +189,8 @@ function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
             cx={p.x * 100}
             cy={CHART_PAD_Y + p.y * (CHART_H - CHART_PAD_Y * 2)}
             r={dotR}
-            fill="#C45A72"
-            stroke="#0C0C0F"
+            fill={AppGradients.brand[1]}
+            stroke={T.BG}
             strokeWidth="1.5"
           />
         ))}
@@ -198,6 +213,7 @@ function PerformanceChart({ stats }: { stats: PeriodStat[] }) {
       </View>
       <Text style={styles.chartCaption}>Views per period</Text>
     </View>
+    </GradientBorder>
   );
 }
 
@@ -232,6 +248,30 @@ function ActivityRow({ stat }: { stat: PeriodStat }) {
           <Text style={styles.activityStatLabel}>Revenue</Text>
         </View>
       </View>
+    </View>
+  );
+}
+
+// ─── Earnings breakdown row ──────────────────────────────────────────────────
+
+function EarningRow({
+  icon: Icon,
+  label,
+  amount,
+  iconColor = T.PRIMARY_LIGHT,
+}: {
+  icon: Icon;
+  label: string;
+  amount: number;
+  iconColor?: string;
+}) {
+  return (
+    <View style={styles.earningRow}>
+      <View style={styles.earningIconWrap}>
+        <Icon size={15} color={iconColor} weight="fill" />
+      </View>
+      <Text style={styles.earningLabel}>{label}</Text>
+      <Text style={styles.earningAmount}>{formatNaira(amount)}</Text>
     </View>
   );
 }
@@ -333,12 +373,7 @@ function SettingsToggleRow({
   return (
     <View style={styles.settingsRow}>
       <Text style={styles.settingsRowLabel}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: T.SURFACE_2, true: T.ACCENT }}
-        thumbColor="#fff"
-      />
+      <MsSwitch value={value} onValueChange={onChange} />
     </View>
   );
 }
@@ -367,14 +402,16 @@ export default function CreatorDashboardScreen() {
   const [subsEnabled, setSubsEnabled] = useState(true);
   const [subscriberPrice, setSubscriberPrice] = useState(0);
   const [subscriberPlusPrice, setSubscriberPlusPrice] = useState(0);
-  const [editingPrice, setEditingPrice] = useState<'subscriber' | 'subscriber_plus' | null>(null);
+  const [inboxEnabled, setInboxEnabled] = useState(true);
+  const [inboxPrice, setInboxPrice] = useState(100);
+  const [editingPrice, setEditingPrice] = useState<'subscriber' | 'subscriber_plus' | 'private_message' | null>(null);
   const [priceDraft, setPriceDraft] = useState('');
   const [feedback, setFeedback] = useState<{
     variant: FeedbackVariant;
     title: string;
     message?: string;
   } | null>(null);
-  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
+  const [whoCanMessage, setWhoCanMessage] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
   const [whoCanComment, setWhoCanComment] = useState<'everyone' | 'subscribers' | 'none'>('everyone');
   const [whoCanSee, setWhoCanSee] = useState<'everyone' | 'subscribers' | 'none'>('subscribers');
 
@@ -438,12 +475,14 @@ export default function CreatorDashboardScreen() {
       setSubscribers(subs.subscribers ?? []);
       if (referralLink) setReferral(referralLink);
       if (settings) {
-        setWhoCanMessage(settings.who_can_message ?? 'everyone');
+        setWhoCanMessage(settings.who_can_message ?? 'subscribers');
         setWhoCanComment(settings.who_can_comment ?? (settings.allow_comments === false ? 'none' : 'everyone'));
         setWhoCanSee(settings.who_can_see ?? 'subscribers');
         setSubsEnabled(settings.subscriptions_enabled ?? true);
         setSubscriberPrice(settings.subscription_price ?? 0);
         setSubscriberPlusPrice(settings.subscription_plus_price ?? 0);
+        setInboxEnabled(settings.private_inbox_enabled ?? true);
+        setInboxPrice(settings.private_message_price ?? 100);
       }
       setError('');
     } catch (e) {
@@ -458,9 +497,30 @@ export default function CreatorDashboardScreen() {
 
   const handleRefresh = () => { setRefreshing(true); load(true); };
 
-  const beginPriceEdit = (plan: 'subscriber' | 'subscriber_plus') => {
+  const beginPriceEdit = (plan: 'subscriber' | 'subscriber_plus' | 'private_message') => {
     setEditingPrice(plan);
-    setPriceDraft(String(plan === 'subscriber' ? subscriberPrice : subscriberPlusPrice));
+    setPriceDraft(String(
+      plan === 'subscriber' ? subscriberPrice
+      : plan === 'subscriber_plus' ? subscriberPlusPrice
+      : inboxPrice,
+    ));
+  };
+
+  /** Save the Private Inbox delivery price (what a fan pays per message). */
+  const saveInboxPrice = async () => {
+    const price = Math.max(1, Math.round(Number(priceDraft.replace(/[^0-9.]/g, '')) || 0));
+    try {
+      const next = await updateCreatorSettings({ private_message_price: price });
+      setInboxPrice(next.private_message_price ?? price);
+      setEditingPrice(null);
+      setFeedback({
+        variant: 'success',
+        title: 'Inbox price updated',
+        message: `Fans now pay ₦${price.toLocaleString()} to send you a private message.`,
+      });
+    } catch {
+      setFeedback({ variant: 'error', title: 'Could not save price', message: 'Please try again.' });
+    }
   };
 
   const savePrice = async (plan: 'subscriber' | 'subscriber_plus') => {
@@ -490,6 +550,9 @@ export default function CreatorDashboardScreen() {
 
   const monthRevenue = dashboard?.period_stats?.[0]?.revenue ?? 0;
   const totalRevenue = dashboard?.total_revenue ?? 0;
+  // Authoritative per-source split from the server (fall back to the total so
+  // older responses still render; the breakdown rows simply read ₦0).
+  const earnings = dashboard?.earnings;
   const subscribers_count = dashboard?.active_subscribers ?? 0;
   const total_posts = dashboard?.total_posts ?? 0;
   const recent_stats = dashboard?.period_stats?.slice(0, 6) ?? [];
@@ -524,14 +587,21 @@ export default function CreatorDashboardScreen() {
         </View>
       ) : (
         <KeyboardAwareScrollViewCompat
+          {...useScrollMotion()}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={T.TEXT} />
           }
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
         >
-          {/* ── Earnings hero (dark ash surface, not a white banner) ──────── */}
-          <LinearGradient colors={['#251319', '#121014']} style={styles.hero}>
+          {/* ── Earnings hero — the platform brand gradient ──────────────── */}
+          <LinearGradient
+            colors={AppGradients.brand}
+            locations={AppGradients.brandLocs}
+            start={AppGradients.brandStart}
+            end={AppGradients.brandEnd}
+            style={styles.hero}
+          >
             <View style={styles.heroGlow} pointerEvents="none" />
             <View style={styles.heroTop}>
               <View style={styles.heroCopy}>
@@ -546,7 +616,8 @@ export default function CreatorDashboardScreen() {
                 onPress={() => router.push('/creator-payout')}
                 activeOpacity={0.85}
               >
-                <ArrowCircleUp size={16} color="#fff" weight="fill" />
+                <BrandGradientFill />
+                <ArrowCircleUp size={16} color={T.ACCENT_FG} weight="fill" />
                 <Text style={styles.withdrawLabel}>Withdraw</Text>
               </TouchableOpacity>
             </View>
@@ -573,7 +644,11 @@ export default function CreatorDashboardScreen() {
             {/* Withdrawal progress — real balance toward the real minimum */}
             <View style={styles.withdrawProgressWrap}>
               <View style={styles.withdrawProgressTrack}>
-                <View
+                <LinearGradient
+                  colors={AppGradients.brand}
+                  locations={AppGradients.brandLocs}
+                  start={AppGradients.brandStart}
+                  end={AppGradients.brandEnd}
                   style={[
                     styles.withdrawProgressFill,
                     { width: `${Math.min(100, (totalRevenue / MIN_WITHDRAWAL) * 100)}%` },
@@ -588,33 +663,55 @@ export default function CreatorDashboardScreen() {
             </View>
           </LinearGradient>
 
+          {/* ── Earnings breakdown — where the money came from ────────────── */}
+          <Text style={styles.sectionTitle}>Earnings Breakdown</Text>
+          <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.earningsCardBorder}>
+          <View style={styles.earningsCard}>
+            <EarningRow icon={Users} label="Subscriptions" amount={earnings?.subscriptions ?? 0} iconColor={T.PRIMARY_LIGHT} />
+            <View style={styles.earningsDivider} />
+            <EarningRow icon={Envelope} label="Private Messages" amount={earnings?.private_messages ?? 0} iconColor={T.SECONDARY} />
+            <View style={styles.earningsDivider} />
+            <EarningRow icon={Images} label="Albums" amount={earnings?.albums ?? 0} iconColor={T.GOLD} />
+            <View style={styles.earningsTotalDivider} />
+            <View style={styles.earningsTotalRow}>
+              <Text style={styles.earningsTotalLabel}>Total</Text>
+              <GradientText text={formatNaira(earnings?.total ?? totalRevenue)} style={styles.earningsTotalValue} />
+            </View>
+          </View>
+          </GradientBorder>
+
           {/* ── Performance chart (real data) ─────────────────────────────── */}
           <Text style={styles.sectionTitle}>Performance</Text>
           {recent_stats.length > 0 ? (
             <PerformanceChart stats={recent_stats} />
           ) : (
+            <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.chartCardBorder}>
             <View style={styles.chartCard}>
               <MsEmptyState
                 title="No analytics yet"
                 message="Views, likes and revenue for each period will appear here once your content gets engagement."
               />
             </View>
+            </GradientBorder>
           )}
 
           {/* ── Period breakdown ──────────────────────────────────────────── */}
           {recent_stats.length > 1 && (
             <>
               <Text style={styles.sectionTitle}>Period Breakdown</Text>
+              <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.activityCardBorder}>
               <View style={styles.activityCard}>
                 {recent_stats.map((s) => (
                   <ActivityRow key={s.period} stat={s} />
                 ))}
               </View>
+              </GradientBorder>
             </>
           )}
 
           {/* ── Recent subscribers ────────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Recent Subscribers</Text>
+          <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.subsCardBorder}>
           <View style={styles.subsCard}>
             {subscribers.length > 0 ? (
               <>
@@ -644,6 +741,7 @@ export default function CreatorDashboardScreen() {
               />
             )}
           </View>
+          </GradientBorder>
 
           {/* ── Quick actions ─────────────────────────────────────────────── */}
           <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -709,6 +807,7 @@ export default function CreatorDashboardScreen() {
                 disabled={!referral?.url || referralBusy}
                 onPress={() => referral?.url && Share.share({ title: 'Join MeetSweet', message: `Join MeetSweet with my referral link: ${referral.url}`, url: referral.url })}
               >
+                <BrandGradientFill />
                 <Text style={[styles.referralActionText, styles.referralActionPrimaryText]}>Share</Text>
               </TouchableOpacity>
             </View>
@@ -752,6 +851,7 @@ export default function CreatorDashboardScreen() {
                     selectTextOnFocus
                   />
                   <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber')}>
+                    <BrandGradientFill />
                     <Text style={styles.priceSaveText}>Save</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
@@ -772,7 +872,7 @@ export default function CreatorDashboardScreen() {
             {editingPrice === 'subscriber_plus' ? (
               <View style={styles.priceEditor}>
                 <View style={styles.priceEditorLabelRow}>
-                  <Star size={15} color="#E8A020" weight="fill" />
+                  <Star size={15} color={T.GOLD} weight="fill" />
                   <Text style={styles.priceEditorLabel}>Subscriber+ price</Text>
                 </View>
                 <View style={styles.priceEditorControls}>
@@ -786,6 +886,7 @@ export default function CreatorDashboardScreen() {
                     selectTextOnFocus
                   />
                   <TouchableOpacity style={styles.priceSave} onPress={() => savePrice('subscriber_plus')}>
+                    <BrandGradientFill />
                     <Text style={styles.priceSaveText}>Save</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
@@ -803,21 +904,70 @@ export default function CreatorDashboardScreen() {
             )}
           </SettingsSection>
 
+          {/* Private Inbox */}
+          <SettingsSection IconComp={Envelope} title="Private Inbox">
+            <SettingsToggleRow
+              label="Enable Private Inbox"
+              value={inboxEnabled}
+              onChange={async (v) => {
+                const prev = inboxEnabled;
+                setInboxEnabled(v);
+                try {
+                  await updateCreatorSettings({ private_inbox_enabled: v });
+                } catch {
+                  setInboxEnabled(prev);
+                  dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' });
+                }
+              }}
+            />
+            <SettingsDivider />
+            {editingPrice === 'private_message' ? (
+              <View style={styles.priceEditor}>
+                <View style={styles.priceEditorLabelRow}>
+                  <Envelope size={15} color={T.TEXT_2} />
+                  <Text style={styles.priceEditorLabel}>Per-message price</Text>
+                </View>
+                <View style={styles.priceEditorControls}>
+                  <Text style={styles.nairaPrefix}>₦</Text>
+                  <TextInput
+                    value={priceDraft}
+                    onChangeText={setPriceDraft}
+                    keyboardType="numeric"
+                    style={styles.priceInput}
+                    autoFocus
+                    selectTextOnFocus
+                  />
+                  <TouchableOpacity style={styles.priceSave} onPress={saveInboxPrice}>
+                    <BrandGradientFill />
+                    <Text style={styles.priceSaveText}>Save</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setEditingPrice(null)} hitSlop={8}>
+                    <Text style={styles.priceCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <SettingsRow
+                label="Message price"
+                icon={Envelope}
+                value={inboxPrice > 0 ? `${formatNaira(inboxPrice)}/msg` : 'Not set'}
+                onPress={() => beginPriceEdit('private_message')}
+              />
+            )}
+          </SettingsSection>
+
           {/* Messaging & Privacy */}
           <SettingsSection IconComp={ChatText} title="Messaging & Privacy">
             <SettingsRow
               label="Who can message me"
-              value={whoCanMessage === 'everyone' ? 'Everyone' : whoCanMessage === 'subscribers' ? 'Subscribers only' : 'No one'}
+              // Legacy 'everyone' values behave as subscriber-only — the server
+              // requires an active subscription to send, so the UI shows the
+              // effective setting.
+              value={whoCanMessage === 'none' ? 'No one' : 'Subscribers only'}
               onPress={() =>
                 dialogs.options({
                   title: 'Who can message you?',
                   actions: [
-                    { label: 'Everyone', onPress: async () => {
-                      const prev = whoCanMessage;
-                      setWhoCanMessage('everyone');
-                      try { await updateCreatorSettings({ who_can_message: 'everyone' }); }
-                      catch { setWhoCanMessage(prev); dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' }); }
-                    }},
                     { label: 'Subscribers only', onPress: async () => {
                       const prev = whoCanMessage;
                       setWhoCanMessage('subscribers');
@@ -964,7 +1114,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: T.RADIUS.xl,
     borderWidth: 1,
-    borderColor: 'rgba(196,90,114,0.18)',
+    borderColor: alpha(T.ACCENT, 0.18),
     overflow: 'hidden',
     position: 'relative',
     gap: 16,
@@ -974,7 +1124,7 @@ const styles = StyleSheet.create({
     top: -80, right: -60,
     width: 200, height: 200,
     borderRadius: 100,
-    backgroundColor: 'rgba(196,90,114,0.14)',
+    backgroundColor: alpha(T.ACCENT, 0.14),
   },
   heroTop: {
     flexDirection: 'row',
@@ -984,42 +1134,43 @@ const styles = StyleSheet.create({
   },
   heroCopy: { flex: 1 },
   heroEyebrow: {
-    color: 'rgba(255,255,255,0.5)',
+    color: alpha(T.ACCENT_FG, 0.5),
     fontFamily: T.FONT.semibold, fontSize: 10,
     letterSpacing: 1.5,
   },
   heroValue: {
-    color: '#FFFFFF', fontFamily: T.FONT.bold,
+    color: T.ACCENT_FG, fontFamily: T.FONT.bold,
     fontSize: 32, letterSpacing: -1, marginTop: 4,
   },
   heroSub: {
-    color: 'rgba(255,255,255,0.42)',
+    color: alpha(T.ACCENT_FG, 0.42),
     fontFamily: T.FONT.regular, fontSize: 12, marginTop: 4,
   },
   withdrawBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 14, paddingVertical: 10,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     ...T.SHADOWS.soft,
   },
-  withdrawLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: '#fff' },
+  withdrawLabel: { fontSize: 12, fontFamily: T.FONT.bold, color: T.ACCENT_FG },
 
   heroMetaRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: alpha(T.ACCENT_FG, 0.05),
     borderRadius: T.RADIUS.md,
     paddingVertical: 12,
   },
   heroMeta: { flex: 1, alignItems: 'center', gap: 2 },
   heroMetaValue: { fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
-  heroMetaLabel: { fontSize: 10, fontFamily: T.FONT.regular, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.3 },
-  heroMetaDivider: { width: 1, height: 26, backgroundColor: 'rgba(255,255,255,0.08)' },
+  heroMetaLabel: { fontSize: 10, fontFamily: T.FONT.regular, color: alpha(T.ACCENT_FG, 0.45), letterSpacing: 0.3 },
+  heroMetaDivider: { width: 1, height: 26, backgroundColor: alpha(T.ACCENT_FG, 0.08) },
 
   withdrawProgressWrap: { gap: 6 },
   withdrawProgressTrack: {
     height: 5, borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: alpha(T.ACCENT_FG, 0.08),
     overflow: 'hidden',
   },
   withdrawProgressFill: {
@@ -1027,8 +1178,58 @@ const styles = StyleSheet.create({
     backgroundColor: T.ACCENT,
   },
   withdrawProgressText: {
-    color: 'rgba(255,255,255,0.42)',
+    color: T.TEXT_3,
     fontFamily: T.FONT.regular, fontSize: 11,
+  },
+
+  // ── Earnings breakdown ─────────────────────────────────────────────────────
+  earningsCardBorder: {
+    marginHorizontal: 20, marginBottom: 8,
+    borderRadius: T.RADIUS.lg,
+  },
+  earningsCard: {
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.lg,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  earningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  earningIconWrap: {
+    width: 30, height: 30, borderRadius: T.RADIUS.sm,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  earningLabel: {
+    flex: 1,
+    fontSize: 13.5, fontFamily: T.FONT.regular, color: T.TEXT_2,
+  },
+  earningAmount: {
+    fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT,
+    letterSpacing: -0.3,
+  },
+  earningsDivider: {
+    height: 1, backgroundColor: T.BORDER,
+    marginLeft: 42,
+  },
+  earningsTotalDivider: {
+    height: 1, backgroundColor: T.BORDER,
+    marginLeft: 42, marginTop: 4,
+  },
+  earningsTotalRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginLeft: 42, paddingVertical: 14,
+  },
+  earningsTotalLabel: {
+    fontSize: 13.5, fontFamily: T.FONT.semibold, color: T.TEXT,
+  },
+  earningsTotalValue: {
+    fontSize: 17, fontFamily: T.FONT.bold, color: T.TEXT,
+    letterSpacing: -0.4,
   },
 
   // ── Section titles ─────────────────────────────────────────────────────────
@@ -1038,8 +1239,11 @@ const styles = StyleSheet.create({
   },
 
   // ── Performance chart ──────────────────────────────────────────────────────
-  chartCard: {
+  chartCardBorder: {
     marginHorizontal: 20, marginBottom: 8,
+    borderRadius: T.RADIUS.lg,
+  },
+  chartCard: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     padding: 18,
@@ -1071,8 +1275,11 @@ const styles = StyleSheet.create({
   },
 
   // ── Activity rows ──────────────────────────────────────────────────────────
-  activityCard: {
+  activityCardBorder: {
     marginHorizontal: 20, marginBottom: 8,
+    borderRadius: T.RADIUS.lg,
+  },
+  activityCard: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     overflow: 'hidden',
@@ -1091,8 +1298,11 @@ const styles = StyleSheet.create({
   activityDivider: { width: 1, height: 24, backgroundColor: T.BORDER_2 },
 
   // ── Subscribers ────────────────────────────────────────────────────────────
-  subsCard: {
+  subsCardBorder: {
     marginHorizontal: 20, marginBottom: 8,
+    borderRadius: T.RADIUS.lg,
+  },
+  subsCard: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     overflow: 'hidden',
@@ -1142,18 +1352,18 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     borderWidth: 1,
-    borderColor: 'rgba(196,90,114,0.22)',
+    borderColor: alpha(T.ACCENT, 0.22),
     gap: 10,
   },
   referralTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
   referralDescription: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 18 },
   referralUrlBox: { backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md, paddingHorizontal: 12, paddingVertical: 11 },
-  referralUrl: { fontSize: 12, fontFamily: T.FONT.medium, color: T.ACCENT },
+  referralUrl: { fontSize: 12, fontFamily: T.FONT.medium, color: T.PRIMARY_LIGHT },
   referralActions: { flexDirection: 'row', gap: 10 },
   referralAction: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: T.RADIUS.md, backgroundColor: T.SURFACE_2 },
-  referralActionPrimary: { backgroundColor: T.ACCENT },
+  referralActionPrimary: { backgroundColor: T.ACCENT, overflow: 'hidden' },
   referralActionText: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
-  referralActionPrimaryText: { color: '#fff' },
+  referralActionPrimaryText: { color: T.ACCENT_FG },
 
   // ── Settings sections ──────────────────────────────────────────────────────
   settingsCard: {
@@ -1261,13 +1471,14 @@ const styles = StyleSheet.create({
   },
   priceSave: {
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     borderRadius: T.RADIUS.full,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   priceSaveText: {
-    color: '#fff',
-    fontFamily: T.FONT.semibold,
+    color: T.ACCENT_FG,
+    fontFamily: T.FONT.bold,
     fontSize: 12,
   },
   priceCancelText: {

@@ -4,8 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { RoseGradient } from '@/constants/theme';
 
 /**
- * Full-bleed rose gradient background for auth, onboarding and modal screens.
- * This is the shared backdrop — warm rose fading to near-black.
+ * Full-bleed neutral gradient background for auth, onboarding and modal screens.
+ * This is the shared backdrop — dark fading to black.
  */
 export function MsScreenBackground({
   children,

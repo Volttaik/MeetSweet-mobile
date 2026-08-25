@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Sparkle } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 
 interface MsEmptyStateProps {
   title: string;
@@ -19,10 +20,11 @@ export function MsEmptyState({
   return (
     <View style={styles.wrap}>
       <View style={styles.iconCircle}>
-        <Sparkle size={24} color={T.TEXT_2} />
+        <BrandGradientFill />
+        <Sparkle size={24} color="#FFFFFF" weight="fill" />
       </View>
       <Text style={styles.title}>{title}</Text>
-      {message && <Text style={styles.message}>{message}</Text>}
+      {!!message && <Text style={styles.message}>{message}</Text>}
       {actionLabel && onAction && (
         <TouchableOpacity style={styles.btn} onPress={onAction} activeOpacity={0.8}>
           <Text style={styles.btnLabel}>{actionLabel}</Text>
@@ -44,7 +46,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: T.SURFACE,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,

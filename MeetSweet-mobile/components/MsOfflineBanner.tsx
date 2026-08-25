@@ -2,7 +2,7 @@
  * MsOfflineBanner — slim persistent banner for degraded connectivity.
  *
  * Renders the app's connectivity state from useNetwork:
- *   slow         → subtle amber warning (still online, just slow)
+ *   slow         → subtle coral warning (still online, just slow)
  *   reconnecting → blue "Reconnecting…" transition
  *   offline      → red "You're offline" (only after a sustained ~1 min outage)
  *
@@ -20,22 +20,23 @@ type BannerKind = Exclude<NetworkStatus, 'online'>;
 const CONFIG: Record<BannerKind, { text: string; bg: string }> = {
   slow: {
     text: 'Slow internet — find a better connection',
-    bg: '#B45309',
+    bg: T.WARNING,
   },
   reconnecting: {
     text: 'Reconnecting…',
-    bg: '#1F6FEB',
+    bg: T.INFO,
   },
   offline: {
     text: "You're offline — check your connection",
-    bg: '#C0392B',
+    bg: T.ERROR,
   },
 };
 
 function BannerIcon({ kind }: { kind: BannerKind }) {
-  if (kind === 'offline') return <WifiSlash size={14} color="#fff" weight="bold" />;
-  if (kind === 'reconnecting') return <ArrowsClockwise size={14} color="#fff" weight="bold" />;
-  return <Warning size={14} color="#fff" weight="fill" />;
+  // Banner fills are coral/grey/red; dark icons read on all of them.
+  if (kind === 'offline') return <WifiSlash size={14} color={T.ON_AMBER} weight="bold" />;
+  if (kind === 'reconnecting') return <ArrowsClockwise size={14} color={T.ON_AMBER} weight="bold" />;
+  return <Warning size={14} color={T.ON_AMBER} weight="fill" />;
 }
 
 export function MsOfflineBanner() {
@@ -111,7 +112,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   text: {
-    color: '#fff',
+    color: T.ON_AMBER,
     fontFamily: T.FONT.medium,
     fontSize: 12,
     letterSpacing: 0.1,

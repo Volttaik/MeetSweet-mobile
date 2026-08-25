@@ -110,7 +110,7 @@ export default function ShareTokenResolver() {
         </View>
       ) : (
         <>
-          <ActivityIndicator color={T.ACCENT} size="large" />
+          <ActivityIndicator color={T.PRIMARY_LIGHT} size="large" />
           <Text style={styles.text}>Opening content…</Text>
         </>
       )}

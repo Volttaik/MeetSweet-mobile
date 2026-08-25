@@ -1,11 +1,11 @@
 import React, { ReactNode } from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T, RoseGradient } from '@/constants/theme';
+import { T, alpha, RoseGradient } from '@/constants/theme';
 
 /**
  * Screen-level background wrapper.
- * Applies the warm rose gradient behind all content — never competes with UI.
+ * Applies the dark neutral gradient behind all content — never competes with UI.
  */
 export function MsAmbientBackground({
   children,
@@ -16,17 +16,17 @@ export function MsAmbientBackground({
 }) {
   return (
     <View style={[styles.root, style]}>
-      {/* Full-screen rose gradient backdrop */}
+      {/* Full-screen neutral gradient backdrop */}
       <LinearGradient
         colors={RoseGradient.colors}
         locations={RoseGradient.locations}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      {/* Soft rose glow concentrated at the top */}
+      {/* Brand glow concentrated at the top — subtle purple wash */}
       <LinearGradient
-        colors={[T.AMBIENT, 'transparent']}
-        locations={[0, 0.6]}
+        colors={[T.AMBIENT, alpha(T.PRIMARY, 0.05), 'transparent']}
+        locations={[0, 0.45, 1]}
         style={styles.glow}
         pointerEvents="none"
       />

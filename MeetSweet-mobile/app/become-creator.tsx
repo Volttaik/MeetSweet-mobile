@@ -18,7 +18,9 @@ import {
 import { router } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import * as Linking from 'expo-linking';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientText } from '@/components/GradientText';
 import { becomeCreator, initiateActivation, verifyActivation } from '@/services/creator';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -136,7 +138,7 @@ export default function BecomeCreatorScreen() {
         {/* Hero */}
         <View style={styles.hero}>
           <View style={styles.heroIconWrap}>
-            <Sparkle size={40} color={T.ACCENT} weight="fill" />
+            <Sparkle size={40} color={T.PRIMARY_LIGHT} weight="fill" />
           </View>
           <Text style={styles.heroTitle}>Become a Creator</Text>
           <Text style={styles.heroSubtitle}>
@@ -149,8 +151,8 @@ export default function BecomeCreatorScreen() {
         <View style={styles.activationCard}>
           <Text style={styles.activationTitle}>Become a MeetSweet creator and unlock subscriber content tools.</Text>
           <View style={styles.activationPriceRow}>
-            <Text style={styles.activationPrice}>One-time activation fee</Text>
-            <Text style={styles.activationPriceAmount}>₦1,000</Text>
+            <GradientText text="One-time activation fee" style={styles.activationPrice} />
+            <GradientText text="₦1,000" style={styles.activationPriceAmount} />
           </View>
           <Text style={styles.activationNote}>
             Pay once. Create forever. You will not be charged again for creating posts, albums, or setting subscriber content.
@@ -176,8 +178,9 @@ export default function BecomeCreatorScreen() {
                 onPress={handleVerifyPayment}
                 disabled={submitting}
               >
+                <BrandGradientFill />
                 {submitting ? (
-                  <ActivityIndicator size="small" color={T.BG} />
+                  <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.primaryBtnLabel}>Verify Payment & Activate</Text>
                 )}
@@ -193,8 +196,9 @@ export default function BecomeCreatorScreen() {
               onPress={handleBecomeCreator}
               disabled={submitting}
             >
+              <BrandGradientFill />
               {submitting ? (
-                <ActivityIndicator size="small" color={T.BG} />
+                <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={styles.primaryBtnLabel}>Pay ₦1,000 & Become a Creator</Text>
               )}
@@ -257,9 +261,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(196,90,114,0.12)',
+    backgroundColor: alpha(T.ACCENT, 0.12),
     borderWidth: 1,
-    borderColor: 'rgba(196,90,114,0.22)',
+    borderColor: alpha(T.ACCENT, 0.22),
     marginBottom: 6,
   },
   heroTitle: {
@@ -334,14 +338,14 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 50,
     borderRadius: T.RADIUS.md,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnLabel: {
     fontSize: 15,
-    fontFamily: T.FONT.semibold,
-    color: T.BG,
+    fontFamily: T.FONT.bold,
+    color: '#FFFFFF',
   },
   secondaryBtn: {
     width: '100%',
@@ -370,7 +374,7 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 12,
     fontFamily: T.FONT.medium,
-    color: '#E5484D',
+    color: T.ERROR,
     textAlign: 'center',
     marginBottom: 4,
   },
@@ -407,12 +411,12 @@ const styles = StyleSheet.create({
   activationPrice: {
     fontSize: 15,
     fontFamily: T.FONT.semibold,
-    color: T.TEXT,
+    textAlign: 'left',
   },
   activationPriceAmount: {
     fontSize: 22,
     fontFamily: T.FONT.bold,
-    color: T.ACCENT,
+    textAlign: 'right',
   },
   activationNote: {
     fontSize: 12,

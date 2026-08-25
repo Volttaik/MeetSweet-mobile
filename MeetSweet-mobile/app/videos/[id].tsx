@@ -55,6 +55,7 @@ import {
 } from '@/services/posts';
 import { useLocalExploreCatalog, fmtTimeAgo } from '@/services/explore';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { MOTION } from '@/constants/motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
@@ -173,12 +174,11 @@ export default function VideoWatchScreen() {
         withSpring(1.35, { damping: 5, stiffness: 320 }),
         withSpring(1.0,  { damping: 10, stiffness: 220 }),
       );
-      // Spawn hearts around the like bar
+      // Spawn a single heart from the like bar
       likeBarRef.current?.measure((_x, _y, _w, h, px, py) => {
         const cx = px + 28; // approximate centre of like button
         const cy = py + h / 2;
         spawnHeart(cx, cy);
-        spawnHeart(cx + 14, cy - 10);
       });
     } else {
       likeScale.value = withSequence(
@@ -386,8 +386,8 @@ export default function VideoWatchScreen() {
             <Animated.View style={[styles.actionBtnInner, likeStyle]}>
               <Heart
                 size={17}
-                color={liked ? '#EF4444' : T.TEXT_2}
-                weight={liked ? 'fill' : 'regular'}
+                color={liked ? T.SECONDARY : T.TEXT_2}
+                weight={liked ? 'fill' : 'bold'}
               />
               <Text style={[styles.actionLabel, liked && styles.actionLabelLiked]}>
                 {likeCount > 0 ? formatCount(likeCount) : 'Like'}
@@ -415,7 +415,7 @@ export default function VideoWatchScreen() {
               <Bookmark
                 size={17}
                 color={bookmarked ? T.TEXT : T.TEXT_2}
-                weight={bookmarked ? 'fill' : 'regular'}
+                weight={bookmarked ? 'fill' : 'bold'}
               />
               <Text style={[styles.actionLabel, bookmarked && styles.actionLabelSaved]}>
                 {bookmarked ? 'Saved' : 'Save'}
@@ -466,7 +466,8 @@ export default function VideoWatchScreen() {
                 hitSlop={6}
                 accessibilityLabel="Subscribe"
               >
-                <UserPlus size={13} color={T.BG} />
+                <BrandGradientFill />
+                <UserPlus size={13} color="#FFFFFF" weight="fill" />
                 <Text style={styles.subscribeBtnText}>Subscribe</Text>
               </PressScale>
             )}
@@ -542,6 +543,7 @@ export default function VideoWatchScreen() {
             <Text style={styles.premiumTitle}>Subscribers Only</Text>
             <Text style={styles.premiumSub}>Subscribe to this creator to watch this video.</Text>
             <View style={styles.premiumBtn}>
+              <BrandGradientFill />
               <Text style={styles.premiumBtnLabel}>View Creator</Text>
             </View>
           </View>
@@ -623,7 +625,7 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.medium,
     fontSize: 11,
   },
-  actionLabelLiked: { color: '#EF4444' },
+  actionLabelLiked: { color: T.ERROR },
   actionLabelSaved: { color: T.TEXT },
 
   // ── Creator card ─────────────────────────────────────────────────────────────
@@ -670,14 +672,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     borderRadius: T.RADIUS.full,
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
   subscribeBtnText: {
-    color: T.BG,
-    fontFamily: T.FONT.semibold,
+    color: '#FFFFFF',
+    fontFamily: T.FONT.bold,
     fontSize: 11,
   },
 
@@ -764,11 +766,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
   },
   premiumBtnLabel: {
-    color: T.BG,
-    fontFamily: T.FONT.semibold,
+    color: T.ACCENT_FG,
+    fontFamily: T.FONT.bold,
     fontSize: 13,
   },
 });

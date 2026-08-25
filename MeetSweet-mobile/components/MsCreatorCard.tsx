@@ -155,8 +155,7 @@ const styles = StyleSheet.create({
     width: 170,
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
-    borderWidth: 1,
-    borderColor: T.BORDER_2,
+    // No outline — card separation comes from surface contrast, never a line.
     padding: 14,
     gap: 4,
   },

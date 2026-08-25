@@ -19,7 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ApiError } from '@/services/api';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
 import * as Haptics from 'expo-haptics';
 import { shouldShowOnboarding } from '@/services/onboarding';
 import { consumePendingShareDestination, routeToShareDestination } from '@/lib/deep-link';
@@ -27,7 +27,7 @@ import { consumePendingShareDestination, routeToShareDestination } from '@/lib/d
 // ─── Input row ────────────────────────────────────────────────────────────────
 
 const INPUT_BG = 'rgba(255,255,255,0.07)';
-const INPUT_BORDER_ERROR = '#EF4444';
+const INPUT_BORDER_ERROR = T.ERROR;
 
 function InputRow({
   icon,
@@ -143,7 +143,6 @@ export default function AuthScreen() {
               source={require('../assets/images/logo.png')}
               style={styles.logo}
               resizeMode="contain"
-              tintColor="#FFFFFF"
             />
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Sign in to continue to MeetSweet</Text>
@@ -261,7 +260,7 @@ export default function AuthScreen() {
               activeOpacity={0.85}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={T.ACCENT_FG} />
               ) : (
                 <Text style={styles.submitBtnLabel}>Log In</Text>
               )}
@@ -297,7 +296,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontFamily: T.FONT.bold,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: -0.5,
     textAlign: 'center',
     marginTop: 4,
@@ -310,12 +309,12 @@ const styles = StyleSheet.create({
   },
 
   serverError: {
-    backgroundColor: 'rgba(239,68,68,0.12)',
+    backgroundColor: alpha(T.ERROR, 0.12),
     borderRadius: T.RADIUS.md,
     padding: 14,
   },
   serverErrorText: {
-    color: '#EF4444',
+    color: T.ERROR,
     fontFamily: T.FONT.regular,
     fontSize: 13,
     textAlign: 'center',
@@ -342,12 +341,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.085)',
   },
   inputWrapperError: {
-    backgroundColor: 'rgba(239,68,68,0.08)',
+    backgroundColor: alpha(T.ERROR, 0.08),
   },
   inputIcon: { width: 22, alignItems: 'center' },
   input: {
     flex: 1,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontSize: 15,
     fontFamily: T.FONT.regular,
     height: '100%',
@@ -364,7 +363,7 @@ const styles = StyleSheet.create({
   fieldError: {
     fontFamily: T.FONT.regular,
     fontSize: 12,
-    color: '#EF4444',
+    color: T.ERROR,
     marginTop: 5,
   },
 
@@ -406,7 +405,7 @@ const styles = StyleSheet.create({
   submitBtnLabel: {
     fontFamily: T.FONT.semibold,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: 0.2,
   },
 

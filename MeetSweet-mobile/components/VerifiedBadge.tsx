@@ -5,17 +5,19 @@
  * (album cards, album detail, creator rows) renders this same component, so
  * the shape, size, fill and check glyph are identical everywhere.
  *
- * Rose accent fill with a white check — matches the app's accent language.
+ * Crimson fill with a linen check — creator accents use the secondary brand colour.
  */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Check } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 
 export function VerifiedBadge() {
   return (
     <View style={styles.badge}>
-      <Check size={9} color="#fff" weight="bold" />
+      <BrandGradientFill />
+      <Check size={9} color={T.ACCENT_FG} weight="bold" />
     </View>
   );
 }
@@ -25,7 +27,8 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.SECONDARY,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

@@ -24,7 +24,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, MEDIA_BG } from '@/constants/theme';
 
 export default function PostMediaScreen() {
   const { uri, type, postId } =
@@ -56,7 +56,7 @@ export default function PostMediaScreen() {
         accessibilityLabel="Go back"
         hitSlop={12}
       >
-        <ArrowLeft size={19} color="#fff" weight="bold" />
+        <ArrowLeft size={19} color={T.ACCENT_FG} weight="bold" />
       </Pressable>
 
       <Image
@@ -72,7 +72,7 @@ export default function PostMediaScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#050506',
+    backgroundColor: MEDIA_BG,
   },
 
   // Image viewer

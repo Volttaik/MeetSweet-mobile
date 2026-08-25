@@ -31,13 +31,15 @@ import {
   X,
 } from 'phosphor-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { T } from '@/constants/theme';
+import { T, AppGradients } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsSkeletonCard, MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { MsPostCard } from '@/components/MsPostCard';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsActionSheet } from '@/components/MsActionSheet';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
@@ -177,7 +179,8 @@ function EditProfileModal({
                   <Text style={epm.cancelLabel}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[epm.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving} activeOpacity={0.8}>
-                  {saving ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={epm.saveLabel}>Save</Text>}
+                  <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
+                  {saving ? <ActivityIndicator size="small" color={T.ACCENT_FG} /> : <Text style={epm.saveLabel}>Save</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -286,7 +289,8 @@ function EditPostSheet({
                 <Text style={epm.cancelLabel}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[epm.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving} activeOpacity={0.8}>
-                {saving ? <ActivityIndicator size="small" color={T.BG} /> : <Text style={epm.saveLabel}>Save Changes</Text>}
+                <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
+                {saving ? <ActivityIndicator size="small" color={T.ACCENT_FG} /> : <Text style={epm.saveLabel}>Save Changes</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -306,8 +310,8 @@ const eps = StyleSheet.create({
     backgroundColor: T.SURFACE_2,
     gap: 12,
   },
-  visOptActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  visLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  visOptActive: { backgroundColor: T.SURFACE_3 },
+  visLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT_2 },
   visLabelActive: { color: T.TEXT },
   visDesc: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 1 },
   radio: {
@@ -730,7 +734,7 @@ export default function ProfileScreen() {
         {isVideo && (
           <View style={styles.videoOverlay}>
             <View style={styles.videoPlayBadge}>
-              <FilmStrip size={9} color="#fff" weight="fill" />
+              <FilmStrip size={9} color={T.ACCENT_FG} weight="fill" />
             </View>
             {item.durationSecs != null && (
               <Text style={styles.videoDuration}>{formatDuration(item.durationSecs)}</Text>
@@ -928,7 +932,7 @@ export default function ProfileScreen() {
                     backgroundColor: 'rgba(0,0,0,0.72)',
                     paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
                   }}>
-                    <Text style={{ fontSize: 9.5, fontFamily: T.FONT.semibold, color: '#fff' }}>
+                    <Text style={{ fontSize: 9.5, fontFamily: T.FONT.bold, color: T.ACCENT_FG }}>
                       {formatDuration(p.durationSecs)}
                     </Text>
                   </View>
@@ -941,12 +945,12 @@ export default function ProfileScreen() {
                   backgroundColor: 'rgba(0,0,0,0.5)',
                   alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Play size={12} color="#fff" weight="fill" />
+                  <Play size={12} color={T.ACCENT_FG} weight="fill" />
                 </View>
               </View>
               {/* Title below thumbnail */}
               <View style={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: 8 }}>
-                <Text style={{ fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT, lineHeight: 18 }} numberOfLines={2}>
+                <Text style={{ fontSize: 13, fontFamily: T.FONT.bold, color: T.TEXT, lineHeight: 18 }} numberOfLines={2}>
                   {p.title || p.caption || 'Video'}
                 </Text>
               </View>
@@ -1107,6 +1111,7 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       <ScrollView
+        {...useScrollMotion()}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={
@@ -1192,7 +1197,8 @@ export default function ProfileScreen() {
             onPress={() => router.push('/become-creator')}
           >
             <View style={styles.becomeCreatorIcon}>
-              <Sparkle size={18} color={T.ACCENT} weight="fill" />
+              <BrandGradientFill />
+              <Sparkle size={18} color="#FFFFFF" weight="fill" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.becomeCreatorTitle}>Become a Creator</Text>
@@ -1370,7 +1376,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  editLabel: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.TEXT },
+  editLabel: { fontSize: 13, fontFamily: T.FONT.bold, color: T.TEXT },
 
   userInfo:    { paddingHorizontal: 20, paddingTop: 14, gap: 4 },
   displayName: { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.3 },
@@ -1404,11 +1410,11 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: T.ACCENT_LIGHT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  becomeCreatorTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  becomeCreatorTitle: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT },
   becomeCreatorSub:   { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
 
   contentTabsScroll: { borderBottomWidth: 1, borderBottomColor: T.BORDER },
@@ -1420,8 +1426,8 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   contentTabActive:      { borderBottomColor: T.ACCENT },
-  contentTabLabel:       { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  contentTabLabelActive: { color: T.TEXT, fontFamily: T.FONT.semibold },
+  contentTabLabel:       { fontSize: 13, fontFamily: T.FONT.bold, color: T.TEXT_2 },
+  contentTabLabelActive: { color: T.TEXT, fontFamily: T.FONT.bold },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
 
@@ -1443,8 +1449,8 @@ const styles = StyleSheet.create({
   },
   videoDuration: {
     fontSize: 10,
-    fontFamily: T.FONT.semibold,
-    color: '#fff',
+    fontFamily: T.FONT.bold,
+    color: T.ACCENT_FG,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -1481,10 +1487,10 @@ const epm = StyleSheet.create({
     marginBottom: 18,
   },
   title:      { fontSize: 18, fontFamily: T.FONT.bold, color: T.TEXT },
-  closeLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  closeLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT_2 },
   fields: { gap: 14 },
   field:  { gap: 6 },
-  label:  { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  label:  { fontSize: 12, fontFamily: T.FONT.bold, color: T.TEXT_2 },
   input: {
     backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.md,
@@ -1509,16 +1515,17 @@ const epm = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cancelLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  cancelLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT },
   saveBtn: {
     flex: 1,
     height: 48,
     borderRadius: T.RADIUS.md,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  saveLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.ACCENT_FG },
 });
 
 const viewerStyles = StyleSheet.create({

@@ -45,6 +45,7 @@ import {
   XCircle,
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { toast } from '@/components/MsToast';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
@@ -85,8 +86,8 @@ type WdStatus = WithdrawalRecord['status'];
 function StatusBadge({ status }: { status: WdStatus }) {
   const config: Record<WdStatus, { color: string; label: string }> = {
     completed:  { color: T.SUCCESS,   label: 'Completed' },
-    processing: { color: '#3B82F6',   label: 'Processing' },
-    pending:    { color: '#F59E0B',   label: 'Pending' },
+    processing: { color: T.INFO,   label: 'Processing' },
+    pending:    { color: T.WARNING,   label: 'Pending' },
     failed:     { color: T.ERROR,     label: 'Failed' },
   };
   const { color, label } = config[status] ?? config.pending;
@@ -100,8 +101,8 @@ function StatusBadge({ status }: { status: WdStatus }) {
 function StatusIcon({ status }: { status: WdStatus }) {
   const props = { size: 18, weight: 'fill' as const };
   if (status === 'completed')  return <CheckCircle {...props} color={T.SUCCESS} />;
-  if (status === 'processing') return <Clock {...props} color="#3B82F6" />;
-  if (status === 'pending')    return <Clock {...props} color="#F59E0B" />;
+  if (status === 'processing') return <Clock {...props} color={T.INFO} />;
+  if (status === 'pending')    return <Clock {...props} color={T.WARNING} />;
   return <XCircle {...props} color={T.ERROR} />;
 }
 
@@ -115,7 +116,7 @@ const badge = StyleSheet.create({
 function WithdrawalRow({ item }: { item: WithdrawalRecord }) {
   return (
     <View style={rowS.row}>
-      <View style={[rowS.icon, { backgroundColor: `${item.status === 'completed' ? T.SUCCESS : item.status === 'failed' ? T.ERROR : '#F59E0B'}18` }]}>
+      <View style={[rowS.icon, { backgroundColor: `${item.status === 'completed' ? T.SUCCESS : item.status === 'failed' ? T.ERROR : T.WARNING}18` }]}>
         <StatusIcon status={item.status} />
       </View>
       <View style={rowS.info}>
@@ -281,7 +282,8 @@ function BankDetailsSheet({
             disabled={saving}
             activeOpacity={0.85}
           >
-            {saving ? <ActivityIndicator color={T.BG} size="small" /> : <Text style={bankS.saveBtnLabel}>Save Details</Text>}
+            <BrandGradientFill />
+            {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={bankS.saveBtnLabel}>Save Details</Text>}
           </TouchableOpacity>
         </View>
 
@@ -352,12 +354,12 @@ const bankS = StyleSheet.create({
   saveBtn: {
     height: 52,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
   },
-  saveBtnLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+  saveBtnLabel: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 15 },
   bankList: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.xl,
@@ -457,6 +459,7 @@ function WithdrawAmountSheet({
             disabled={!isValid}
             activeOpacity={0.85}
           >
+            <BrandGradientFill />
             <Text style={[amtS.withdrawLabel, !isValid && { color: T.TEXT_3 }]}>
               {isValid ? `Withdraw ${formatNaira(parsed)}` : 'Enter valid amount'}
             </Text>
@@ -507,12 +510,13 @@ const amtS = StyleSheet.create({
   withdrawBtn: {
     height: 52,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   withdrawBtnDisabled: { backgroundColor: T.SURFACE_2 },
-  withdrawLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+  withdrawLabel: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 15 },
 });
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
@@ -679,11 +683,12 @@ export default function CreatorPayoutScreen() {
                 activeOpacity={0.85}
                 disabled={!canWithdraw || withdrawing}
               >
+                <BrandGradientFill />
                 {withdrawing ? (
-                  <ActivityIndicator color={T.BG} size="small" />
+                  <ActivityIndicator color={T.ACCENT_FG} size="small" />
                 ) : (
                   <>
-                    <ArrowDown size={15} color={canWithdraw ? T.BG : T.TEXT_3} />
+                    <ArrowDown size={15} color={canWithdraw ? T.ACCENT_FG : T.TEXT_3} />
                     <Text style={[styles.withdrawLabel, !canWithdraw && { color: T.TEXT_3 }]}>
                       Withdraw Funds
                     </Text>
@@ -807,7 +812,8 @@ export default function CreatorPayoutScreen() {
               disabled={!otpValue || finalizing}
               activeOpacity={0.85}
             >
-              {finalizing ? <ActivityIndicator color={T.BG} size="small" /> : <Text style={amtS.withdrawLabel}>Confirm & Send</Text>}
+              <BrandGradientFill />
+              {finalizing ? <ActivityIndicator color={T.ACCENT_FG} size="small" /> : <Text style={amtS.withdrawLabel}>Confirm & Send</Text>}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -885,10 +891,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 13,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
   },
   withdrawBtnDisabled: { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER_2 },
-  withdrawLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.BG },
+  withdrawLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.ACCENT_FG },
 
   bankCard: {
     flexDirection: 'row',

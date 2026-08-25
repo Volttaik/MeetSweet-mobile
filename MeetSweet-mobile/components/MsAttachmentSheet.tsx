@@ -34,9 +34,10 @@ import {
   Camera,
   Waveform,
 } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
 import { MsPressable } from '@/components/MsPressable';
 import { dialogs } from '@/components/MsGlobalDialogs';
+import { GradientTopFade } from '@/components/GradientTopFade';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -204,11 +205,11 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
   // supported. Animated GIFs can still be sent as images from the photo
   // library (the mime/extension is preserved through the image path).
   const OPTIONS = [
-    { icon: ImageIcon,     label: 'Photo',    color: '#4CAF82', onPress: pickImage    },
-    { icon: Video,         label: 'Video',    color: '#9B6ECA', onPress: pickVideo    },
+    { icon: ImageIcon,     label: 'Photo',    color: T.SUCCESS, onPress: pickImage    },
+    { icon: Video,         label: 'Video',    color: T.PURPLE,  onPress: pickVideo    },
     { icon: Camera,        label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
-    { icon: Waveform,      label: 'Audio',    color: '#FF9800', onPress: pickAudio    },
-    { icon: File,          label: 'Document', color: '#2196F3', onPress: pickDocument },
+    { icon: Waveform,      label: 'Audio',    color: T.WARNING, onPress: pickAudio    },
+    { icon: File,          label: 'Document', color: T.INFO, onPress: pickDocument },
   ];
 
   const insets = useSafeAreaInsets();
@@ -271,6 +272,7 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
         style={[s.sheetOuter, { transform: [{ translateY: slideAnim }] }]}
       >
         <View style={[s.surface, { paddingBottom }]}>
+          <GradientTopFade height={56} radius={28} />
           <View style={s.handle} />
           <Text style={s.title}>Share</Text>
           <ScrollView
@@ -316,7 +318,7 @@ const s = StyleSheet.create({
   },
   // Solid deep-black surface — no translucency, no blur.
   surface: {
-    backgroundColor: '#000000',
+    backgroundColor: T.BG,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
@@ -326,7 +328,7 @@ const s = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: T.BORDER_2,
     alignSelf: 'center',
     marginBottom: 22,
   },
@@ -363,12 +365,12 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: T.BORDER_2,
   },
   itemLabel: {
     fontSize: 12,
     fontFamily: T.FONT.medium,
-    color: 'rgba(255,255,255,0.78)',
+    color: alpha(T.ACCENT_FG, 0.78),
     textAlign: 'center',
   },
 });

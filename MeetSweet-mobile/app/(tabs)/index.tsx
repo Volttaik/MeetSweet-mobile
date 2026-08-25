@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -9,19 +10,23 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bell, Compass, MagnifyingGlass, MonitorPlay } from 'phosphor-react-native';
+import { Bell, Compass, MonitorPlay } from 'phosphor-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { pushOnce } from '@/lib/nav';
-import { T } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientBorder } from '@/components/GradientBorder';
+import { GradientText } from '@/components/GradientText';
+import { T, AppGradients } from '@/constants/theme';
 import { MsCreatorCard } from '@/components/MsCreatorCard';
 import { getCreators } from '@/services/creators';
 import { MsWalletBadge } from '@/components/MsWalletBadge';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsEmptyState } from '@/components/MsEmptyState';
-import { MsSearchModal } from '@/components/MsSearchModal';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
@@ -72,9 +77,9 @@ function DiscoveryState() {
     >
       <View style={discoveryStyles.hero}>
         <View style={discoveryStyles.heroIcon}>
-          <Compass size={36} color={T.ACCENT} weight="duotone" />
+          <Compass size={36} color={T.PRIMARY_LIGHT} weight="duotone" />
         </View>
-        <Text style={discoveryStyles.heroTitle}>Discover creators to subscribe to</Text>
+        <GradientText text="Discover creators to subscribe to" style={discoveryStyles.heroTitle} />
         <Text style={discoveryStyles.heroSubtitle}>
           Your feed shows posts from creators you're subscribed to.
           Subscribe to a creator to see their latest content here.
@@ -101,28 +106,31 @@ function DiscoveryState() {
       )}
 
       <TouchableOpacity
-        style={discoveryStyles.exploreBtn}
+        style={discoveryStyles.exploreBtnWrap}
         activeOpacity={0.85}
         onPress={() => router.push('/(tabs)/explore')}
       >
-        <Compass size={18} color={T.BG} />
-        <Text style={discoveryStyles.exploreBtnLabel}>Explore All Creators</Text>
+        {/* Brand gradient CTA — the discovery call to action */}
+        <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={discoveryStyles.exploreBtn}>
+          <Compass size={18} color={T.ACCENT_FG} />
+          <Text style={discoveryStyles.exploreBtnLabel}>Explore All Creators</Text>
+        </LinearGradient>
       </TouchableOpacity>
-      <View style={discoveryStyles.howCard}>
+      <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={discoveryStyles.howCard}>
         <Text style={discoveryStyles.howTitle}>How the Posts feed works</Text>
         <View style={discoveryStyles.howRow}>
-          <View style={discoveryStyles.howStep}><Text style={discoveryStyles.howNum}>1</Text></View>
+          <View style={discoveryStyles.howStep}><BrandGradientFill /><Text style={discoveryStyles.howNum}>1</Text></View>
           <Text style={discoveryStyles.howText}>Browse creators to find content you love</Text>
         </View>
         <View style={discoveryStyles.howRow}>
-          <View style={discoveryStyles.howStep}><Text style={discoveryStyles.howNum}>2</Text></View>
+          <View style={discoveryStyles.howStep}><BrandGradientFill /><Text style={discoveryStyles.howNum}>2</Text></View>
           <Text style={discoveryStyles.howText}>Subscribe to a creator to unlock their content</Text>
         </View>
         <View style={discoveryStyles.howRow}>
-          <View style={discoveryStyles.howStep}><Text style={discoveryStyles.howNum}>3</Text></View>
+          <View style={discoveryStyles.howStep}><BrandGradientFill /><Text style={discoveryStyles.howNum}>3</Text></View>
           <Text style={discoveryStyles.howText}>Their posts appear here as soon as they're published</Text>
         </View>
-      </View>
+      </GradientBorder>
     </ScrollView>
   );
 }
@@ -136,16 +144,20 @@ const discoveryStyles = StyleSheet.create({
   },
   heroTitle: { fontSize: 20, fontFamily: T.FONT.bold, color: T.TEXT, letterSpacing: -0.4, textAlign: 'center' },
   heroSubtitle: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 20, textAlign: 'center', maxWidth: 300 },
-  exploreBtn: {
-    height: 50, borderRadius: T.RADIUS.pill, backgroundColor: T.ACCENT,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, ...T.SHADOWS.medium,
+  exploreBtnWrap: {
+    height: 50, borderRadius: T.RADIUS.pill, overflow: 'hidden', ...T.SHADOWS.medium,
   },
-  exploreBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.BG },
-  howCard: { backgroundColor: T.SURFACE, borderRadius: T.RADIUS.xl, padding: 18, gap: 14, ...T.SHADOWS.soft },
+  exploreBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+  },
+  // lineHeight matches the 18px Compass icon so the label shares the icon's
+  // vertical center line.
+  exploreBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.ACCENT_FG, lineHeight: 18 },
+  howCard: { borderRadius: T.RADIUS.xl, padding: 18, gap: 14, ...T.SHADOWS.soft },
   howTitle: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT, letterSpacing: -0.1, marginBottom: 2 },
   howRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  howStep: { width: 28, height: 28, borderRadius: 14, backgroundColor: T.ACCENT_LIGHT, alignItems: 'center', justifyContent: 'center' },
-  howNum: { fontSize: 13, fontFamily: T.FONT.bold, color: T.ACCENT },
+  howStep: { width: 28, height: 28, borderRadius: 14, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  howNum: { fontSize: 13, fontFamily: T.FONT.bold, color: '#FFFFFF' },
   howText: { flex: 1, fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_2, lineHeight: 19 },
 });
 
@@ -167,8 +179,6 @@ export default function HomeScreen() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [searchVisible, setSearchVisible] = useState(false);
-
   // ── Video preview viewability ──────────────────────────────────────────────
   const [visiblePostIds, setVisiblePostIds] = useState<ReadonlySet<string>>(() => new Set());
   const feedViewabilityConfig = useRef({ itemVisiblePercentThreshold: 50, minimumViewTime: 150 }).current;
@@ -345,8 +355,8 @@ export default function HomeScreen() {
       {/* ── Top bar ── */}
       <View style={styles.topBar}>
         <View style={styles.topAppNameRow}>
-          <Text style={[styles.topAppName, styles.topAppNameMeet]}>Meet</Text>
-          <Text style={[styles.topAppName, styles.topAppNameSweet]}>Sweet</Text>
+          <Image source={require('../../assets/images/logo.png')} style={styles.topLogo} resizeMode="contain" />
+          <GradientText text="MeetSweet" style={styles.topAppName} />
         </View>
         <View style={{ flex: 1 }} />
         <View style={styles.topActions}>
@@ -360,9 +370,6 @@ export default function HomeScreen() {
                 </View>
               )}
             </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} onPress={() => setSearchVisible(true)}>
-            <MagnifyingGlass size={20} color={T.TEXT} />
           </TouchableOpacity>
           {user?.isCreator ? (
             <TouchableOpacity
@@ -393,6 +400,7 @@ export default function HomeScreen() {
         <DiscoveryState />
       ) : (
         <FlatList
+          {...useScrollMotion()}
           data={posts.filter(
             (p) =>
               !deletedIds.includes(p.id) &&
@@ -469,8 +477,6 @@ export default function HomeScreen() {
         />
       )}
 
-      {/* ── Search modal ── */}
-      <MsSearchModal visible={searchVisible} onClose={() => setSearchVisible(false)} />
     </MsAmbientBackground>
   );
 }
@@ -478,11 +484,9 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1, backgroundColor: T.BG },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 14 },
-  topAppNameRow: { flexDirection: 'row', alignItems: 'baseline' },
-  // "Meet" uses the primary text colour and "Sweet" the rose accent.
-  topAppName: { fontFamily: T.FONT.bold, fontSize: 17, letterSpacing: -0.5 },
-  topAppNameMeet: { color: T.TEXT },
-  topAppNameSweet: { color: T.ROSE },
+  topAppNameRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  topLogo: { width: 46, height: 46 },
+  topAppName: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 17, letterSpacing: -0.5 },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: {
     width: 38, height: 38, borderRadius: T.RADIUS.full,
@@ -497,7 +501,7 @@ const styles = StyleSheet.create({
     minWidth: 15,
     height: 15,
     borderRadius: 8,
-    backgroundColor: '#EF4444',
+    backgroundColor: T.ERROR,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 2,
@@ -507,7 +511,7 @@ const styles = StyleSheet.create({
   bellBadgeText: {
     fontSize: 8,
     fontFamily: T.FONT.bold,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     lineHeight: 11,
   },
 });

@@ -11,7 +11,8 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowRight, Sparkle, Wallet, CheckCircle } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 import { MsCreatorCard, type MsCreatorCardData } from '@/components/MsCreatorCard';
 import { getCreators } from '@/services/creators';
@@ -137,7 +138,7 @@ export default function NewUserWelcomeScreen() {
         <View style={styles.header}>
           <View style={styles.badgeRow}>
             <View style={styles.welcomeBadge}>
-              <Sparkle size={14} color={T.ACCENT} weight="fill" />
+              <Sparkle size={14} color={T.PRIMARY_LIGHT} weight="fill" />
               <Text style={styles.welcomeBadgeText}>NEW TO MEETSWEET</Text>
             </View>
           </View>
@@ -152,7 +153,7 @@ export default function NewUserWelcomeScreen() {
         {/* Content area */}
         {loading ? (
           <View style={styles.centerState}>
-            <ActivityIndicator size="large" color={T.ACCENT} />
+            <ActivityIndicator size="large" color={T.PRIMARY_LIGHT} />
             <Text style={styles.loadingText}>Loading top creators…</Text>
           </View>
         ) : error ? (
@@ -199,7 +200,8 @@ export default function NewUserWelcomeScreen() {
                     </View>
                   ) : isBusy ? (
                     <View style={styles.busyBadge}>
-                      <ActivityIndicator size="small" color="#fff" />
+                      <BrandGradientFill />
+                      <ActivityIndicator size="small" color="#FFFFFF" />
                     </View>
                   ) : null}
                 </View>
@@ -221,7 +223,7 @@ export default function NewUserWelcomeScreen() {
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
               <View style={styles.modalIconWrap}>
-                <Wallet size={32} color={T.ACCENT} weight="duotone" />
+                <Wallet size={32} color={T.PRIMARY_LIGHT} weight="duotone" />
               </View>
               <Text style={styles.modalTitle}>Fund Your Wallet</Text>
               <Text style={styles.modalBody}>
@@ -237,7 +239,8 @@ export default function NewUserWelcomeScreen() {
                   router.push('/wallet');
                 }}
               >
-                <Wallet size={18} color={T.BG} />
+                <BrandGradientFill />
+                <Wallet size={18} color="#FFFFFF" weight="fill" />
                 <Text style={styles.fundBtnLabel}>Go to Wallet & Add Funds</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -281,7 +284,7 @@ const styles = StyleSheet.create({
   welcomeBadgeText: {
     fontSize: 10,
     fontFamily: T.FONT.semibold,
-    color: T.ACCENT,
+    color: T.PRIMARY_LIGHT,
     letterSpacing: 1.2,
   },
   title: {
@@ -350,7 +353,7 @@ const styles = StyleSheet.create({
     right: 14,
     height: 30,
     borderRadius: T.RADIUS.pill,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: alpha(T.SUCCESS, 0.15),
     borderWidth: 1,
     borderColor: T.SUCCESS,
     flexDirection: 'row',
@@ -370,7 +373,7 @@ const styles = StyleSheet.create({
     right: 14,
     height: 30,
     borderRadius: T.RADIUS.pill,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -381,7 +384,7 @@ const styles = StyleSheet.create({
   continueBtn: {
     height: 52,
     borderRadius: T.RADIUS.pill,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -390,8 +393,8 @@ const styles = StyleSheet.create({
   },
   continueBtnLabel: {
     fontSize: 16,
-    fontFamily: T.FONT.semibold,
-    color: T.BG,
+    fontFamily: T.FONT.bold,
+    color: '#FFFFFF',
   },
 
   // Insufficient modal
@@ -442,7 +445,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 48,
     borderRadius: T.RADIUS.pill,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -451,8 +454,8 @@ const styles = StyleSheet.create({
   },
   fundBtnLabel: {
     fontSize: 14,
-    fontFamily: T.FONT.semibold,
-    color: T.BG,
+    fontFamily: T.FONT.bold,
+    color: '#FFFFFF',
   },
   cancelBtn: {
     paddingVertical: 8,

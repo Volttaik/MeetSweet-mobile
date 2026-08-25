@@ -8,10 +8,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
 import { useVideoFeed, type LongFormVideo } from '@/services/content';
-import { T } from '@/constants/theme';
+import { T, AppGradients } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { GradientBorder } from '@/components/GradientBorder';
+import { GradientText } from '@/components/GradientText';
 
 export default function VideosFeedScreen() {
   const insets = useSafeAreaInsets();
@@ -35,8 +39,11 @@ export default function VideosFeedScreen() {
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable style={styles.iconButton} onPress={() => goBack()} accessibilityLabel="Go back"><ArrowLeft size={20} color={T.TEXT} /></Pressable>
-        <View style={styles.heading}><Text style={styles.eyebrow}>LONG-FORM</Text><Text style={styles.title}>Videos</Text></View>
-        <Pressable style={styles.shortsButton} onPress={() => router.push('/shorts')}><Text style={styles.shortsLabel}>Shorts</Text></Pressable>
+        <View style={styles.heading}><Text style={styles.eyebrow}>LONG-FORM</Text><GradientText text="Videos" style={styles.title} /></View>
+        <Pressable style={styles.shortsButton} onPress={() => router.push('/shorts')}>
+          <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} start={AppGradients.brandStart} end={AppGradients.brandEnd} style={StyleSheet.absoluteFill} />
+          <Text style={styles.shortsLabel}>Shorts</Text>
+        </Pressable>
       </View>
       {query.isLoading ? (
         <View style={{ marginTop: 8 }}>
@@ -48,6 +55,7 @@ export default function VideosFeedScreen() {
         <MsEmptyState title="Videos unavailable" message="The long-form video service could not be reached." actionLabel="Try again" onAction={() => query.refetch()} />
       ) : (
         <FlatList
+          {...useScrollMotion()}
           data={videos}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <VideoCard video={item} />}
@@ -75,6 +83,7 @@ function VideoCard({ video }: { video: LongFormVideo }) {
     video.width && video.height && video.height > 0 ? video.width / video.height : 16 / 9;
   return (
     <Pressable style={styles.card} onPress={() => router.push(`/videos/${video.id}`)} accessibilityRole="button" accessibilityLabel={`Open ${video.title}`}>
+      <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE}>
       <View style={[styles.thumbnail, { aspectRatio: thumbRatio }]}>
         {video.thumbnailUrl ? <MsMediaLoader uri={video.thumbnailUrl} style={StyleSheet.absoluteFill} resizeMode="cover" accessibleLabel={`${video.title} thumbnail`} errorMessage="" fallback={null} /> : null}
         <View style={styles.duration}><Clock size={11} color="#fff" /><Text style={styles.durationText}>{formatDuration(video.durationSecs)}</Text></View>
@@ -85,6 +94,7 @@ function VideoCard({ video }: { video: LongFormVideo }) {
         <View style={styles.cardCopy}><Text style={styles.videoTitle} numberOfLines={2}>{video.title || 'Untitled video'}</Text><Text style={styles.creator}>{video.creator.name}{video.creator.isVerified ? '  ✓' : ''} · {formatCount(video.viewCount)} views</Text><View style={styles.stats}><Text style={styles.stat}><Heart size={11} color={T.TEXT_3} /> {formatCount(video.likeCount)}</Text><Text style={styles.stat}><ChatCircle size={11} color={T.TEXT_3} /> {formatCount(video.commentCount)}</Text><Text style={styles.stat}><ShareNetwork size={11} color={T.TEXT_3} /> {formatCount(video.shareCount)}</Text><Text style={styles.stat}>{timeAgo(video.createdAt)}</Text></View></View>
       </View>
           {video.commentsPreview.length > 0 ? <View style={styles.commentPreview}><Text style={styles.commentLabel}>COMMENTS</Text>{video.commentsPreview.slice(0, 2).map((comment, index) => <Text key={`${comment.id || 'comment'}-${index}`} style={styles.commentLine} numberOfLines={1}><Text style={styles.commentAuthor}>{comment.author.name}: </Text>{comment.body}</Text>)}</View> : null}
+      </GradientBorder>
     </Pressable>
   );
 }
@@ -96,11 +106,11 @@ function timeAgo(value: string) { if (!value) return ''; const days = Math.floor
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: T.BG },
   header: { minHeight: 70, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  heading: { flex: 1 }, eyebrow: { color: T.TEXT_3, fontFamily: T.FONT.semibold, letterSpacing: 1.4, fontSize: 9 }, title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 26, marginTop: 2 },
+  heading: { flex: 1 }, eyebrow: { color: T.TEXT_3, fontFamily: T.FONT.semibold, letterSpacing: 1.4, fontSize: 9 }, title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 26, marginTop: 2, textAlign: 'left' },
   iconButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: T.SURFACE, alignItems: 'center', justifyContent: 'center' },
-  shortsButton: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT_LIGHT }, shortsLabel: { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 12 },
+  shortsButton: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: T.RADIUS.full, overflow: 'hidden' }, shortsLabel: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' }, intro: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 18 }, introTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 16 }, introCopy: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, marginTop: 4 },
-  list: { paddingBottom: 36 }, card: { backgroundColor: T.SURFACE, borderRadius: T.RADIUS.xl, overflow: 'hidden', marginHorizontal: 12, marginBottom: 16, ...T.SHADOWS.medium },  thumbnail: { backgroundColor: T.SURFACE_2 }, duration: { position: 'absolute', bottom: 10, right: 10, flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 4 }, durationText: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 }, premiumWrap: { position: 'absolute', top: 10, left: 10 },
+  list: { paddingBottom: 36 }, card: { borderRadius: T.RADIUS.xl, marginHorizontal: 12, marginBottom: 16, ...T.SHADOWS.medium },  thumbnail: { backgroundColor: T.SURFACE_2 }, duration: { position: 'absolute', bottom: 10, right: 10, flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 4 }, durationText: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 }, premiumWrap: { position: 'absolute', top: 10, left: 10 },
   cardBody: { flexDirection: 'row', gap: 10, padding: 14 }, cardCopy: { flex: 1, gap: 4 }, videoTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14, lineHeight: 20 }, creator: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11 }, stats: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 2 }, stat: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 10, flexDirection: 'row', alignItems: 'center' },
   commentPreview: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 2 }, commentLabel: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 9, letterSpacing: 1 }, commentLine: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 6 }, commentAuthor: { color: T.TEXT, fontFamily: T.FONT.semibold }, footer: { paddingVertical: 18 },
 });

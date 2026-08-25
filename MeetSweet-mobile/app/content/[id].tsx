@@ -59,6 +59,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 
 export default function ContentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -301,7 +302,8 @@ export default function ContentDetailScreen() {
             style={styles.subscribe}
             onPress={() => router.push(`/creator/${post.author.id}`)}
           >
-            <UserPlus size={14} color={T.BG} />
+            <BrandGradientFill />
+            <UserPlus size={14} color="#FFFFFF" weight="fill" />
             <Text style={styles.subscribeText}>Subscribe</Text>
           </Pressable>
         )}
@@ -310,7 +312,7 @@ export default function ContentDetailScreen() {
       {/* Actions */}
       <View style={styles.actions}>
         <Pressable style={styles.action} onPress={toggleLike}>
-          <Heart size={18} color={liked ? T.ACCENT : T.TEXT_2} weight={liked ? 'fill' : 'regular'} />
+          {liked ? <Heart size={18} color={T.SECONDARY} weight="fill" /> : <Heart size={18} color={T.TEXT_2} weight="bold" />}
           <Text style={styles.actionText}>{formatCount(likeCount)}</Text>
         </Pressable>
         <View style={styles.action}>
@@ -318,7 +320,7 @@ export default function ContentDetailScreen() {
           <Text style={styles.actionText}>{formatCount(commentCount)}</Text>
         </View>
         <Pressable style={styles.action} onPress={toggleBookmark}>
-          <Bookmark size={18} color={bookmarked ? T.ACCENT : T.TEXT_2} weight={bookmarked ? 'fill' : 'regular'} />
+          <Bookmark size={18} color={bookmarked ? T.ACCENT : T.TEXT_2} weight={bookmarked ? 'fill' : 'bold'} />
           <Text style={styles.actionText}>{bookmarked ? 'Saved' : 'Save'}</Text>
         </Pressable>
         <Pressable style={styles.action} onPress={() => setShareVisible(true)}>
@@ -474,11 +476,11 @@ const styles = StyleSheet.create({
   creatorHandle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11, marginTop: 2 },
   subscribe: {
     flexDirection: 'row', gap: 5, alignItems: 'center',
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     borderRadius: T.RADIUS.full,
     paddingHorizontal: 13, paddingVertical: 9,
   },
-  subscribeText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 11 },
+  subscribeText: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 11 },
 
   actions: {
     flexDirection: 'row', gap: 22,

@@ -20,6 +20,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Sparkle } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientTopFade } from '@/components/GradientTopFade';
 import { becomeCreator } from '@/services/creator';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/components/MsToast';
@@ -72,9 +74,11 @@ export function MsCreatorGateSheet({
     >
       <Pressable style={styles.overlay} onPress={onClose}>
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <GradientTopFade height={56} radius={24} />
           <View style={styles.handle} />
           <View style={styles.iconWrap}>
-            <Sparkle size={26} color={T.ACCENT} weight="fill" />
+            <BrandGradientFill />
+            <Sparkle size={26} color="#FFFFFF" weight="fill" />
           </View>
           <Text style={styles.title}>Creator access required</Text>
           <Text style={styles.message}>
@@ -89,8 +93,9 @@ export function MsCreatorGateSheet({
             onPress={handleBecomeCreator}
             disabled={submitting}
           >
+            <BrandGradientFill />
             {submitting ? (
-              <ActivityIndicator size="small" color={T.BG} />
+              <ActivityIndicator size="small" color={T.ACCENT_FG} />
             ) : (
               <Text style={styles.primaryLabel}>Become a Creator</Text>
             )}
@@ -135,7 +140,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 18,
-    backgroundColor: T.ACCENT_LIGHT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
@@ -159,7 +164,7 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 12,
     fontFamily: T.FONT.medium,
-    color: '#E5484D',
+    color: T.ERROR,
     textAlign: 'center',
     marginBottom: 6,
   },
@@ -168,13 +173,14 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
   },
   primaryBtnDisabled: { opacity: 0.7 },
   primaryLabel: {
-    color: T.BG,
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 15,
   },

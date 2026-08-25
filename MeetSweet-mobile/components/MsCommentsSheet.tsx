@@ -47,6 +47,8 @@ import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientTopFade } from '@/components/GradientTopFade';
 import { getPost } from '@/services/posts';
 import {
   getCommentRoom,
@@ -362,11 +364,11 @@ export function CommentRow({
               onPress={() => (comment.likedByMe ? onUnlike(comment.id) : onLike(comment.id))}
               hitSlop={8}
             >
-              <Heart
-                size={14}
-                color={comment.likedByMe ? T.ACCENT : '#8E8E93'}
-                weight={comment.likedByMe ? 'fill' : 'regular'}
-              />
+              {comment.likedByMe ? (
+                <Heart size={14} color={T.SECONDARY} weight="fill" />
+              ) : (
+                <Heart size={14} color={T.TEXT_3} weight="bold" />
+              )}
               {comment.likeCount > 0 && (
                 <Text style={[styles.actionCount, comment.likedByMe && styles.actionCountLiked]}>
                   {comment.likeCount}
@@ -380,7 +382,7 @@ export function CommentRow({
                 onPress={() => onReply(comment)}
                 hitSlop={8}
               >
-                <ArrowBendUpLeft size={13} color="#8E8E93" />
+                <ArrowBendUpLeft size={13} color={T.TEXT_3} />
                 <Text style={styles.actionLabel}>Reply</Text>
               </TouchableOpacity>
             )}
@@ -391,7 +393,7 @@ export function CommentRow({
                 onPress={() => onEdit(comment)}
                 hitSlop={8}
               >
-                <Pencil size={13} color="#8E8E93" />
+                <Pencil size={13} color={T.TEXT_3} />
                 <Text style={styles.actionLabel}>Edit</Text>
               </TouchableOpacity>
             )}
@@ -402,7 +404,7 @@ export function CommentRow({
                 onPress={() => onDelete(comment.id)}
                 hitSlop={8}
               >
-                <Trash size={13} color="#8E8E93" />
+                <Trash size={13} color={T.TEXT_3} />
               </TouchableOpacity>
             )}
           </View>
@@ -422,7 +424,7 @@ export function CommentRow({
           {showReplies && (
             <View style={styles.repliesList}>
               {loadingReplies ? (
-                <ActivityIndicator size="small" color={T.ACCENT} style={{ marginVertical: 8 }} />
+                <ActivityIndicator size="small" color={T.PRIMARY_LIGHT} style={{ marginVertical: 8 }} />
               ) : (
                 replies.map((rep) => (
                   <View key={rep.id} style={styles.replyRow}>
@@ -707,6 +709,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
             },
           ]}
         >
+          <GradientTopFade height={56} radius={20} />
           <Animated.View style={{ flex: 1, transform: [{ translateY: dragY }] }}>
             {/* Top Handle */}
             <View style={sheetStyles.handleArea} {...panResponder.panHandlers}>
@@ -716,12 +719,12 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
             {/* Header */}
             <View style={sheetStyles.header} {...panResponder.panHandlers}>
             <View style={sheetStyles.headerLeft}>
-              <ChatCircle size={18} color={T.ACCENT} weight="fill" />
+              <ChatCircle size={18} color={T.PRIMARY_LIGHT} weight="fill" />
               <Text style={sheetStyles.headerTitle}>Comments</Text>
               <Text style={sheetStyles.headerCount}>{comments.length}</Text>
             </View>
             <TouchableOpacity style={sheetStyles.closeBtn} onPress={onClose} hitSlop={10}>
-              <X size={16} color="#A1A1AA" />
+              <X size={16} color={T.TEXT_3} />
             </TouchableOpacity>
           </View>
 
@@ -764,12 +767,12 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
               onEndReachedThreshold={0.3}
               ListFooterComponent={
                 loadingMore ? (
-                  <ActivityIndicator size="small" color={T.ACCENT} style={{ paddingVertical: 16 }} />
+                  <ActivityIndicator size="small" color={T.PRIMARY_LIGHT} style={{ paddingVertical: 16 }} />
                 ) : null
               }
               ListEmptyComponent={
                 <View style={sheetStyles.emptyWrap}>
-                  <ChatCircle size={28} color="#52525B" />
+                  <ChatCircle size={28} color={T.TEXT_2} />
                   <Text style={sheetStyles.emptyTitle}>
                     {commentsEnabled ? 'No comments yet' : 'Comments are turned off'}
                   </Text>
@@ -794,7 +797,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   Replying to @{replyingTo.author.username || replyingTo.author.name}
                 </Text>
                 <TouchableOpacity onPress={() => setReplyingTo(null)} hitSlop={6}>
-                  <X size={12} color="#A1A1AA" />
+                  <X size={12} color={T.TEXT_3} />
                 </TouchableOpacity>
               </View>
             )}
@@ -811,7 +814,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   }}
                   hitSlop={6}
                 >
-                  <X size={12} color="#A1A1AA" />
+                  <X size={12} color={T.TEXT_3} />
                 </TouchableOpacity>
               </View>
             )}
@@ -834,7 +837,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                         ? 'Edit comment…'
                         : 'Add a comment…'
                     }
-                    placeholderTextColor="#52525B"
+                    placeholderTextColor={T.TEXT_2}
                     style={sheetStyles.input}
                     returnKeyType="send"
                     onSubmitEditing={handleSend}
@@ -850,10 +853,11 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   disabled={!text.trim() || sending}
                   activeOpacity={0.7}
                 >
+                  <BrandGradientFill />
                   {sending ? (
-                    <ActivityIndicator size={12} color="#FFFFFF" />
+                    <ActivityIndicator size={12} color={T.ACCENT_FG} />
                   ) : (
-                    <PaperPlaneRight size={16} color="#FFFFFF" weight="fill" />
+                    <PaperPlaneRight size={16} color={T.ACCENT_FG} weight="fill" />
                   )}
                 </TouchableOpacity>
               </View>
@@ -947,7 +951,7 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
   return (
     <View style={sectionStyles.card}>
       <View style={sectionStyles.header}>
-        <ChatCircle size={16} color="#FFFFFF" weight="fill" />
+        <ChatCircle size={16} color={T.ACCENT_FG} weight="fill" />
         <Text style={sectionStyles.title}>Comments</Text>
         <Text style={sectionStyles.total}>{totalCount}</Text>
       </View>
@@ -994,22 +998,24 @@ const styles = StyleSheet.create({
   commentRow: { flexDirection: 'row', gap: 12, paddingVertical: 12 },
   commentBodyWrap: { flex: 1, gap: 4 },
   commentHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  authorName: { color: '#FFFFFF', fontFamily: T.FONT.semibold, fontSize: 13, flexShrink: 1 },
-  authorHandle: { color: '#71717A', fontFamily: T.FONT.regular, fontSize: 11, flexShrink: 1 },
-  timeAgo: { color: '#71717A', fontFamily: T.FONT.regular, fontSize: 11, marginLeft: 'auto' },
+  authorName: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 13, flexShrink: 1 },
+  authorHandle: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 11, flexShrink: 1 },
+  timeAgo: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 11, marginLeft: 'auto' },
   menuIcon: { padding: 2, marginLeft: 4 },
-  menuDots: { color: '#71717A', fontSize: 10, letterSpacing: -1 },
-  commentText: { color: '#E4E4E7', fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 19 },
+  menuDots: { color: T.TEXT_3, fontSize: 10, letterSpacing: -1 },
+  commentText: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 13, lineHeight: 19 },
   actionsRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 4 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  actionCount: { color: '#8E8E93', fontFamily: T.FONT.medium, fontSize: 11 },
-  actionCountLiked: { color: T.ACCENT },
-  actionLabel: { color: '#8E8E93', fontFamily: T.FONT.medium, fontSize: 11 },
+  // lineHeight matches the 13px action icons so label/count text shares the
+  // icons' vertical center line.
+  actionCount: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 11, lineHeight: 13 },
+  actionCountLiked: { color: T.SECONDARY_LIGHT },
+  actionLabel: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 11, lineHeight: 13 },
   toggleRepliesBtn: { marginTop: 6 },
-  toggleRepliesText: { color: T.ACCENT, fontFamily: T.FONT.medium, fontSize: 12 },
-  repliesList: { marginTop: 8, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: '#27272A', gap: 10 },
+  toggleRepliesText: { color: T.PRIMARY_LIGHT, fontFamily: T.FONT.medium, fontSize: 12 },
+  repliesList: { marginTop: 8, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: T.BORDER_2, gap: 10 },
   replyRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#18181B' },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: T.BORDER },
 });
 
 const sheetStyles = StyleSheet.create({
@@ -1018,15 +1024,15 @@ const sheetStyles = StyleSheet.create({
   sheetContainer: {
     maxHeight: '82%',
     minHeight: '55%',
-    backgroundColor: '#000000',
+    backgroundColor: T.BG,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#27272A',
+    borderTopColor: T.BORDER_2,
     overflow: 'hidden',
   },
   handleArea: { alignItems: 'center', paddingVertical: 8 },
-  handleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#27272A' },
+  handleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: T.BORDER_2 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1035,59 +1041,59 @@ const sheetStyles = StyleSheet.create({
     paddingBottom: 10,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerTitle: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 16 },
-  headerCount: { color: '#A1A1AA', fontFamily: T.FONT.regular, fontSize: 13 },
+  headerTitle: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16 },
+  headerCount: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 13 },
   closeBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#18181B',
+    backgroundColor: T.SURFACE_2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#27272A' },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: T.BORDER },
   listContent: { paddingBottom: 16, paddingTop: 4 },
   emptyWrap: { alignItems: 'center', gap: 8, paddingVertical: 50, paddingHorizontal: 24 },
-  emptyTitle: { color: '#FFFFFF', fontFamily: T.FONT.semibold, fontSize: 14 },
-  emptySubtitle: { color: '#A1A1AA', fontFamily: T.FONT.regular, fontSize: 12, textAlign: 'center' },
+  emptyTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14 },
+  emptySubtitle: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12, textAlign: 'center' },
   retryBtn: {
     marginTop: 8,
     paddingHorizontal: 18,
     paddingVertical: 8,
-    backgroundColor: '#27272A',
+    backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.pill,
   },
-  retryText: { color: '#FFFFFF', fontFamily: T.FONT.medium, fontSize: 12 },
+  retryText: { color: T.ACCENT_FG, fontFamily: T.FONT.medium, fontSize: 12 },
 
   composerContainer: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#27272A',
+    borderTopColor: T.BORDER_2,
     paddingTop: 10,
     paddingHorizontal: 14,
-    backgroundColor: '#000000',
+    backgroundColor: T.BG,
   },
   contextChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#18181B',
+    backgroundColor: T.SURFACE_2,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginBottom: 8,
   },
-  contextText: { color: '#A1A1AA', fontFamily: T.FONT.medium, fontSize: 11, flex: 1 },
+  contextText: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 11, flex: 1 },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   inputBox: {
     flex: 1,
-    backgroundColor: '#18181B',
+    backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.full,
     paddingLeft: 14,
     paddingRight: 8,
     paddingVertical: 2,
   },
   input: {
-    color: '#FFFFFF',
+    color: T.TEXT,
     fontFamily: T.FONT.regular,
     fontSize: 13,
     paddingVertical: 8,
@@ -1099,21 +1105,22 @@ const sheetStyles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendBtnDisabled: { opacity: 0.3 },
-  sendArrow: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 15 },
+  sendArrow: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 15 },
   disabledBar: { alignItems: 'center', paddingVertical: 10 },
-  disabledText: { color: '#71717A', fontFamily: T.FONT.regular, fontSize: 12 },
+  disabledText: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12 },
 });
 
 const sectionStyles = StyleSheet.create({
   card: {
-    backgroundColor: '#000000',
+    backgroundColor: T.BG,
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#27272A',
+    borderColor: T.BORDER_2,
     overflow: 'hidden',
   },
   header: {
@@ -1124,13 +1131,13 @@ const sectionStyles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 4,
   },
-  title: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 14, flex: 1 },
-  total: { color: '#A1A1AA', fontFamily: T.FONT.regular, fontSize: 12 },
+  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 14, flex: 1 },
+  total: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12 },
   viewAllBtn: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#27272A',
+    borderTopColor: T.BORDER_2,
   },
-  viewAllText: { color: '#A1A1AA', fontFamily: T.FONT.medium, fontSize: 12 },
+  viewAllText: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 12 },
 });

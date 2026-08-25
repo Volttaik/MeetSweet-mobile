@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { T } from '@/constants/theme';
 import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -172,13 +173,13 @@ export default function VerifyEmailScreen() {
           style={styles.backBtn}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <ArrowLeft size={22} color="#FFFFFF" />
+          <ArrowLeft size={22} color={T.ACCENT_FG} />
         </TouchableOpacity>
 
         <Animated.View style={[styles.inner, contentStyle]}>
           {/* Icon */}
           <View style={styles.iconCircle}>
-            <Envelope size={32} color="#FFFFFF" />
+            <Envelope size={32} color={T.ACCENT_FG} />
           </View>
 
           {/* Text */}
@@ -213,7 +214,7 @@ export default function VerifyEmailScreen() {
             accessibilityRole="button"
             accessibilityLabel="Paste verification code from clipboard"
           >
-            <ClipboardText size={15} color="rgba(255,255,255,0.75)" weight="regular" />
+            <ClipboardText size={15} color="rgba(255,255,255,0.75)" weight="bold" />
             <Text style={styles.pasteBtnLabel}>Paste code</Text>
           </TouchableOpacity>
 
@@ -236,7 +237,7 @@ export default function VerifyEmailScreen() {
             activeOpacity={0.85}
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={T.ACCENT_FG} />
             ) : (
               <Text style={styles.verifyBtnLabel}>Verify Email</Text>
             )}
@@ -300,7 +301,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: -0.4,
     textAlign: 'center',
   },
@@ -312,19 +313,19 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   emailHighlight: {
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontFamily: 'Poppins_500Medium',
   },
   errorText: {
     fontSize: 13,
     fontFamily: 'Poppins_400Regular',
-    color: '#EF4444',
+    color: T.ERROR,
     textAlign: 'center',
   },
   successText: {
     fontSize: 13,
     fontFamily: 'Poppins_500Medium',
-    color: '#22C55E',
+    color: T.SUCCESS,
     textAlign: 'center',
   },
   verifyBtn: {
@@ -349,7 +350,7 @@ const styles = StyleSheet.create({
   verifyBtnLabel: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
   },
   pasteBtn: {
     flexDirection: 'row',
@@ -381,7 +382,7 @@ const styles = StyleSheet.create({
   resendBtn: {
     fontSize: 14,
     fontFamily: 'Poppins_600SemiBold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     paddingVertical: 4,
   },
   resendDisabled: {

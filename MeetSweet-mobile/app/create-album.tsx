@@ -35,7 +35,9 @@ import {
   VideoCamera,
   X,
 } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, alpha, AppGradients } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { useAuth } from '@/contexts/AuthContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { Sparkle } from 'phosphor-react-native';
@@ -322,7 +324,8 @@ export default function CreateAlbumScreen() {
     return (
       <View style={[styles.screen, styles.gateWrap, { paddingTop: insets.top + 40 }]}>
         <View style={styles.gateIcon}>
-          <Sparkle size={30} color={T.ACCENT} weight="fill" />
+          <BrandGradientFill />
+          <Sparkle size={30} color="#FFFFFF" weight="fill" />
         </View>
         <Text style={styles.gateTitle}>Creators only</Text>
         <Text style={styles.gateBody}>
@@ -401,7 +404,8 @@ export default function CreateAlbumScreen() {
 
           {/* Purchase price — albums are purchase-only */}
           <View style={styles.paidBadge}>
-            <LockSimple size={14} color={T.ACCENT} />
+            <BrandGradientFill />
+            <LockSimple size={14} color="#FFFFFF" weight="fill" />
             <Text style={styles.paidBadgeText}>Purchase-only · ₦{parseInt(price, 10).toLocaleString()} to unlock</Text>
           </View>
 
@@ -432,7 +436,8 @@ export default function CreateAlbumScreen() {
           )}
 
           <TouchableOpacity style={styles.publishBtn} onPress={handlePublish} activeOpacity={0.85}>
-            <Star size={16} color={T.BG} weight="fill" />
+            <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
+            <Star size={16} color={T.ACCENT_FG} weight="fill" />
             <Text style={styles.publishBtnLabel}>Publish Album</Text>
           </TouchableOpacity>
 
@@ -470,7 +475,7 @@ export default function CreateAlbumScreen() {
               onPress={() => { setPickerTarget('item'); setPickerVisible(true); }}
               activeOpacity={0.8}
             >
-              <Plus size={20} color={T.ACCENT} weight="bold" />
+              <Plus size={20} color={T.PRIMARY_LIGHT} weight="bold" />
               <Text style={styles.addItemLabel}>Add Photo or Video</Text>
             </TouchableOpacity>
             <Text style={styles.itemCount}>{items.length}/20</Text>
@@ -521,10 +526,11 @@ export default function CreateAlbumScreen() {
             activeOpacity={0.85}
             disabled={false}
           >
+            <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
             <Text style={styles.continueBtnLabel}>
               {items.length === 0 ? 'Continue without items' : `Continue with ${items.length} item${items.length !== 1 ? 's' : ''}`}
             </Text>
-            <ArrowRight size={18} color={T.BG} weight="bold" />
+            <ArrowRight size={18} color={T.ACCENT_FG} weight="bold" />
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
@@ -598,8 +604,9 @@ export default function CreateAlbumScreen() {
             }}
             activeOpacity={0.85}
           >
+            <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
             <Text style={styles.continueBtnLabel}>Continue</Text>
-            <ArrowRight size={18} color={T.BG} weight="bold" />
+            <ArrowRight size={18} color={T.ACCENT_FG} weight="bold" />
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
@@ -657,7 +664,7 @@ export default function CreateAlbumScreen() {
               onChangeText={setTitle}
               maxLength={80}
               style={styles.inputField}
-              selectionColor="#888"
+              selectionColor={T.ACCENT}
             />
             <Text style={styles.inputCount}>{title.length}/80</Text>
           </View>
@@ -677,7 +684,7 @@ export default function CreateAlbumScreen() {
               maxLength={500}
               style={styles.captionInput}
               textAlignVertical="top"
-              selectionColor="#888"
+              selectionColor={T.ACCENT}
             />
             <Text style={styles.captionCount}>{description.length}/500</Text>
           </View>
@@ -695,12 +702,12 @@ export default function CreateAlbumScreen() {
                 keyboardType="number-pad"
                 style={styles.priceField}
                 placeholderTextColor={T.TEXT_3}
-                selectionColor="#888"
+                selectionColor={T.ACCENT}
               />
             </View>
           </View>
           <View style={styles.accessNote}>
-            <Star size={12} color={T.ACCENT} weight="fill" />
+            <Star size={12} color={T.GOLD} weight="fill" />
             <Text style={styles.accessNoteText}>
               Albums are purchase-only — members pay from their wallet to unlock this album. Set the price they'll pay to access it.
             </Text>
@@ -721,6 +728,7 @@ export default function CreateAlbumScreen() {
                     onPress={() => toggleCategory(cat.id)}
                     activeOpacity={0.75}
                   >
+                    {active && <BrandGradientFill />}
                     <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
                       {cat.name}
                     </Text>
@@ -795,7 +803,7 @@ function MediaPickerModal({
 
           <TouchableOpacity style={styles.mediaOption} onPress={onPickImage} activeOpacity={0.8}>
             <View style={styles.mediaOptionIcon}>
-              <ImageIcon size={24} color={T.ACCENT} />
+              <ImageIcon size={24} color={T.PRIMARY_LIGHT} />
             </View>
             <View style={styles.mediaOptionText}>
               <Text style={styles.mediaOptionLabel}>Photo</Text>
@@ -806,7 +814,7 @@ function MediaPickerModal({
 
           <TouchableOpacity style={styles.mediaOption} onPress={onPickVideo} activeOpacity={0.8}>
             <View style={styles.mediaOptionIcon}>
-              <VideoCamera size={24} color={T.ACCENT} />
+              <VideoCamera size={24} color={T.PRIMARY_LIGHT} />
             </View>
             <View style={styles.mediaOptionText}>
               <Text style={styles.mediaOptionLabel}>Video</Text>
@@ -834,7 +842,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 20,
-    backgroundColor: T.ACCENT_LIGHT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
@@ -1027,9 +1035,9 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
   },
-  chipActive: { backgroundColor: T.ACCENT_LIGHT },
+  chipActive: { overflow: 'hidden' },
   chipLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  chipLabelActive: { color: T.ACCENT },
+  chipLabelActive: { color: '#FFFFFF', fontFamily: T.FONT.bold },
 
   // Cover selector
   coverSelector: {
@@ -1049,7 +1057,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   coverSelectorChangeLabel: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.semibold,
     fontSize: 14,
   },
@@ -1090,7 +1098,7 @@ const styles = StyleSheet.create({
   addItemLabel: {
     fontSize: 14,
     fontFamily: T.FONT.semibold,
-    color: T.ACCENT,
+    color: T.PRIMARY_LIGHT,
   },
   itemCount: {
     fontSize: 12,
@@ -1167,6 +1175,7 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: T.RADIUS.pill,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1175,7 +1184,7 @@ const styles = StyleSheet.create({
   continueBtnDisabled: {
     backgroundColor: T.SURFACE_2,
   },
-  continueBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.BG },
+  continueBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.ACCENT_FG },
 
   // Publish button
   publishBtn: {
@@ -1184,13 +1193,14 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: T.RADIUS.pill,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     ...T.SHADOWS.medium,
   },
-  publishBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.BG },
+  publishBtnLabel: { fontFamily: T.FONT.semibold, fontSize: 15, color: T.ACCENT_FG },
 
   // Preview step
   coverPreviewWrap: {
@@ -1234,9 +1244,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginHorizontal: 20, marginBottom: 12,
     padding: 12,
-    backgroundColor: T.ACCENT_LIGHT, borderRadius: T.RADIUS.md,
+    overflow: 'hidden', borderRadius: T.RADIUS.md,
   },
-  paidBadgeText: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.ACCENT },
+  paidBadgeText: { fontSize: 13, fontFamily: T.FONT.bold, color: '#FFFFFF' },
 
   // Items preview
   itemsPreviewWrap: { paddingHorizontal: 20, marginTop: 16 },
@@ -1265,9 +1275,9 @@ const styles = StyleSheet.create({
   errorBanner: {
     marginHorizontal: 20, marginTop: 16,
     padding: 12, borderRadius: T.RADIUS.md,
-    backgroundColor: 'rgba(239,68,68,0.12)',
+    backgroundColor: alpha(T.ERROR, 0.12),
   },
-  errorText: { fontSize: 13, fontFamily: T.FONT.regular, color: '#EF4444', textAlign: 'center' },
+  errorText: { fontSize: 13, fontFamily: T.FONT.regular, color: T.ERROR, textAlign: 'center' },
 
   // Media picker modal
   modalOverlay: {

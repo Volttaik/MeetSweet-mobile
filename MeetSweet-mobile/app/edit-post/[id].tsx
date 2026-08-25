@@ -28,7 +28,9 @@ import {
   ChatCircle,
   type Icon,
 } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, AppGradients } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getPost, editPost, type Post } from '@/services/posts';
 import { setCommentsEnabled } from '@/services/comment-room-service';
 import { usePostActions } from '@/contexts/PostActionsContext';
@@ -149,8 +151,9 @@ export default function EditPostScreen() {
             disabled={saving}
             hitSlop={12}
           >
+            <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
             {saving
-              ? <ActivityIndicator size="small" color={T.ACCENT} />
+              ? <ActivityIndicator size="small" color={T.ACCENT_FG} />
               : <Text style={styles.saveTopLabel}>Save</Text>}
           </TouchableOpacity>
         </View>
@@ -173,7 +176,7 @@ export default function EditPostScreen() {
                 multiline
                 maxLength={2200}
                 textAlignVertical="top"
-                selectionColor="#888"
+                selectionColor={T.ACCENT}
               />
               <Text style={styles.charCount}>{caption.length}/2200</Text>
             </View>
@@ -193,7 +196,8 @@ export default function EditPostScreen() {
                     activeOpacity={0.75}
                   >
                     <View style={[styles.visIconWrap, active && styles.visIconWrapActive]}>
-                      <opt.Icon size={15} color={active ? T.ACCENT : T.TEXT_2} />
+                      {active && <BrandGradientFill />}
+                      <opt.Icon size={15} color={active ? '#FFFFFF' : T.TEXT_2} />
                     </View>
                     <View style={styles.visText}>
                       <Text style={[styles.visLabel, active && styles.visLabelActive]}>
@@ -259,11 +263,12 @@ export default function EditPostScreen() {
             disabled={saving}
             activeOpacity={0.85}
           >
+            <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
             {saving ? (
-              <ActivityIndicator color={T.BG} size="small" />
+              <ActivityIndicator color={T.ACCENT_FG} size="small" />
             ) : (
               <>
-                <Check size={17} color={T.BG} weight="bold" />
+                <Check size={17} color={T.ACCENT_FG} weight="bold" />
                 <Text style={styles.saveBtnLabel}>Save Changes</Text>
               </>
             )}
@@ -304,6 +309,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 60,
@@ -311,7 +317,7 @@ const styles = StyleSheet.create({
   saveTopLabel: {
     fontSize: 14,
     fontFamily: T.FONT.semibold,
-    color: T.BG,
+    color: T.ACCENT_FG,
   },
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -371,8 +377,9 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE_2,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  visIconWrapActive: { backgroundColor: T.ACCENT_LIGHT },
+  visIconWrapActive: { overflow: 'hidden' },
   visText: { flex: 1, gap: 2 },
   visLabel: {
     fontSize: 14,
@@ -419,7 +426,7 @@ const styles = StyleSheet.create({
     padding: 3,
     justifyContent: 'center',
   },
-  switchOn: { backgroundColor: T.ACCENT },
+  switchOn: { backgroundColor: T.ACCENT, overflow: 'hidden' },
   switchThumb: {
     width: 22,
     height: 22,
@@ -428,7 +435,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   switchThumbOn: {
-    backgroundColor: '#fff',
+    backgroundColor: T.ACCENT_FG,
     alignSelf: 'flex-end',
   },
 
@@ -498,11 +505,12 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: T.RADIUS.pill,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     ...T.SHADOWS.medium,
   },
   saveBtnLabel: {
     fontSize: 16,
     fontFamily: T.FONT.semibold,
-    color: T.BG,
+    color: T.ACCENT_FG,
   },
 });

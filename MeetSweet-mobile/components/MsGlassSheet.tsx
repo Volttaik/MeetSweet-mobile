@@ -24,7 +24,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
+import { GradientTopFade } from '@/components/GradientTopFade';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -163,12 +164,14 @@ export function MsGlassSheet({
             tint="dark"
             style={[s.glassInner, { paddingBottom }, surfaceStyle]}
           >
+            <GradientTopFade height={56} radius={28} />
             <View style={s.glassBorder} pointerEvents="none" />
             <View style={s.handle} />
             {children}
           </BlurView>
         ) : (
           <View style={[s.androidSurface, { paddingBottom }, surfaceStyle]}>
+            <GradientTopFade height={56} radius={28} />
             <View style={s.glassBorder} pointerEvents="none" />
             <View style={s.handle} />
             {children}
@@ -203,7 +206,7 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   androidSurface: {
-    backgroundColor: 'rgba(22,22,28,0.97)',
+    backgroundColor: alpha(T.SURFACE, 0.97),
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 12,
@@ -216,7 +219,7 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: T.BORDER_2,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
   },
@@ -224,7 +227,7 @@ const s = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: T.BORDER_2,
     alignSelf: 'center',
     marginBottom: 16,
   },

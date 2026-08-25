@@ -10,7 +10,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -50,9 +49,15 @@ import { router, Redirect } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import { pushOnce } from '@/lib/nav';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientBorder } from '@/components/GradientBorder';
+import { GradientText } from '@/components/GradientText';
+import { GradientTopFade } from '@/components/GradientTopFade';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
+import { MsSwitch } from '@/components/MsSwitch';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { toast } from '@/components/MsToast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -111,6 +116,7 @@ function BottomSheet({
             style={[bss.sheet, { paddingBottom: Math.max(insets.bottom + 8, 24) }]}
             onPress={(e) => e.stopPropagation()}
           >
+            <GradientTopFade height={56} radius={24} />
             <View style={bss.handle} />
             {title ? (
               <View style={bss.header}>
@@ -145,7 +151,7 @@ const bss = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: T.BORDER_2,
     alignSelf: 'center',
     marginBottom: 18,
   },
@@ -271,8 +277,8 @@ function strengthOf(pw: string): { label: string; color: string; width: number }
   if (/[A-Z]/.test(pw) && /[0-9]/.test(pw) && /[^a-zA-Z0-9]/.test(pw) && pw.length >= 12)
     return { label: 'Strong', color: T.SUCCESS, width: 1 };
   if (pw.length >= 10 && /[A-Z]/.test(pw))
-    return { label: 'Good', color: '#F59E0B', width: 0.66 };
-  return { label: 'Fair', color: '#F59E0B', width: 0.45 };
+    return { label: 'Good', color: T.WARNING, width: 0.66 };
+  return { label: 'Fair', color: T.WARNING, width: 0.45 };
 }
 
 // ─── AsyncStorage helpers ─────────────────────────────────────────────────────
@@ -393,12 +399,9 @@ function ToggleRow({
         <Text style={rs.rowLabel}>{label}</Text>
         {sub ? <Text style={rs.rowSub}>{sub}</Text> : null}
       </View>
-      <Switch
+      <MsSwitch
         value={value}
-        onValueChange={disabled ? undefined : onValueChange}
-        trackColor={{ false: T.SURFACE_2, true: 'rgba(255,255,255,0.85)' }}
-        thumbColor={T.BG}
-        ios_backgroundColor={T.SURFACE_2}
+        onValueChange={onValueChange}
         disabled={disabled}
       />
     </View>
@@ -412,7 +415,7 @@ function Divider() {
 const rs = StyleSheet.create({
   sectionTitle: {
     fontSize: 11,
-    fontFamily: T.FONT.semibold,
+    fontFamily: T.FONT.bold,
     color: T.TEXT_3,
     letterSpacing: 0.9,
     textTransform: 'uppercase',
@@ -420,8 +423,11 @@ const rs = StyleSheet.create({
     paddingTop: 30,
     paddingBottom: 10,
   },
-  section: {
+  sectionBorder: {
     marginHorizontal: 20,
+    borderRadius: T.RADIUS.lg,
+  },
+  section: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
     overflow: 'hidden',
@@ -434,7 +440,7 @@ const rs = StyleSheet.create({
     gap: 12,
   },
   rowText: { flex: 1 },
-  rowLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT },
+  rowLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT },
   rowSub: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 3, lineHeight: 17 },
   badge: {
     paddingHorizontal: 8,
@@ -442,7 +448,7 @@ const rs = StyleSheet.create({
     borderRadius: T.RADIUS.xs,
     backgroundColor: T.SURFACE_2,
   },
-  badgeText: { fontSize: 11, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  badgeText: { fontSize: 11, fontFamily: T.FONT.bold, color: T.TEXT_2 },
   divider: { height: 1, backgroundColor: T.BORDER, marginLeft: 16 },
 });
 
@@ -516,8 +522,9 @@ function EditProfileModal({
             disabled={saving}
             activeOpacity={0.8}
           >
+            <BrandGradientFill />
             {saving
-              ? <ActivityIndicator size="small" color={T.BG} />
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
               : <Text style={ms.saveLabel}>Save</Text>}
           </TouchableOpacity>
         </View>
@@ -612,6 +619,7 @@ function UsernameModal({
             disabled={!available || checking}
             activeOpacity={0.8}
           >
+            <BrandGradientFill />
             <Text style={ms.saveLabel}>Save</Text>
           </TouchableOpacity>
         </View>
@@ -686,8 +694,9 @@ function EmailModal({
             disabled={saving}
             activeOpacity={0.8}
           >
+            <BrandGradientFill />
             {saving
-              ? <ActivityIndicator size="small" color={T.BG} />
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
               : <Text style={ms.saveLabel}>Update Email</Text>}
           </TouchableOpacity>
         </View>
@@ -794,7 +803,7 @@ function PhoneModal({
       <View style={{ gap: 12 }}>
         <Text style={ms.label}>Country</Text>
         <TouchableOpacity style={[inp.wrap, { justifyContent: 'space-between' }]} onPress={() => setShowCountryPicker(true)} activeOpacity={0.7}>
-          <Text style={{ color: T.TEXT, fontFamily: T.FONT.regular, fontSize: 15 }}>
+          <Text style={{ color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 15 }}>
             {country.flag}  {country.name} ({country.code})
           </Text>
           <CaretRight size={14} color={T.TEXT_3} />
@@ -823,8 +832,9 @@ function PhoneModal({
             disabled={saving}
             activeOpacity={0.8}
           >
+            <BrandGradientFill />
             {saving
-              ? <ActivityIndicator size="small" color={T.BG} />
+              ? <ActivityIndicator size="small" color="#FFFFFF" />
               : <Text style={ms.saveLabel}>Save Number</Text>}
           </TouchableOpacity>
         </View>
@@ -904,7 +914,7 @@ function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: 
               <View style={{ height: 4, backgroundColor: T.SURFACE_2, borderRadius: 2, overflow: 'hidden' }}>
                 <View style={{ height: 4, width: `${str.width * 100}%`, backgroundColor: str.color, borderRadius: 2 }} />
               </View>
-              <Text style={{ fontSize: 11, fontFamily: T.FONT.medium, color: str.color }}>{str.label}</Text>
+              <Text style={{ fontSize: 11, fontFamily: T.FONT.bold, color: str.color }}>{str.label}</Text>
             </View>
           ) : null}
         </View>
@@ -988,7 +998,7 @@ function ActiveSessionsModal({
           </View>
 
           <TouchableOpacity
-            style={[ms.saveBtn, { marginTop: 20, backgroundColor: 'rgba(239,68,68,0.12)' }]}
+            style={[ms.saveBtn, { marginTop: 20, backgroundColor: alpha(T.ERROR, 0.12) }]}
             onPress={() => setSignOutAllConfirm(true)}
             activeOpacity={0.8}
           >
@@ -1211,7 +1221,7 @@ function SupportModal({
         <View style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center' }}>
           <Star size={32} color={T.TEXT} weight="fill" />
         </View>
-        <Text style={{ fontSize: 22, fontFamily: T.FONT.bold, color: T.TEXT }}>MeetSweet</Text>
+        <GradientText text="MeetSweet" style={{ color: T.TEXT, fontSize: 17, fontFamily: T.FONT.bold, textAlign: 'center' }} />
         <Text style={[rs.rowSub, { textAlign: 'center' }]}>Version 1.0.0</Text>
         <Text style={[ms.sub, { textAlign: 'center', lineHeight: 20 }]}>
           Built for creators everywhere.{'\n'}Connect, create, and grow your community.{'\n\n'}© 2026 MeetSweet Inc.
@@ -1287,7 +1297,7 @@ function DeleteAccountModal({
             <Text style={ms.cancelLabel}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[ms.saveBtn, { backgroundColor: 'rgba(239,68,68,0.15)' }, loading && { opacity: 0.6 }]}
+            style={[ms.saveBtn, { backgroundColor: alpha(T.ERROR, 0.15) }, loading && { opacity: 0.6 }]}
             onPress={handleDelete}
             disabled={loading}
             activeOpacity={0.8}
@@ -1305,7 +1315,7 @@ function DeleteAccountModal({
 // ─── Shared modal styles ──────────────────────────────────────────────────────
 
 const ms = StyleSheet.create({
-  label: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+  label: { fontSize: 13, fontFamily: T.FONT.bold, color: T.TEXT_2 },
   hint: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3, textAlign: 'right' },
   sub: { fontSize: 13, fontFamily: T.FONT.regular, color: T.TEXT_3, lineHeight: 19 },
   buttons: { flexDirection: 'row', gap: 10, marginTop: 4 },
@@ -1313,15 +1323,15 @@ const ms = StyleSheet.create({
     flex: 1, height: 48, borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE_2, alignItems: 'center', justifyContent: 'center',
   },
-  cancelLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.TEXT },
+  cancelLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.TEXT },
   saveBtn: {
     flex: 1, height: 48, borderRadius: T.RADIUS.md,
-    backgroundColor: T.TEXT, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
   },
-  saveLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.BG },
+  saveLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: '#FFFFFF' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.SUCCESS },
+  statusLabel: { fontSize: 13, fontFamily: T.FONT.bold, color: T.SUCCESS },
 });
 
 // ─── MODAL: Two-Factor Authentication ─────────────────────────────────────────
@@ -1448,7 +1458,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
           </View>
           {codeSent && (
             <TouchableOpacity onPress={sendCode} disabled={busy} hitSlop={8} style={{ alignSelf: 'flex-start' }}>
-              <Text style={{ color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 }}>
+              <Text style={{ color: T.PRIMARY_LIGHT, fontFamily: T.FONT.bold, fontSize: 13 }}>
                 {busy ? 'Sending…' : 'Resend code'}
               </Text>
             </TouchableOpacity>
@@ -1512,7 +1522,7 @@ function TwoFactorModal({ visible, onClose }: { visible: boolean; onClose: () =>
             <TouchableOpacity style={ms.cancelBtn} onPress={onClose} activeOpacity={0.7}>
               <Text style={ms.cancelLabel}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[ms.saveBtn, { backgroundColor: 'rgba(239,68,68,0.15)' }, busy && { opacity: 0.6 }]} onPress={confirmDisable} disabled={busy} activeOpacity={0.8}>
+            <TouchableOpacity style={[ms.saveBtn, { backgroundColor: alpha(T.ERROR, 0.15) }, busy && { opacity: 0.6 }]} onPress={confirmDisable} disabled={busy} activeOpacity={0.8}>
               {busy ? <ActivityIndicator size="small" color={T.ERROR} /> : <Text style={[ms.saveLabel, { color: T.ERROR }]}>Disable</Text>}
             </TouchableOpacity>
           </View>
@@ -1710,7 +1720,7 @@ export default function SettingsScreen() {
   // Authenticated screen only — a logged-out visit (stale navigation history
   // or a direct web URL) must land on Login, never a placeholder shell.
   if (isLoading) {
-    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+    return <View style={{ flex: 1, backgroundColor: T.BG }} />;
   }
   if (!isAuthenticated) {
     return <Redirect href="/auth" />;
@@ -1733,6 +1743,7 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView
+        {...useScrollMotion()}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 48 }]}
       >
@@ -1752,7 +1763,7 @@ export default function SettingsScreen() {
 
         {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Account" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <Row label="Edit Profile" sub="Name, bio, and more" onPress={() => setModal('editProfile')} />
           <Divider />
           <Row label="Username" sub={`@${user?.username ?? '—'}`} onPress={() => setModal('username')} />
@@ -1766,11 +1777,11 @@ export default function SettingsScreen() {
             sub={user?.isCreator ? 'Analytics, posts, and revenue' : 'Start earning with subscriptions and albums'}
             onPress={() => pushOnce(user?.isCreator ? '/creator-dashboard' : '/become-creator')}
           />
-        </View>
+        </GradientBorder>
 
         {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Privacy" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <ToggleRow
             label="Private Account"
             sub="Only approved subscribers see your posts"
@@ -1826,11 +1837,11 @@ export default function SettingsScreen() {
             value={privacy.tagPerm}
             onValueChange={togglePrivacy('tagPerm')}
           />
-        </View>
+        </GradientBorder>
 
         {/* ── SECURITY ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Security" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <Row
             label="Two-Factor Authentication"
             sub={twoFactorEnabled ? 'On' : 'Add an extra login step'}
@@ -1840,10 +1851,10 @@ export default function SettingsScreen() {
           <Row label="Change Password" sub="Update your account password" onPress={() => setModal('changePassword')} />
           <Divider />
           <Row label="Active Sessions" sub="View and manage sign-in sessions" onPress={() => setModal('activeSessions')} />
-        </View>
+        </GradientBorder>
 
         <SectionHeader title="General" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <ToggleRow
             label="Vibrations & Haptics"
             sub="Gentle feedback for likes, messages, and sends"
@@ -1857,10 +1868,10 @@ export default function SettingsScreen() {
             value={soundsEnabled}
             onValueChange={handleSoundsToggle}
           />
-        </View>
+        </GradientBorder>
 
         <SectionHeader title="Notifications" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <ToggleRow
             label="Push Notifications"
             sub="Device alerts"
@@ -1877,11 +1888,11 @@ export default function SettingsScreen() {
           <ToggleRow label="Mentions" sub="When someone mentions you" value={notif.mentions} onValueChange={setN('mentions')} />
           <Divider />
           <ToggleRow label="Marketing" sub="Promotions and platform news" value={notif.marketing} onValueChange={setN('marketing')} />
-        </View>
+        </GradientBorder>
 
         {/* ── SUPPORT ──────────────────────────────────────────────────────── */}
         <SectionHeader title="Support" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <Row label="Help Centre" sub="Guides, FAQs, and tutorials" onPress={() => setModal('help')} />
           <Divider />
           <Row label="Report a Bug" sub="Help us improve" onPress={() => setModal('bug')} />
@@ -1889,13 +1900,13 @@ export default function SettingsScreen() {
           <Row label="Contact Support" sub="Get help from the team" onPress={() => setModal('contact')} />
           <Divider />
           <Row label="About MeetSweet" sub="Version 1.0.0" onPress={() => setModal('about')} />
-        </View>
+        </GradientBorder>
 
         {/* ── DANGER ───────────────────────────────────────────────────────── */}
         <SectionHeader title="Account Actions" />
-        <View style={rs.section}>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
           <Row label="Delete Account" danger onPress={() => setDeleteConfirm(true)} />
-        </View>
+        </GradientBorder>
 
         {/* Log out */}
         <TouchableOpacity style={styles.logoutBtn} onPress={() => setLogoutConfirm(true)} activeOpacity={0.8}>
@@ -2028,7 +2039,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   profileInfo: { flex: 1 },
-  profileName: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT },
+  profileName: { fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT },
   profileHandle: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_2, marginTop: 2 },
 
   logoutBtn: {
@@ -2041,7 +2052,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.lg,
   },
-  logoutLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.ERROR },
+  logoutLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.ERROR },
 
   version: {
     fontSize: 12,

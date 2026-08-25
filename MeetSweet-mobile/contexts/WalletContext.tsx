@@ -30,6 +30,7 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAccessToken } from '@/lib/session-storage';
 import { apiFetch } from '@/services/api';
+import { realtime } from '@/services/realtime';
 import { useAuth } from './AuthContext';
 
 const BALANCE_KEY = '@ms_wallet_balance';
@@ -113,6 +114,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       resetWallet();
     }
   }, [isAuthenticated, refreshWallet, resetWallet]);
+
+  // SweetSocket: the server emits a durable `wallet.updated` event on the
+  // user's channel after every confirmed debit/credit it initiates (paid
+  // private messages, attachment unlocks, creator payouts…). Re-fetching the
+  // authoritative balance keeps every header badge honest without polling.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return realtime.on((event) => {
+      if (event.type === 'wallet.updated') void refreshWallet();
+    });
+  }, [isAuthenticated, refreshWallet]);
 
   // Self-heal on foreground: re-fetch the authoritative balance whenever the
   // app returns to the foreground with an active session (e.g. a payment

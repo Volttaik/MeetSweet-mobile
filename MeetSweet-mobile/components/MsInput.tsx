@@ -15,8 +15,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { T } from '@/constants/theme';
+import { Eye, EyeSlash } from 'phosphor-react-native';
+import { T, alpha } from '@/constants/theme';
 
 interface MsInputProps extends TextInputProps {
   label?: string;
@@ -58,7 +58,7 @@ export default function MsInput({
             style,
           ]}
           placeholderTextColor={T.TEXT_3}
-          selectionColor="#888"
+          selectionColor={T.ACCENT}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           secureTextEntry={secureTextEntry && !showPassword}
@@ -73,11 +73,11 @@ export default function MsInput({
             onPress={() => setShowPassword((v) => !v)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons
-              name={showPassword ? 'eye-off' : 'eye'}
-              size={18}
-              color={T.TEXT_3}
-            />
+            {showPassword ? (
+              <EyeSlash size={18} color={T.TEXT_3} />
+            ) : (
+              <Eye size={18} color={T.TEXT_3} />
+            )}
           </TouchableOpacity>
         )}
         {!secureTextEntry && rightElement}
@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.SURFACE_2,
   },
   inputError: {
-    backgroundColor: 'rgba(239,68,68,0.08)',
+    backgroundColor: alpha(T.ERROR, 0.08),
   },
   input: {
     flex: 1,

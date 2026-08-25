@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
 import { tapLight, tapHeavy } from '@/lib/haptics';
 
 export interface MsConfirmDialogProps {
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   confirmBtnDestructive: {
-    backgroundColor: 'rgba(239,68,68,0.15)',
+    backgroundColor: alpha(T.ERROR, 0.15),
   },
   confirmLabel: {
     fontSize: 14,
@@ -190,6 +190,6 @@ const styles = StyleSheet.create({
     color: T.BG,
   },
   confirmLabelDestructive: {
-    color: '#EF4444',
+    color: T.ERROR,
   },
 });

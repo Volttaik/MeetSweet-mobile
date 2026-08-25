@@ -27,23 +27,16 @@ import {
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
-import { T } from '@/constants/theme';
+import { T, ALBUM_TONES } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientBorder } from '@/components/GradientBorder';
 import type { AlbumCardData } from '@/services/albums';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH  = SCREEN_WIDTH - 32;
 const IMAGE_HEIGHT = Math.round(CARD_WIDTH * 0.88);
 
-const TONE: Record<string, string> = {
-  violet:  '#1B1128',
-  rose:    '#1C0E13',
-  amber:   '#1C1508',
-  teal:    '#091A18',
-  indigo:  '#0E0F1E',
-  emerald: '#0B1A12',
-  sky:     '#091520',
-  fuchsia: '#1A0E1C',
-};
+const TONE = ALBUM_TONES;
 
 function tone(gradient: string): string {
   return TONE[gradient] ?? T.SURFACE_2;
@@ -102,7 +95,7 @@ export function ExploreAlbumCard({
         accessibilityRole="button"
         accessibilityLabel={`Album: ${album.title} by ${album.creatorName}, ${album.itemCount} items`}
       >
-        <View style={styles.frontCard}>
+        <GradientBorder radius={T.RADIUS.xl} style={styles.frontCard}>
 
           {/* ── Cover image ─────────────────────────────────────────── */}
           <View style={[styles.imageWrap, { backgroundColor: bg }]}>
@@ -126,12 +119,13 @@ export function ExploreAlbumCard({
             {album.requiresPurchase && !album.isUnlockedByMe && (
               <View style={styles.lockOverlay} pointerEvents="box-none">
                 <View style={styles.lockCircle}>
-                  <Lock size={22} color={T.TEXT} weight="bold" />
+                  <BrandGradientFill />
+                  <Lock size={22} color={T.ACCENT_FG} weight="bold" />
                 </View>
                 <Text style={styles.lockTitle}>Purchase to Unlock</Text>
                 {album.price ? (
                   <View style={styles.lockPriceRow}>
-                    <Star size={12} color={T.ACCENT} weight="fill" />
+                    <Star size={12} color={T.GOLD} weight="fill" />
                     <Text style={styles.lockPrice}>₦{album.price.toLocaleString()}</Text>
                   </View>
                 ) : null}
@@ -140,7 +134,8 @@ export function ExploreAlbumCard({
                   onPress={onUnlockPress ?? onPress}
                   activeOpacity={0.85}
                 >
-                  <Lock size={12} color={T.BG} weight="bold" />
+                  <BrandGradientFill />
+                  <Lock size={12} color="#FFFFFF" weight="bold" />
                   <Text style={styles.unlockText}>Purchase</Text>
                 </TouchableOpacity>
               </View>
@@ -148,7 +143,7 @@ export function ExploreAlbumCard({
 
             {/* COLLECTION badge — top left */}
             <View style={styles.collectionBadge}>
-              <Images size={10} color="#fff" weight="bold" />
+              <Images size={10} color={T.ACCENT_FG} weight="bold" />
               <Text style={styles.collectionBadgeText}>COLLECTION</Text>
             </View>
 
@@ -181,7 +176,8 @@ export function ExploreAlbumCard({
 
               {album.requiresPurchase && !album.isUnlockedByMe && (
                 <View style={styles.premiumPill}>
-                  <Star size={8} color="#fff" weight="fill" />
+                  <BrandGradientFill />
+                  <Star size={8} color={T.ACCENT_FG} weight="fill" />
                   <Text style={styles.premiumText}>PURCHASE</Text>
                 </View>
               )}
@@ -226,7 +222,8 @@ export function ExploreAlbumCard({
                   onPress={onUnlockPress ?? onPress}
                   activeOpacity={0.85}
                 >
-                  <Lock size={11} color="#fff" weight="bold" />
+                  <BrandGradientFill />
+                  <Lock size={11} color={T.ACCENT_FG} weight="bold" />
                   <Text style={styles.ctaUnlockText}>
                     {album.price ? `Purchase · ₦${album.price.toLocaleString()}` : 'Purchase'}
                   </Text>
@@ -243,7 +240,7 @@ export function ExploreAlbumCard({
             </View>
           </View>
 
-        </View>
+        </GradientBorder>
       </Pressable>
     </View>
   );
@@ -271,8 +268,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 20, // == paddingBottom of stackWrapper
     borderRadius: T.RADIUS.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    // No border/outline — separation comes from the soft gradient fade and
+    // the surface colour contrast, never a white line.
     ...T.SHADOWS.medium,
   },
   backCard2: {
@@ -291,8 +288,6 @@ const styles = StyleSheet.create({
   },
   frontCard: {
     borderRadius: T.RADIUS.xl,
-    overflow: 'hidden',
-    backgroundColor: T.SURFACE,
   },
 
   // ── Cover image ────────────────────────────────────────────────────────────
@@ -323,7 +318,8 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     ...T.SHADOWS.medium,
@@ -340,7 +336,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   lockPrice: {
-    color: T.ACCENT,
+    color: T.GOLD,
     fontFamily: T.FONT.bold,
     fontSize: 15,
   },
@@ -348,7 +344,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    backgroundColor: T.TEXT,
+    overflow: 'hidden',
     paddingHorizontal: 22,
     paddingVertical: 12,
     borderRadius: T.RADIUS.full,
@@ -356,7 +352,7 @@ const styles = StyleSheet.create({
     ...T.SHADOWS.soft,
   },
   unlockText: {
-    color: T.BG,
+    color: '#FFFFFF',
     fontFamily: T.FONT.bold,
     fontSize: 13,
   },
@@ -374,7 +370,7 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.full,
   },
   collectionBadgeText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 8,
     letterSpacing: 1.1,
@@ -390,7 +386,7 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.full,
   },
   itemCountText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 9,
   },
@@ -424,7 +420,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   creatorName: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 12,
     maxWidth: 130,
@@ -433,13 +429,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: T.RADIUS.full,
   },
   premiumText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 8,
     letterSpacing: 0.8,
@@ -508,14 +505,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: T.RADIUS.full,
     ...T.SHADOWS.soft,
   },
   ctaUnlockText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.semibold,
     fontSize: 12,
   },

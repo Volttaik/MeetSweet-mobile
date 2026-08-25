@@ -367,7 +367,7 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
                     onPress={() => handleRecentPress(t.replace('#', ''))}
                     activeOpacity={0.75}
                   >
-                    <Hash size={10} color={T.ACCENT} weight="bold" />
+                    <Hash size={10} color={T.PRIMARY_LIGHT} weight="bold" />
                     <Text style={styles.chipLabel}>{t.replace('#', '')}</Text>
                   </TouchableOpacity>
                 ))}

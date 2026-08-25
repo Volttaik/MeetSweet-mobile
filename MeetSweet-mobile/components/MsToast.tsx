@@ -14,7 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckCircle, XCircle, Info } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
 import { notifyError, notifySuccess } from '@/lib/haptics';
 
 type ToastVariant = 'success' | 'error' | 'info';
@@ -40,9 +40,9 @@ export const toast = {
 };
 
 const VARIANT_CONFIG: Record<ToastVariant, { bg: string; icon: React.ReactNode }> = {
-  success: { bg: 'rgba(52,201,123,0.14)', icon: <CheckCircle size={16} color={T.SUCCESS} weight="fill" /> },
-  error:   { bg: 'rgba(239,68,68,0.14)',  icon: <XCircle    size={16} color={T.DANGER}  weight="fill" /> },
-  info:    { bg: 'rgba(155,110,202,0.18)', icon: <Info       size={16} color={T.PURPLE}  weight="fill" /> },
+  success: { bg: alpha(T.SUCCESS, 0.14), icon: <CheckCircle size={16} color={T.SUCCESS} weight="fill" /> },
+  error:   { bg: alpha(T.ERROR, 0.14),  icon: <XCircle    size={16} color={T.DANGER}  weight="fill" /> },
+  info:    { bg: alpha(T.PURPLE, 0.18), icon: <Info       size={16} color={T.PURPLE}  weight="fill" /> },
 };
 
 export function MsToastHost() {

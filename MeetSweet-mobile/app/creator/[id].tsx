@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { createShareLink } from '@/services/sharing';
 import * as Clipboard from 'expo-clipboard';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,7 +62,9 @@ import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsAlbumCard } from '@/components/MsAlbumCard';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
-import { T } from '@/constants/theme';
+import { T, alpha, AppGradients } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientText } from '@/components/GradientText';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
 import { MsOnboardingModal, type OnboardingScreen } from '@/components/MsOnboardingModal';
 import { wasOpenedViaShareLink } from '@/lib/deep-link';
@@ -108,8 +111,8 @@ function StarRow({ rating, size = 14 }: { rating: number; size?: number }) {
         <Star
           key={n}
           size={size}
-          color={n <= Math.round(rating) ? '#FFB800' : T.BORDER_2}
-          weight={n <= Math.round(rating) ? 'fill' : 'regular'}
+          color={n <= Math.round(rating) ? T.GOLD : T.BORDER_2}
+          weight={n <= Math.round(rating) ? 'fill' : 'bold'}
         />
       ))}
     </View>
@@ -174,6 +177,7 @@ const PLANS: Array<{
   tagline: string;
   color: string;
   bg: string;
+  fg: string;
   priceKey: 'subscriptionPrice' | 'subscriptionPlusPrice';
   perks: string[];
 }> = [
@@ -181,8 +185,9 @@ const PLANS: Array<{
     key:      'subscriber',
     label:    'Subscriber',
     tagline:  'Perfect for fans',
-    color:    '#C45A72',
-    bg:       'rgba(196,90,114,0.10)',
+    color:    T.SUBSCRIPTION,
+    bg:       alpha(T.SUBSCRIPTION, 0.10),
+    fg:       T.ACCENT_FG,
     priceKey: 'subscriptionPrice',
     perks:    ['All subscriber posts & videos', 'Direct messaging', 'Exclusive subscriber feed'],
   },
@@ -190,8 +195,9 @@ const PLANS: Array<{
     key:      'subscriber_plus',
     label:    'Subscriber+',
     tagline:  'For the biggest supporters',
-    color:    '#D4A017',
-    bg:       'rgba(212,160,23,0.10)',
+    color:    T.GOLD,
+    bg:       alpha(T.GOLD, 0.10),
+    fg:       T.ACCENT_FG,
     priceKey: 'subscriptionPlusPrice',
     perks:    ['Everything in Subscriber', 'Exclusive Subscriber+ content', 'Priority support & access'],
   },
@@ -368,13 +374,14 @@ function SubscribeSheet({
               disabled={subscribing}
               onPress={canAfford ? () => onConfirm(selectedPlan) : onWallet}
             >
+              {canAfford && <BrandGradientFill />}
               {subscribing ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <Spinner size="sm" color="default" />
-                  <Text style={shStyles.primaryLabel}>Processing payment…</Text>
+                  <Text style={[shStyles.primaryLabel, { color: planCfg.fg }]}>Processing payment…</Text>
                 </View>
               ) : (
-                <Text style={[shStyles.primaryLabel, !canAfford && { color: T.ACCENT }]}>
+                <Text style={[shStyles.primaryLabel, { color: !canAfford ? T.ACCENT : planCfg.fg }]}>
                   {canAfford
                     ? (price === 0
                         ? (isSubscribed && selectedPlan === 'subscriber_plus'
@@ -446,7 +453,7 @@ const shStyles = StyleSheet.create({
   tierLabelWrap: { flex: 1, gap: 1 },
   tierName: { fontSize: 15, fontFamily: T.FONT.bold, color: T.TEXT },
   currentBadge: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: alpha(T.SECONDARY, 0.16),
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -454,7 +461,7 @@ const shStyles = StyleSheet.create({
   currentBadgeText: {
     fontSize: 9,
     fontFamily: T.FONT.bold,
-    color: T.TEXT_2,
+    color: T.SECONDARY,
     letterSpacing: 0.3,
   },
   tierTagline: { fontSize: 11, fontFamily: T.FONT.regular, color: T.TEXT_3 },
@@ -479,13 +486,14 @@ const shStyles = StyleSheet.create({
   primaryBtn: {
     height: 54, borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
   },
   primaryBtnOutline: {
-    backgroundColor: 'rgba(196,90,114,0.1)',
+    backgroundColor: alpha(T.ACCENT, 0.1),
     borderWidth: 1.5, borderColor: T.ACCENT,
   },
-  primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#fff' },
+  primaryLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
   cancelBtn: { alignItems: 'center', paddingVertical: 6 },
   cancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_3 },
   unsubscribeBtn: {
@@ -912,7 +920,7 @@ export default function CreatorProfileScreen() {
             />
           </View>
           <View style={styles.nameRow}>
-            <Text style={styles.name}>{creator.name}</Text>
+            <GradientText text={creator.name} style={styles.name} />
             {creator.isVerified && <SealCheck size={16} color={T.TEXT} weight="fill" />}
             {isOwnProfile && (
               <View style={styles.youBadge}>
@@ -965,7 +973,7 @@ export default function CreatorProfileScreen() {
           <View style={styles.subscribeRow}>
             <TouchableOpacity
               style={[
-                styles.subscribeButton,
+                styles.subscribeBtnWrap,
                 isSubscribed && styles.subscribeButtonSubscribed,
                 currentTier === 'subscriber_plus' && styles.subscribeButtonPlus,
               ]}
@@ -973,25 +981,26 @@ export default function CreatorProfileScreen() {
               activeOpacity={0.85}
             >
               {currentTier === 'subscriber_plus' ? (
-                <>
-                  <Star size={16} color="#E8A020" weight="fill" />
+                <View style={styles.subscribeButton}>
+                  <Star size={16} color={T.GOLD} weight="fill" />
                   <Text style={styles.subscribeBtnLabelPlus}>Subscriber+</Text>
-                </>
+                </View>
               ) : isSubscribed ? (
-                <>
+                <View style={styles.subscribeButton}>
                   <Check size={16} color={T.TEXT_2} weight="bold" />
                   <Text style={styles.subscribeBtnLabelSubscribed}>Subscribed</Text>
-                </>
+                </View>
               ) : (
-                <>
-                  <Lock size={16} color={T.BG} />
+                // Brand gradient CTA — purple → crimson, the primary action.
+                <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={styles.subscribeButton}>
+                  <Lock size={16} color={T.ACCENT_FG} />
                   <Text style={styles.subscribeBtnLabel}>Subscribe</Text>
                   {(creatorFullProfile?.subscriptionPrice ?? 0) > 0 && (
                     <Text style={styles.subscribeBtnPrice}>
                       · ₦{(creatorFullProfile?.subscriptionPrice ?? 0).toLocaleString()}/mo
                     </Text>
                   )}
-                </>
+                </LinearGradient>
               )}
             </TouchableOpacity>
 
@@ -1010,7 +1019,7 @@ export default function CreatorProfileScreen() {
                 onPress={handleSubscribePress}
                 activeOpacity={0.85}
               >
-                <Star size={16} color="#E8A020" weight="fill" />
+                <Star size={16} color={T.GOLD} weight="fill" />
                 <Text style={styles.upgradeBtnLabel}>Upgrade</Text>
               </TouchableOpacity>
             )}
@@ -1023,7 +1032,7 @@ export default function CreatorProfileScreen() {
         {contentLocked ? (
           <View style={styles.lockPanel}>
             <View style={styles.lockIcon}>
-              <Lock size={26} color={T.ACCENT} weight="fill" />
+              <Lock size={26} color={T.GOLD} weight="fill" />
             </View>
             <Text style={styles.lockTitle}>Subscriber-only content</Text>
             <Text style={styles.lockText}>
@@ -1040,7 +1049,8 @@ export default function CreatorProfileScreen() {
               onPress={handleSubscribePress}
               activeOpacity={0.85}
             >
-              <Lock size={15} color={T.BG} weight="fill" />
+              <BrandGradientFill />
+              <Lock size={15} color={T.ACCENT_FG} weight="fill" />
               <Text style={styles.lockBtnText}>Subscribe to unlock</Text>
             </TouchableOpacity>
           </View>
@@ -1254,7 +1264,7 @@ export default function CreatorProfileScreen() {
                 <Text style={styles.infoLabel}>Verified</Text>
                 {creator.isVerified ? (
                   <View style={styles.verifiedValueRow}>
-                    <SealCheck size={14} color={T.ACCENT} weight="fill" />
+                    <SealCheck size={14} color={T.SECONDARY_LIGHT} weight="fill" />
                     <Text style={styles.infoValue}>Verified creator</Text>
                   </View>
                 ) : (
@@ -1499,7 +1509,7 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   name: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 24, letterSpacing: -0.6 },
   youBadge: {
-    backgroundColor: 'rgba(196,90,114,0.16)',
+    backgroundColor: alpha(T.ACCENT, 0.16),
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: T.RADIUS.full,
@@ -1538,18 +1548,23 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 10,
   },
-  subscribeButton: {
+  // Wrapper carries shape + state backgrounds; the gradient fills the default
+  // (not subscribed, not Subscriber+) state via AppGradients.brand.
+  subscribeBtnWrap: {
     flex: 1,
     height: 52,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.ACCENT,
+    overflow: 'hidden',
+  },
+  subscribeButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  subscribeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
-  subscribeBtnPrice: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.BG },
+  subscribeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
+  subscribeBtnPrice: { fontSize: 13, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
   subscribeButtonSubscribed: {
     backgroundColor: T.SURFACE,
     borderWidth: 1,
@@ -1557,24 +1572,24 @@ const styles = StyleSheet.create({
   },
   subscribeBtnLabelSubscribed: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT_2 },
   subscribeButtonPlus: {
-    backgroundColor: 'rgba(232,160,32,0.14)',
+    backgroundColor: alpha(T.GOLD, 0.14),
     borderWidth: 1,
-    borderColor: 'rgba(232,160,32,0.45)',
+    borderColor: alpha(T.GOLD, 0.45),
   },
-  subscribeBtnLabelPlus: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#E8A020' },
+  subscribeBtnLabelPlus: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.GOLD },
   upgradeButton: {
     height: 52,
     paddingHorizontal: 20,
     borderRadius: T.RADIUS.full,
-    backgroundColor: 'rgba(232,160,32,0.12)',
+    backgroundColor: alpha(T.GOLD, 0.12),
     borderWidth: 1,
-    borderColor: 'rgba(232,160,32,0.45)',
+    borderColor: alpha(T.GOLD, 0.45),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  upgradeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: '#E8A020' },
+  upgradeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.GOLD },
 
   // Message button
   messageButton: {
@@ -1588,7 +1603,7 @@ const styles = StyleSheet.create({
     borderColor: T.BORDER,
   },
   messageBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
-  messageBtnLabelLocked: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT },
+  messageBtnLabelLocked: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.INBOX },
   messageBtnLabelDisabled: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT_3 },
 
   // Subscriber gate (locked profile)
@@ -1601,8 +1616,8 @@ const styles = StyleSheet.create({
   },
   lockIcon: {
     width: 68, height: 68, borderRadius: 34,
-    backgroundColor: 'rgba(196,90,114,0.12)',
-    borderWidth: 1, borderColor: 'rgba(196,90,114,0.3)',
+    backgroundColor: alpha(T.GOLD, 0.12),
+    borderWidth: 1, borderColor: alpha(T.GOLD, 0.4),
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 6,
   },
@@ -1614,10 +1629,11 @@ const styles = StyleSheet.create({
   lockPrice: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 12 },
   lockBtn: {
     marginTop: 8, height: 50, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     paddingHorizontal: 30,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  lockBtnText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
+  lockBtnText: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 15 },
 
   // Tabs — horizontal scroll to fit Posts/Videos/Shorts/Albums/Reviews/About
   tabs: {
@@ -1634,7 +1650,7 @@ const styles = StyleSheet.create({
   },
   tabActive: { borderBottomColor: T.ACCENT },
   tabLabel: { fontSize: 12, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  tabLabelActive: { color: T.ACCENT, fontFamily: T.FONT.semibold },
+  tabLabelActive: { color: T.PRIMARY_LIGHT, fontFamily: T.FONT.semibold },
 
   tabContent: { padding: 20 },
 

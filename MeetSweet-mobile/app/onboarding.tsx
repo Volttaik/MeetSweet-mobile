@@ -8,6 +8,8 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
+import { T, alpha, AppGradients } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import Animated2, {
@@ -30,17 +32,17 @@ const ILLUS_SIZE = 200;
 function IllustrationDiscover() {
   return (
     <Svg width={ILLUS_SIZE} height={ILLUS_SIZE} viewBox="0 0 220 220">
-      <Rect x="20" y="60" width="80" height="100" rx="16" fill="#141414" />
-      <Circle cx="60" cy="100" r="22" fill="#1E1E1E" />
-      <Circle cx="60" cy="100" r="14" fill="#2A2A2A" />
-      <Rect x="34" y="128" width="52" height="8" rx="4" fill="#202020" />
-      <Rect x="42" y="142" width="36" height="6" rx="3" fill="#1A1A1A" />
+      <Rect x="20" y="60" width="80" height="100" rx="16" fill="#100625" />
+      <Circle cx="60" cy="100" r="22" fill="#1B0F3D" />
+      <Circle cx="60" cy="100" r="14" fill="#27125C" />
+      <Rect x="34" y="128" width="52" height="8" rx="4" fill="#1B0F3D" />
+      <Rect x="42" y="142" width="36" height="6" rx="3" fill="#140A2E" />
 
-      <Rect x="120" y="40" width="80" height="100" rx="16" fill="#141414" />
-      <Circle cx="160" cy="80" r="22" fill="#1E1E1E" />
-      <Circle cx="160" cy="80" r="14" fill="#2A2A2A" />
-      <Rect x="134" y="108" width="52" height="8" rx="4" fill="#202020" />
-      <Rect x="142" y="122" width="36" height="6" rx="3" fill="#1A1A1A" />
+      <Rect x="120" y="40" width="80" height="100" rx="16" fill="#100625" />
+      <Circle cx="160" cy="80" r="22" fill="#1B0F3D" />
+      <Circle cx="160" cy="80" r="14" fill="#27125C" />
+      <Rect x="134" y="108" width="52" height="8" rx="4" fill="#1B0F3D" />
+      <Rect x="142" y="122" width="36" height="6" rx="3" fill="#140A2E" />
 
       <Path d="M100 50 C100 44 92 40 88 46 C84 40 76 44 76 50 C76 60 88 68 88 68 C88 68 100 60 100 50Z" fill="rgba(255,255,255,0.85)" />
       <Path d="M155 165 C155 161 150 158 148 162 C146 158 141 161 141 165 C141 171 148 176 148 176 C148 176 155 171 155 165Z" fill="rgba(255,255,255,0.4)" />
@@ -53,21 +55,21 @@ function IllustrationDiscover() {
 function IllustrationChat() {
   return (
     <Svg width={ILLUS_SIZE} height={ILLUS_SIZE} viewBox="0 0 220 220">
-      <Rect x="20" y="50" width="130" height="48" rx="16" fill="#141414" />
-      <Path d="M20 98 L8 110 L32 98Z" fill="#141414" />
-      <Rect x="36" y="65" width="96" height="8" rx="4" fill="#222222" />
-      <Rect x="36" y="79" width="72" height="8" rx="4" fill="#1C1C1C" />
+      <Rect x="20" y="50" width="130" height="48" rx="16" fill="#100625" />
+      <Path d="M20 98 L8 110 L32 98Z" fill="#100625" />
+      <Rect x="36" y="65" width="96" height="8" rx="4" fill="#27125C" />
+      <Rect x="36" y="79" width="72" height="8" rx="4" fill="#1B0F3D" />
 
       <Rect x="70" y="120" width="130" height="48" rx="16" fill="rgba(255,255,255,0.9)" />
       <Path d="M200 168 L212 180 L188 168Z" fill="rgba(255,255,255,0.9)" />
       <Rect x="86" y="135" width="96" height="8" rx="4" fill="rgba(0,0,0,0.2)" />
       <Rect x="86" y="149" width="64" height="8" rx="4" fill="rgba(0,0,0,0.2)" />
 
-      <Circle cx="176" cy="76" r="24" fill="#0A0A0A" />
-      <Circle cx="176" cy="76" r="20" fill="#141414" />
+      <Circle cx="176" cy="76" r="24" fill="#0D041F" />
+      <Circle cx="176" cy="76" r="20" fill="#100625" />
       <Rect x="166" y="74" width="20" height="14" rx="4" fill="rgba(255,255,255,0.9)" />
       <Path d="M171 74 C171 68 181 68 181 74" stroke="rgba(255,255,255,0.9)" strokeWidth="3" fill="none" />
-      <Circle cx="176" cy="81" r="2" fill="#141414" />
+      <Circle cx="176" cy="81" r="2" fill="#140A2E" />
 
       <Circle cx="50" cy="185" r="3" fill="rgba(255,255,255,0.2)" />
       <Circle cx="170" cy="40" r="3" fill="rgba(255,255,255,0.2)" />
@@ -97,10 +99,10 @@ function IllustrationSubscribe() {
         );
       })}
 
-      <Circle cx="165" cy="165" r="22" fill="#0A0A0A" />
+      <Circle cx="165" cy="165" r="22" fill="#0D041F" />
       <Rect x="155" y="163" width="20" height="14" rx="4" fill="rgba(255,255,255,0.9)" />
       <Path d="M159 163 C159 153 171 153 171 163" stroke="rgba(255,255,255,0.9)" strokeWidth="3" fill="none" strokeLinecap="round" />
-      <Circle cx="165" cy="170" r="2" fill="#0A0A0A" />
+      <Circle cx="165" cy="170" r="2" fill="#0D041F" />
 
       <Circle cx="45" cy="70" r="4" fill="rgba(255,255,255,0.25)" />
       <Circle cx="40" cy="165" r="3" fill="rgba(255,255,255,0.18)" />
@@ -122,8 +124,8 @@ const PAGES = [
       'Personalised feed every day',
     ],
     Illustration: IllustrationDiscover,
-    accent: 'rgba(110,110,190,0.22)',
-    tagColor: 'rgba(140,140,230,0.9)',
+    accent: alpha(T.PURPLE, 0.22),
+    tagColor: alpha(T.PURPLE, 0.9),
   },
   {
     key: 'chat',
@@ -136,8 +138,8 @@ const PAGES = [
       'Replies that feel personal',
     ],
     Illustration: IllustrationChat,
-    accent: 'rgba(60,160,120,0.18)',
-    tagColor: 'rgba(80,200,150,0.9)',
+    accent: alpha(T.INBOX, 0.18),
+    tagColor: alpha(T.INBOX, 0.9),
   },
   {
     key: 'subscribe',
@@ -150,8 +152,8 @@ const PAGES = [
       'Cancel anytime, no pressure',
     ],
     Illustration: IllustrationSubscribe,
-    accent: 'rgba(190,150,60,0.18)',
-    tagColor: 'rgba(230,185,80,0.9)',
+    accent: alpha(T.GOLD, 0.18),
+    tagColor: alpha(T.GOLD, 0.9),
   },
 ];
 
@@ -337,6 +339,7 @@ export default function OnboardingScreen() {
 
         {/* ── CTA button ──────────────────────────────────────── */}
         <TouchableOpacity style={styles.nextBtn} onPress={goToNext} activeOpacity={0.88}>
+          <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} start={AppGradients.brandStart} end={AppGradients.brandEnd} style={StyleSheet.absoluteFill} />
           <Text style={styles.nextBtnLabel}>
             {isLast ? 'Get Started' : 'Continue'}
           </Text>
@@ -446,7 +449,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize:      24,
     fontFamily:    'Poppins_700Bold',
-    color:         '#FFFFFF',
+    color:         T.ACCENT_FG,
     lineHeight:    34,
     letterSpacing: -0.4,
   },
@@ -465,21 +468,21 @@ const styles = StyleSheet.create({
 
   // ── CTA ────────────────────────────────────────────────
   nextBtn: {
-    backgroundColor: '#FFFFFF',
     borderRadius:    50,
     height:          56,
     alignItems:      'center',
     justifyContent:  'center',
-    shadowColor:     'rgba(255,255,255,0.6)',
+    overflow:        'hidden',
+    shadowColor:     '#000',
     shadowOffset:    { width: 0, height: 0 },
     shadowOpacity:   0.4,
     shadowRadius:    20,
     elevation:       8,
   },
   nextBtnLabel: {
-    fontFamily:    'Poppins_600SemiBold',
+    fontFamily:    'Poppins_700Bold',
     fontSize:      16,
-    color:         '#0A0A0A',
+    color:         '#FFFFFF',
     letterSpacing: 0.1,
   },
 

@@ -14,6 +14,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
+import { T, alpha, AppGradients } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ApiError } from '@/services/api';
 import Animated, {
   Easing,
@@ -69,10 +71,10 @@ type StepNum = 1 | 2 | 3;
 
 type Strength = 'weak' | 'fair' | 'good' | 'strong';
 const STRENGTH_COLOR: Record<Strength, string> = {
-  weak: '#EF4444',
-  fair: '#F97316',
-  good: '#EAB308',
-  strong: '#22C55E',
+  weak: T.ERROR,
+  fair: T.WARNING,
+  good: T.WARNING,
+  strong: T.SUCCESS,
 };
 
 function passwordStrength(pw: string): { level: Strength; score: number; label: string } {
@@ -187,9 +189,9 @@ function AvailIndicator({ state }: { state: AvailState | 'invalid' }) {
       {state === 'checking' ? (
         <ActivityIndicator size={16} color="rgba(255,255,255,0.5)" />
       ) : state === 'available' ? (
-        <Check size={17} color="#22C55E" weight="bold" />
+        <Check size={17} color={T.SUCCESS} weight="bold" />
       ) : state === 'taken' || state === 'invalid' ? (
-        <X size={17} color="#EF4444" weight="bold" />
+        <X size={17} color={T.ERROR} weight="bold" />
       ) : null}
     </View>
   );
@@ -363,7 +365,7 @@ const Step1 = React.memo(function Step1({
                 activeOpacity={0.7}
               >
                 <Text style={{ fontSize: 18 }}>{c.flag}</Text>
-                <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Poppins_400Regular', color: '#FFFFFF' }}>{c.name}</Text>
+                <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Poppins_400Regular', color: T.ACCENT_FG }}>{c.name}</Text>
                 <Text style={{ fontSize: 14, fontFamily: 'Poppins_500Medium', color: 'rgba(255,255,255,0.4)' }}>{c.code}</Text>
               </TouchableOpacity>
             ))}
@@ -493,7 +495,7 @@ const Step1 = React.memo(function Step1({
                 activeOpacity={0.7}
               >
                 <Text style={{ fontSize: 14 }}>{country.flag}</Text>
-                <Text style={{ fontSize: 13, fontFamily: 'Poppins_500Medium', color: '#FFFFFF' }}>{country.code}</Text>
+                <Text style={{ fontSize: 13, fontFamily: 'Poppins_500Medium', color: T.ACCENT_FG }}>{country.code}</Text>
               </TouchableOpacity>
 
               {/* Phone digits input — flex:1 keeps the row full-width so it
@@ -549,6 +551,7 @@ const Step1 = React.memo(function Step1({
           disabled={!step1Valid}
           activeOpacity={0.85}
         >
+          <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} start={AppGradients.brandStart} end={AppGradients.brandEnd} style={StyleSheet.absoluteFill} />
           <Text style={styles.btnLabel}>Continue</Text>
         </TouchableOpacity>
       )}
@@ -657,10 +660,10 @@ const Step2 = React.memo(function Step2({
             { label: 'One special character', valid: /[^A-Za-z0-9]/.test(data.password) },
           ].map((item) => (
             <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <Text style={{ color: item.valid ? '#10B981' : 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: '700' }}>
+              <Text style={{ color: item.valid ? T.SUCCESS : T.TEXT_3, fontSize: 13, fontWeight: '700' }}>
                 {item.valid ? '✓' : '•'}
               </Text>
-              <Text style={{ color: item.valid ? '#10B981' : 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+              <Text style={{ color: item.valid ? T.SUCCESS : T.TEXT_3, fontSize: 12 }}>
                 {item.label}
               </Text>
             </View>
@@ -674,6 +677,7 @@ const Step2 = React.memo(function Step2({
         disabled={!step2Valid}
         activeOpacity={0.85}
       >
+        <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} start={AppGradients.brandStart} end={AppGradients.brandEnd} style={StyleSheet.absoluteFill} />
         <Text style={styles.btnLabel}>Continue</Text>
       </TouchableOpacity>
     </View>
@@ -750,7 +754,7 @@ const Step3 = React.memo(function Step3({
             </View>
           )}
           <View style={styles.avatarBadge}>
-            <Camera size={16} color="#000000" />
+            <Camera size={16} color={T.TEXT} />
           </View>
         </TouchableOpacity>
         <Text style={styles.avatarHint}>Tap to add a profile photo</Text>
@@ -789,8 +793,9 @@ const Step3 = React.memo(function Step3({
         disabled={loading}
         activeOpacity={0.85}
       >
+        <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} start={AppGradients.brandStart} end={AppGradients.brandEnd} style={StyleSheet.absoluteFill} />
         {loading ? (
-          <Spinner size="sm" color="#FFFFFF" />
+          <Spinner size="sm" color={T.ACCENT_FG} />
         ) : (
           <Text style={styles.btnLabel}>Complete</Text>
         )}
@@ -956,7 +961,7 @@ export default function RegisterScreen() {
           style={styles.backBtn}
           hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
         >
-          <ArrowLeft size={22} color="#FFFFFF" />
+          <ArrowLeft size={22} color={T.ACCENT_FG} />
         </TouchableOpacity>
 
         {/* Screen title */}
@@ -1040,7 +1045,7 @@ const styles = StyleSheet.create({
   screenTitle: {
     fontSize: 24,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: -0.4,
   },
   screenSubtitle: {
@@ -1055,7 +1060,7 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 22,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: -0.3,
   },
   stepSubtitle: {
@@ -1090,11 +1095,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   inputWrapperError: {
-    backgroundColor: 'rgba(239,68,68,0.09)',
+    backgroundColor: alpha(T.ERROR, 0.09),
   },
   input: {
     flex: 1,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontSize: 15,
     fontFamily: 'Poppins_400Regular',
     height: '100%',
@@ -1110,12 +1115,12 @@ const styles = StyleSheet.create({
   fieldError: {
     fontFamily: 'Poppins_400Regular',
     fontSize: 12,
-    color: '#EF4444',
+    color: T.ERROR,
     marginTop: 6,
     paddingHorizontal: 4,
   },
   fieldStatusOk: {
-    color: '#22C55E',
+    color: T.SUCCESS,
   },
   fieldStatusInfo: {
     color: 'rgba(255,255,255,0.4)',
@@ -1174,7 +1179,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: T.SURFACE,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.12)',
     borderStyle: 'dashed',
@@ -1193,11 +1198,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: T.ACCENT_FG,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#000000',
+    borderColor: T.BORDER_2,
   },
   avatarHint: {
     fontSize: 13,
@@ -1214,7 +1219,7 @@ const styles = StyleSheet.create({
     minHeight: 120,
   },
   bioInput: {
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontSize: 16,
     fontFamily: 'Poppins_400Regular',
     textAlignVertical: 'top',
@@ -1233,9 +1238,9 @@ const styles = StyleSheet.create({
   },
 
   referralNotice: {
-    backgroundColor: 'rgba(196,90,114,0.12)',
+    backgroundColor: alpha(T.ACCENT, 0.12),
     borderWidth: 1,
-    borderColor: 'rgba(196,90,114,0.28)',
+    borderColor: alpha(T.ACCENT, 0.28),
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -1248,7 +1253,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   referralNoticeText: {
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 15,
   },
@@ -1259,42 +1264,40 @@ const styles = StyleSheet.create({
   },
 
   primaryBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 50,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
   primaryBtnLoading: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    opacity: 0.6,
   },
   primaryBtnDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: 'rgba(255,255,255,0.06)',
-    opacity: 0.45,
+    opacity: 0.35,
   },
   serverErrorBox: {
-    backgroundColor: 'rgba(239,68,68,0.1)',
+    backgroundColor: alpha(T.ERROR, 0.1),
     borderRadius: 12,
     padding: 14,
   },
   serverError: {
     fontSize: 13,
     fontFamily: 'Poppins_400Regular',
-    color: '#EF4444',
+    color: T.ERROR,
     textAlign: 'center',
   },
   btnLabel: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
   },
 
   // Sign in link
@@ -1312,7 +1315,7 @@ const styles = StyleSheet.create({
   signinLink: {
     fontSize: 14,
     fontFamily: 'Poppins_600SemiBold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
   },
 });
 
@@ -1325,14 +1328,14 @@ const bar = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#111111',
+    backgroundColor: T.SURFACE_2,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dotActive: {
-    borderColor: '#FFFFFF',
+    borderColor: T.ACCENT_FG,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   num: {
@@ -1340,13 +1343,13 @@ const bar = StyleSheet.create({
     fontFamily: 'Poppins_700Bold',
     color: 'rgba(255,255,255,0.25)',
   },
-  numActive: { color: '#FFFFFF' },
+  numActive: { color: T.ACCENT_FG },
   label: {
     fontSize: 11,
     fontFamily: 'Poppins_400Regular',
     color: 'rgba(255,255,255,0.25)',
   },
-  labelActive: { color: '#FFFFFF', fontFamily: 'Poppins_500Medium' },
+  labelActive: { color: T.ACCENT_FG, fontFamily: 'Poppins_500Medium' },
   connector: {
     flex: 1,
     height: 1,

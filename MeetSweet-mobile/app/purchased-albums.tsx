@@ -42,7 +42,7 @@ export default function PurchasedAlbumsScreen() {
 
       {isLoading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={T.ACCENT} />
+          <ActivityIndicator color={T.PRIMARY_LIGHT} />
         </View>
       ) : isError ? (
         <MsEmptyState

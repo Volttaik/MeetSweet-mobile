@@ -18,6 +18,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { ArrowLeft, Eye, EyeSlash, Lock, Envelope } from 'phosphor-react-native';
+import { T, alpha } from '@/constants/theme';
 import OTPInput, { OTPInputRef } from '@/components/OTPInput';
 import { apiFetch } from '@/services/api';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
@@ -58,10 +59,10 @@ function FieldErr({ msg }: { msg?: string }) {
 
 type Strength = 'weak' | 'fair' | 'good' | 'strong';
 const STRENGTH_COLOR: Record<Strength, string> = {
-  weak: '#EF4444',
-  fair: '#F97316',
-  good: '#EAB308',
-  strong: '#22C55E',
+  weak: T.ERROR,
+  fair: T.WARNING,
+  good: T.WARNING,
+  strong: T.SUCCESS,
 };
 
 function passwordStrength(pw: string): { level: Strength; score: number } {
@@ -143,7 +144,7 @@ function StepEmail({ onNext }: { onNext: (email: string) => void }) {
         activeOpacity={0.85}
       >
         {loading ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
+          <ActivityIndicator size="small" color={T.ACCENT_FG} />
         ) : (
           <Text style={styles.btnLabel}>Send Reset Code</Text>
         )}
@@ -253,7 +254,7 @@ function StepCode({ email, onNext }: { email: string; onNext: (code: string) => 
         activeOpacity={0.85}
       >
         {loading ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
+          <ActivityIndicator size="small" color={T.ACCENT_FG} />
         ) : (
           <Text style={styles.btnLabel}>Verify Code</Text>
         )}
@@ -382,7 +383,7 @@ function StepNewPassword({ email, code, onNext }: { email: string; code: string;
         activeOpacity={0.85}
       >
         {loading ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
+          <ActivityIndicator size="small" color={T.ACCENT_FG} />
         ) : (
           <Text style={styles.btnLabel}>Reset Password</Text>
         )}
@@ -494,7 +495,7 @@ export default function ForgotPasswordScreen() {
             style={styles.backBtn}
             hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
           >
-            <ArrowLeft size={22} color="#FFFFFF" />
+            <ArrowLeft size={22} color={T.ACCENT_FG} />
           </TouchableOpacity>
         )}
 
@@ -556,7 +557,7 @@ const styles = StyleSheet.create({
   screenTitle: {
     fontSize: 24,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: -0.4,
   },
   screenSubtitle: {
@@ -571,7 +572,7 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 22,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     letterSpacing: -0.3,
   },
   stepSubtitle: {
@@ -581,7 +582,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   emailHighlight: {
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontFamily: 'Poppins_500Medium',
   },
 
@@ -603,11 +604,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   inputWrapperError: {
-    backgroundColor: 'rgba(239,68,68,0.09)',
+    backgroundColor: alpha(T.ERROR, 0.09),
   },
   input: {
     flex: 1,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     fontSize: 15,
     fontFamily: 'Poppins_400Regular',
     height: '100%',
@@ -623,7 +624,7 @@ const styles = StyleSheet.create({
   fieldError: {
     fontFamily: 'Poppins_400Regular',
     fontSize: 12,
-    color: '#EF4444',
+    color: T.ERROR,
     marginTop: 6,
     paddingHorizontal: 4,
   },
@@ -631,13 +632,13 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     fontFamily: 'Poppins_400Regular',
-    color: '#EF4444',
+    color: T.ERROR,
     textAlign: 'center',
   },
   successText: {
     fontSize: 13,
     fontFamily: 'Poppins_500Medium',
-    color: '#22C55E',
+    color: T.SUCCESS,
     textAlign: 'center',
   },
 
@@ -681,14 +682,14 @@ const styles = StyleSheet.create({
   btnLabel: {
     fontFamily: 'Poppins_600SemiBold',
     fontSize: 16,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
   },
 
   resendRow: { alignItems: 'center', paddingVertical: 4 },
   resendText: {
     fontSize: 14,
     fontFamily: 'Poppins_600SemiBold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
   },
   resendDisabled: { color: 'rgba(255,255,255,0.25)' },
 
@@ -706,7 +707,7 @@ const styles = StyleSheet.create({
   successCheck: {
     fontSize: 40,
     fontFamily: 'Poppins_700Bold',
-    color: '#22C55E',
+    color: T.SUCCESS,
   },
 });
 
@@ -719,14 +720,14 @@ const bar = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#111111',
+    backgroundColor: T.SURFACE_2,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dotActive: {
-    borderColor: '#FFFFFF',
+    borderColor: T.ACCENT_FG,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   num: {
@@ -734,13 +735,13 @@ const bar = StyleSheet.create({
     fontFamily: 'Poppins_700Bold',
     color: 'rgba(255,255,255,0.25)',
   },
-  numActive: { color: '#FFFFFF' },
+  numActive: { color: T.ACCENT_FG },
   label: {
     fontSize: 11,
     fontFamily: 'Poppins_400Regular',
     color: 'rgba(255,255,255,0.25)',
   },
-  labelActive: { color: '#FFFFFF', fontFamily: 'Poppins_500Medium' },
+  labelActive: { color: T.ACCENT_FG, fontFamily: 'Poppins_500Medium' },
   connector: {
     flex: 1,
     height: 1,

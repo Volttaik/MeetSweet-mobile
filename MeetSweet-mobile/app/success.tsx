@@ -9,6 +9,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated';
+import { T } from '@/constants/theme';
 import { CheckCircle } from 'phosphor-react-native';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 
@@ -62,7 +63,7 @@ export default function SuccessScreen() {
         ]}
       >
         <Animated.View style={[styles.iconWrap, iconStyle]}>
-          <CheckCircle size={64} color="#FFFFFF" />
+          <CheckCircle size={64} color={T.ACCENT_FG} />
         </Animated.View>
 
         <Animated.Text style={[styles.title, titleStyle]}>
@@ -91,7 +92,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     textAlign: 'center',
     letterSpacing: -0.5,
   },

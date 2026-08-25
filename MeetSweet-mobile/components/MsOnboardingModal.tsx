@@ -46,7 +46,8 @@ import {
   VideoCamera,
   Wallet,
 } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { T, alpha, AppGradients } from '@/constants/theme';
 
 export interface OnboardingScreen {
   title: string;
@@ -182,7 +183,7 @@ export function MsOnboardingModal({
             {/* Icon (shown when no image) */}
             {!hasImage && (
               <View style={styles.iconWrap}>
-                <IconComp size={44} color="#fff" weight="duotone" />
+                <IconComp size={44} color={T.ACCENT_FG} weight="duotone" />
               </View>
             )}
 
@@ -195,7 +196,7 @@ export function MsOnboardingModal({
             {/* Warning for mandatory steps */}
             {currentScreen.mandatory && (
               <View style={styles.warningRow}>
-                <Trophy size={14} color="#FFB700" />
+                <Trophy size={14} color={T.GOLD} />
                 <Text style={styles.warningText}>You cannot skip this step</Text>
               </View>
             )}
@@ -219,18 +220,21 @@ export function MsOnboardingModal({
                 disabled={loading}
                 activeOpacity={0.85}
               >
-                {loading ? (
-                  <ActivityIndicator size="small" color="#0C0C0F" />
-                ) : (
-                  <>
-                    <Text style={styles.primaryLabel}>
-                      {currentScreen.buttonLabel ?? (isLastScreen ? 'Get Started' : 'Continue')}
-                    </Text>
-                    {!isLastScreen && (
-                      <ArrowRight size={16} color="#0C0C0F" weight="bold" />
-                    )}
-                  </>
-                )}
+                {/* Brand gradient CTA — purple → crimson, the special action */}
+                <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={styles.primaryGradient}>
+                  {loading ? (
+                    <ActivityIndicator size="small" color={T.ACCENT_FG} />
+                  ) : (
+                    <>
+                      <Text style={styles.primaryLabel}>
+                        {currentScreen.buttonLabel ?? (isLastScreen ? 'Get Started' : 'Continue')}
+                      </Text>
+                      {!isLastScreen && (
+                        <ArrowRight size={16} color={T.ACCENT_FG} weight="bold" />
+                      )}
+                    </>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </View>
 
@@ -256,10 +260,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     // Glass card: very dark, slight transparency, crisp white border
-    backgroundColor: 'rgba(22, 22, 26, 0.97)',
+    backgroundColor: alpha(T.SURFACE, 0.97),
     borderRadius: 28,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: T.BORDER_2,
     overflow: 'hidden',
     // Subtle shadow for depth
     shadowColor: '#000',
@@ -285,10 +289,10 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: alpha(T.ACCENT_FG, 0.2),
   },
   dotActive: {
-    backgroundColor: '#ffffff',
+    backgroundColor: T.ACCENT_FG,
     width: 22,
     borderRadius: 4,
   },
@@ -296,9 +300,9 @@ const styles = StyleSheet.create({
     width: 84,
     height: 84,
     borderRadius: 42,
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: alpha(T.ACCENT_FG, 0.09),
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: alpha(T.ACCENT_FG, 0.14),
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
@@ -310,7 +314,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontFamily: T.FONT.bold,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     textAlign: 'center',
     letterSpacing: -0.4,
     marginBottom: 10,
@@ -318,7 +322,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     fontFamily: T.FONT.regular,
-    color: 'rgba(255, 255, 255, 0.62)',
+    color: alpha(T.ACCENT_FG, 0.62),
     textAlign: 'center',
     lineHeight: 22,
   },
@@ -326,7 +330,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255, 183, 0, 0.1)',
+    backgroundColor: alpha(T.GOLD, 0.1),
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: T.RADIUS.md,
@@ -335,7 +339,7 @@ const styles = StyleSheet.create({
   warningText: {
     fontSize: 12,
     fontFamily: T.FONT.medium,
-    color: '#FFB700',
+    color: T.GOLD,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -348,31 +352,35 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: alpha(T.ACCENT_FG, 0.07),
   },
   skipLabel: {
     fontSize: 14,
     fontFamily: T.FONT.medium,
-    color: 'rgba(255, 255, 255, 0.55)',
+    color: alpha(T.ACCENT_FG, 0.55),
   },
-  primaryBtn: {
+primaryBtn: {
     flex: 1,
+    borderRadius: T.RADIUS.lg,
+    overflow: 'hidden',
+  },
+  primaryBtnFull: {
+    flex: 1,
+  },
+  primaryGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
     paddingVertical: 15,
-    borderRadius: T.RADIUS.lg,
-    // Solid white button — crisp contrast on glass card
-    backgroundColor: '#FFFFFF',
-  },
-  primaryBtnFull: {
-    flex: 1,
   },
   primaryLabel: {
     fontSize: 15,
     fontFamily: T.FONT.semibold,
-    color: '#0C0C0F',
+    color: T.ACCENT_FG,
+    // lineHeight matches the 16px ArrowRight icon so label + icon share the
+    // same vertical center line.
+    lineHeight: 16,
   },
   secondaryBtn: {
     marginTop: 12,
@@ -381,7 +389,7 @@ const styles = StyleSheet.create({
   secondaryLabel: {
     fontSize: 13,
     fontFamily: T.FONT.medium,
-    color: 'rgba(255, 255, 255, 0.45)',
+    color: alpha(T.ACCENT_FG, 0.45),
     textAlign: 'center',
   },
 });

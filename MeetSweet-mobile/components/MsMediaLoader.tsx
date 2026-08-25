@@ -136,7 +136,7 @@ export function MsMediaLoader({
       {state === 'error' && (
         <View style={styles.errorState}>
           {fallback}
-          <WarningCircle size={22} color={T.TEXT_2} weight="regular" />
+          <WarningCircle size={22} color={T.TEXT_2} weight="bold" />
           <Text style={styles.errorText}>{errorMessage}</Text>
           <Pressable
             onPress={retry}
@@ -177,8 +177,8 @@ export function MsMediaState({
         <Text style={[styles.errorText, { color: 'rgba(255,255,255,0.7)' }]}>{errorMessage}</Text>
         {onRetry && (
           <Pressable onPress={onRetry} style={styles.retryButton}>
-            <ArrowClockwise size={14} color="#fff" weight="bold" />
-            <Text style={[styles.retryText, { color: '#fff' }]}>Retry</Text>
+            <ArrowClockwise size={14} color={T.ACCENT_FG} weight="bold" />
+            <Text style={[styles.retryText, { color: T.ACCENT_FG }]}>Retry</Text>
           </Pressable>
         )}
       </View>

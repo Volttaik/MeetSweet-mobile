@@ -12,14 +12,28 @@ export interface PeriodStat {
   revenue: number;
 }
 
+/** Authoritative per-source earnings from the server (creator statistics). */
+export interface EarningsBreakdown {
+  total: number;
+  subscriptions: number;
+  private_messages: number;
+  albums: number;
+}
+
 export interface CreatorDashboard {
   total_revenue: number;
   active_subscribers: number;
   total_posts: number;
   period_stats: PeriodStat[];
+  /** Per-source earnings split (subscriptions / private messages / albums). */
+  earnings?: EarningsBreakdown;
 }
 
 export interface CreatorSettings {
+  /** Private Inbox — whether fans can pay to message this creator. */
+  private_inbox_enabled?: boolean;
+  /** Private Inbox — what a fan pays to deliver one message (Naira). */
+  private_message_price?: number;
   who_can_message?: 'everyone' | 'subscribers' | 'none';
   allow_comments?: boolean;
   who_can_comment?: 'everyone' | 'subscribers' | 'none';

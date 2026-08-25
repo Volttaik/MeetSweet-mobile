@@ -10,6 +10,7 @@ import {
 import { TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GradientText } from '@/components/GradientText';
 import Animated, {
   Easing,
   runOnJS,
@@ -19,7 +20,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
-import { T } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { T, alpha, AppGradients } from '@/constants/theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -92,9 +94,8 @@ export default function WelcomeScreen() {
               source={require('../assets/images/logo.png')}
               style={styles.logo}
               resizeMode="contain"
-              tintColor="#FFFFFF"
             />
-            <Text style={styles.logoText}>MeetSweet</Text>
+            <GradientText text="MeetSweet" style={styles.logoText} />
           </View>
         </FadeUp>
 
@@ -122,11 +123,14 @@ export default function WelcomeScreen() {
         <View style={styles.actions}>
           <FadeUp delay={220}>
             <TouchableOpacity
-              style={styles.primaryBtn}
+              style={styles.primaryBtnWrap}
               onPress={handleGetStarted}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnLabel}>Get Started</Text>
+              {/* Brand gradient CTA — purple → crimson (linen text stays ≥4.2:1) */}
+              <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnLabel}>Get Started</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </FadeUp>
 
@@ -157,10 +161,10 @@ const styles = StyleSheet.create({
   },
   logo: { width: 44, height: 44 },
   logoText: {
-    fontSize: 22,
+    color: T.TEXT,
+    fontSize: 17,
     fontFamily: T.FONT.bold,
-    color: '#FFFFFF',
-    letterSpacing: -0.4,
+    textAlign: 'center',
   },
   hero: {
     gap: 24,
@@ -169,7 +173,7 @@ const styles = StyleSheet.create({
   headline: {
     fontSize: 46,
     fontFamily: T.FONT.bold,
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     lineHeight: 56,
     letterSpacing: -1.2,
   },
@@ -192,7 +196,7 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: alpha(T.SECONDARY, 0.85),
   },
   highlightText: {
     fontSize: 15,
@@ -204,22 +208,25 @@ const styles = StyleSheet.create({
   actions: {
     gap: 16,
   },
-  primaryBtn: {
-    backgroundColor: 'rgba(255,255,255,0.96)',
+  primaryBtnWrap: {
     borderRadius: T.RADIUS.pill,
     height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
   },
+  primaryBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   primaryBtnLabel: {
     fontFamily: T.FONT.semibold,
     fontSize: 16,
-    color: '#120B10',
+    color: T.ACCENT_FG,
     letterSpacing: 0.2,
   },
   terms: {

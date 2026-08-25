@@ -21,6 +21,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { GradientTopFade } from '@/components/GradientTopFade';
 import { tapLight, tapMedium } from '@/lib/haptics';
 
 export interface ActionItem {
@@ -165,6 +166,7 @@ export function MsActionSheet({
         {...panResponder.panHandlers}
       >
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 4, 20) }]}>
+          <GradientTopFade height={56} radius={22} />
           <View style={styles.handle} />
 
           {(title || subtitle) && (
@@ -238,7 +240,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: T.BORDER_2,
     alignSelf: 'center',
     marginBottom: 16,
   },
@@ -277,6 +279,6 @@ const styles = StyleSheet.create({
     color: T.TEXT,
   },
   destructiveLabel: {
-    color: '#EF4444',
+    color: T.ERROR,
   },
 });

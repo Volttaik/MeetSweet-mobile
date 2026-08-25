@@ -31,6 +31,7 @@ import Animated, {
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MEDIA_BG } from '@/constants/theme';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -177,6 +178,6 @@ export function MsVideoPreview({
 
 const styles = StyleSheet.create({
   posterFallback: {
-    backgroundColor: '#1A1A1F',
+    backgroundColor: MEDIA_BG,
   },
 });

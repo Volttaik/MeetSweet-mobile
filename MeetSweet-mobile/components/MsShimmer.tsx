@@ -5,7 +5,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, StyleSheet, View, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -20,8 +20,8 @@ interface MsShimmerProps {
   subtle?: boolean;
 }
 
-const GRADIENT_DEFAULT = ['transparent', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.13)', 'rgba(255,255,255,0.07)', 'transparent'];
-const GRADIENT_SUBTLE  = ['transparent', 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.03)', 'transparent'];
+const GRADIENT_DEFAULT = ['transparent', alpha(T.ACCENT_FG, 0.07), alpha(T.ACCENT_FG, 0.13), alpha(T.ACCENT_FG, 0.07), 'transparent'];
+const GRADIENT_SUBTLE  = ['transparent', alpha(T.ACCENT_FG, 0.03), alpha(T.ACCENT_FG, 0.07), alpha(T.ACCENT_FG, 0.03), 'transparent'];
 
 export function MsShimmer({ width = '100%', height = 16, borderRadius = 6, style, subtle = false }: MsShimmerProps) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -189,14 +189,14 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
 // ─── Chat message skeleton ─────────────────────────────────────────────────────
 // Matches the DM message-area rule: bubbles ONLY, no profile pictures beside
 // messages (avatars live in the chat header). Each message bubble is a SINGLE
-// STATIC block in the real MsTextBubble colours (#23232B incoming / #2B2B33
-// outgoing) with the 10px-radius tail corner — the bubble itself represents
-// the loading message. There is NO moving reflection/animation inside the
-// bubble (no MsShimmer inside). Widths are deterministic (no Math.random) so
-// the skeleton never flickers.
+// STATIC block in the surface tokens (SURFACE_3 outgoing / SURFACE_2 incoming)
+// with the 10px-radius tail corner — the bubble itself represents the loading
+// message. There is NO moving reflection/animation inside the bubble (no
+// MsShimmer inside). Widths are deterministic (no Math.random) so the
+// skeleton never flickers.
 
-const CHAT_BUBBLE_COLOR_OWN   = '#2B2B33'; // outgoing  (MsTextBubble BG_OWN)
-const CHAT_BUBBLE_COLOR_OTHER = '#23232B'; // incoming  (MsTextBubble BG_OTHER)
+const CHAT_BUBBLE_COLOR_OWN   = T.SURFACE_3; // outgoing
+const CHAT_BUBBLE_COLOR_OTHER = T.SURFACE_2; // incoming
 // Deterministic bubble widths, cycled per row.
 const CHAT_BUBBLE_WIDTHS = [224, 232, 216, 240, 228, 220, 236, 224, 232, 218];
 
@@ -328,7 +328,7 @@ export function MsShimmerCreatorProfile() {
         </View>
       </View>
       {/* Tab bar */}
-      <View style={{ flexDirection: 'row', gap: 0, marginTop: 24, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+      <View style={{ flexDirection: 'row', gap: 0, marginTop: 24, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: T.BORDER }}>
         {[72, 56, 60, 52].map((w, i) => (
           <View key={i} style={{ paddingHorizontal: 12, paddingBottom: 14 }}>
             <MsShimmer width={w} height={11} borderRadius={6} />

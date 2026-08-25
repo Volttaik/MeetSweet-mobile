@@ -13,6 +13,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import { T, alpha } from '@/constants/theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,15 +73,15 @@ function OtpBox({
   // Box treatment matches the auth input system: translucent pill surface,
   // subtle border, white focus ring — not a heavy boxed look.
   const borderColor = hasError
-    ? '#EF4444'
+    ? T.ERROR
     : focused
-    ? '#FFFFFF'
+    ? T.ACCENT_FG
     : digit
     ? 'rgba(255,255,255,0.4)'
     : 'rgba(255,255,255,0.12)';
 
   const bgColor = hasError
-    ? 'rgba(239,68,68,0.09)'
+    ? alpha(T.ERROR, 0.09)
     : focused
     ? 'rgba(255,255,255,0.12)'
     : 'rgba(255,255,255,0.07)';
@@ -291,7 +292,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 20,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: T.ACCENT_FG,
     includeFontPadding: false,
   },
 });

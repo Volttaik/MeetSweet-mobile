@@ -43,7 +43,10 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import { LinearGradient } from 'expo-linear-gradient';
-import { T } from '@/constants/theme';
+import { T, alpha, RoseGradient, AppGradients } from '@/constants/theme';
+import { GradientBorder } from '@/components/GradientBorder';
+import { useScrollMotion } from '@/lib/scroll-motion';
+import { GradientText } from '@/components/GradientText';
 import { toast } from '@/components/MsToast';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsEmptyState } from '@/components/MsEmptyState';
@@ -236,7 +239,7 @@ function PaymentPendingView({
       </Text>
 
       {hasBankTransfer && (
-        <View style={pendStyles.card}>
+        <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={pendStyles.card}>
           <View style={pendStyles.cardRow}>
             <Text style={pendStyles.cardKey}>BANK</Text>
             <Text style={pendStyles.cardVal}>{result.bankName}</Text>
@@ -261,7 +264,7 @@ function PaymentPendingView({
               {formatNaira(result.amount)}
             </Text>
           </View>
-        </View>
+        </GradientBorder>
       )}
 
       {hasBankTransfer && (
@@ -275,19 +278,22 @@ function PaymentPendingView({
 
       {result.authorizationUrl && (
         <TouchableOpacity
-          style={[pendStyles.primaryBtn, openingPayment && pendStyles.primaryBtnLoading]}
+          style={[pendStyles.primaryBtnWrap, openingPayment && pendStyles.primaryBtnLoading]}
           onPress={openPayment}
           activeOpacity={0.85}
           disabled={openingPayment}
         >
-          {openingPayment ? (
-            <>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={[pendStyles.primaryLabel, { marginLeft: 8 }]}>Opening Paystack…</Text>
-            </>
-          ) : (
-            <Text style={pendStyles.primaryLabel}>Continue to payment</Text>
-          )}
+          {/* Brand gradient CTA — purple → crimson, the primary payment action */}
+          <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={pendStyles.primaryBtn}>
+            {openingPayment ? (
+              <>
+                <ActivityIndicator size="small" color={T.ACCENT_FG} />
+                <Text style={[pendStyles.primaryLabel, { marginLeft: 8 }]}>Opening Paystack…</Text>
+              </>
+            ) : (
+              <Text style={pendStyles.primaryLabel}>Continue to payment</Text>
+            )}
+          </LinearGradient>
         </TouchableOpacity>
       )}
 
@@ -337,8 +343,7 @@ const pendStyles = StyleSheet.create({
     textAlign: 'center', lineHeight: 20, marginTop: 8, marginBottom: 24,
   },
   card: {
-    backgroundColor: T.SURFACE, borderRadius: T.RADIUS.xl,
-    borderWidth: 1, borderColor: T.BORDER, overflow: 'hidden',
+    borderRadius: T.RADIUS.xl,
   },
   cardRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -361,14 +366,16 @@ const pendStyles = StyleSheet.create({
   },
   paidBtnLoading: { opacity: 0.7 },
   paidLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 15 },
-  primaryBtn: {
-    height: 52, borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
-    alignItems: 'center', justifyContent: 'center', marginTop: 24,
-    flexDirection: 'row',
+  primaryBtnWrap: {
+    height: 52, borderRadius: T.RADIUS.full,
+    marginTop: 24, overflow: 'hidden',
     ...T.SHADOWS.soft,
   },
+  primaryBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row',
+  },
   primaryBtnLoading: { opacity: 0.85 },
-  primaryLabel: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 15 },
+  primaryLabel: { color: T.ACCENT_FG, fontFamily: T.FONT.semibold, fontSize: 15 },
   secondaryBtn: {
     height: 52, borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE_2,
     borderWidth: 1, borderColor: T.BORDER,
@@ -521,7 +528,7 @@ export default function WalletScreen() {
   // Authenticated screen only — a logged-out visit (stale navigation history
   // or a direct web URL) must land on Login, never a placeholder shell.
   if (isLoading) {
-    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+    return <View style={{ flex: 1, backgroundColor: T.BG }} />;
   }
   if (!isAuthenticated) {
     return <Redirect href="/auth" />;
@@ -534,7 +541,7 @@ export default function WalletScreen() {
           <Pressable style={styles.back} onPress={() => setStep('wallet')}>
             <ArrowLeft size={20} color={T.TEXT} />
           </Pressable>
-          <Text style={styles.headerTitle}>Wallet</Text>
+          <GradientText text="Wallet" style={styles.headerTitle} />
           <View style={styles.placeholder} />
         </View>
         <SuccessView amountAdded={addedAmount} balance={newBalance} onDone={() => setStep('wallet')} />
@@ -570,23 +577,29 @@ export default function WalletScreen() {
         <Pressable style={styles.back} onPress={() => goBack()}>
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
-        <Text style={styles.headerTitle}>Wallet</Text>
+        <GradientText text="Wallet" style={styles.headerTitle} />
         <View style={styles.placeholder} />
       </View>
 
-      <KeyboardAwareScrollViewCompat showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollViewCompat {...useScrollMotion()} showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
           {/* Balance card */}
-          <LinearGradient colors={['#251218', '#141014']} style={styles.balanceCard}>
+          <LinearGradient colors={[RoseGradient.colors[0], RoseGradient.colors[2]]} style={styles.balanceCard}>
             <View style={styles.balanceGlow} pointerEvents="none" />
             <View style={styles.balanceTopRow}>
               <View style={styles.walletIconWrap}>
-                <Wallet size={20} color="#fff" weight="fill" />
+                <Wallet size={20} color={T.ACCENT_FG} weight="fill" />
               </View>
-              <View style={styles.balanceMethodPill}>
-                <CreditCard size={11} color={T.ACCENT} weight="fill" />
+              <LinearGradient
+                colors={AppGradients.brand}
+                locations={AppGradients.brandLocs}
+                start={AppGradients.brandStart}
+                end={AppGradients.brandEnd}
+                style={styles.balanceMethodPill}
+              >
+                <CreditCard size={11} color="#FFFFFF" weight="fill" />
                 <Text style={styles.balanceMethodText}>Paystack</Text>
-              </View>
+              </LinearGradient>
             </View>
             <Text style={styles.balanceLabel}>WALLET BALANCE</Text>
             {loadingWallet ? (
@@ -762,14 +775,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: 'rgba(196,90,114,0.18)',
+    borderColor: alpha(T.ACCENT, 0.18),
   },
   balanceGlow: {
     position: 'absolute',
     top: -70, right: -50,
     width: 190, height: 190,
     borderRadius: 95,
-    backgroundColor: 'rgba(196,90,114,0.16)',
+    backgroundColor: alpha(T.ACCENT, 0.16),
   },
   balanceTopRow: {
     flexDirection: 'row',
@@ -779,30 +792,31 @@ const styles = StyleSheet.create({
   },
   walletIconWrap: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(196,90,114,0.22)',
+    backgroundColor: alpha(T.SECONDARY, 0.22),
     alignItems: 'center', justifyContent: 'center',
   },
   balanceMethodPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 10, paddingVertical: 5,
     borderRadius: T.RADIUS.full,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    // Brand gradient fill — the platform gradient is the pill's identity.
+    overflow: 'hidden',
   },
   balanceMethodText: {
-    color: T.TEXT_2, fontFamily: T.FONT.semibold, fontSize: 10,
+    color: '#FFFFFF', fontFamily: T.FONT.semibold, fontSize: 10,
     letterSpacing: 0.4,
   },
   balanceLabel: {
-    color: 'rgba(255,255,255,0.5)',
+    color: alpha(T.ACCENT_FG, 0.5),
     fontFamily: T.FONT.semibold, fontSize: 10,
     letterSpacing: 1.5,
   },
   balance: {
-    color: '#FFFFFF', fontFamily: T.FONT.bold,
+    color: T.ACCENT_FG, fontFamily: T.FONT.bold,
     fontSize: 36, letterSpacing: -1, marginTop: 4,
   },
   balanceHint: {
-    color: 'rgba(255,255,255,0.42)',
+    color: alpha(T.ACCENT_FG, 0.42),
     fontFamily: T.FONT.regular, fontSize: 11, marginTop: 8, lineHeight: 17,
   },
 

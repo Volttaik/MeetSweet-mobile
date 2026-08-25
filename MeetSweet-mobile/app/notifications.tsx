@@ -13,7 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, BellSlash, Check, ArrowsClockwise, Trash } from 'phosphor-react-native';
 import { router, Redirect } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
+import { GradientText } from '@/components/GradientText';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { toast } from '@/components/MsToast';
@@ -27,6 +28,7 @@ import {
 } from '@/services/notifications';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useScrollMotion } from '@/lib/scroll-motion';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -270,7 +272,7 @@ export default function NotificationsScreen() {
   // Authenticated screen only — a logged-out visit (stale navigation history
   // or a direct web URL) must land on Login, never a placeholder shell.
   if (isLoading) {
-    return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+    return <View style={{ flex: 1, backgroundColor: T.BG }} />;
   }
   if (!isAuthenticated) {
     return <Redirect href="/auth" />;
@@ -288,7 +290,7 @@ export default function NotificationsScreen() {
         >
           <ArrowLeft size={22} color={T.TEXT} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <GradientText text="Notifications" style={styles.headerTitle} />
         {unreadCount > 0 ? (
           <TouchableOpacity style={styles.iconBtn} onPress={handleMarkAll} activeOpacity={0.7}>
             {marking ? (
@@ -343,6 +345,7 @@ export default function NotificationsScreen() {
         </ScrollView>
       ) : (
         <ScrollView
+          {...useScrollMotion()}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 40 }}
           refreshControl={
@@ -458,7 +461,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: T.BORDER,
   },
-  notifRowUnread: { backgroundColor: 'rgba(255,255,255,0.03)' },
+  notifRowUnread: { backgroundColor: alpha(T.SECONDARY, 0.05) },
   notifContent: { flex: 1 },
   notifBody: {
     fontSize: 14,

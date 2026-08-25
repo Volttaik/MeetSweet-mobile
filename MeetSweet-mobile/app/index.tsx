@@ -2,6 +2,7 @@ import { Redirect, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEffect, useState } from 'react';
 import { Alert, View, ActivityIndicator } from 'react-native';
+import { T } from '@/constants/theme';
 import { getInitialReferralCode, getInitialShareToken } from '@/lib/deep-link';
 
 export default function Index() {
@@ -28,8 +29,8 @@ export default function Index() {
   // resolver must be the first screen — never the home feed or onboarding.
   if (isLoading || shareToken === undefined || referralCode === undefined) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#FFFFFF" />
+      <View style={{ flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={T.ACCENT_FG} />
       </View>
     );
   }

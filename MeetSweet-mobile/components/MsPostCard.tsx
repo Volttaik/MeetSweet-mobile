@@ -14,6 +14,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { Heart, ChatCircle, Bookmark, DotsThree, SealCheck, Play, Images, LockSimple } from 'phosphor-react-native';
+import { GradientBorder } from '@/components/GradientBorder';
 import { MsTierBadge } from '@/components/MsTierBadge';
 import { router } from 'expo-router';
 import { T } from '@/constants/theme';
@@ -162,11 +163,11 @@ function AnimatedHeart({ liked }: { liked: boolean }) {
 
   return (
     <Animated.View style={style}>
-      <Heart
-        size={18}
-        color={liked ? '#EF4444' : T.TEXT_2}
-        weight={liked ? 'fill' : 'regular'}
-      />
+      {liked ? (
+        <Heart size={18} color={T.SECONDARY} weight="fill" />
+      ) : (
+        <Heart size={18} color={T.TEXT_2} weight="bold" />
+      )}
     </Animated.View>
   );
 }
@@ -539,6 +540,7 @@ export function MsPostCard({
   const openSheet = () => { tapLight(); setSheetVisible(true); };
 
   return (
+    <GradientBorder radius={T.RADIUS.xl} surface={T.BG} style={styles.cardBorder}>
     <TouchableOpacity
       activeOpacity={onPress && !doubleTapToOpen ? 0.95 : 1}
       onPress={doubleTapToOpen ? undefined : onPress}
@@ -666,15 +668,13 @@ export function MsPostCard({
                   accessibleLabel="Album cover"
                 />
               ) : (
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: T.SURFACE_2 }]} />
               )}
               {/* Bottom gradient overlay with price/item info */}
               <View style={styles.albumOverlay}>
                 <View style={styles.albumBadge}>
-                  <Images size={12} color="#fff" weight="bold" />
-                  <Text style={styles.albumBadgeText}>
-                    {'Album'}
-                  </Text>
+                  <Images size={10} color={T.ACCENT_FG} weight="bold" />
+                  <Text style={styles.albumBadgeText}>COLLECTION</Text>
                 </View>
               </View>
             </View>
@@ -761,12 +761,12 @@ export function MsPostCard({
                 accessibleLabel="Video thumbnail"
               />
             ) : (
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1A1A1F' }]} />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: T.SURFACE_2 }]} />
             )}
             {/* Play button overlay — decorative, tap is handled by the TouchableOpacity */}
             <View style={styles.videoPlayOverlay} pointerEvents="none">
               <View style={styles.videoPlayBtn}>
-                <Play size={20} color="#fff" weight="fill" />
+                <Play size={20} color={T.ACCENT_FG} weight="fill" />
               </View>
             </View>
             {/* Duration badge — real media metadata (e.g. 0:42 / 12:38) */}
@@ -806,7 +806,7 @@ export function MsPostCard({
           <Bookmark
             size={18}
             color={bookmarked ? T.TEXT : T.TEXT_2}
-            weight={bookmarked ? 'fill' : 'regular'}
+            weight={bookmarked ? 'fill' : 'bold'}
           />
         </ActionButton>
       </View>
@@ -838,10 +838,17 @@ export function MsPostCard({
         onClose={() => setFeedback(null)}
       />
     </TouchableOpacity>
+    </GradientBorder>
   );
 }
 
 const styles = StyleSheet.create({
+  cardBorder: {
+    // Slightly wider cards — more presence, better use of screen width.
+    marginHorizontal: 10,
+    marginBottom: 12,
+    borderRadius: T.RADIUS.xl,
+  },
   card: { backgroundColor: T.BG },
 
   authorRow: {
@@ -906,7 +913,7 @@ const styles = StyleSheet.create({
   lockedMedia: {
     width: '100%',
     height: 220,
-    backgroundColor: '#1A1A1F',
+    backgroundColor: T.SURFACE_2,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
@@ -917,7 +924,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: T.SURFACE_3,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
@@ -965,7 +972,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   durationBadgeText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.semibold,
     fontSize: 10,
     letterSpacing: 0.3,
@@ -979,7 +986,7 @@ const styles = StyleSheet.create({
   albumCard: {
     width: '100%',
     aspectRatio: 4 / 3,
-    backgroundColor: '#1A1A1F',
+    backgroundColor: T.SURFACE_2,
   },
   albumCardBack1: {
     position: 'absolute',
@@ -987,7 +994,7 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     top: 4,
-    backgroundColor: '#2A2A30',
+    backgroundColor: T.SURFACE_3,
     zIndex: 2,
   },
   albumCardBack2: {
@@ -996,7 +1003,7 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     top: 8,
-    backgroundColor: '#1E1E24',
+    backgroundColor: T.SURFACE,
     zIndex: 1,
   },
   albumOverlay: {
@@ -1010,19 +1017,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  // Same visual language as ExploreAlbumCard's collectionBadge (the reference
+  // album badge) — used on Home feed album cards, Explore and Album detail.
   albumBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.60)',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: T.RADIUS.full,
   },
   albumBadgeText: {
-    fontSize: 12,
-    fontFamily: T.FONT.semibold,
-    color: '#fff',
+    fontSize: 8,
+    fontFamily: T.FONT.bold,
+    color: T.ACCENT_FG,
+    letterSpacing: 1.1,
   },
 
   actions: {
@@ -1041,8 +1051,11 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.sm,
     minHeight: 34,
   },
-  actionCount: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  actionCountLiked: { color: '#EF4444' },
+  // lineHeight matches the 18px action icons so the count text shares the
+  // icons' exact vertical center line instead of sitting high inside its own
+  // taller line box.
+  actionCount: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2, lineHeight: 18 },
+  actionCountLiked: { color: T.SECONDARY_LIGHT },
 
   cardSpacing: { height: 6 },
 });

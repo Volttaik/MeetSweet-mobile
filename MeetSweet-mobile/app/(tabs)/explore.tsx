@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -48,11 +49,15 @@ import { MsSectionHeader } from '@/components/MsSectionHeader';
 import { MsFeedbackModal } from '@/components/MsFeedbackModal';
 import { MsActionSheet, type ActionItem } from '@/components/MsActionSheet';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
+import { GradientText } from '@/components/GradientText';
 import { ExploreAlbumCard } from '@/components/ExploreAlbumCard';
 import { MsPostCard } from '@/components/MsPostCard';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import type { Post } from '@/services/posts';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientBorder } from '@/components/GradientBorder';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -91,7 +96,8 @@ function ModeToggle({
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
             >
-              <Icon size={13} color={active ? T.BG : T.TEXT_2} />
+              {active && <BrandGradientFill />}
+              <Icon size={13} color={active ? '#FFFFFF' : T.TEXT_2} />
               <Text style={[toggleStyles.label, active && toggleStyles.labelActive]}>
                 {label}
               </Text>
@@ -122,9 +128,9 @@ const toggleStyles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 16,
     borderRadius: T.RADIUS.full,
+    overflow: 'hidden',
   },
   tabActive: {
-    backgroundColor: T.TEXT,
     ...T.SHADOWS.soft,
   },
   label: {
@@ -133,7 +139,8 @@ const toggleStyles = StyleSheet.create({
     fontSize: 12,
   },
   labelActive: {
-    color: T.BG,
+    color: '#FFFFFF',
+    fontFamily: T.FONT.bold,
   },
 });
 
@@ -206,6 +213,18 @@ interface HeaderProps {
   isError: boolean;
   onRetry: () => void;
   showCatalogSkeleton?: boolean;
+}
+
+// ─── Top bar — MeetSweet logo + app name, mirroring the Home feed header ─────
+function ExploreTopBar() {
+  return (
+    <View style={styles.topBar}>
+      <View style={styles.topAppNameRow}>
+        <Image source={require('../../assets/images/logo.png')} style={styles.topLogo} resizeMode="contain" />
+        <GradientText text="MeetSweet" style={styles.topAppName} />
+      </View>
+    </View>
+  );
 }
 
 function ExploreHeader({ isLoading, isError, onRetry, showCatalogSkeleton = true }: HeaderProps) {
@@ -571,7 +590,7 @@ export default function ExploreScreen() {
             : 'Search posts, creators'
           }
           placeholderTextColor={T.TEXT_3}
-          selectionColor="#888"
+          selectionColor={T.ACCENT}
           style={styles.searchInput}
           returnKeyType="search"
           autoCorrect={false}
@@ -658,9 +677,11 @@ export default function ExploreScreen() {
 
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+        <ExploreTopBar />
         {stickyControls}
 
         <FlatList
+          {...useScrollMotion()}
           data={feedItems}
           keyExtractor={(item) => item.id}
           renderItem={renderFeedItem}
@@ -718,9 +739,11 @@ export default function ExploreScreen() {
   if (viewMode === 'albums') {
     return (
       <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+        <ExploreTopBar />
         {stickyControls}
 
         <FlatList
+          {...useScrollMotion()}
           data={visibleAlbums}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
@@ -767,6 +790,7 @@ export default function ExploreScreen() {
   // ── CREATORS MODE — creator cards + their content ────────────────────────────────────────────
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
+      <ExploreTopBar />
       {stickyControls}
 
       <ScrollView
@@ -843,7 +867,7 @@ export default function ExploreScreen() {
                   title="Recommended for you"
                   style={styles.sectionHeader}
                 />
-                <View style={styles.recommendedWrap}>
+                <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={styles.recommendedWrap}>
                   {recommended.map((creator) => (
                     <MsRecommendedCreatorRow
                       key={creator.id}
@@ -856,7 +880,7 @@ export default function ExploreScreen() {
                       subscribing={subscribingId === creator.id}
                     />
                   ))}
-                </View>
+                </GradientBorder>
               </>
             )}
 
@@ -940,7 +964,7 @@ export default function ExploreScreen() {
                   title="All creators"
                   style={styles.sectionHeader}
                 />
-                <View style={styles.recommendedWrap}>
+                <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={styles.recommendedWrap}>
                   {visibleCreators.map((creator) => (
                     <MsRecommendedCreatorRow
                       key={creator.id}
@@ -953,7 +977,7 @@ export default function ExploreScreen() {
                       subscribing={subscribingId === creator.id}
                     />
                   ))}
-                </View>
+                </GradientBorder>
               </>
             )}
           </>
@@ -998,6 +1022,11 @@ const styles = StyleSheet.create({
     backgroundColor: T.BG,
     zIndex: 10,
   },
+  // Top bar — mirror of the Home feed header (logo + app name)
+  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, gap: 14 },
+  topAppNameRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  topLogo: { width: 46, height: 46 },
+  topAppName: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 17, letterSpacing: -0.5 },
 
   scrollContent: { paddingTop: 16, paddingBottom: 0 },
   feedListContent: { paddingTop: 12, paddingBottom: 100 },
@@ -1037,12 +1066,13 @@ const styles = StyleSheet.create({
   sectionHeader: { paddingTop: 24, paddingBottom: 12 },
   featuredRow: { gap: 12, paddingHorizontal: 20, paddingBottom: 3 },
   collectionRow: { gap: 12, paddingHorizontal: 20 },
-  recommendedWrap: { backgroundColor: T.SURFACE, marginHorizontal: 20, borderRadius: T.RADIUS.xl, overflow: 'hidden', ...T.SHADOWS.soft },
+  recommendedWrap: { marginHorizontal: 20, borderRadius: T.RADIUS.xl, ...T.SHADOWS.soft },
   bottomSpace: { height: 28 },
 
   // Feed list — compact 8px spacing
-  feedItemWrap:  { paddingHorizontal: 12, paddingBottom: 12 },
-  videoItemWrap: { paddingHorizontal: 10, paddingBottom: 12 },
+  // Slightly wider feed cards — more presence, better use of screen width.
+  feedItemWrap:  { paddingHorizontal: 8, paddingBottom: 12 },
+  videoItemWrap: { paddingHorizontal: 8, paddingBottom: 12 },
 
   // Album row injected into content feed
   albumRowWrap: { paddingBottom: 20 },

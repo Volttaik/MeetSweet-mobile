@@ -33,7 +33,9 @@ import {
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsTierBadge } from '@/components/MsTierBadge';
 import { MsRoomCreationLoader } from '@/components/MsRoomCreationLoader';
-import { T } from '@/constants/theme';
+import { T, AppGradients } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
 import { useAuth } from '@/contexts/AuthContext';
@@ -68,9 +70,9 @@ const CONTENT_TYPES: {
   {
     type: 'post',
     label: 'Post',
-    icon: <TextT size={28} color="#fff" weight="bold" />,
+    icon: <TextT size={28} color={T.ACCENT_FG} weight="bold" />,
     description: 'Text + images\nShows in Home feed',
-    accentColor: '#C45A72',
+    accentColor: T.ACCENT,
   },
   // Albums are deliberately NOT offered here — they are purchase-only content
   // created through the dedicated album flow (/create-album) which requires a
@@ -78,16 +80,16 @@ const CONTENT_TYPES: {
   {
     type: 'video',
     label: 'Video',
-    icon: <MonitorPlay size={28} color="#fff" weight="bold" />,
+    icon: <MonitorPlay size={28} color={T.ACCENT_FG} weight="bold" />,
     description: 'Long-form video\nShows in Explore only',
-    accentColor: '#2563EB',
+    accentColor: T.INFO,
   },
   {
     type: 'shorts',
     label: 'Shorts',
-    icon: <VideoCamera size={28} color="#fff" weight="bold" />,
+    icon: <VideoCamera size={28} color={T.ACCENT_FG} weight="bold" />,
     description: 'Vertical video (≤60s)\nShows in Shorts only',
-    accentColor: '#DC2626',
+    accentColor: T.ERROR,
   },
 ];
 
@@ -583,7 +585,7 @@ export default function CreatePostScreen() {
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           {/* Media preview */}
-          {mediaUri && (
+          {!!mediaUri && (
             <View style={styles.previewMediaWrap}>
               {mediaType === 'image' ? (
                 <Image source={{ uri: mediaUri }} style={styles.previewImg} resizeMode="cover" />
@@ -594,6 +596,7 @@ export default function CreatePostScreen() {
                     uri={mediaUri}
                     mode="standard"
                     fillContainer
+                    autoPlay
                   />
                 </View>
               )}
@@ -637,7 +640,7 @@ export default function CreatePostScreen() {
           )}
 
           {/* Caption summary */}
-          {caption.trim() && (
+          {!!caption.trim() && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Caption</Text>
               <Text style={styles.previewCaption} numberOfLines={3}>{caption}</Text>
@@ -675,6 +678,7 @@ export default function CreatePostScreen() {
 
           {/* Publish button */}
           <TouchableOpacity style={styles.publishBtn} onPress={handlePublish} activeOpacity={0.85}>
+            <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={StyleSheet.absoluteFill} />
             <Text style={styles.publishLabel}>Publish {contentLabel}</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -803,6 +807,7 @@ export default function CreatePostScreen() {
                         uri={mediaUri}
                         mode="standard"
                         fillContainer
+                        autoPlay
                       />
                     </View>
                   )}
@@ -889,6 +894,7 @@ export default function CreatePostScreen() {
                       onPress={() => toggleCategory(cat.id)}
                       activeOpacity={0.75}
                     >
+                      {active && <BrandGradientFill />}
                       <Text style={[styles.catLabel, active && styles.catLabelActive]}>{cat.name}</Text>
                     </TouchableOpacity>
                   );
@@ -916,7 +922,7 @@ export default function CreatePostScreen() {
               />
               {tagInput.trim().length > 0 && (
                 <TouchableOpacity onPress={addTag} hitSlop={8}>
-                  <Check size={16} color={T.ACCENT} weight="bold" />
+                  <Check size={16} color={T.PRIMARY_LIGHT} weight="bold" />
                 </TouchableOpacity>
               )}
             </View>
@@ -1291,7 +1297,7 @@ const styles = StyleSheet.create({
     padding: 2,
     justifyContent: 'center',
   },
-  toggleOn: { backgroundColor: T.ACCENT },
+  toggleOn: { backgroundColor: T.ACCENT, overflow: 'hidden' },
   toggleKnob: {
     width: 22,
     height: 22,
@@ -1324,10 +1330,11 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
+    overflow: 'hidden',
   },
-  catChipActive: { backgroundColor: T.ACCENT + '22' },
+  catChipActive: {},
   catLabel: { fontSize: 13, fontFamily: T.FONT.medium, color: T.TEXT_2 },
-  catLabelActive: { color: T.ACCENT },
+  catLabelActive: { color: '#FFFFFF', fontFamily: T.FONT.bold },
 
   tagInput: {
     flexDirection: 'row',
@@ -1375,11 +1382,12 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
   },
-  publishLabel: { fontSize: 16, fontFamily: T.FONT.semibold, color: '#fff' },
+  publishLabel: { fontSize: 16, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
 
   scrollContent: { paddingHorizontal: 20, paddingBottom: 60 },
 

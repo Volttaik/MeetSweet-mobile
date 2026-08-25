@@ -3,6 +3,7 @@ import { ActivityIndicator, Modal, Pressable, Share, StyleSheet, Text, View } fr
 import * as Clipboard from 'expo-clipboard';
 import { Copy, ShareNetwork, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { GradientTopFade } from '@/components/GradientTopFade';
 import { createShareLink } from '@/services/sharing';
 
 interface Props {
@@ -61,6 +62,7 @@ export function MsShareSheet({ visible, contentType, contentId, title = 'Share',
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+          <GradientTopFade height={56} radius={26} />
           <View style={styles.handle} />
           <View style={styles.header}>
             <View>

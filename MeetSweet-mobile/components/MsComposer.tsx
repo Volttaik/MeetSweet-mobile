@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { PaperPlaneRight, Smiley, X } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 
 interface ReplyInfo {
   authorName: string;
@@ -125,7 +126,7 @@ export function MsComposer({
             maxLength={maxLength}
             scrollEnabled={false}
             underlineColorAndroid="transparent"
-            selectionColor="#888"
+            selectionColor={T.ACCENT}
             returnKeyType="default"
             blurOnSubmit={false}
             editable={!disabled}
@@ -161,7 +162,8 @@ export function MsComposer({
               activeOpacity={0.8}
               disabled={!canSend}
             >
-              <PaperPlaneRight size={20} color="#fff" weight="fill" />
+              <BrandGradientFill />
+              <PaperPlaneRight size={20} color={T.ACCENT_FG} weight="fill" />
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -256,6 +258,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: T.ACCENT,

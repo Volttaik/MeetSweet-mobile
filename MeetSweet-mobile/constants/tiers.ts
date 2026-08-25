@@ -12,30 +12,35 @@
  *
  * Once subscribed to a creator the user gets all content at or below their
  * tier — no per-post unlocking. The only à-la-carte purchase is albums.
+ *
+ * All colour values are drawn from the central design-token system
+ * (constants/theme.ts) so they stay consistent with every other screen.
  */
+
+import { T, alpha } from '@/constants/theme';
 
 export type ContentTier = 'free' | 'subscriber' | 'subscriber_plus';
 
 export const TIERS = {
   free: {
     label:       'Free',
-    color:       '#888888',
-    bgColor:     'rgba(136,136,136,0.15)',
+    color:       T.TEXT_3,
+    bgColor:     alpha(T.TEXT_3, 0.15),
     description: 'Free · Visible on Explore',
     /** Backend visibility value */
     visibility:  'public' as const,
   },
   subscriber: {
     label:       'Subscriber',
-    color:       '#C45A72',
-    bgColor:     'rgba(196,90,114,0.15)',
+    color:       T.SUBSCRIPTION,
+    bgColor:     T.ACCENT_LIGHT,
     description: 'For your subscribers only',
     visibility:  'subscribers' as const,
   },
   subscriber_plus: {
     label:       'Subscriber+',
-    color:       '#E8A020',
-    bgColor:     'rgba(232,160,32,0.15)',
+    color:       T.GOLD,
+    bgColor:     alpha(T.GOLD, 0.16),
     description: 'For Subscriber Plus members only',
     visibility:  'subscribers' as const,
   },

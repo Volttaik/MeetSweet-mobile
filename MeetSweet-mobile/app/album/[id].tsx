@@ -40,7 +40,10 @@ import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { MsAmbientBackground } from '@/components/MsAmbientBackground';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsPostSkeleton } from '@/components/MsSkeletonCard';
-import { T } from '@/constants/theme';
+import { T, alpha, MEDIA_BG, ALBUM_TONES } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientBorder } from '@/components/GradientBorder';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { useAlbum, purchaseAlbum } from '@/services/albums';
 import { soundService } from '@/services/sound-service';
 import type { AlbumItem } from '@/services/albums';
@@ -54,16 +57,7 @@ const GRID_GAP = 3;
 const GRID_COLS = 3;
 const THUMB_SIZE = (SCREEN_WIDTH - GRID_GAP * (GRID_COLS + 1)) / GRID_COLS;
 
-const TONE: Record<string, string> = {
-  violet:  '#1B1128',
-  rose:    '#1C0E13',
-  amber:   '#1C1508',
-  teal:    '#091A18',
-  indigo:  '#0E0F1E',
-  emerald: '#0B1A12',
-  sky:     '#091520',
-  fuchsia: '#1A0E1C',
-};
+const TONE = ALBUM_TONES;
 
 function tone(gradient: string) {
   return TONE[gradient] ?? T.SURFACE_2;
@@ -119,7 +113,7 @@ function AlbumVideoCard({ item, onPress }: { item: AlbumItem; onPress: () => voi
   const ratio = item.width && item.height && item.height > 0 ? item.width / item.height : 16 / 9;
   return (
     <Pressable
-      style={[styles.albumCard, { width: THUMB_SIZE, height: THUMB_SIZE / ratio, backgroundColor: '#000' }]}
+      style={[styles.albumCard, { width: THUMB_SIZE, height: THUMB_SIZE / ratio, backgroundColor: T.SURFACE_2 }]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel="View video"
@@ -296,6 +290,7 @@ export default function AlbumScreen() {
   return (
     <MsAmbientBackground style={[styles.screen, { paddingTop: insets.top }]}>
       <ScrollView
+        {...useScrollMotion()}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
@@ -326,16 +321,17 @@ export default function AlbumScreen() {
             <ShareNetwork size={18} color={T.TEXT} />
           </Pressable>
 
-          {/* Collection badge */}
+          {/* Collection badge — same visual language as the Home/Explore cards */}
           <View style={styles.heroBadge}>
-            <Images size={12} color={T.TEXT} weight="bold" />
+            <Images size={10} color={T.ACCENT_FG} weight="bold" />
             <Text style={styles.heroBadgeText}>COLLECTION</Text>
           </View>
 
           {/* Price badge */}
           {album.requiresPurchase && (
             <View style={styles.heroPriceBadge}>
-              <Star size={10} color={T.ACCENT} weight="fill" />
+              <BrandGradientFill />
+              <Star size={10} color="#FFFFFF" weight="fill" />
               <Text style={styles.heroPriceText}>₦{album.price?.toLocaleString()}</Text>
             </View>
           )}
@@ -384,7 +380,7 @@ export default function AlbumScreen() {
             </View>
             {album.requiresPurchase && (
               <View style={styles.stat}>
-                <Text style={[styles.statValue, { color: T.ACCENT }]}>
+                <Text style={[styles.statValue, { color: T.GOLD }]}>
                   {album.price}
                 </Text>
                 <Text style={styles.statLabel}>Naira</Text>
@@ -395,9 +391,11 @@ export default function AlbumScreen() {
 
         {/* ── Unlock CTA ──────────────────────────────────────────────────────── */}
         {isLocked && (
+          <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={styles.unlockCardBorder}>
           <View style={styles.unlockCard}>
             <View style={styles.unlockIconWrap}>
-              <Lock size={22} color={T.TEXT} weight="bold" />
+              <BrandGradientFill />
+              <Lock size={22} color="#FFFFFF" weight="bold" />
             </View>
             <View style={styles.unlockCopy}>
               <Text style={styles.unlockTitle}>Exclusive Album</Text>
@@ -411,11 +409,13 @@ export default function AlbumScreen() {
               activeOpacity={0.85}
               disabled={unlocking}
             >
+              <BrandGradientFill />
               {unlocking
-                ? <ActivityIndicator size="small" color={T.BG} />
-                : <><Star size={13} color={T.BG} weight="fill" /><Text style={styles.unlockButtonText}>Purchase</Text></>}
+                ? <ActivityIndicator size="small" color={T.ACCENT_FG} />
+                : <><Star size={13} color={T.ACCENT_FG} weight="fill" /><Text style={styles.unlockButtonText}>Purchase</Text></>}
             </TouchableOpacity>
           </View>
+          </GradientBorder>
         )}
 
         {/* ── Item grid — ONLY visible when unlocked (never before purchase) ── */}
@@ -464,10 +464,11 @@ export default function AlbumScreen() {
               disabled={unlocking}
               activeOpacity={0.85}
             >
+              <BrandGradientFill />
               {unlocking ? (
-                <ActivityIndicator size="small" color={T.BG} />
+                <ActivityIndicator size="small" color={T.ACCENT_FG} />
               ) : (
-                <><Star size={14} color={T.BG} weight="fill" /><Text style={styles.confirmBuyLabel}>Purchase · ₦{album.price?.toLocaleString()}</Text></>
+                <><Star size={14} color={T.ACCENT_FG} weight="fill" /><Text style={styles.confirmBuyLabel}>Purchase · ₦{album.price?.toLocaleString()}</Text></>
               )}
             </TouchableOpacity>
           </View>
@@ -505,7 +506,7 @@ export default function AlbumScreen() {
         onRequestClose={() => setPreviewItem(null)}
         statusBarTranslucent
       >
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <View style={{ flex: 1, backgroundColor: MEDIA_BG }}>
           <Pressable
             style={styles.previewClose}
             onPress={() => setPreviewItem(null)}
@@ -603,6 +604,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...T.SHADOWS.soft,
   },
+  // Same visual language as ExploreAlbumCard's collectionBadge (the reference
+  // badge) — positioned next to the back button instead of under it.
   heroBadge: {
     position: 'absolute',
     top: 16,
@@ -610,16 +613,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.60)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: T.RADIUS.full,
   },
   heroBadgeText: {
-    color: T.TEXT,
-    fontFamily: T.FONT.semibold,
-    fontSize: 9,
-    letterSpacing: 1,
+    color: '#fff',
+    fontFamily: T.FONT.bold,
+    fontSize: 8,
+    letterSpacing: 1.1,
   },
   heroPriceBadge: {
     position: 'absolute',
@@ -628,14 +631,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(196,90,114,0.28)',
+    overflow: 'hidden',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: T.RADIUS.full,
   },
   heroPriceText: {
-    color: T.ACCENT,
-    fontFamily: T.FONT.semibold,
+    color: '#FFFFFF',
+    fontFamily: T.FONT.bold,
     fontSize: 11,
   },
 
@@ -706,22 +709,25 @@ const styles = StyleSheet.create({
   },
 
   // Unlock card
-  unlockCard: {
+  unlockCardBorder: {
     marginHorizontal: 20,
     marginTop: 22,
+    borderRadius: T.RADIUS.xl,
+    ...T.SHADOWS.medium,
+  },
+  unlockCard: {
     backgroundColor: T.SURFACE,
     borderRadius: T.RADIUS.xl,
     padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    ...T.SHADOWS.medium,
   },
   unlockIconWrap: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: T.ACCENT,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -742,7 +748,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: T.RADIUS.full,
@@ -750,7 +757,7 @@ const styles = StyleSheet.create({
     ...T.SHADOWS.soft,
   },
   unlockButtonText: {
-    color: T.BG,
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 13,
   },
@@ -875,14 +882,15 @@ const styles = StyleSheet.create({
     flex: 1.4,
     height: 48,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.ACCENT,
+    backgroundColor: T.GOLD,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
   },
   confirmBuyLabel: {
-    color: T.BG,
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.bold,
     fontSize: 14,
   },

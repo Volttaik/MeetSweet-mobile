@@ -34,7 +34,7 @@ import { getCachedPosts, cachePosts } from '@/lib/posts-db';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
-import { T } from '@/constants/theme';
+import { T, alpha, MEDIA_BG, AppGradients } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import type { Post } from '@/services/posts';
 import { shouldShowOnboarding, completeOnboarding } from '@/services/onboarding';
@@ -450,8 +450,7 @@ function ShortPage({
       );
       const cx = SCREEN_WIDTH / 2;
       const cy = SCREEN_HEIGHT * 0.45;
-      spawnHeart(cx - 10, cy);
-      spawnHeart(cx + 10, cy - 14);
+      spawnHeart(cx, cy);
     } else {
       likeScale.value = withSequence(
         withTiming(0.82, { duration: MOTION.PRESS_DOWN, easing: MOTION.EASE_EXIT }),
@@ -505,11 +504,11 @@ function ShortPage({
       {/* Top bar — fades out in focus mode, restored on any interaction */}
       <Animated.View style={[styles.topBar, { paddingTop: topInset + 12 }, overlayStyle]} onTouchStart={showShortsUi}>
         <PressScale style={styles.topButton} onPress={() => goBack()} accessibilityLabel="Close Shorts">
-          <ArrowLeft size={21} color="#fff" />
+          <ArrowLeft size={21} color={T.ACCENT_FG} />
         </PressScale>
         <View style={styles.topTitle}>
           <Text style={styles.topEyebrow}>MEETSWEET</Text>
-          <Text style={styles.topText}>Shorts</Text>
+          <Text style={[styles.topText, { color: T.ACCENT_FG }]}>Shorts</Text>
         </View>
         <View style={{ minWidth: 40 }} />
       </Animated.View>
@@ -519,7 +518,7 @@ function ShortPage({
           fade lives on a wrapping Animated.View instead. */}
       <Animated.View style={[styles.bottomScrim, overlayStyle]} pointerEvents="none">
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.62)']}
+          colors={['transparent', alpha(MEDIA_BG, 0.8)]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -536,11 +535,12 @@ function ShortPage({
         >
           <MsAvatar size={38} initials={item.creator.name.slice(0, 2).toUpperCase()} imageUri={item.creator.avatarUrl ?? undefined} />
           <Text style={styles.creatorName}>{item.creator.name}</Text>
-          {item.creator.isVerified ? <SealCheck size={15} color="#fff" weight="fill" /> : null}
+          {item.creator.isVerified ? <SealCheck size={15} color={T.ACCENT_FG} weight="fill" /> : null}
           {!isOwnCreator && (
             <PressScale style={styles.subscribe} onPress={() => router.push(profileRoute(currentUser, item.creator) as any)}>
-              <Users size={12} color={T.BG} />
-              <Text style={styles.subscribeText}>Subscribe</Text>
+              <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} start={AppGradients.brandStart} end={AppGradients.brandEnd} style={StyleSheet.absoluteFill} />
+              <Users size={12} color="#FFFFFF" weight="bold" />
+              <Text style={[styles.subscribeText, { color: '#FFFFFF' }]}>Subscribe</Text>
             </PressScale>
           )}
         </Pressable>
@@ -561,7 +561,7 @@ function ShortPage({
         <View style={styles.actionButton} ref={likeBtnRef} collapsable={false}>
           <PressScale style={styles.actionCircleWrap} onPress={toggleLike} hitSlop={8} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
             <Animated.View style={[styles.actionCircle, likeStyle]}>
-              <Heart size={20} color={liked ? T.ACCENT : '#fff'} weight={liked ? 'fill' : 'regular'} />
+              {liked ? <Heart size={20} color={T.SECONDARY} weight="fill" /> : <Heart size={20} color={T.ACCENT_FG} weight="bold" />}
             </Animated.View>
           </PressScale>
           <Text style={styles.actionCount}>{formatCount(likeCount)}</Text>
@@ -569,14 +569,14 @@ function ShortPage({
 
         <PressScale style={styles.actionButton} onPress={onComment} hitSlop={8} accessibilityLabel="Comment">
           <View style={styles.actionCircle}>
-            <ChatCircle size={20} color="#fff" />
+            <ChatCircle size={20} color={T.ACCENT_FG} />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.commentCount)}</Text>
         </PressScale>
 
         <PressScale style={styles.actionButton} onPress={onShare} hitSlop={8} accessibilityLabel="Share">
           <View style={styles.actionCircle}>
-            <ShareNetwork size={20} color="#fff" />
+            <ShareNetwork size={20} color={T.ACCENT_FG} />
           </View>
           <Text style={styles.actionCount}>{formatCount(item.shareCount)}</Text>
         </PressScale>
@@ -593,8 +593,8 @@ function formatCount(value: number) {
 }
 
 const styles = StyleSheet.create({
-  screen: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000' },
-  page: { width: SCREEN_WIDTH, backgroundColor: '#050506' },
+  screen: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: MEDIA_BG },
+  page: { width: SCREEN_WIDTH, backgroundColor: MEDIA_BG },
   videoTapZone: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13, marginTop: 14 },
@@ -613,16 +613,17 @@ const styles = StyleSheet.create({
   },
   topTitle: { alignItems: 'center' },
   topEyebrow: { color: 'rgba(255,255,255,0.62)', fontFamily: T.FONT.semibold, fontSize: 8, letterSpacing: 1.3 },
-  topText: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 15, marginTop: 1 },
+  topText: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 15, marginTop: 1 },
   content: { position: 'absolute', left: 18, right: 78, bottom: 36, gap: 9 },
   creatorLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  creatorName: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 14 },
+  creatorName: { color: T.ACCENT_FG, fontFamily: T.FONT.semibold, fontSize: 14 },
   subscribe: {
     marginLeft: 4, flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderRadius: T.RADIUS.full, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: T.RADIUS.full, paddingHorizontal: 10, paddingVertical: 7,
+    overflow: 'hidden',
   },
-  subscribeText: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 10 },
-  caption: { color: '#fff', fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 21 },
+  subscribeText: { color: '#FFFFFF', fontFamily: T.FONT.bold, fontSize: 10 },
+  caption: { color: T.ACCENT_FG, fontFamily: T.FONT.regular, fontSize: 14, lineHeight: 21 },
   views: { color: 'rgba(255,255,255,0.68)', fontFamily: T.FONT.medium, fontSize: 11 },
   swipeIndicator: {
     flexDirection: 'row',
@@ -643,5 +644,5 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22,
     alignItems: 'center', justifyContent: 'center',
   },
-  actionCount: { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 10 },
+  actionCount: { color: T.ACCENT_FG, fontFamily: T.FONT.semibold, fontSize: 10 },
 });

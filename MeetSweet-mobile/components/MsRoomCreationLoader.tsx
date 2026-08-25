@@ -5,7 +5,7 @@
  * Design: dark MeetSweet surface language (matches the app, not a white flash).
  *   • Ash/black overlay covering the screen.
  *   • Elevated dark disc centered on screen.
- *   • Rose accent ring rotating around the disc.
+ *   • Purple accent ring rotating around the disc.
  *   • MeetSweet logo inside the disc.
  *   • Status text underneath: "Creating chatroom" / "Uploading…" / …
  *
@@ -16,7 +16,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CheckCircle, WarningCircle, ArrowCounterClockwise } from 'phosphor-react-native';
-import { T } from '@/constants/theme';
+import { T, alpha, MEDIA_BG } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 
 const LOGO = require('../assets/images/logo.png');
 
@@ -107,7 +108,6 @@ export function MsRoomCreationLoader({
               source={LOGO}
               style={styles.logo}
               resizeMode="contain"
-              tintColor="#FFFFFF"
               accessibilityLabel="MeetSweet"
             />
           )}
@@ -136,7 +136,8 @@ export function MsRoomCreationLoader({
               <>
                 {onRetry ? (
                   <Pressable style={styles.actionBtn} onPress={onRetry} android_ripple={{ color: 'rgba(255,255,255,0.08)' }}>
-                    <ArrowCounterClockwise size={16} color="#fff" weight="bold" />
+                    <BrandGradientFill />
+                    <ArrowCounterClockwise size={16} color={T.ACCENT_FG} weight="bold" />
                     <Text style={styles.actionLabel}>Try again</Text>
                   </Pressable>
                 ) : null}
@@ -149,6 +150,7 @@ export function MsRoomCreationLoader({
             ) : (
               onDone ? (
                 <Pressable style={styles.actionBtn} onPress={onDone} android_ripple={{ color: 'rgba(255,255,255,0.08)' }}>
+                  <BrandGradientFill />
                   <Text style={styles.actionLabel}>Done</Text>
                 </Pressable>
               ) : null
@@ -166,7 +168,7 @@ const RING = DISC + 10;
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(12,12,15,0.97)',
+    backgroundColor: alpha(MEDIA_BG, 0.97),
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
@@ -243,6 +245,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.ACCENT,
+    overflow: 'hidden',
   },
   actionBtnGhost: {
     backgroundColor: T.SURFACE_2,
@@ -252,6 +255,9 @@ const styles = StyleSheet.create({
   actionLabel: {
     fontSize: 14,
     fontFamily: T.FONT.semibold,
-    color: '#fff',
+    color: T.ACCENT_FG,
+    // lineHeight matches the 16px action icon so label + icon share the same
+    // vertical center line.
+    lineHeight: 16,
   },
 });

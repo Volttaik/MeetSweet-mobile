@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { T } from '@/constants/theme';
+import { T, alpha } from '@/constants/theme';
 import { MsAvatar } from '@/components/MsAvatar';
 
 interface MsNotificationCardProps {
@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
     borderBottomColor: T.BORDER,
   },
   rowUnread: {
-    backgroundColor: 'rgba(255,255,255,0.025)',
+    backgroundColor: alpha(T.SECONDARY, 0.05),
   },
   content: { flex: 1, gap: 4 },
   text: { lineHeight: 20 },

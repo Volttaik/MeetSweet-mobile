@@ -25,9 +25,11 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
+import { T } from '@/constants/theme';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWallet } from '@/contexts/WalletContext';
+import { realtime } from '@/services/realtime';
 
 const LAST_HANDLED_NOTIF_KEY = '@ms_last_handled_notif_id';
 
@@ -104,7 +106,7 @@ async function registerPushToken(): Promise<{ token: string | null; status: stri
       name: 'MeetSweet',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#C45A72',
+      lightColor: T.ACCENT,
       sound: 'message_received.wav',
     }).catch(() => {});
   }
@@ -348,6 +350,24 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       }
     })();
   }, [isAuthenticated]);
+
+  // ── SweetSocket: the badge is live while the app is connected ────────────
+  // Every server-side notification write emits a durable `notification.created`
+  // event on the recipient's user channel (and replays it after reconnect),
+  // so the badge updates without polling and without double-counting against
+  // the OS-push fallback above.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return realtime.on((event) => {
+      if (event.type !== 'notification.created') return;
+      const notification = (event.payload as { notification?: { type?: string; entity_type?: string | null } }).notification;
+      setNotifUnread((n) => n + 1);
+      const t = notification?.type ?? '';
+      if (t === 'payment' || t === 'purchase' || t === 'wallet' || t === 'referral_reward') {
+        refreshWallet();
+      }
+    });
+  }, [isAuthenticated, refreshWallet]);
 
   const refresh = useCallback(() => {
     fetchCounts();

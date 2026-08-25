@@ -7,16 +7,16 @@
 @layer theme {
   :root {
     @variant light {
-        --background:       #FFF9FA;
-        --foreground:       #24151B;
+        --background:       #FCF1EA;
+        --foreground:       #16063A;
        --surface:          #FFFFFF;
-       --surface-foreground: #000000;
-        --accent:           #B9536B;
-       --accent-foreground: #FFFFFF;
-        --border:           transparent;
-        --muted:            #8C6570;
-        --default:          #FFF0F2;
-        --default-foreground: #24151B;
+       --surface-foreground: #16063A;
+        --accent:           #AD078E;
+       --accent-foreground: #FCF1EA;
+        --border:           rgba(22,6,58,0.10);
+        --muted:            #7A6886;
+        --default:          #F6EBDF;
+        --default-foreground: #16063A;
 
       --font-normal:   'Poppins_400Regular';
       --font-medium:   'Poppins_500Medium';
@@ -26,16 +26,16 @@
     }
 
     @variant dark {
-       --background:       #120B10;
-       --foreground:       #FFFFFF;
-       --surface:          #21151D;
-       --surface-foreground: #FFFFFF;
-       --accent:           #D96A82;
-       --accent-foreground: #FFFFFF;
-       --border:           transparent;
-       --muted:            rgba(255,255,255,0.40);
-       --default:          #2B1A25;
-       --default-foreground: #FFFFFF;
+       --background:       #000000;
+       --foreground:       #FCF1EA;
+       --surface:          #0D041F;
+       --surface-foreground: #FCF1EA;
+       --accent:           #AD078E;
+       --accent-foreground: #FCF1EA;
+       --border:           rgba(252,241,234,0.10);
+       --muted:            #C9B7D8;
+       --default:          #140A2E;
+       --default-foreground: #FCF1EA;
 
       --font-normal:   'Poppins_400Regular';
       --font-medium:   'Poppins_500Medium';
@@ -93,7 +93,16 @@
 
   /* Prevent white background flash on body */
   body, html, #root {
-    background-color: #120B10;
-    color: #FFFFFF;
+    background-color: #000000;
+    color: #FCF1EA;
+  }
+
+  /* Web: react-native-svg renders <svg> without any positioning, so an
+     absolutely-positioned gradient layer (BrandGradientFill) paints OVER the
+     static icon beside it — icons inside gradient chips/buttons disappear.
+     Giving svg flow positioning restores native paint order: later siblings
+     (the icon) render above earlier ones (the decorative gradient). */
+  svg {
+    position: relative;
   }
 }

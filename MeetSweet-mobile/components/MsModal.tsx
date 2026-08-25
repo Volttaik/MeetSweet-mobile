@@ -22,7 +22,8 @@ import {
 } from 'react-native';
 import { X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T } from '@/constants/theme';
+import { T, alpha, MEDIA_BG } from '@/constants/theme';
+import { GradientTopFade } from '@/components/GradientTopFade';
 
 export interface MsModalProps {
   visible: boolean;
@@ -149,12 +150,13 @@ export function MsModal({
           ]}
           {...(isSheet ? panResponder.panHandlers : {})}
         >
+          {isSheet && <GradientTopFade height={56} radius={26} />}
           {isSheet && <View style={styles.handle} />}
           {(title || subtitle) && (
             <View style={styles.header}>
               <View style={styles.headerCopy}>
-                {title && <Text style={styles.title}>{title}</Text>}
-                {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+                {!!title && <Text style={styles.title}>{title}</Text>}
+                {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
               </View>
               <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.close}>
                 <X size={18} color={T.TEXT_2} />
@@ -162,7 +164,7 @@ export function MsModal({
             </View>
           )}
           <View style={styles.body}>{children}</View>
-          {footer && <View style={styles.footer}>{footer}</View>}
+          {!!footer && <View style={styles.footer}>{footer}</View>}
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
@@ -175,7 +177,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   overlay: {
-    backgroundColor: 'rgba(8,5,8,0.72)',
+    backgroundColor: alpha(MEDIA_BG, 0.72),
   },
   surface: {
     backgroundColor: T.SURFACE,
@@ -203,7 +205,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: T.BORDER_2,
     alignSelf: 'center',
     marginBottom: 16,
   },

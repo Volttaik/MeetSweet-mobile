@@ -159,14 +159,14 @@ export function MsFeedVideoCard({
         {/* Play button overlay */}
         <View style={styles.playOverlay} pointerEvents="none">
           <View style={styles.playButton}>
-            <Play size={compact ? 18 : 22} color="#fff" weight="fill" />
+            <Play size={compact ? 18 : 22} color={T.ACCENT_FG} weight="fill" />
           </View>
         </View>
 
         {/* Duration badge — bottom-right overlay */}
         {card.duration ? (
           <View style={[styles.durationBadge, compact && styles.durationBadgeCompact]} pointerEvents="none">
-            <Clock size={10} color="#fff" />
+            <Clock size={10} color={T.ACCENT_FG} />
             <Text style={styles.durationText}>{card.duration}</Text>
           </View>
         ) : null}
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     borderRadius: T.RADIUS.xs,
   },
   durationText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.semibold,
     fontSize: 11,
   },

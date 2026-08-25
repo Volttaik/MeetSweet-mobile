@@ -88,9 +88,10 @@ import type { MediaQuality } from '@/services/posts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsShimmer } from '@/components/MsShimmer';
-import { T } from '@/constants/theme';
+import { T, MEDIA_BG, AppGradients } from '@/constants/theme';
 import { MOTION } from '@/constants/motion';
 import { PressScale } from '@/components/motion/PressScale';
+import { LinearGradient } from 'expo-linear-gradient';
 import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 import {
   getCachedVideoFile,
@@ -277,6 +278,11 @@ export function MsVideoPlayer({
   // times out) we release the guard and resume live tracking.
   const pendingSeekRef   = useRef<{ target: number; at: number } | null>(null);
   const fsPendingSeekRef = useRef<{ target: number; at: number } | null>(null);
+  // Measured layout width of the player container (standard mode). The tap
+  // layer reports locationX relative to the player, so the double-tap left/right
+  // split must use the PLAYER's width, not the full window (the player can be
+  // inset / narrower than the screen in feed & detail layouts).
+  const playerWRef = useRef(windowWidth);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [isPlaying,     setIsPlaying]     = useState(false);
@@ -831,18 +837,24 @@ export function MsVideoPlayer({
     if (premiumGateRef.current) return;
     const now  = Date.now();
     const last = lastTapRef.current;
-    const W    = windowWidth;
+    // tapX is relative to the player, so split the double-tap zones by the
+    // player's measured width (not the window) to keep left/right accurate on
+    // every screen size and layout.
+    const W    = playerWRef.current;
 
     if (now - last.time < DOUBLE_TAP_MS) {
       if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
       lastTapRef.current = { time: 0, x: 0 };
       if (tapX < W / 2) {
+        // Left-side double-tap → rewind by the configured interval.
         seekBy(-SEEK_SECONDS, videoRef);
         flashLeft();
       } else {
+        // Right-side double-tap → forward by the configured interval.
         seekBy(SEEK_SECONDS, videoRef);
         flashRight();
-        spawnHeart(tapX, tapY);  // heart on right double-tap (forward seek = like gesture)
+        // NOTE: deliberately NO heart/like here — double-tap on a normal video
+        // is strictly a seek gesture. A double-tap must never Like the item.
       }
       showControls();
       return;
@@ -853,7 +865,7 @@ export function MsVideoPlayer({
       tapTimerRef.current = null;
       showControls();
     }, DOUBLE_TAP_MS);
-  }, [seekBy, flashLeft, flashRight, showControls, spawnHeart, windowWidth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seekBy, flashLeft, flashRight, showControls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fullscreen tap (ratio 0..1 from left edge) ────────────────────────────
   const handleFsPress = useCallback((tapRatio: number) => {
@@ -1171,7 +1183,10 @@ export function MsVideoPlayer({
   // ── Render ────────────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <View style={outerStyle}>
+    <View
+      style={outerStyle}
+      onLayout={(e) => { playerWRef.current = e.nativeEvent.layout.width; }}
+    >
 
       {/* ── Poster (crossfades out when video starts) ── */}
       {posterUri ? (
@@ -1191,7 +1206,11 @@ export function MsVideoPlayer({
           <Video
             ref={videoRef}
             source={{ uri: playableUri }}
-            style={StyleSheet.absoluteFill}
+            style={[
+              StyleSheet.absoluteFill,
+              // No focus ring on the <video> element itself (web).
+              Platform.OS === 'web' ? ({ outlineStyle: 'none' as never, outlineWidth: 0 } as object) : null,
+            ]}
             // Adaptive media: always CONTAIN so the full frame stays visible
             // (no cropping); unused space shows the player's black background.
             resizeMode="contain"
@@ -1232,7 +1251,7 @@ export function MsVideoPlayer({
               }}
               accessibilityLabel="Retry"
             >
-              <ArrowCounterClockwise size={15} color={T.ACCENT} />
+              <ArrowCounterClockwise size={15} color={T.PRIMARY_LIGHT} />
               <Text style={styles.retryText}>Try again</Text>
             </Pressable>
           ) : null}
@@ -1278,8 +1297,8 @@ export function MsVideoPlayer({
             accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying
-              ? <Pause size={16} color="#fff" weight="fill" />
-              : <Play  size={16} color="#fff" weight="fill" />}
+              ? <Pause size={16} color={T.ACCENT_FG} weight="fill" />
+              : <Play  size={16} color={T.ACCENT_FG} weight="fill" />}
           </PressScale>
         </Animated.View>
       ) : null}
@@ -1298,12 +1317,12 @@ export function MsVideoPlayer({
             >
               {videoEnded ? (
                 <Animated.View key="replay" entering={FadeIn.duration(MOTION.FADE_IN)}>
-                  <ArrowCounterClockwise size={19} color="#fff" weight="bold" />
+                  <ArrowCounterClockwise size={19} color={T.ACCENT_FG} weight="bold" />
                 </Animated.View>
               ) : isPlaying ? (
-                <Pause size={19} color="#fff" weight="fill" />
+                <Pause size={19} color={T.ACCENT_FG} weight="fill" />
               ) : (
-                <Play size={19} color="#fff" weight="fill" />
+                <Play size={19} color={T.ACCENT_FG} weight="fill" />
               )}
             </PressScale>
           </Animated.View>
@@ -1361,7 +1380,7 @@ export function MsVideoPlayer({
                           <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
                             {opt.label}
                           </Text>
-                          {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
+                          {active ? <Check size={13} color={T.PRIMARY_LIGHT} weight="bold" /> : null}
                         </Pressable>
                       );
                     })}
@@ -1413,9 +1432,15 @@ export function MsVideoPlayer({
       {/* ── Premium gate ── */}
       {premiumGated ? (
         <View style={styles.premiumOverlay}>
-          <View style={styles.premiumCircle}>
-            <Lock size={22} color={T.ACCENT} />
-          </View>
+          <LinearGradient
+            colors={AppGradients.brand}
+            locations={AppGradients.brandLocs}
+            start={AppGradients.brandStart}
+            end={AppGradients.brandEnd}
+            style={styles.premiumCircle}
+          >
+            <Lock size={22} color={T.ACCENT_FG} weight="fill" />
+          </LinearGradient>
           <Text style={styles.premiumTitle}>Premium content</Text>
           <Text style={styles.premiumSub}>Subscribe to keep watching</Text>
         </View>
@@ -1508,7 +1533,6 @@ function VideoTracer({
   const [dragRatio, setDragRatio] = useState<number | null>(null);
   const dragRatioRef  = useRef<number | null>(null); // live during gesture
   const grantRatioRef = useRef(0);                   // ratio at gesture start
-  const grantXRef     = useRef(0);                   // absolute x at gesture start
   const widthRef      = useRef(0);                   // tracer width (measured)
   const durationRef   = useRef(durationMs);
   const progressRef   = useRef(0);
@@ -1523,9 +1547,10 @@ function VideoTracer({
         onDragStart?.();
         const w = widthRef.current;
         if (w <= 0) return;
-        // A tap jumps straight to that spot (standard tap-to-seek); a drag
-        // continues from here via the delta below.
-        grantXRef.current = evt.nativeEvent.locationX;
+        // A tap jumps straight to that spot (standard tap-to-seek); drags
+        // continue from here via a pure screen-space delta (see onPanResponderMove).
+        // locationX is relative to THIS view, so dividing by the measured width
+        // maps the finger exactly onto the track — no screen/container offset.
         const r = Math.max(0, Math.min(1, evt.nativeEvent.locationX / w));
         grantRatioRef.current = r;
         dragRatioRef.current = r;
@@ -1534,9 +1559,15 @@ function VideoTracer({
       onPanResponderMove: (_evt, g) => {
         const w = widthRef.current;
         if (w <= 0) return;
+        // g.moveX and g.x0 are BOTH absolute screen coordinates, so their
+        // difference is a pure movement delta in the same coordinate space as
+        // the grant ratio. (Using locationX here while moveX was screen-absolute
+        // mixed coordinate systems and shifted the thumb by the bar's on-screen
+        // left offset — the horizontal seek inaccuracy that made users over/under-
+        // drag. This keeps the thumb glued under the finger for the whole drag.)
         const r = Math.max(
           0,
-          Math.min(1, grantRatioRef.current + (g.moveX - grantXRef.current) / w),
+          Math.min(1, grantRatioRef.current + (g.moveX - g.x0) / w),
         );
         dragRatioRef.current = r;
         setDragRatio(r);
@@ -1576,12 +1607,20 @@ function VideoTracer({
       accessibilityValue={{ min: 0, max: Math.max(0, durationMs), now: positionMs }}
     >
       <View style={[vt.track, { height: thickness, borderRadius: thickness / 2 }]}>
-        <View
+        <LinearGradient
+          colors={AppGradients.brand}
+          locations={AppGradients.brandLocs}
+          start={AppGradients.brandStart}
+          end={AppGradients.brandEnd}
           style={[vt.fill, { width: `${ratio * 100}%` as any, borderRadius: thickness / 2 }]}
           pointerEvents="none"
         />
         {/* Thumb — integrated into the bar, never floating above it */}
-        <View
+        <LinearGradient
+          colors={AppGradients.brand}
+          locations={AppGradients.brandLocs}
+          start={AppGradients.brandStart}
+          end={AppGradients.brandEnd}
           style={[vt.thumb, {
             width: thumbSize,
             height: thumbSize,
@@ -1622,8 +1661,6 @@ const vt = StyleSheet.create({
   thumb: {
     position: 'absolute',
     backgroundColor: T.ACCENT,
-    borderWidth: 2,
-    borderColor: '#fff',
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 4,
@@ -1641,7 +1678,7 @@ const vt = StyleSheet.create({
     justifyContent: 'center',
   },
   bubbleText: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.semibold,
     fontSize: 10,
     letterSpacing: 0.2,
@@ -2023,12 +2060,12 @@ function FullscreenModal({
             >
               {videoEnded ? (
                 <Animated.View key="fs-replay" entering={FadeIn.duration(MOTION.FADE_IN)}>
-                  <ArrowCounterClockwise size={20} color="#fff" weight="bold" />
+                  <ArrowCounterClockwise size={20} color={T.ACCENT_FG} weight="bold" />
                 </Animated.View>
               ) : isPlaying ? (
-                <Pause size={20} color="#fff" weight="fill" />
+                <Pause size={20} color={T.ACCENT_FG} weight="fill" />
               ) : (
-                <Play size={20} color="#fff" weight="fill" />
+                <Play size={20} color={T.ACCENT_FG} weight="fill" />
               )}
             </PressScale>
           </View>
@@ -2075,7 +2112,7 @@ function FullscreenModal({
                         <Text style={[styles.qualityOptionLabel, active && styles.qualityOptionActive]}>
                           {opt.label}
                         </Text>
-                        {active ? <Check size={13} color={T.ACCENT} weight="bold" /> : null}
+                        {active ? <Check size={13} color={T.PRIMARY_LIGHT} weight="bold" /> : null}
                       </Pressable>
                     );
                   })}
@@ -2092,7 +2129,7 @@ function FullscreenModal({
 const fs = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: MEDIA_BG,
   },
   topBar: {
     position: 'absolute',
@@ -2141,7 +2178,7 @@ const fs = StyleSheet.create({
     paddingVertical: 12,
   },
   orientLabel: {
-    color: '#fff',
+    color: T.ACCENT_FG,
     fontFamily: T.FONT.medium,
     fontSize: 14,
   },
@@ -2153,14 +2190,18 @@ const styles = StyleSheet.create({
   // Outer containers
   root: {
     width: '100%',
-    backgroundColor: '#050506',
+    backgroundColor: MEDIA_BG,
     overflow: 'hidden',
+    // Kill the browser's white focus ring around the player on web.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' as never, outlineWidth: 0 } as object) : {}),
   },
   player: {
     width: '100%',
-    backgroundColor: '#050506',
+    backgroundColor: MEDIA_BG,
     overflow: 'hidden',
     borderRadius: T.RADIUS.xl,
+    // Kill the browser's white focus ring around the player on web.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' as never, outlineWidth: 0 } as object) : {}),
   },
   playerFill: {
     flex: 1,
@@ -2175,14 +2216,14 @@ const styles = StyleSheet.create({
     gap: 8,
     zIndex: 4,
   },
-  errorTitle: { color: '#fff', fontFamily: T.FONT.medium, fontSize: 13 },
+  errorTitle: { color: T.ACCENT_FG, fontFamily: T.FONT.medium, fontSize: 13 },
   retryBtn:   {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: T.RADIUS.full,
     backgroundColor: 'rgba(255,255,255,0.12)', marginTop: 4,
   },
-  retryText:  { color: T.ACCENT, fontFamily: T.FONT.semibold, fontSize: 13 },
+  retryText:  { color: T.PRIMARY_LIGHT, fontFamily: T.FONT.semibold, fontSize: 13 },
 
   // Buffering overlay — always mounted; opacity animated
   // Buffering overlay — shimmer sweeps over a light dim; no spinner.
@@ -2195,7 +2236,7 @@ const styles = StyleSheet.create({
 
   // Brightness ramp overlay — sits above the video, fades from dim to clear.
   brightnessOverlay: {
-    backgroundColor: '#000',
+    backgroundColor: MEDIA_BG,
     zIndex: 3,
   },
 
@@ -2236,7 +2277,7 @@ const styles = StyleSheet.create({
     right: 6,
     zIndex: 30,
     minWidth: 116,
-    backgroundColor: '#1C1C22',
+    backgroundColor: T.SURFACE_2,
     borderRadius: 12,
     paddingVertical: 6,
     shadowColor: '#000',
@@ -2260,7 +2301,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   qualityOptionActive: {
-    color: T.ACCENT,
+    color: T.PRIMARY_LIGHT,
     fontFamily: T.FONT.semibold,
   },
 
@@ -2307,8 +2348,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
     borderRadius: T.RADIUS.full,
   },
-  seekArrow: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 15 },
-  seekSec:   { color: '#fff', fontFamily: T.FONT.semibold, fontSize: 13 },
+  seekArrow: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 15 },
+  seekSec:   { color: T.ACCENT_FG, fontFamily: T.FONT.semibold, fontSize: 13 },
 
   // Premium gate
   premiumOverlay: {
@@ -2319,9 +2360,9 @@ const styles = StyleSheet.create({
   },
   premiumCircle: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: T.ACCENT_LIGHT,
     alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+    overflow: 'hidden',
   },
-  premiumTitle: { color: '#fff', fontFamily: T.FONT.bold, fontSize: 16 },
+  premiumTitle: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 16 },
   premiumSub:   { color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 12 },
 });

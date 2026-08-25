@@ -9,19 +9,10 @@ import { SealCheck, Play, Sparkle, Users } from 'phosphor-react-native';
 import type { ContentPreview, Creator, TrendingCollection } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { T } from '@/constants/theme';
+import { T, ALBUM_TONES } from '@/constants/theme';
 
 // Fallback solid tones when no real thumbnail
-const TONE: Record<string, string> = {
-  violet:  '#1B1128',
-  rose:    '#1C0E13',
-  amber:   '#1C1508',
-  teal:    '#091A18',
-  indigo:  '#0E0F1E',
-  emerald: '#0B1A12',
-  sky:     '#091520',
-  fuchsia: '#1A0E1C',
-};
+const TONE = ALBUM_TONES;
 
 function tone(gradient: string) {
   return TONE[gradient] ?? T.SURFACE_2;
@@ -505,7 +496,7 @@ const previewStyles = StyleSheet.create({
   footer: { flexDirection: 'row', justifyContent: 'space-between', gap: 5, marginTop: 10 },
   likes: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 9 },
   locked: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 9, flexShrink: 1, textAlign: 'right' },
-  lockedPremium: { color: T.ACCENT },
+  lockedPremium: { color: T.GOLD },
 });
 
 const collectionStyles = StyleSheet.create({

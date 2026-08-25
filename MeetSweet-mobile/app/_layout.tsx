@@ -7,6 +7,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { HeroUINativeProvider } from 'heroui-native';
 import { Uniwind } from 'uniwind';
+import { IconContext } from 'phosphor-react-native';
 
 // MeetSweet is a dark-first app — force dark theme
 Uniwind.setTheme('dark');
@@ -33,7 +34,7 @@ import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
 import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
 import { markNavigatorReady } from '@/lib/nav';
 import { soundService } from '@/services/sound-service';
-import { T } from '@/constants/theme';
+import { T, MEDIA_BG } from '@/constants/theme';
 import { enableGlobalScreenProtection } from '@/lib/screen-protection';
 
 // Set native background colour immediately — prevents the white flash
@@ -145,7 +146,7 @@ function RootLayoutNav() {
       <Stack.Screen name="post/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="videos/index" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="videos/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
-      <Stack.Screen name="shorts/index" options={{ animation: 'slide_from_bottom', headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: '#000' } }} />
+      <Stack.Screen name="shorts/index" options={{ animation: 'slide_from_bottom', headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: MEDIA_BG } }} />
       <Stack.Screen name="creator/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="content/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="album/[id]" options={{ animation: 'slide_from_right', headerShown: false }} />
@@ -193,32 +194,37 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1, backgroundColor: T.BG }}>
-            <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
-              <KeyboardProvider>
-                <AuthProvider>
-                  <WalletProvider>
-                    <PostActionsProvider>
-                      <NotificationsProvider>
-                        <GlobalScreenProtection />
-                        <AppServices />
-                        <RootLayoutNav />
-                        <MsOfflineBanner />
-                        <MsToastHost />
-                        <MsGlobalDialogsHost />
-                        <HapticsGate />
-                      </NotificationsProvider>
-                    </PostActionsProvider>
-                  </WalletProvider>
-                </AuthProvider>
-              </KeyboardProvider>
-            </HeroUINativeProvider>
-          </GestureHandlerRootView>
-        </QueryClientProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    // Default every Phosphor icon to the bold weight so icon lines render
+    // thick throughout the app. Icons that set their own weight (e.g.
+    // fill/duotone) are left untouched.
+    <IconContext.Provider value={{ weight: 'bold' }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <QueryClientProvider client={queryClient}>
+            <GestureHandlerRootView style={{ flex: 1, backgroundColor: T.BG }}>
+              <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
+                <KeyboardProvider>
+                  <AuthProvider>
+                    <WalletProvider>
+                      <PostActionsProvider>
+                        <NotificationsProvider>
+                          <GlobalScreenProtection />
+                          <AppServices />
+                          <RootLayoutNav />
+                          <MsOfflineBanner />
+                          <MsToastHost />
+                          <MsGlobalDialogsHost />
+                          <HapticsGate />
+                        </NotificationsProvider>
+                      </PostActionsProvider>
+                    </WalletProvider>
+                  </AuthProvider>
+                </KeyboardProvider>
+              </HeroUINativeProvider>
+            </GestureHandlerRootView>
+          </QueryClientProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </IconContext.Provider>
   );
 }

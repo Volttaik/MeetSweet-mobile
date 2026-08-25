@@ -10,6 +10,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { T } from '@/constants/theme';
+import { GradientText } from '@/components/GradientText';
 
 export default function HomeTransition() {
   const containerOpacity = useSharedValue(0);
@@ -44,11 +45,10 @@ export default function HomeTransition() {
           source={require('../assets/images/logo.png')}
           style={styles.logo}
           resizeMode="contain"
-          tintColor="#FFFFFF"
         />
-        <Text style={styles.appName}>MeetSweet</Text>
+        <GradientText text="MeetSweet" style={styles.appName} />
         <Text style={styles.subtitle}>Preparing your feed…</Text>
-        <Spinner size="sm" color="#FFFFFF" style={styles.spinner} />
+        <Spinner size="sm" color={T.ACCENT_FG} style={styles.spinner} />
       </Animated.View>
     </View>
   );
@@ -64,10 +64,10 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', gap: 10 },
   logo: { width: 56, height: 56, marginBottom: 8 },
   appName: {
-    fontSize: 27,
-    fontFamily: T.FONT.bold,
     color: T.TEXT,
-    letterSpacing: -0.5,
+    fontSize: 17,
+    fontFamily: T.FONT.bold,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,

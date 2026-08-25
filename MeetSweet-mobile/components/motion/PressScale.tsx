@@ -6,7 +6,7 @@
  * feels identically responsive.
  */
 import React from 'react';
-import { Pressable, StyleProp, ViewStyle, PressableProps } from 'react-native';
+import { Platform, Pressable, StyleProp, ViewStyle, PressableProps } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { MOTION } from '@/constants/motion';
 
@@ -22,7 +22,11 @@ export function PressScale({ children, style, onPressIn, onPressOut, ...rest }: 
   return (
     <Animated.View style={animStyle}>
       <Pressable
-        style={style}
+        style={[
+          style,
+          // No browser focus ring around video-control buttons on web.
+          Platform.OS === 'web' ? ({ outlineStyle: 'none' as never, outlineWidth: 0 } as object) : null,
+        ]}
         onPressIn={(e) => {
           scale.value = withSpring(MOTION.PRESS_SCALE, { damping: 14, stiffness: 400 });
           onPressIn?.(e);
