@@ -18,7 +18,7 @@ import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'reac
 import { CheckCircle, WarningCircle, ArrowCounterClockwise } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 
-const LOGO = require('../../assets/images/logo.png');
+const LOGO = require('../assets/images/logo.png');
 
 interface Props {
   /** When true, the loader is rendered full-screen on top of everything. */

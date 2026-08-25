@@ -1,0 +1,15 @@
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { ArrowLeft } from 'phosphor-react-native';
+import { T } from '@/constants/theme';
+import { getMessagingSettings, sendPrivateMessage } from '@/services/private-inbox';
+
+export default function ComposePrivateMessage() {
+  const { creatorId } = useLocalSearchParams<{ creatorId?: string }>();
+  const [body, setBody] = useState(''); const [price, setPrice] = useState<number | null>(null); const [canMessage, setCanMessage] = useState(true); const [loading, setLoading] = useState(Boolean(creatorId)); const [sending, setSending] = useState(false);
+  useEffect(() => { if (!creatorId) return; getMessagingSettings(creatorId).then((s) => { setPrice(s.price); setCanMessage(s.can_message); }).catch(() => setCanMessage(false)).finally(() => setLoading(false)); }, [creatorId]);
+  const send = async () => { if (!creatorId || !body.trim() || !canMessage) return; setSending(true); try { await sendPrivateMessage({ recipientId: creatorId, body: body.trim(), idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2)}` }); Alert.alert('Sent', 'Your private message was delivered.'); router.replace('/messages' as any); } catch (e) { Alert.alert('Could not send', e instanceof Error ? e.message : 'Please try again.'); } finally { setSending(false); } };
+  return <View style={styles.screen}><View style={styles.header}><Pressable onPress={() => router.back()}><ArrowLeft color={T.TEXT} /></Pressable><Text style={styles.title}>New Private Message</Text><View /></View>{loading ? <ActivityIndicator color={T.ACCENT} /> : !creatorId ? <Text style={styles.error}>Choose a creator first.</Text> : !canMessage ? <Text style={styles.error}>This creator is not accepting private messages.</Text> : <><Text style={styles.price}>Delivery price: ₦{(price ?? 0).toLocaleString()}</Text><TextInput value={body} onChangeText={setBody} multiline maxLength={5000} placeholder="Write your correspondence…" placeholderTextColor={T.TEXT_3} style={styles.input} /><Pressable disabled={sending || !body.trim()} onPress={send} style={[styles.button, (!body.trim() || sending) && styles.disabled]}>{sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Confirm and Send</Text>}</Pressable></>}</View>;
+}
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: T.BG, padding: 18 }, header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14 }, title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 19 }, price: { color: T.ACCENT, fontFamily: T.FONT.semibold, marginVertical: 16 }, input: { minHeight: 180, padding: 16, backgroundColor: T.SURFACE, borderRadius: 14, color: T.TEXT, textAlignVertical: 'top' }, button: { marginTop: 18, padding: 16, borderRadius: 28, backgroundColor: T.ACCENT, alignItems: 'center' }, disabled: { opacity: .5 }, buttonText: { color: '#fff', fontFamily: T.FONT.semibold }, error: { color: T.TEXT_2, textAlign: 'center', marginTop: 40 } });

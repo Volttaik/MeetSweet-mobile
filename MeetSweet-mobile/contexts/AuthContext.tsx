@@ -5,6 +5,7 @@ import { apiFetch, ApiError, refreshAccessToken, setSessionExpiredHandler } from
 import { clearUserCache } from '@/lib/posts-db';
 import { uploadMedia } from '@/services/media';
 import { peekPendingAvatar, clearPendingAvatar } from '@/lib/pending-avatar';
+import { realtime } from '@/services/realtime';
 import {
   loadSession,
   saveSessionTokens,
@@ -149,6 +150,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const clearAuth = useCallback(async () => {
+    realtime.stop();
+    realtime.setUserChannel(null);
     const currentUserId = state.user?.id;
     await clearSessionStorage();
     if (currentUserId) {
@@ -197,6 +200,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const fresh = await refreshAccessToken(refreshToken);
     if (!fresh) throw new Error('Refresh failed');
     const user = await fetchCurrentUser(fresh);
+    realtime.setUserChannel(user.id);
+    void realtime.start();
     setState({
       user,
       accessToken: fresh,
@@ -212,6 +217,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { accessToken, refreshToken, user } = await loadSession();
 
         if (accessToken && user) {
+          realtime.setUserChannel(user.id);
+          void realtime.start();
           // Immediately set cached session so user is logged in instantly
           setState({ user, accessToken, isLoading: false, isAuthenticated: true });
 
@@ -285,6 +292,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const user = normalizeUser(result.user);
     await saveSessionTokens(result.access_token, result.refresh_token, user);
 
+    realtime.setUserChannel(user.id);
+    void realtime.start();
     setState({
       user,
       accessToken: result.access_token,
@@ -310,6 +319,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const user = normalizeUser(result.user);
     await saveSessionTokens(result.access_token, result.refresh_token, user);
 
+    realtime.setUserChannel(user.id);
+    void realtime.start();
     setState({
       user,
       accessToken: result.access_token,
@@ -360,6 +371,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    realtime.stop();
+    realtime.setUserChannel(null);
     try {
       const accessToken = await getAccessToken();
       if (accessToken) {

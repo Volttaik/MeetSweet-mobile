@@ -12,6 +12,7 @@ import type { User } from '@/contexts/AuthContext';
 
 const KEYS = {
   ACCESS_TOKEN: '@ms_access_token',
+  REALTIME_SEQ: '@ms_realtime_seq',
   REFRESH_TOKEN: '@ms_refresh_token',
   USER: '@ms_user',
 } as const;
@@ -263,6 +264,17 @@ export async function getRefreshToken(): Promise<string | null> {
 /**
  * Clear session tokens and user state from SQLite and AsyncStorage.
  */
+export async function getLastRealtimeSeq(): Promise<number> {
+  const value = await AsyncStorage.getItem(KEYS.REALTIME_SEQ).catch(() => null);
+  const seq = Number(value ?? 0);
+  return Number.isFinite(seq) && seq > 0 ? seq : 0;
+}
+
+export async function setLastRealtimeSeq(seq: number): Promise<void> {
+  if (!Number.isFinite(seq) || seq < 0) return;
+  await AsyncStorage.setItem(KEYS.REALTIME_SEQ, String(Math.floor(seq))).catch(() => {});
+}
+
 export async function clearSessionStorage(): Promise<void> {
   try {
     const ss = await getSecureStore();

@@ -22,11 +22,9 @@ const SOUNDS_ENABLED_KEY = 'ms_sounds_enabled_v1';
  *  silently grows an unbounded set. */
 const PLAYED_CAP = 400;
 
-type SoundName = 'sent' | 'received' | 'success';
+type SoundName = 'success';
 
 const SOUND_SOURCES: Record<SoundName, number> = {
-  sent: require('@/assets/sounds/message-sent.mp3'),
-  received: require('@/assets/sounds/message-received.mp3'),
   success: require('@/assets/sounds/success.mp3'),
 };
 
@@ -82,13 +80,13 @@ class SoundService {
 
   /** Outgoing message confirmation. `key` = client message id (one play per send). */
   playMessageSent(key?: string): void {
-    void this.play('sent', key);
+    void this.play('success', key);
   }
 
   /** Incoming message. `key` = client message id ?? server message id, so a
    *  provisional + persisted copy of the SAME message can never play twice. */
   playMessageReceived(key?: string): void {
-    void this.play('received', key);
+    void this.play('success', key);
   }
 
   /** Occasional confirmation for an important completed action. */

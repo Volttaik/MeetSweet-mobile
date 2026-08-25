@@ -40,7 +40,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { Sparkle } from 'phosphor-react-native';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
-import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
+import { MsRoomCreationLoader } from '@/components/MsRoomCreationLoader';
 import { uploadMedia } from '@/services/media';
 import { createAlbum } from '@/services/albums';
 import { getCategories, type Category } from '@/services/categories';

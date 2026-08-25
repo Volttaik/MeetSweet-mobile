@@ -578,6 +578,10 @@ export default function CreatorProfileScreen() {
     setSheetOpen(true);
   };
 
+  const openPrivateMessage = () => {
+    if (id) router.push({ pathname: '/compose-private-message', params: { creatorId: id } } as any);
+  };
+
   // Open a piece of content. Locked (subscriber-gated) content routes to the
   // subscribe sheet instead of the detail screen so the user can unlock it.
   const openPost = (post: Post) => {
@@ -989,6 +993,15 @@ export default function CreatorProfileScreen() {
                   )}
                 </>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.messageButton}
+              onPress={openPrivateMessage}
+              activeOpacity={0.85}
+            >
+              <ChatCircle size={16} color={T.TEXT} />
+              <Text style={styles.messageBtnLabel}>Private message</Text>
             </TouchableOpacity>
 
             {isSubscribed && currentTier === 'subscriber' && (

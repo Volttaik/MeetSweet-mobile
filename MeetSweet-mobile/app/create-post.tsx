@@ -32,7 +32,7 @@ import {
 } from 'phosphor-react-native';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { MsTierBadge } from '@/components/MsTierBadge';
-import { MsRoomCreationLoader } from '@/components/chat/MsRoomCreationLoader';
+import { MsRoomCreationLoader } from '@/components/MsRoomCreationLoader';
 import { T } from '@/constants/theme';
 import { uploadMedia } from '@/services/media';
 import { createPost } from '@/services/posts';
