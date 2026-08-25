@@ -12,6 +12,33 @@ export interface SubscribeResult {
   subscriberCount?: number;
 }
 
+/** A creator the current user actively subscribes to (GET /api/subscriptions). */
+export interface SubscribedCreator {
+  id: string;
+  status: string;
+  tier: string | null;
+  creator_id: string;
+  creator_name: string | null;
+  creator_username: string | null;
+  creator_avatar: string | null;
+}
+
+/**
+ * The current user's active subscriptions — the creators they can privately
+ * message. Used by the Private Messages composer picker. Server-authoritative:
+ * the list comes from GET /api/subscriptions?type=subscribed and is filtered
+ * to active rows here (a cancelled/expired subscription must not appear).
+ */
+export async function listMySubscriptions(): Promise<SubscribedCreator[]> {
+  const token = await getAccessToken();
+  if (!token) throw new Error('Not authenticated');
+  const res = await authFetch<{ subscriptions: SubscribedCreator[] }>(
+    '/subscriptions?type=subscribed',
+    token,
+  );
+  return (res?.subscriptions ?? []).filter((s) => s.status === 'active');
+}
+
 /**
  * Subscribe (or re-confirm an existing subscription) to a creator.
  * Idempotent server-side: re-subscribing an active subscription returns the

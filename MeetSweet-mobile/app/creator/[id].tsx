@@ -23,9 +23,9 @@ import {
   ArrowLeft,
   CaretRight,
   Check,
-  SealCheck,
   ChatCircle,
   Lock,
+  SealCheck,
   Sparkle,
   Star,
   Users,
@@ -175,9 +175,7 @@ const PLANS: Array<{
   key: SubscribePlan;
   label: string;
   tagline: string;
-  color: string;
-  bg: string;
-  fg: string;
+  premium: boolean;
   priceKey: 'subscriptionPrice' | 'subscriptionPlusPrice';
   perks: string[];
 }> = [
@@ -185,9 +183,7 @@ const PLANS: Array<{
     key:      'subscriber',
     label:    'Subscriber',
     tagline:  'Perfect for fans',
-    color:    T.SUBSCRIPTION,
-    bg:       alpha(T.SUBSCRIPTION, 0.10),
-    fg:       T.ACCENT_FG,
+    premium:  false,
     priceKey: 'subscriptionPrice',
     perks:    ['All subscriber posts & videos', 'Direct messaging', 'Exclusive subscriber feed'],
   },
@@ -195,9 +191,7 @@ const PLANS: Array<{
     key:      'subscriber_plus',
     label:    'Subscriber+',
     tagline:  'For the biggest supporters',
-    color:    T.GOLD,
-    bg:       alpha(T.GOLD, 0.10),
-    fg:       T.ACCENT_FG,
+    premium:  true,
     priceKey: 'subscriptionPlusPrice',
     perks:    ['Everything in Subscriber', 'Exclusive Subscriber+ content', 'Priority support & access'],
   },
@@ -242,7 +236,6 @@ function SubscribeSheet({
     }
   }, [isSubscribed, currentTier]);
 
-  const planCfg  = PLANS.find((p) => p.key === selectedPlan)!;
   // Real prices only — no fabricated fallback amounts. A creator without a
   // configured price shows "Free" rather than an invented ₦200/₦500 figure.
   const price    = selectedPlan === 'subscriber'
@@ -279,7 +272,7 @@ function SubscribeSheet({
             </Text>
           </View>
 
-          {/* Plan cards */}
+          {/* Plan cards — selected plan wears the platform-gradient border */}
           <View style={shStyles.plansWrap}>
             {PLANS.map((plan) => {
               const active = selectedPlan === plan.key;
@@ -290,29 +283,30 @@ function SubscribeSheet({
               const planPrice = plan.key === 'subscriber'
                 ? (creatorProfile?.subscriptionPrice ?? 0)
                 : (creatorProfile?.subscriptionPlusPrice ?? 0);
-              return (
+              const PlanIcon = plan.key === 'subscriber_plus' ? UserPlus : Users;
+
+              const card = (
                 <TouchableOpacity
                   key={plan.key}
                   style={[
                     shStyles.tierCard,
-                    { borderColor: active ? plan.color : T.BORDER },
-                    active && { backgroundColor: plan.bg },
+                    active && shStyles.tierCardActive,
                   ]}
                   onPress={() => setSelectedPlan(plan.key)}
                   activeOpacity={0.85}
                 >
                   {/* Top row */}
                   <View style={shStyles.tierTop}>
-                    <View style={[shStyles.tierBadge, { backgroundColor: plan.bg }]}>
-                      {plan.key === 'subscriber_plus' ? (
-                        <UserPlus size={17} color={plan.color} weight="fill" />
-                      ) : (
-                        <Users size={17} color={plan.color} weight="fill" />
-                      )}
+                    <View style={[
+                      shStyles.tierBadge,
+                      active ? shStyles.tierBadgeActive : shStyles.tierBadgeIdle,
+                    ]}>
+                      {active && <BrandGradientFill />}
+                      <PlanIcon size={17} color={active ? '#FFFFFF' : T.TEXT_2} weight="fill" />
                     </View>
                     <View style={shStyles.tierLabelWrap}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={[shStyles.tierName, active && { color: plan.color }]}>
+                        <Text style={shStyles.tierName}>
                           {plan.label}
                         </Text>
                         {isUserTier && (
@@ -324,9 +318,16 @@ function SubscribeSheet({
                       <Text style={shStyles.tierTagline}>{plan.tagline}</Text>
                     </View>
                     <View style={shStyles.tierPriceWrap}>
-                      <Text style={[shStyles.tierPriceMain, active && { color: plan.color }]}>
-                        {planPrice > 0 ? `₦${planPrice.toLocaleString()}` : 'Free'}
-                      </Text>
+                      {plan.premium ? (
+                        <GradientText
+                          text={planPrice > 0 ? `₦${planPrice.toLocaleString()}` : 'Free'}
+                          style={shStyles.tierPriceGradient}
+                        />
+                      ) : (
+                        <Text style={[shStyles.tierPriceMain, active && { color: T.SUBSCRIPTION }]}>
+                          {planPrice > 0 ? `₦${planPrice.toLocaleString()}` : 'Free'}
+                        </Text>
+                      )}
                       {planPrice > 0 && <Text style={shStyles.tierPriceSub}>/month</Text>}
                     </View>
                   </View>
@@ -335,13 +336,22 @@ function SubscribeSheet({
                   <View style={shStyles.perksWrap}>
                     {plan.perks.map((perk) => (
                       <View key={perk} style={shStyles.perkRow}>
-                        <View style={[shStyles.perkDot, { backgroundColor: active ? plan.color : T.TEXT_3 }]} />
+                        <View style={[shStyles.perkDot, { backgroundColor: active ? T.SECONDARY : T.TEXT_3 }]} />
                         <Text style={[shStyles.perkText, active && { color: T.TEXT }]}>{perk}</Text>
                       </View>
                     ))}
                   </View>
                 </TouchableOpacity>
               );
+
+              // The selected tier gets a thin gradient ring (1.5px padding with
+              // the brand gradient behind the card) instead of a flat border.
+              return active ? (
+                <View key={plan.key} style={shStyles.tierCardBorder}>
+                  <BrandGradientFill />
+                  <View style={shStyles.tierCardBorderInner}>{card}</View>
+                </View>
+              ) : card;
             })}
           </View>
 
@@ -358,7 +368,7 @@ function SubscribeSheet({
             </Text>
           </View>
 
-          {/* CTA */}
+          {/* CTA — gradient when affordable, brand outline when funds are short */}
           {isCurrentPlan ? (
             <View style={[shStyles.primaryBtn, { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER }]}>
               <Text style={[shStyles.primaryLabel, { color: T.TEXT_2 }]}>Current Active Plan</Text>
@@ -367,7 +377,7 @@ function SubscribeSheet({
             <TouchableOpacity
               style={[
                 shStyles.primaryBtn,
-                canAfford ? { backgroundColor: planCfg.color } : shStyles.primaryBtnOutline,
+                canAfford ? { backgroundColor: T.SECONDARY } : shStyles.primaryBtnOutline,
                 (subscribing || !canAfford) && { opacity: 0.85 },
               ]}
               activeOpacity={0.85}
@@ -378,10 +388,10 @@ function SubscribeSheet({
               {subscribing ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <Spinner size="sm" color="default" />
-                  <Text style={[shStyles.primaryLabel, { color: planCfg.fg }]}>Processing payment…</Text>
+                  <Text style={[shStyles.primaryLabel, { color: T.ACCENT_FG }]}>Processing payment…</Text>
                 </View>
               ) : (
-                <Text style={[shStyles.primaryLabel, { color: !canAfford ? T.ACCENT : planCfg.fg }]}>
+                <Text style={[shStyles.primaryLabel, { color: !canAfford ? T.SECONDARY : T.ACCENT_FG }]}>
                   {canAfford
                     ? (price === 0
                         ? (isSubscribed && selectedPlan === 'subscriber_plus'
@@ -442,8 +452,27 @@ const shStyles = StyleSheet.create({
   tierCard: {
     borderRadius: T.RADIUS.lg,
     borderWidth: 1.5,
+    borderColor: T.BORDER,
+    backgroundColor: T.SURFACE,
     padding: 14,
     gap: 10,
+  },
+  tierCardActive: {
+    borderColor: 'transparent',
+    backgroundColor: T.SURFACE,
+  },
+  tierBadgeActive: { overflow: 'hidden' },
+  tierBadgeIdle: { backgroundColor: T.SURFACE_2 },
+  tierPriceGradient: { fontSize: 18, fontFamily: T.FONT.bold, letterSpacing: -0.5 },
+  tierCardBorder: {
+    borderRadius: T.RADIUS.lg,
+    padding: 1.5,
+    overflow: 'hidden',
+  },
+  tierCardBorderInner: {
+    borderRadius: T.RADIUS.lg - 1,
+    overflow: 'hidden',
+    backgroundColor: T.SURFACE,
   },
   tierTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   tierBadge: {
@@ -896,7 +925,7 @@ export default function CreatorProfileScreen() {
         <Pressable style={styles.backButton} onPress={() => goBack()} accessibilityLabel="Back">
           <ArrowLeft size={20} color={T.TEXT} />
         </Pressable>
-        <Text style={styles.headerTitle}>Creator profile</Text>
+        <GradientText text="Creator profile" style={styles.headerTitle} />
         <Pressable style={styles.moreButton} onPress={() => setMoreSheetOpen(true)}>
           <Sparkle size={17} color={T.TEXT_2} />
         </Pressable>
@@ -975,16 +1004,15 @@ export default function CreatorProfileScreen() {
               style={[
                 styles.subscribeBtnWrap,
                 isSubscribed && styles.subscribeButtonSubscribed,
-                currentTier === 'subscriber_plus' && styles.subscribeButtonPlus,
               ]}
               onPress={handleSubscribePress}
               activeOpacity={0.85}
             >
               {currentTier === 'subscriber_plus' ? (
-                <View style={styles.subscribeButton}>
-                  <Star size={16} color={T.GOLD} weight="fill" />
+                <LinearGradient colors={AppGradients.brand} locations={AppGradients.brandLocs} style={styles.subscribeButton}>
+                  <Star size={16} color={T.ACCENT_FG} weight="fill" />
                   <Text style={styles.subscribeBtnLabelPlus}>Subscriber+</Text>
-                </View>
+                </LinearGradient>
               ) : isSubscribed ? (
                 <View style={styles.subscribeButton}>
                   <Check size={16} color={T.TEXT_2} weight="bold" />
@@ -1009,18 +1037,22 @@ export default function CreatorProfileScreen() {
               onPress={openPrivateMessage}
               activeOpacity={0.85}
             >
-              <ChatCircle size={16} color={T.TEXT} />
+              <BrandGradientFill />
+              <ChatCircle size={16} color={T.ACCENT_FG} weight="bold" />
               <Text style={styles.messageBtnLabel}>Private message</Text>
             </TouchableOpacity>
 
             {isSubscribed && currentTier === 'subscriber' && (
               <TouchableOpacity
-                style={styles.upgradeButton}
+                style={styles.upgradeWrap}
                 onPress={handleSubscribePress}
                 activeOpacity={0.85}
               >
-                <Star size={16} color={T.GOLD} weight="fill" />
-                <Text style={styles.upgradeBtnLabel}>Upgrade</Text>
+                <BrandGradientFill />
+                <View style={styles.upgradeButton}>
+                  <Star size={16} color={T.ACCENT_FG} weight="fill" />
+                  <Text style={styles.upgradeBtnLabel}>Upgrade</Text>
+                </View>
               </TouchableOpacity>
             )}
           </View>
@@ -1032,7 +1064,8 @@ export default function CreatorProfileScreen() {
         {contentLocked ? (
           <View style={styles.lockPanel}>
             <View style={styles.lockIcon}>
-              <Lock size={26} color={T.GOLD} weight="fill" />
+              <BrandGradientFill />
+              <Lock size={26} color={T.ACCENT_FG} weight="fill" />
             </View>
             <Text style={styles.lockTitle}>Subscriber-only content</Text>
             <Text style={styles.lockText}>
@@ -1264,7 +1297,7 @@ export default function CreatorProfileScreen() {
                 <Text style={styles.infoLabel}>Verified</Text>
                 {creator.isVerified ? (
                   <View style={styles.verifiedValueRow}>
-                    <SealCheck size={14} color={T.SECONDARY_LIGHT} weight="fill" />
+                    <SealCheck size={14} color={T.TEXT} weight="fill" />
                     <Text style={styles.infoValue}>Verified creator</Text>
                   </View>
                 ) : (
@@ -1571,38 +1604,37 @@ const styles = StyleSheet.create({
     borderColor: T.BORDER,
   },
   subscribeBtnLabelSubscribed: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.TEXT_2 },
-  subscribeButtonPlus: {
-    backgroundColor: alpha(T.GOLD, 0.14),
-    borderWidth: 1,
-    borderColor: alpha(T.GOLD, 0.45),
-  },
-  subscribeBtnLabelPlus: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.GOLD },
-  upgradeButton: {
+  subscribeBtnLabelPlus: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
+  upgradeWrap: {
     height: 52,
-    paddingHorizontal: 20,
     borderRadius: T.RADIUS.full,
-    backgroundColor: alpha(T.GOLD, 0.12),
-    borderWidth: 1,
-    borderColor: alpha(T.GOLD, 0.45),
+    padding: 1.5,
+    overflow: 'hidden',
+  },
+  upgradeButton: {
+    flex: 1,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.black,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  upgradeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.GOLD },
+  upgradeBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
 
   // Message button
   messageButton: {
     width: '100%', marginTop: 10, height: 52,
-    borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE_2,
-    borderWidth: 1, borderColor: T.BORDER_2,
+    borderRadius: T.RADIUS.full,
+    overflow: 'hidden',
+    backgroundColor: T.SECONDARY,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   messageButtonDisabled: {
     backgroundColor: T.SURFACE,
     borderColor: T.BORDER,
   },
-  messageBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.BG },
+  messageBtnLabel: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
   messageBtnLabelLocked: { fontSize: 15, fontFamily: T.FONT.semibold, color: T.INBOX },
   messageBtnLabelDisabled: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT_3 },
 
@@ -1616,8 +1648,7 @@ const styles = StyleSheet.create({
   },
   lockIcon: {
     width: 68, height: 68, borderRadius: 34,
-    backgroundColor: alpha(T.GOLD, 0.12),
-    borderWidth: 1, borderColor: alpha(T.GOLD, 0.4),
+    overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 6,
   },

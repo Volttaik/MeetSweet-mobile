@@ -847,6 +847,7 @@ export default function CreatorDashboardScreen() {
                     onChangeText={setPriceDraft}
                     keyboardType="numeric"
                     style={styles.priceInput}
+                    selectionColor={T.CARET}
                     autoFocus
                     selectTextOnFocus
                   />
@@ -882,6 +883,7 @@ export default function CreatorDashboardScreen() {
                     onChangeText={setPriceDraft}
                     keyboardType="numeric"
                     style={styles.priceInput}
+                    selectionColor={T.CARET}
                     autoFocus
                     selectTextOnFocus
                   />
@@ -934,6 +936,7 @@ export default function CreatorDashboardScreen() {
                     onChangeText={setPriceDraft}
                     keyboardType="numeric"
                     style={styles.priceInput}
+                    selectionColor={T.CARET}
                     autoFocus
                     selectTextOnFocus
                   />

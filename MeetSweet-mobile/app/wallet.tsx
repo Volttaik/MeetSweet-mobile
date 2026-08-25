@@ -714,6 +714,7 @@ export default function WalletScreen() {
                 onChangeText={(v) => setCustomAmount(v.replace(/\D/g, ''))}
                 placeholder="Enter amount (min ₦500)"
                 placeholderTextColor={T.TEXT_3}
+                selectionColor={T.CARET}
                 keyboardType="numeric"
                 maxLength={8}
                 autoFocus

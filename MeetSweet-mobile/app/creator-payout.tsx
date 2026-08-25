@@ -250,6 +250,7 @@ function BankDetailsSheet({
               onChangeText={(t) => setAccountNumber(t.replace(/\D/g, '').slice(0, 10))}
               placeholder="10-digit account number"
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               keyboardType="numeric"
               maxLength={10}
             />
@@ -264,6 +265,7 @@ function BankDetailsSheet({
               onChangeText={setAccountName}
               placeholder={resolvingName ? 'Resolving account name…' : 'Account name'}
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               autoCapitalize="words"
               editable={!resolvingName}
             />
@@ -425,6 +427,7 @@ function WithdrawAmountSheet({
               onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
               placeholder="0"
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               keyboardType="numeric"
               autoFocus
             />
@@ -803,6 +806,7 @@ export default function CreatorPayoutScreen() {
               onChangeText={(t) => setOtpValue(t.replace(/[^0-9]/g, '').slice(0, 6))}
               placeholder="••••••"
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               keyboardType="number-pad"
               autoFocus
             />
