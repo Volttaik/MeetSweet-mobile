@@ -175,6 +175,38 @@ export function useComments(postId: string) {
   // Realtime: authoritative comment count for the post, updated live by events.
   const [liveCommentCount, setLiveCommentCount] = useState<number | null>(null);
 
+  // Thread mutation registry: every rendered top-level CommentRow registers a
+  // mutator for its own reply thread. The composer (or any handler) can then
+  // insert / update / remove a reply inside the exact thread that owns it,
+  // without knowing that thread's internal state.
+  const threadMutatorsRef = useRef<
+    Map<string, (mutator: (prev: Comment[]) => Comment[]) => void>
+  >(new Map());
+
+  const registerThreadMutation = useCallback(
+    (rootId: string, fn: (mutator: (prev: Comment[]) => Comment[]) => void) => {
+      threadMutatorsRef.current.set(rootId, fn);
+    },
+    [],
+  );
+
+  const mutateThread = useCallback((rootId: string, mutator: (prev: Comment[]) => Comment[]) => {
+    threadMutatorsRef.current.get(rootId)?.(mutator);
+  }, []);
+
+  // Apply an update to a comment wherever it lives — the top-level list or any
+  // loaded thread (a comment id exists in exactly one place, so fanning the
+  // update over every registered thread is a no-op everywhere but the owner).
+  const applyToComment = useCallback(
+    (commentId: string, fn: (c: Comment) => Comment) => {
+      setComments((prev) => prev.map((c) => (c.id === commentId ? fn(c) : c)));
+      threadMutatorsRef.current.forEach((mutate) => {
+        mutate((prev) => prev.map((c) => (c.id === commentId ? fn(c) : c)));
+      });
+    },
+    [setComments],
+  );
+
   const refresh = useCallback(async (isPullToRefresh = false) => {
     if (isPullToRefresh) setIsRefreshing(true);
     else setIsLoading(true);
@@ -262,7 +294,151 @@ export function useComments(postId: string) {
     liveCommentCount,
     commentRoomId,
     commentsEnabled,
+    registerThreadMutation,
+    mutateThread,
+    applyToComment,
   };
+}
+
+// ─── Comment Row ──────────────────────────────────────────────────────────────
+
+// ─── Reply Thread (nested, arbitrary depth) ─────────────────────────────────
+
+interface ThreadNode {
+  comment: Comment;
+  children: ThreadNode[];
+}
+
+/**
+ * Build the reply tree from a flat list of descendants. The tree is derived
+ * ONLY from each row's exact parentId, so two replies to the same parent can
+ * never become parent/child of each other. Rows whose parent was deleted (and
+ * is therefore absent) are re-parented to the thread root so nothing is lost.
+ */
+function buildThreadTree(comments: Comment[]): ThreadNode[] {
+  const nodes = new Map<string, ThreadNode>();
+  for (const c of comments) nodes.set(c.id, { comment: c, children: [] });
+  const roots: ThreadNode[] = [];
+  for (const c of comments) {
+    const node = nodes.get(c.id);
+    if (!node) continue;
+    const parent = c.parentId ? nodes.get(c.parentId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+interface ThreadNodeProps {
+  node: ThreadNode;
+  currentUserId: string;
+  onLike: (id: string) => void;
+  onUnlike: (id: string) => void;
+  onDelete: (id: string, threadRootId?: string | null) => void;
+  onEdit?: (comment: Comment, threadRootId?: string | null) => void;
+  onReply?: (comment: Comment, threadRootId?: string | null) => void;
+}
+
+function ThreadNodes({ nodes, ...rest }: { nodes: ThreadNode[] } & Omit<ThreadNodeProps, 'node'>) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <ThreadNode key={node.comment.id} node={node} {...rest} />
+      ))}
+    </>
+  );
+}
+
+function ThreadNode({ node, currentUserId, onLike, onUnlike, onDelete, onEdit, onReply }: ThreadNodeProps) {
+  const c = node.comment;
+  const isOwn = c.author.id === currentUserId;
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <View>
+      <View style={styles.replyRow}>
+        <MsAvatar
+          size={24}
+          initials={nameInitials(c.author.name)}
+          imageUri={c.author.avatarUrl ?? undefined}
+        />
+        <View style={styles.commentBodyWrap}>
+          <View style={styles.commentHeader}>
+            <Text style={styles.authorName} numberOfLines={1}>
+              {c.author.name}
+            </Text>
+            {!!c.author.username && (
+              <Text style={styles.authorHandle} numberOfLines={1}>
+                @{c.author.username}
+              </Text>
+            )}
+            <Text style={styles.timeAgo}>{fmtTimeAgo(c.createdAt)}</Text>
+          </View>
+
+          <Text style={styles.commentText}>{c.body}</Text>
+
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => (c.likedByMe ? onUnlike(c.id) : onLike(c.id))}
+              hitSlop={8}
+            >
+              {c.likedByMe ? (
+                <Heart size={12} color={T.SECONDARY} weight="fill" />
+              ) : (
+                <Heart size={12} color={T.TEXT_3} weight="bold" />
+              )}
+              {c.likeCount > 0 && (
+                <Text style={[styles.actionCount, c.likedByMe && styles.actionCountLiked]}>
+                  {c.likeCount}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {onReply && (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onReply(c)}
+                hitSlop={8}
+              >
+                <ArrowBendUpLeft size={12} color={T.TEXT_3} />
+                <Text style={styles.actionLabel}>Reply</Text>
+              </TouchableOpacity>
+            )}
+
+            {isOwn && onEdit && (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onEdit(c)}
+                hitSlop={8}
+              >
+                <Pencil size={12} color={T.TEXT_3} />
+                <Text style={styles.actionLabel}>Edit</Text>
+              </TouchableOpacity>
+            )}
+
+            {isOwn && (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onDelete(c.id)}
+                hitSlop={8}
+              >
+                <Trash size={12} color={T.TEXT_3} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {hasChildren && (
+        // Each level's children are indented and separated by a subtle
+        // vertical thread line that visually hangs off the parent reply.
+        <View style={styles.threadNested}>
+          <ThreadNodes nodes={node.children} currentUserId={currentUserId} onLike={onLike} onUnlike={onUnlike} onDelete={onDelete} onEdit={onEdit} onReply={onReply} />
+        </View>
+      )}
+    </View>
+  );
 }
 
 // ─── Comment Row ──────────────────────────────────────────────────────────────
@@ -274,9 +450,10 @@ interface CommentRowProps {
   showDivider?: boolean;
   onLike: (id: string) => void;
   onUnlike: (id: string) => void;
-  onDelete: (id: string) => void;
-  onEdit?: (comment: Comment) => void;
-  onReply?: (comment: Comment) => void;
+  onDelete: (id: string, threadRootId?: string | null) => void;
+  onEdit?: (comment: Comment, threadRootId?: string | null) => void;
+  onReply?: (comment: Comment, threadRootId?: string | null) => void;
+  registerThreadMutation?: (rootId: string, fn: (mutator: (prev: Comment[]) => Comment[]) => void) => void;
 }
 
 export function CommentRow({
@@ -288,11 +465,25 @@ export function CommentRow({
   onDelete,
   onEdit,
   onReply,
+  registerThreadMutation,
 }: CommentRowProps) {
   const isOwn = comment.author.id === currentUserId;
-  const [replies, setReplies] = useState<Comment[]>([]);
+  // `thread` holds the ENTIRE descendant subtree (every depth) as a flat list;
+  // the tree is derived from parentId links at render time.
+  const [thread, setThread] = useState<Comment[]>([]);
   const [showReplies, setShowReplies] = useState(false);
   const [loadingReplies, setLoadingReplies] = useState(false);
+  const [replyCount, setReplyCount] = useState(comment.replyCount ?? 0);
+
+  const mutateThread = useCallback((mutator: (prev: Comment[]) => Comment[]) => {
+    setThread((prev) => mutator(prev));
+  }, []);
+
+  // Let the owning screen's composer push new replies (optimistic + confirmed)
+  // into this thread even while it is collapsed.
+  useEffect(() => {
+    registerThreadMutation?.(comment.id, mutateThread);
+  }, [comment.id, registerThreadMutation, mutateThread]);
 
   const toggleReplies = useCallback(async () => {
     if (showReplies) {
@@ -300,17 +491,19 @@ export function CommentRow({
       return;
     }
     setShowReplies(true);
-    if (replies.length > 0 || !comment.commentRoomId) return;
+    if (thread.length > 0 || !comment.commentRoomId) return;
     setLoadingReplies(true);
     try {
       const res = await getRoomCommentReplies(comment.commentRoomId, comment.id);
-      setReplies(res.replies.map(toLocalComment));
+      const incoming = res.replies.map(toLocalComment);
+      setThread(incoming);
+      setReplyCount(incoming.filter((r) => r.parentId === comment.id).length);
     } catch {
       // ignore
     } finally {
       setLoadingReplies(false);
     }
-  }, [showReplies, replies.length, comment.commentRoomId, comment.id]);
+  }, [showReplies, thread.length, comment.commentRoomId, comment.id]);
 
   const handleMenu = useCallback(() => {
     const options = isOwn ? ['Edit', 'Delete'] : ['Report'];
@@ -331,6 +524,13 @@ export function CommentRow({
       })),
     });
   }, [isOwn, comment, onEdit, onDelete]);
+
+  const threadRoots = React.useMemo(() => buildThreadTree(thread), [thread]);
+  // The "View N replies" control counts DIRECT children of this comment. Once
+  // the thread is loaded (or a reply was added optimistically) the derived
+  // count is authoritative; before that we trust the server's replyCount.
+  const shownReplyCount =
+    thread.length > 0 ? thread.filter((c) => c.parentId === comment.id).length : replyCount;
 
   return (
     <View style={styles.commentRowContainer}>
@@ -409,39 +609,32 @@ export function CommentRow({
             )}
           </View>
 
-          {(comment.replyCount > 0 || replies.length > 0) && (
+          {(shownReplyCount > 0 || thread.length > 0) && (
             <TouchableOpacity style={styles.toggleRepliesBtn} onPress={toggleReplies} hitSlop={6}>
               <Text style={styles.toggleRepliesText}>
                 {showReplies
                   ? 'Hide replies'
-                  : `View ${comment.replyCount > 0 ? comment.replyCount : replies.length} ${
-                      comment.replyCount === 1 ? 'reply' : 'replies'
-                    }`}
+                  : `View ${shownReplyCount} ${shownReplyCount === 1 ? 'reply' : 'replies'}`}
               </Text>
             </TouchableOpacity>
           )}
 
           {showReplies && (
-            <View style={styles.repliesList}>
+            // Expanded thread: every descendant, recursively, with thread
+            // lines. The whole sheet scrolls, so large threads stay readable.
+            <View style={styles.threadRoot}>
               {loadingReplies ? (
                 <ActivityIndicator size="small" color={T.PRIMARY_LIGHT} style={{ marginVertical: 8 }} />
               ) : (
-                replies.map((rep) => (
-                  <View key={rep.id} style={styles.replyRow}>
-                    <MsAvatar
-                      size={24}
-                      initials={nameInitials(rep.author.name)}
-                      imageUri={rep.author.avatarUrl ?? undefined}
-                    />
-                    <View style={styles.commentBodyWrap}>
-                      <View style={styles.commentHeader}>
-                        <Text style={styles.authorName}>{rep.author.name}</Text>
-                        <Text style={styles.timeAgo}>{fmtTimeAgo(rep.createdAt)}</Text>
-                      </View>
-                      <Text style={styles.commentText}>{rep.body}</Text>
-                    </View>
-                  </View>
-                ))
+                <ThreadNodes
+                  nodes={threadRoots}
+                  currentUserId={currentUserId}
+                  onLike={onLike}
+                  onUnlike={onUnlike}
+                  onDelete={onDelete}
+                  onEdit={onEdit ? (c) => onEdit(c, comment.id) : undefined}
+                  onReply={onReply ? (c) => onReply(c, comment.id) : undefined}
+                />
               )}
             </View>
           )}
@@ -503,12 +696,19 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
     loadingMore,
     commentRoomId,
     commentsEnabled,
+    registerThreadMutation,
+    mutateThread,
+    applyToComment,
   } = useComments(postId);
 
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+  // The top-level comment that owns the thread a reply/edit targets — the
+  // composer must know exactly which comment/reply it is answering.
+  const [replyThreadRootId, setReplyThreadRootId] = useState<string | null>(null);
   const [editingComment, setEditingComment] = useState<Comment | null>(null);
+  const [editThreadRootId, setEditThreadRootId] = useState<string | null>(null);
 
   const currentUserId = user?.id ?? '';
   const roomId = commentRoomId;
@@ -522,13 +722,21 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
     }
 
     if (editingComment) {
-      // Edit existing
+      // Edit existing — a reply is updated inside its thread, a top-level
+      // comment in the main list.
       try {
         setSending(true);
         await editRoomComment(roomId, editingComment.id, body);
-        setComments((prev) => prev.map((c) => (c.id === editingComment.id ? { ...c, body } : c)));
+        if (editThreadRootId) {
+          mutateThread(editThreadRootId, (prev) =>
+            prev.map((c) => (c.id === editingComment.id ? { ...c, body } : c)),
+          );
+        } else {
+          setComments((prev) => prev.map((c) => (c.id === editingComment.id ? { ...c, body } : c)));
+        }
         setText('');
         setEditingComment(null);
+        setEditThreadRootId(null);
       } catch {
         dialogs.alert({ variant: 'error', title: 'Could not update comment' });
       } finally {
@@ -539,10 +747,15 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
 
     setSending(true);
     const tempId = `tmp-${Date.now()}`;
+    const target = replyingTo;
+    // For a reply, the thread root is the top-level comment that owns the
+    // target's thread; a reply to a top-level comment targets that comment
+    // itself. Replies NEVER enter the top-level list.
+    const threadRootId = target ? (target.parentId ? replyThreadRootId : target.id) : null;
     const optimistic: Comment = {
       id: tempId,
       commentRoomId: roomId,
-      parentId: replyingTo?.id ?? null,
+      parentId: target?.id ?? null,
       body,
       isPinned: false,
       likeCount: 0,
@@ -558,71 +771,90 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
       },
     };
 
-    setComments((prev) => [optimistic, ...prev]);
+    if (threadRootId) {
+      // Optimistically insert into the target's thread (under its exact
+      // parent) — never as a top-level comment.
+      mutateThread(threadRootId, (prev) => [...prev, optimistic]);
+    } else {
+      setComments((prev) => [optimistic, ...prev]);
+    }
     setText('');
     setReplyingTo(null);
+    setReplyThreadRootId(null);
 
     try {
-      const res = await submitRoomComment(roomId, body, { parentCommentId: replyingTo?.id });
-      setComments((prev) => prev.map((c) => (c.id === tempId ? toLocalComment(res.comment) : c)));
-      // Publish the new top-level comment count so every card showing this
-      // post updates immediately. Replies don't change the top-level count.
-      if (!replyingTo) {
+      const res = await submitRoomComment(roomId, body, { parentCommentId: target?.id });
+      const real = toLocalComment(res.comment);
+      if (threadRootId) {
+        mutateThread(threadRootId, (prev) => prev.map((c) => (c.id === tempId ? real : c)));
+      } else {
+        setComments((prev) => prev.map((c) => (c.id === tempId ? real : c)));
+        // Publish the new top-level comment count so every card showing this
+        // post updates immediately. Replies don't change the top-level count.
         setCommentCount(postId, comments.length + 1);
       }
     } catch {
-      setComments((prev) => prev.filter((c) => c.id !== tempId));
+      if (threadRootId) {
+        mutateThread(threadRootId, (prev) => prev.filter((c) => c.id !== tempId));
+      } else {
+        setComments((prev) => prev.filter((c) => c.id !== tempId));
+      }
       dialogs.alert({ variant: 'error', title: 'Could not post comment', message: 'Please try again.' });
     } finally {
       setSending(false);
     }
-  }, [text, sending, commentsEnabled, roomId, editingComment, replyingTo, user, setComments]);
+  }, [text, sending, commentsEnabled, roomId, editingComment, replyingTo, replyThreadRootId, user, setComments, mutateThread, setCommentCount, postId, comments.length]);
 
   const handleLike = useCallback(
     async (commentId: string) => {
-      setComments((prev) =>
-        prev.map((c) => (c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c)),
-      );
+      applyToComment(commentId, (c) => ({ ...c, likedByMe: true, likeCount: c.likeCount + 1 }));
       try {
         const res = await likeRoomComment(roomId ?? '', commentId);
-        setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, likeCount: res.likeCount } : c)));
+        applyToComment(commentId, (c) => ({ ...c, likeCount: res.likeCount }));
       } catch {
-        setComments((prev) =>
-          prev.map((c) => (c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c)),
-        );
+        applyToComment(commentId, (c) => ({
+          ...c,
+          likedByMe: false,
+          likeCount: Math.max(0, c.likeCount - 1),
+        }));
       }
     },
-    [roomId, setComments],
+    [roomId, applyToComment],
   );
 
   const handleUnlike = useCallback(
     async (commentId: string) => {
-      setComments((prev) =>
-        prev.map((c) => (c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c)),
-      );
+      applyToComment(commentId, (c) => ({
+        ...c,
+        likedByMe: false,
+        likeCount: Math.max(0, c.likeCount - 1),
+      }));
       try {
         const res = await unlikeRoomComment(roomId ?? '', commentId);
-        setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, likeCount: res.likeCount } : c)));
+        applyToComment(commentId, (c) => ({ ...c, likeCount: res.likeCount }));
       } catch {
-        setComments((prev) =>
-          prev.map((c) => (c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c)),
-        );
+        applyToComment(commentId, (c) => ({ ...c, likedByMe: true, likeCount: c.likeCount + 1 }));
       }
     },
-    [roomId, setComments],
+    [roomId, applyToComment],
   );
 
   const handleDelete = useCallback(
-    (commentId: string) => {
+    (commentId: string, threadRootId?: string | null) => {
       dialogs.confirm({
         title: 'Delete comment',
         message: 'Are you sure you want to delete this comment?',
         confirmLabel: 'Delete',
         destructive: true,
         onConfirm: async () => {
-          setComments((prev) => prev.filter((c) => c.id !== commentId));
-          // Publish the decremented count so cards update immediately.
-          setCommentCount(postId, Math.max(0, comments.length - 1));
+          if (threadRootId) {
+            // A reply — remove it from its thread, not the top-level list.
+            mutateThread(threadRootId, (prev) => prev.filter((c) => c.id !== commentId));
+          } else {
+            setComments((prev) => prev.filter((c) => c.id !== commentId));
+            // Publish the decremented count so cards update immediately.
+            setCommentCount(postId, Math.max(0, comments.length - 1));
+          }
           try {
             await deleteRoomComment(roomId ?? '', commentId);
           } catch {
@@ -631,18 +863,25 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
         },
       });
     },
-    [roomId, setComments, postId, setCommentCount],
+    [roomId, setComments, postId, setCommentCount, comments.length, mutateThread],
   );
 
-  const handleStartEdit = useCallback((comment: Comment) => {
-    setEditingComment(comment);
+  const handleStartEdit = useCallback((comment: Comment, threadRootId?: string | null) => {
     setReplyingTo(null);
+    setReplyThreadRootId(null);
+    setEditingComment(comment);
+    setEditThreadRootId(comment.parentId ? (threadRootId ?? comment.parentId) : null);
     setText(comment.body);
   }, []);
 
-  const handleStartReply = useCallback((comment: Comment) => {
+  const handleStartReply = useCallback((comment: Comment, threadRootId?: string | null) => {
     setEditingComment(null);
+    setEditThreadRootId(null);
     setReplyingTo(comment);
+    // The composer targets the EXACT comment/reply tapped. When that target is
+    // a nested reply, the thread root is the top-level comment owning its
+    // thread; replying to a top-level comment targets that comment itself.
+    setReplyThreadRootId(comment.parentId ? (threadRootId ?? comment.parentId) : comment.id);
   }, []);
 
   const dragY = useRef(new Animated.Value(0)).current;
@@ -754,6 +993,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                   onDelete={handleDelete}
                   onEdit={handleStartEdit}
                   onReply={handleStartReply}
+                  registerThreadMutation={registerThreadMutation}
                 />
               )}
               refreshControl={
@@ -838,6 +1078,7 @@ export function CommentsModal({ visible, onClose, postId }: CommentsModalProps) 
                         : 'Add a comment…'
                     }
                     placeholderTextColor={T.TEXT_2}
+                    selectionColor={T.CARET}
                     style={sheetStyles.input}
                     returnKeyType="send"
                     onSubmitEditing={handleSend}
@@ -883,7 +1124,15 @@ interface MsCommentsSectionProps {
 
 export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectionProps) {
   const { user } = useAuth();
-  const { comments, setComments, isLoading, commentRoomId } = useComments(postId);
+  const {
+    comments,
+    setComments,
+    isLoading,
+    commentRoomId,
+    registerThreadMutation,
+    mutateThread,
+    applyToComment,
+  } = useComments(postId);
   const { setCommentCount } = usePostActions();
   const [modalOpen, setModalOpen] = useState(false);
   const totalCount = comments.length;
@@ -894,49 +1143,53 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
 
   const handleLike = useCallback(
     async (commentId: string) => {
-      setComments((prev) =>
-        prev.map((c) => (c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c)),
-      );
+      applyToComment(commentId, (c) => ({ ...c, likedByMe: true, likeCount: c.likeCount + 1 }));
       try {
         const res = await likeRoomComment(roomId ?? '', commentId);
-        setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, likeCount: res.likeCount } : c)));
+        applyToComment(commentId, (c) => ({ ...c, likeCount: res.likeCount }));
       } catch {
-        setComments((prev) =>
-          prev.map((c) => (c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c)),
-        );
+        applyToComment(commentId, (c) => ({
+          ...c,
+          likedByMe: false,
+          likeCount: Math.max(0, c.likeCount - 1),
+        }));
       }
     },
-    [roomId, setComments],
+    [roomId, applyToComment],
   );
 
   const handleUnlike = useCallback(
     async (commentId: string) => {
-      setComments((prev) =>
-        prev.map((c) => (c.id === commentId ? { ...c, likedByMe: false, likeCount: Math.max(0, c.likeCount - 1) } : c)),
-      );
+      applyToComment(commentId, (c) => ({
+        ...c,
+        likedByMe: false,
+        likeCount: Math.max(0, c.likeCount - 1),
+      }));
       try {
         const res = await unlikeRoomComment(roomId ?? '', commentId);
-        setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, likeCount: res.likeCount } : c)));
+        applyToComment(commentId, (c) => ({ ...c, likeCount: res.likeCount }));
       } catch {
-        setComments((prev) =>
-          prev.map((c) => (c.id === commentId ? { ...c, likedByMe: true, likeCount: c.likeCount + 1 } : c)),
-        );
+        applyToComment(commentId, (c) => ({ ...c, likedByMe: true, likeCount: c.likeCount + 1 }));
       }
     },
-    [roomId, setComments],
+    [roomId, applyToComment],
   );
 
   const handleDelete = useCallback(
-    (commentId: string) => {
+    (commentId: string, threadRootId?: string | null) => {
       dialogs.confirm({
         title: 'Delete comment',
         message: 'Remove this comment?',
         confirmLabel: 'Delete',
         destructive: true,
         onConfirm: async () => {
-          setComments((prev) => prev.filter((c) => c.id !== commentId));
-          // Publish the decremented count so cards update immediately.
-          setCommentCount(postId, Math.max(0, comments.length - 1));
+          if (threadRootId) {
+            mutateThread(threadRootId, (prev) => prev.filter((c) => c.id !== commentId));
+          } else {
+            setComments((prev) => prev.filter((c) => c.id !== commentId));
+            // Publish the decremented count so cards update immediately.
+            setCommentCount(postId, Math.max(0, comments.length - 1));
+          }
           try {
             await deleteRoomComment(roomId ?? '', commentId);
           } catch {
@@ -945,7 +1198,7 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
         },
       });
     },
-    [roomId, setComments, postId, setCommentCount],
+    [roomId, setComments, postId, setCommentCount, comments.length, mutateThread],
   );
 
   return (
@@ -969,6 +1222,7 @@ export function MsCommentsSection({ postId, previewCount = 2 }: MsCommentsSectio
             onLike={handleLike}
             onUnlike={handleUnlike}
             onDelete={handleDelete}
+            registerThreadMutation={registerThreadMutation}
           />
         ))
       )}
@@ -1013,8 +1267,27 @@ const styles = StyleSheet.create({
   actionLabel: { color: T.TEXT_3, fontFamily: T.FONT.medium, fontSize: 11, lineHeight: 13 },
   toggleRepliesBtn: { marginTop: 6 },
   toggleRepliesText: { color: T.PRIMARY_LIGHT, fontFamily: T.FONT.medium, fontSize: 12 },
-  repliesList: { marginTop: 8, paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: T.BORDER_2, gap: 10 },
-  replyRow: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
+  // Expanded thread root: hangs off the parent comment's avatar (32px + 12px
+  // gap) with a subtle vertical line connecting it to its replies.
+  threadRoot: {
+    marginTop: 8,
+    marginLeft: 44,
+    borderLeftWidth: 1,
+    borderLeftColor: T.BORDER_2,
+    paddingLeft: 12,
+    gap: 2,
+  },
+  // Each deeper level indents (24px avatar + 8px gap) and draws its own
+  // thread line under the parent reply.
+  threadNested: {
+    marginLeft: 32,
+    borderLeftWidth: 1,
+    borderLeftColor: T.BORDER_2,
+    paddingLeft: 12,
+    gap: 2,
+    marginTop: 2,
+  },
+  replyRow: { flexDirection: 'row', gap: 8, paddingVertical: 5, paddingRight: 4 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: T.BORDER },
 });
 
