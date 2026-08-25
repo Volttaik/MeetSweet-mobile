@@ -1,14 +1,23 @@
 /**
- * Private Messages — Inbox / Outbox list.
+ * Private Messages — Inbox / Outbox / Waiting list.
  *
  * Email-style correspondence: originals only, replies live inside each
  * thread. Live updates arrive over SweetSocket — new inbox messages prepend,
- * outbox reply/status changes refresh in place. No polling.
+ * outbox reply/status changes refresh in place, approvals/deletions sync
+ * across devices. No polling.
+ *
+ * Long-press a row for message actions:
+ *   • inbox    → Delete (for me), Mute sender (future messages → Waiting),
+ *                Block sender
+ *   • outbox   → Delete (for both), Block recipient
+ *   • waiting  → Approve, Allow sender (approves all pending), Block sender,
+ *                Delete
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,48 +28,82 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useScrollMotion } from '@/lib/scroll-motion';
-import { ArrowLeft, Envelope, EnvelopeOpen, PaperPlaneTilt } from 'phosphor-react-native';
+import { ArrowLeft, Envelope, EnvelopeOpen, Hourglass, PaperPlaneTilt } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { GradientText } from '@/components/GradientText';
 import { GradientBorder } from '@/components/GradientBorder';
 import { goBack } from '@/lib/safe-back';
 import { MsShimmer } from '@/components/MsShimmer';
-import { listPrivateMessages, type PrivateMessage } from '@/services/private-inbox';
+import { MsAvatar } from '@/components/MsAvatar';
+import { MsModal } from '@/components/MsModal';
+import {
+  approvePrivateMessage,
+  allowPrivateSender,
+  deletePrivateMessage,
+  listPrivateMessages,
+  restrictPrivateSender,
+  type InboxBox,
+  type PrivateMessage,
+} from '@/services/private-inbox';
+import { listMySubscriptions, type SubscribedCreator } from '@/services/subscriptions';
+import { blockUser } from '@/services/users';
 import { realtime } from '@/services/realtime';
 
-function Item({ message, box }: { message: PrivateMessage; box: 'inbox' | 'outbox' }) {
+function Item({
+  message,
+  box,
+  onOpen,
+  onLongPress,
+}: {
+  message: PrivateMessage;
+  box: InboxBox;
+  onOpen: () => void;
+  onLongPress: () => void;
+}) {
   const name =
-    box === 'inbox'
+    box === 'inbox' || box === 'waiting'
       ? message.sender_name ?? message.sender_username ?? 'User'
       : message.recipient_name ?? message.recipient_username ?? 'Creator';
-  const isUnread = box === 'inbox' && message.status === 'sent' && !message.read_at;
+  const isUnread =
+    (box === 'inbox' && message.status === 'sent' && !message.read_at) ||
+    (box === 'waiting' && message.status === 'waiting');
   return (
     <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.itemBorder}>
-    <Pressable
-      style={styles.item}
-      onPress={() => router.push(`/inbox/${message.id}` as any)}
-      accessibilityRole="button"
-      accessibilityLabel={`Open message from ${name}`}
-    >
-      <View style={styles.avatar}>
-        <BrandGradientFill />
-        <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
-        {isUnread ? (
-          <View style={styles.unreadDot}>
-            <BrandGradientFill />
-          </View>
-        ) : null}
-      </View>
-      <View style={styles.content}>
-        <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{name}</Text>
-        <Text style={styles.preview} numberOfLines={2}>{message.body}</Text>
-        <Text style={styles.meta}>
-          ₦{message.price_paid.toLocaleString()} · {message.status === 'replied' ? 'Replied' : isUnread ? 'Unread' : 'Read'}
-        </Text>
-      </View>
-      <Text style={styles.date}>{new Date(message.created_at).toLocaleDateString()}</Text>
-    </Pressable>
+      <Pressable
+        style={styles.item}
+        onPress={onOpen}
+        onLongPress={onLongPress}
+        delayLongPress={250}
+        accessibilityRole="button"
+        accessibilityLabel={`Open message from ${name}`}
+        accessibilityHint="Long press for message actions"
+      >
+        <View style={styles.avatar}>
+          <BrandGradientFill />
+          <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
+          {isUnread ? (
+            <View style={styles.unreadDot}>
+              <BrandGradientFill />
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.content}>
+          <Text style={[styles.name, isUnread && styles.nameUnread]} numberOfLines={1}>{name}</Text>
+          <Text style={styles.preview} numberOfLines={2}>{message.body}</Text>
+          <Text style={styles.meta}>
+            {message.status === 'waiting'
+              ? 'Awaiting approval'
+              : message.status === 'replied'
+                ? `${message.reply_count} reply${message.reply_count === 1 ? '' : 's'}`
+                : isUnread
+                  ? 'Unread'
+                  : 'Read'}
+            {message.price_paid > 0 ? ` · ₦${message.price_paid.toLocaleString()}` : ''}
+          </Text>
+        </View>
+        <Text style={styles.date}>{new Date(message.created_at).toLocaleDateString()}</Text>
+      </Pressable>
     </GradientBorder>
   );
 }
@@ -83,13 +126,48 @@ function RowsSkeleton() {
   );
 }
 
+const TABS: { key: InboxBox; label: string; icon: 'inbox' | 'outbox' | 'waiting' }[] = [
+  { key: 'inbox', label: 'Inbox', icon: 'inbox' },
+  { key: 'outbox', label: 'Outbox', icon: 'outbox' },
+  { key: 'waiting', label: 'Waiting', icon: 'waiting' },
+];
+
 export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
-  const [box, setBox] = useState<'inbox' | 'outbox'>('inbox');
+  const [box, setBox] = useState<InboxBox>('inbox');
   const [messages, setMessages] = useState<PrivateMessage[]>([]);
+  const [waitingMessages, setWaitingMessages] = useState<PrivateMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Composer creator picker ────────────────────────────────────────────────
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [subscribedCreators, setSubscribedCreators] = useState<SubscribedCreator[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+
+  const openCreatorPicker = useCallback(async () => {
+    setPickerOpen(true);
+    setPickerLoading(true);
+    setPickerError(null);
+    try {
+      setSubscribedCreators(await listMySubscriptions());
+    } catch (e) {
+      setPickerError(e instanceof Error ? e.message : 'Could not load your subscriptions');
+    } finally {
+      setPickerLoading(false);
+    }
+  }, []);
+
+  /** Keep the Waiting tab badge honest without polling. */
+  const refreshWaiting = useCallback(async () => {
+    try {
+      setWaitingMessages(await listPrivateMessages('waiting'));
+    } catch {
+      /* badge is best-effort; the tab itself surfaces errors */
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -106,23 +184,175 @@ export default function MessagesScreen() {
   useEffect(() => {
     setLoading(true);
     load();
-  }, [load]);
+    refreshWaiting();
+  }, [load, refreshWaiting]);
+
+  // ── Long-press actions ─────────────────────────────────────────────────────
+
+  const reloadAll = useCallback(() => {
+    load();
+    refreshWaiting();
+  }, [load, refreshWaiting]);
+
+  const onItemLongPress = useCallback(
+    (message: PrivateMessage, currentBox: InboxBox) => {
+      const senderId = message.sender_id;
+      const senderUsername = message.sender_username ?? senderId;
+      const senderName = message.sender_name ?? message.sender_username ?? 'this sender';
+      const recipientName = message.recipient_name ?? message.recipient_username ?? 'this creator';
+      const openThread = () => router.push(`/inbox/${message.id}` as any);
+
+      const confirmDelete = (forBoth: boolean, label: string) =>
+        Alert.alert(
+          'Delete message?',
+          forBoth
+            ? 'This removes the entire correspondence for BOTH you and the other person. This cannot be undone.'
+            : 'This hides the conversation from your inbox. The other person keeps their copy.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: label,
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await deletePrivateMessage(message.id);
+                  reloadAll();
+                } catch (e) {
+                  Alert.alert('Could not delete', e instanceof Error ? e.message : 'Please try again.');
+                }
+              },
+            },
+          ],
+        );
+
+      const confirmBlock = () =>
+        Alert.alert(
+          `Block ${senderName}?`,
+          'They will no longer be able to send you private messages. You can unblock them later from their profile.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Block',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await blockUser(senderUsername);
+                  Alert.alert('Blocked', `You can no longer receive private messages from ${senderName}.`);
+                } catch (e) {
+                  Alert.alert('Could not block', e instanceof Error ? e.message : 'Please try again.');
+                }
+              },
+            },
+          ],
+        );
+
+      const confirmMute = () =>
+        Alert.alert(
+          `Mute ${senderName}?`,
+          'Future messages from this sender will be placed in Waiting for your approval instead of your inbox.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Mute',
+              onPress: async () => {
+                try {
+                  await restrictPrivateSender(senderId);
+                  Alert.alert('Muted', `Messages from ${senderName} will now wait for your approval.`);
+                } catch (e) {
+                  Alert.alert('Could not mute', e instanceof Error ? e.message : 'Please try again.');
+                }
+              },
+            },
+          ],
+        );
+
+      if (currentBox === 'waiting') {
+        Alert.alert('Message actions', `From ${senderName}`, [
+          {
+            text: 'Approve',
+            onPress: async () => {
+              try {
+                await approvePrivateMessage(message.id);
+                Alert.alert('Approved', 'The message is now in your inbox.');
+                reloadAll();
+              } catch (e) {
+                Alert.alert('Could not approve', e instanceof Error ? e.message : 'Please try again.');
+              }
+            },
+          },
+          {
+            text: 'Allow sender',
+            onPress: async () => {
+              try {
+                const r = await allowPrivateSender(senderId);
+                Alert.alert(
+                  'Allowed',
+                  r.approved > 0
+                    ? `${senderName} is allowed again — ${r.approved} pending message${r.approved === 1 ? '' : 's'} moved to your inbox.`
+                    : `${senderName} is allowed again.`,
+                );
+                reloadAll();
+              } catch (e) {
+                Alert.alert('Could not allow', e instanceof Error ? e.message : 'Please try again.');
+              }
+            },
+          },
+          { text: 'Block sender', style: 'destructive', onPress: confirmBlock },
+          { text: 'Delete', style: 'destructive', onPress: () => confirmDelete(true, 'Delete') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+        return;
+      }
+
+      if (currentBox === 'inbox') {
+        Alert.alert('Message actions', `From ${senderName}`, [
+          { text: 'Open', onPress: openThread },
+          { text: 'Mute sender', onPress: confirmMute },
+          { text: 'Block sender', style: 'destructive', onPress: confirmBlock },
+          { text: 'Delete for me', style: 'destructive', onPress: () => confirmDelete(false, 'Delete for me') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+        return;
+      }
+
+      // outbox — sender ownership: deleting removes it for both.
+      Alert.alert('Message actions', `To ${recipientName}`, [
+        { text: 'Open', onPress: openThread },
+        { text: 'Delete for both', style: 'destructive', onPress: () => confirmDelete(true, 'Delete for both') },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    },
+    [reloadAll],
+  );
 
   // SweetSocket — the lists are live:
-  //  • inbox: a newly paid message prepends instantly
-  //  • outbox: a creator reply / status change refreshes in place
+  //  • inbox/waiting: a newly paid message prepends to the matching box
+  //  • approvals / deletions / replies / status changes refresh in place
   useEffect(
     () =>
       realtime.on((event) => {
-        if (event.type === 'private_message.created' && box === 'inbox') {
+        if (event.type === 'private_message.created') {
           const message = (event.payload as any).message as PrivateMessage;
-          setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
+          const targetBox = (event.payload as any).box as InboxBox;
+          if (targetBox === 'waiting') {
+            setWaitingMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
+            if (box === 'waiting') {
+              setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
+            }
+          } else if (box === 'inbox') {
+            setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
+          }
         }
-        if ((event.type === 'private_message.reply_created' || event.type === 'private_message.updated') && box === 'outbox') {
-          load();
+        if (
+          event.type === 'private_message.approved' ||
+          event.type === 'private_message.deleted' ||
+          event.type === 'private_message.reply_created' ||
+          event.type === 'private_message.updated'
+        ) {
+          reloadAll();
         }
       }),
-    [box, load],
+    [box, reloadAll],
   );
 
   return (
@@ -134,7 +364,7 @@ export default function MessagesScreen() {
         </Pressable>
         <GradientText text="Private Messages" style={styles.title} />
         <Pressable
-          onPress={() => router.push('/compose-private-message' as any)}
+          onPress={openCreatorPicker}
           style={styles.iconBtn}
           accessibilityRole="button"
           accessibilityLabel="New private message"
@@ -143,28 +373,35 @@ export default function MessagesScreen() {
         </Pressable>
       </View>
 
-      {/* Inbox / Outbox tabs */}
+      {/* Inbox / Outbox / Waiting tabs */}
       <View style={styles.tabs}>
-        <Pressable
-          onPress={() => setBox('inbox')}
-          style={[styles.tab, box === 'inbox' && styles.active]}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: box === 'inbox' }}
-        >
-          {box === 'inbox' && <BrandGradientFill />}
-          {box === 'inbox' ? <EnvelopeOpen size={16} color={box === 'inbox' ? T.ACCENT_FG : T.TEXT_2} /> : <Envelope size={16} color={T.TEXT_2} />}
-          <Text style={[styles.tabText, box === 'inbox' && styles.tabTextActive]}>Inbox</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setBox('outbox')}
-          style={[styles.tab, box === 'outbox' && styles.active]}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: box === 'outbox' }}
-        >
-          {box === 'outbox' && <BrandGradientFill />}
-          <PaperPlaneTilt size={16} color={box === 'outbox' ? T.ACCENT_FG : T.TEXT_2} />
-          <Text style={[styles.tabText, box === 'outbox' && styles.tabTextActive]}>Outbox</Text>
-        </Pressable>
+        {TABS.map((tab) => {
+          const active = box === tab.key;
+          return (
+            <Pressable
+              key={tab.key}
+              onPress={() => setBox(tab.key)}
+              style={[styles.tab, active && styles.active]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+            >
+              {active && <BrandGradientFill />}
+              {tab.icon === 'inbox' ? (
+                active ? <EnvelopeOpen size={16} color={T.ACCENT_FG} /> : <Envelope size={16} color={T.TEXT_2} />
+              ) : tab.icon === 'outbox' ? (
+                <PaperPlaneTilt size={16} color={active ? T.ACCENT_FG : T.TEXT_2} />
+              ) : (
+                <Hourglass size={16} color={active ? T.ACCENT_FG : T.TEXT_2} />
+              )}
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+              {tab.key === 'waiting' && waitingMessages.length > 0 ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{waitingMessages.length > 99 ? '99+' : waitingMessages.length}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
       </View>
 
       <ScrollView
@@ -181,21 +418,111 @@ export default function MessagesScreen() {
             <Pressable style={stateStyles.retry} onPress={load}><Text style={stateStyles.retryText}>Retry</Text></Pressable>
           </View>
         ) : messages.length ? (
-          messages.map((m) => <Item key={m.id} message={m} box={box} />)
+          messages.map((m) => (
+            <Item
+              key={m.id}
+              message={m}
+              box={box}
+              onOpen={() => router.push(`/inbox/${m.id}` as any)}
+              onLongPress={() => onItemLongPress(m, box)}
+            />
+          ))
         ) : (
           <View style={stateStyles.wrap}>
             <View style={stateStyles.iconWrap}>
-              {box === 'inbox' ? <Envelope size={30} color={T.TEXT_3} /> : <PaperPlaneTilt size={30} color={T.TEXT_3} />}
+              {box === 'inbox' ? <Envelope size={30} color={T.TEXT_3} /> : box === 'waiting' ? <Hourglass size={30} color={T.TEXT_3} /> : <PaperPlaneTilt size={30} color={T.TEXT_3} />}
             </View>
-            <Text style={stateStyles.title}>{box === 'inbox' ? 'No correspondence yet' : 'Nothing sent yet'}</Text>
+            <Text style={stateStyles.title}>
+              {box === 'inbox' ? 'No correspondence yet' : box === 'waiting' ? 'Nothing waiting' : 'Nothing sent yet'}
+            </Text>
             <Text style={stateStyles.sub}>
               {box === 'inbox'
                 ? 'Paid private messages from you to creators appear here with their replies.'
-                : 'Messages you send to creators will show up here.'}
+                : box === 'waiting'
+                  ? 'Messages from senders you muted land here until you approve them.'
+                  : 'Messages you send to creators will show up here.'}
             </Text>
           </View>
         )}
       </ScrollView>
+
+      {/* Composer creator picker — the airplane icon first shows the creators
+          the user is subscribed to (private messaging is subscriber-only), and
+          only then opens the composer for the chosen creator. */}
+      <MsModal
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="Message a creator"
+        subtitle="Pick a creator you're subscribed to — only subscribers can send private messages."
+        style={pickerStyles.modal}
+      >
+        {pickerLoading ? (
+          <View style={pickerStyles.stateWrap}>
+            <ActivityIndicator color={T.PRIMARY_LIGHT} />
+          </View>
+        ) : pickerError ? (
+          <View style={pickerStyles.stateWrap}>
+            <Text style={pickerStyles.stateText}>{pickerError}</Text>
+            <Pressable style={pickerStyles.retryBtn} onPress={openCreatorPicker}>
+              <Text style={pickerStyles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : subscribedCreators.length === 0 ? (
+          <View style={pickerStyles.stateWrap}>
+            <View style={pickerStyles.stateIcon}>
+              <PaperPlaneTilt size={26} color={T.TEXT_3} />
+            </View>
+            <Text style={pickerStyles.stateTitle}>No subscriptions yet</Text>
+            <Text style={pickerStyles.stateText}>
+              Subscribe to a creator to unlock private messaging with them.
+            </Text>
+            <Pressable
+              style={pickerStyles.discoverBtn}
+              onPress={() => {
+                setPickerOpen(false);
+                router.replace('/(tabs)/explore' as any);
+              }}
+            >
+              <BrandGradientFill />
+              <Text style={pickerStyles.discoverBtnText}>Discover creators</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pickerStyles.list}>
+            {subscribedCreators.map((c) => {
+              const name = c.creator_name?.trim() || c.creator_username || 'Creator';
+              return (
+                <Pressable
+                  key={c.id}
+                  style={pickerStyles.row}
+                  onPress={() => {
+                    setPickerOpen(false);
+                    router.push({
+                      pathname: '/compose-private-message',
+                      params: { creatorId: c.creator_id },
+                    } as any);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Message ${name}`}
+                >
+                  <MsAvatar
+                    size={42}
+                    initials={name.slice(0, 2).toUpperCase()}
+                    imageUri={c.creator_avatar ?? undefined}
+                  />
+                  <View style={pickerStyles.rowCopy}>
+                    <Text style={pickerStyles.rowName} numberOfLines={1}>{name}</Text>
+                    {c.creator_username ? (
+                      <Text style={pickerStyles.rowHandle} numberOfLines={1}>@{c.creator_username}</Text>
+                    ) : null}
+                  </View>
+                  <PaperPlaneTilt size={15} color={T.TEXT_3} />
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+      </MsModal>
     </View>
   );
 }
@@ -234,7 +561,7 @@ const styles = StyleSheet.create({
 
   tabs: { flexDirection: 'row', gap: 10, paddingHorizontal: 18 },
   tab: {
-    flex: 1, flexDirection: 'row', gap: 8,
+    flex: 1, flexDirection: 'row', gap: 6,
     paddingVertical: 11,
     borderRadius: T.RADIUS.full,
     backgroundColor: T.SURFACE,
@@ -242,8 +569,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   active: { backgroundColor: T.ACCENT, overflow: 'hidden' },
-  tabText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13.5 },
+  tabText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 13 },
   tabTextActive: { color: T.ACCENT_FG, fontFamily: T.FONT.bold },
+  badge: {
+    minWidth: 18, height: 18, borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: T.SECONDARY,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  badgeText: { color: '#FFFFFF', fontSize: 10, fontFamily: T.FONT.bold },
 
   list: { gap: 10, paddingVertical: 14, paddingHorizontal: 18 },
 
@@ -278,4 +612,44 @@ const styles = StyleSheet.create({
 
   skeletonWrap: { gap: 10 },
   skeletonRow: { flexDirection: 'row', gap: 12, padding: 14, borderRadius: T.RADIUS.lg, backgroundColor: T.SURFACE, alignItems: 'center' },
+});
+
+const pickerStyles = StyleSheet.create({
+  modal: { maxHeight: '78%' },
+  list: { gap: 8, paddingBottom: 8 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 10,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: T.SURFACE_2,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+  },
+  rowCopy: { flex: 1, gap: 1 },
+  rowName: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 14 },
+  rowHandle: { color: T.TEXT_3, fontFamily: T.FONT.regular, fontSize: 12 },
+
+  stateWrap: { alignItems: 'center', paddingVertical: 26, paddingHorizontal: 12, gap: 8 },
+  stateIcon: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: T.SURFACE_2,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
+  stateTitle: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15 },
+  stateText: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12.5, textAlign: 'center', lineHeight: 19 },
+  retryBtn: {
+    marginTop: 6, paddingHorizontal: 18, paddingVertical: 8,
+    borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE_2,
+  },
+  retryText: { color: T.TEXT, fontFamily: T.FONT.medium, fontSize: 13 },
+  discoverBtn: {
+    marginTop: 10, height: 46, paddingHorizontal: 26,
+    borderRadius: T.RADIUS.full, backgroundColor: T.ACCENT,
+    overflow: 'hidden',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  discoverBtnText: { color: T.ACCENT_FG, fontFamily: T.FONT.semibold, fontSize: 14 },
 });

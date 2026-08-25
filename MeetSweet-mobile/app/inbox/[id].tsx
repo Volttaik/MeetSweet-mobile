@@ -1,14 +1,18 @@
 /**
  * Private Thread — email-style correspondence view.
  *
- * Original message → (optional) creator reply, rendered as a thread. The
- * creator replies once, optionally attaching media — each attachment may
- * carry a price the original sender must pay to unlock. Locked attachments
- * never receive a URL from the server; unlocked ones render inline and open
- * in a fullscreen viewer.
+ * The whole thread renders as one vertical correspondence: the paid original
+ * at the top, then every reply in order (replies to replies included). Each
+ * message shows a compact reference to the message it answers — tap it to
+ * jump to that message. Either participant may reply to any message; only
+ * the creator can price reply attachments. Locked attachments never receive
+ * a URL from the server; unlocked ones render inline and open in a viewer.
+ *
+ * Waiting messages (sender muted) show an approval banner instead of the
+ * composer until the recipient approves or allows the sender.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,14 +25,19 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  ArrowBendUpLeft,
   ArrowLeft,
   Check,
+  DotsThreeVertical,
+  Hourglass,
   Lock,
   Play,
   Plus,
+  Prohibit,
+  UserCheck,
   X,
 } from 'phosphor-react-native';
 import { T, alpha, MEDIA_BG } from '@/constants/theme';
@@ -41,6 +50,9 @@ import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
+  allowPrivateSender,
+  approvePrivateMessage,
+  deletePrivateMessage,
   getPrivateMessage,
   markPrivateMessageRead,
   purchasePrivateAttachment,
@@ -48,6 +60,7 @@ import {
   type Attachment,
   type PrivateMessage,
 } from '@/services/private-inbox';
+import { blockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
 
 type InboxMediaType = 'image' | 'video' | 'file';
@@ -106,22 +119,36 @@ export default function PrivateThread() {
 
   const [message, setMessage] = useState<PrivateMessage | null>(null);
   const [body, setBody] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [replyTo, setReplyTo] = useState<PrivateMessage | null>(null);
   const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
   // Viewer state: which attachment is open fullscreen.
   const [viewer, setViewer] = useState<{ uri: string; isVideo: boolean } | null>(null);
+  // Jump-to + highlight a referenced message.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+
+  const scrollRef = useRef<ScrollView>(null);
+  const layoutY = useRef<Map<string, number>>(new Map());
+  // One idempotency key per reply draft: retries after a network failure
+  // never duplicate the reply; a fresh key is minted after success.
+  const idempotencyKeyRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   const amRecipient = message?.recipient_id === user?.id;
+  const isWaiting = message?.status === 'waiting';
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
       const m = await getPrivateMessage(id);
       setMessage(m);
-      // The recipient opening the thread marks it read (server notifies the sender).
-      if (m.recipient_id === user?.id) await markPrivateMessageRead(id).catch(() => {});
+      // The recipient opening the thread marks their unread rows read
+      // (server notifies the sender). Waiting rows are not marked until
+      // approved.
+      if (m.recipient_id === user?.id && m.status !== 'waiting') {
+        await markPrivateMessageRead(id).catch(() => {});
+      }
     } catch {
       setMessage(null);
     } finally {
@@ -132,6 +159,13 @@ export default function PrivateThread() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** Thread rows oldest → newest, with a legacy fallback for cached shapes. */
+  const threadRows: PrivateMessage[] = message?.thread?.length
+    ? message.thread
+    : message
+      ? [message, ...(message.reply ? [message.reply] : [])]
+      : [];
 
   const onAttachmentPicked = useCallback((result: AttachmentResult) => {
     const mediaType = toInboxMediaType(result);
@@ -152,16 +186,15 @@ export default function PrivateThread() {
   const unlock = async (attachmentId: string) => {
     try {
       const r = await purchasePrivateAttachment(attachmentId);
-      setMessage((m) =>
-        m
-          ? {
-              ...m,
-              reply: m.reply
-                ? { ...m.reply, attachments: m.reply.attachments.map((x) => (x.id === attachmentId ? r.attachment : x)) }
-                : m.reply,
-            }
-          : m,
-      );
+      const patch = (m: PrivateMessage | null): PrivateMessage | null => {
+        if (!m) return m;
+        const fixed = (msg: PrivateMessage): PrivateMessage => ({
+          ...msg,
+          attachments: msg.attachments.map((x) => (x.id === attachmentId ? r.attachment : x)),
+        });
+        return { ...fixed(m), thread: m.thread?.map(fixed) };
+      };
+      setMessage(patch);
       const fresh = r.attachment;
       if (!fresh.is_locked && fresh.media_url) {
         setViewer({ uri: fresh.media_url, isVideo: fresh.media_type === 'video' });
@@ -173,27 +206,114 @@ export default function PrivateThread() {
 
   const sendReply = async () => {
     if (!message || !body.trim() || sending) return;
+    const target = replyTo ?? message;
     const ready = attachments.filter((a): a is PendingAttachment & { mediaId: string } => a.mediaId !== null);
     if (ready.length !== attachments.length) return; // uploads still in flight
     setSending(true);
     try {
-      const result = await replyToPrivateMessage(
-        message.id,
-        body.trim(),
-        ready.map((a) => ({
+      const result = await replyToPrivateMessage({
+        id: target.id,
+        body: body.trim(),
+        idempotencyKey: idempotencyKeyRef.current,
+        attachments: ready.map((a) => ({
           media_id: a.mediaId,
           media_type: a.mediaType,
-          ...(a.price.trim() ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) } : {}),
+          ...(amRecipient && a.price.trim() ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) } : {}),
         })),
-      );
-      setMessage((m) => (m ? { ...m, reply: result.message, status: 'replied' } : m));
+      });
+      await load();
       setBody('');
       setAttachments([]);
+      setReplyTo(null);
+      idempotencyKeyRef.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     } catch (e) {
       Alert.alert('Could not reply', e instanceof Error ? e.message : 'Please try again.');
     } finally {
       setSending(false);
     }
+  };
+
+  const approve = async () => {
+    if (!message) return;
+    try {
+      await approvePrivateMessage(message.id);
+      await load();
+    } catch (e) {
+      Alert.alert('Could not approve', e instanceof Error ? e.message : 'Please try again.');
+    }
+  };
+
+  const allowSender = async () => {
+    if (!message) return;
+    try {
+      const r = await allowPrivateSender(message.sender_id);
+      Alert.alert(
+        'Allowed',
+        r.approved > 0 ? `${r.approved} pending message${r.approved === 1 ? '' : 's'} moved to your inbox.` : 'This sender is allowed again.',
+      );
+      await load();
+    } catch (e) {
+      Alert.alert('Could not allow', e instanceof Error ? e.message : 'Please try again.');
+    }
+  };
+
+  const blockSender = () => {
+    if (!message) return;
+    const senderName = message.sender_name ?? message.sender_username ?? 'this sender';
+    Alert.alert(
+      `Block ${senderName}?`,
+      'They will no longer be able to send you private messages. You can unblock them later from their profile.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await blockUser(message.sender_username ?? message.sender_id);
+              Alert.alert('Blocked', `You can no longer receive private messages from ${senderName}.`);
+            } catch (e) {
+              Alert.alert('Could not block', e instanceof Error ? e.message : 'Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const openDeleteMenu = () => {
+    if (!message) return;
+    const senderInitiated = message.sender_id === user?.id;
+    Alert.alert(
+      'Delete this correspondence?',
+      senderInitiated
+        ? 'You sent the original message, so deleting removes it for BOTH you and the other person. This cannot be undone.'
+        : 'This hides the correspondence from your inbox only. The sender keeps their copy.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: senderInitiated ? 'Delete for both' : 'Delete for me',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deletePrivateMessage(message.id);
+              goBack();
+            } catch (e) {
+              Alert.alert('Could not delete', e instanceof Error ? e.message : 'Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const jumpTo = (msgId: string) => {
+    const y = layoutY.current.get(msgId);
+    setFocusedId(msgId);
+    if (y != null) {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 10), animated: true });
+    }
+    setTimeout(() => setFocusedId(null), 1400);
   };
 
   const renderAttachment = (a: Attachment, keyPrefix: string) =>
@@ -222,6 +342,66 @@ export default function PrivateThread() {
       <Text key={`${keyPrefix}-${a.id}`} style={styles.attachmentNote}>Attachment ({a.media_type})</Text>
     );
 
+  const renderMessage = (msg: PrivateMessage, index: number) => {
+    const mine = msg.sender_id === user?.id;
+    const senderLabel = mine ? 'You' : (msg.sender_name ?? msg.sender_username ?? 'Sender');
+    const referenced = threadRows.find((t) => t.id === msg.parent_message_id);
+    return (
+      <View
+        key={msg.id}
+        onLayout={(e) => layoutY.current.set(msg.id, e.nativeEvent.layout.y)}
+        style={[styles.msgWrap, focusedId === msg.id && styles.focused]}
+      >
+        {msg.parent_message_id && referenced ? (
+          <Pressable
+            style={styles.reference}
+            onPress={() => jumpTo(referenced.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Jump to the message this replies to`}
+          >
+            <ArrowBendUpLeft size={13} color={T.TEXT_3} />
+            <View style={{ flex: 1, gap: 1 }}>
+              <Text style={styles.referenceName} numberOfLines={1}>
+                Replying to {referenced.sender_id === user?.id ? 'yourself' : (referenced.sender_name ?? referenced.sender_username ?? 'message')}
+              </Text>
+              <Text style={styles.referenceBody} numberOfLines={1}>{referenced.body}</Text>
+            </View>
+          </Pressable>
+        ) : null}
+        <Text style={styles.date}>
+          {new Date(msg.created_at).toLocaleString()}
+          {msg.parent_message_id ? '' : msg.price_paid > 0 ? ` · ₦${msg.price_paid.toLocaleString()} delivery` : ''}
+        </Text>
+        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.cardBorder}>
+          <View style={[styles.card, index === 0 && styles.originalCard]}>
+            <View style={styles.cardHeader}>
+              <Text style={[styles.senderLabel, mine && styles.senderLabelMine]}>{senderLabel}</Text>
+              {msg.status === 'waiting' ? (
+                <View style={styles.waitingChip}>
+                  <Hourglass size={10} color="#FFFFFF" weight="fill" />
+                  <Text style={styles.waitingChipText}>Waiting approval</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={styles.body}>{msg.body}</Text>
+            {msg.attachments.map((a) => renderAttachment(a, msg.id))}
+            {!mine && !isWaiting ? (
+              <Pressable
+                style={styles.replyLink}
+                onPress={() => setReplyTo(msg)}
+                accessibilityRole="button"
+                accessibilityLabel={`Reply to ${senderLabel}`}
+              >
+                <ArrowBendUpLeft size={14} color={T.PRIMARY_LIGHT} />
+                <Text style={styles.replyLinkText}>Reply</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </GradientBorder>
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
@@ -240,6 +420,8 @@ export default function PrivateThread() {
   const otherName = amRecipient
     ? message.sender_name ?? message.sender_username ?? 'User'
     : message.recipient_name ?? message.recipient_username ?? 'Creator';
+  const canCompose = !isWaiting; // waiting must be approved before replying
+  const canPriceAttachments = amRecipient; // only the creator prices media
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -250,48 +432,84 @@ export default function PrivateThread() {
         </Pressable>
         <View style={styles.headerCenter}>
           <Text style={styles.title} numberOfLines={1}>{otherName}</Text>
-          <Text style={styles.subtitle}>Private correspondence</Text>
+          <Text style={styles.subtitle}>
+            {isWaiting ? 'Waiting for your approval' : 'Private correspondence'}
+          </Text>
         </View>
-        <View style={styles.backBtn} />
+        <Pressable onPress={openDeleteMenu} style={styles.backBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Delete correspondence">
+          <DotsThreeVertical size={20} color={T.TEXT} />
+        </Pressable>
       </View>
 
-      <ScrollView {...useScrollMotion()} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {/* Original message */}
-        <Text style={styles.date}>{new Date(message.created_at).toLocaleString()}</Text>
-        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.cardBorder}>
-        <View style={styles.card}>
-          <Text style={styles.body}>{message.body}</Text>
-          {message.attachments.map((a) => renderAttachment(a, 'orig'))}
-          {message.price_paid > 0 ? (
-            <Text style={styles.paidTag}>₦{message.price_paid.toLocaleString()} delivery</Text>
-          ) : null}
-        </View>
-        </GradientBorder>
-
-        {/* Reply — threaded under the original */}
-        {message.reply ? (
-          <>
-            <View style={styles.threadLine} />
-            <Text style={styles.date}>{new Date(message.reply.created_at).toLocaleString()}</Text>
-            <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.cardBorder}>
-            <View style={[styles.card, styles.replyCard]}>
-              <Text style={styles.body}>{message.reply.body}</Text>
-              {message.reply.attachments.map((a) => renderAttachment(a, 'reply'))}
+      <ScrollView
+        ref={scrollRef}
+        {...useScrollMotion()}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Waiting approval banner */}
+        {isWaiting && amRecipient ? (
+          <View style={styles.approveBanner}>
+            <View style={styles.approveIcon}>
+              <BrandGradientFill />
+              <Hourglass size={16} color="#FFFFFF" weight="fill" />
             </View>
-            </GradientBorder>
-          </>
-        ) : amRecipient ? (
-          /* Reply composer — creators only, one reply per message */
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={styles.approveTitle}>This message is waiting</Text>
+              <Text style={styles.approveSub}>
+                Approve it to move it to your inbox, or allow the sender so future messages arrive normally.
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* The thread — original then replies, oldest first */}
+        {threadRows.map((msg, i) => renderMessage(msg, i))}
+
+        {/* Approval actions (waiting only) */}
+        {isWaiting && amRecipient ? (
+          <View style={styles.approveActions}>
+            <Pressable style={styles.approveBtn} onPress={approve}>
+              <BrandGradientFill />
+              <Check size={15} color="#FFFFFF" weight="bold" />
+              <Text style={styles.approveBtnText}>Approve</Text>
+            </Pressable>
+            <Pressable style={styles.allowBtn} onPress={allowSender}>
+              <UserCheck size={15} color={T.PRIMARY_LIGHT} weight="bold" />
+              <Text style={styles.allowBtnText}>Allow sender</Text>
+            </Pressable>
+            <Pressable style={styles.blockBtn} onPress={blockSender}>
+              <Prohibit size={15} color={T.SECONDARY} weight="bold" />
+              <Text style={styles.blockBtnText}>Block</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Reply composer — either participant may reply to any message */}
+        {canCompose ? (
           <>
             <View style={styles.threadLine} />
-            <Text style={styles.sectionLabel}>Your reply</Text>
+            {replyTo ? (
+              <View style={styles.replyToBanner}>
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text style={styles.replyToName} numberOfLines={1}>
+                    Replying to {replyTo.sender_id === user?.id ? 'yourself' : (replyTo.sender_name ?? replyTo.sender_username ?? 'message')}
+                  </Text>
+                  <Text style={styles.replyToBody} numberOfLines={1}>{replyTo.body}</Text>
+                </View>
+                <Pressable hitSlop={10} onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply">
+                  <X size={15} color={T.TEXT_3} />
+                </Pressable>
+              </View>
+            ) : null}
             <TextInput
               value={body}
               onChangeText={setBody}
               multiline
               maxLength={5000}
-              placeholder="Write a reply…"
+              placeholder={amRecipient ? 'Write a reply…' : 'Write a follow-up…'}
               placeholderTextColor={T.TEXT_3}
+              selectionColor={T.CARET}
               style={styles.input}
               textAlignVertical="top"
             />
@@ -308,7 +526,7 @@ export default function PrivateThread() {
                 <View style={{ flex: 1, gap: 6 }}>
                   {!a.mediaId ? (
                     <Text style={styles.pendingUploading}>Uploading…</Text>
-                  ) : (
+                  ) : canPriceAttachments ? (
                     <View style={styles.priceRow}>
                       <Text style={styles.priceRowLabel}>Price (leave empty for free)</Text>
                       <View style={styles.priceInputWrap}>
@@ -321,10 +539,13 @@ export default function PrivateThread() {
                           keyboardType="numeric"
                           placeholder="0"
                           placeholderTextColor={T.TEXT_3}
+                          selectionColor={T.CARET}
                           style={styles.priceInput}
                         />
                       </View>
                     </View>
+                  ) : (
+                    <Text style={styles.pendingUploading}>Ready to attach</Text>
                   )}
                 </View>
                 <Pressable
@@ -353,9 +574,7 @@ export default function PrivateThread() {
               </Pressable>
             </View>
           </>
-        ) : (
-          <Text style={styles.waitingNote}>Waiting for a reply…</Text>
-        )}
+        ) : null}
       </ScrollView>
 
       {/* Fullscreen media viewer */}
@@ -396,25 +615,97 @@ const styles = StyleSheet.create({
   subtitle: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 1 },
 
   content: { gap: 10, paddingHorizontal: 18, paddingBottom: 48 },
-  date: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 6 },
-  cardBorder: {
-    borderRadius: T.RADIUS.lg,
-  },
-  card: {
-    padding: 16,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.lg,
-    gap: 12,
-  },
-  body: { color: T.TEXT, fontSize: 15, lineHeight: 23, fontFamily: T.FONT.regular },
 
-  replyCard: { borderLeftWidth: 2, borderLeftColor: T.ACCENT },
-  sectionLabel: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.medium, marginTop: 4 },
+  msgWrap: { gap: 0 },
+  focused: { opacity: 1 },
+
+  reference: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 11,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE_2,
+    borderLeftWidth: 2,
+    borderLeftColor: T.ACCENT,
+  },
+  referenceName: { color: T.TEXT_2, fontSize: 10.5, fontFamily: T.FONT.semibold },
+  referenceBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
+
+  date: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 6, marginBottom: 6 },
+  cardBorder: { borderRadius: T.RADIUS.lg },
+  card: { padding: 16, backgroundColor: T.SURFACE, borderRadius: T.RADIUS.lg, gap: 12 },
+  originalCard: { borderLeftWidth: 2, borderLeftColor: T.ACCENT },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  senderLabel: { color: T.PRIMARY_LIGHT, fontSize: 12, fontFamily: T.FONT.semibold },
+  senderLabelMine: { color: T.TEXT_2 },
+  waitingChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: T.SECONDARY,
+    overflow: 'hidden',
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: T.RADIUS.full,
+  },
+  waitingChipText: { color: '#FFFFFF', fontSize: 9, fontFamily: T.FONT.bold, letterSpacing: 0.3 },
+
+  body: { color: T.TEXT, fontSize: 15, lineHeight: 23, fontFamily: T.FONT.regular },
+  replyLink: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingTop: 2 },
+  replyLinkText: { color: T.PRIMARY_LIGHT, fontSize: 12, fontFamily: T.FONT.semibold },
+
   threadLine: { alignSelf: 'flex-start', marginLeft: 24, width: 1.5, height: 14, backgroundColor: T.BORDER_2 },
 
-  paidTag: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.medium },
-  waitingNote: { color: T.TEXT_3, fontSize: 12, textAlign: 'center', marginTop: 8 },
+  // Waiting approval banner + actions
+  approveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 13,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    marginBottom: 4,
+  },
+  approveIcon: {
+    width: 38, height: 38, borderRadius: 19,
+    overflow: 'hidden',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  approveTitle: { color: T.TEXT, fontSize: 13.5, fontFamily: T.FONT.semibold },
+  approveSub: { color: T.TEXT_2, fontSize: 11.5, lineHeight: 17, fontFamily: T.FONT.regular },
+  approveActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  approveBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    height: 42, borderRadius: T.RADIUS.full, overflow: 'hidden',
+    backgroundColor: T.ACCENT,
+  },
+  approveBtnText: { color: '#FFFFFF', fontSize: 13, fontFamily: T.FONT.semibold },
+  allowBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    height: 42, borderRadius: T.RADIUS.full, backgroundColor: T.SURFACE,
+    borderWidth: 1, borderColor: T.BORDER,
+  },
+  allowBtnText: { color: T.PRIMARY_LIGHT, fontSize: 12.5, fontFamily: T.FONT.semibold },
+  blockBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    height: 42, borderRadius: T.RADIUS.full, backgroundColor: alpha(T.SECONDARY, 0.1),
+  },
+  blockBtnText: { color: T.SECONDARY, fontSize: 12.5, fontFamily: T.FONT.semibold },
 
+  // Reply composer
+  replyToBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: T.RADIUS.md,
+    backgroundColor: T.SURFACE_2,
+    borderLeftWidth: 2, borderLeftColor: T.ACCENT,
+  },
+  replyToName: { color: T.PRIMARY_LIGHT, fontSize: 11, fontFamily: T.FONT.semibold },
+  replyToBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
+
+  sectionLabel: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.medium, marginTop: 4 },
   input: {
     minHeight: 110,
     padding: 14,
@@ -443,7 +734,7 @@ const styles = StyleSheet.create({
   lockedTitle: { color: T.TEXT, fontSize: 13, fontFamily: T.FONT.semibold },
   lockedSub: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 1 },
   unlockBtn: {
-    backgroundColor: T.GOLD,
+    backgroundColor: T.ACCENT,
     overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 8,

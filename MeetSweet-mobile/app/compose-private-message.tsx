@@ -230,6 +230,7 @@ export default function ComposePrivateMessage() {
             multiline
             maxLength={5000}
             placeholder="Write your correspondence…"
+            selectionColor={T.CARET}
             placeholderTextColor={T.TEXT_3}
             style={styles.input}
             textAlignVertical="top"

@@ -18,7 +18,7 @@ export type PrivateMessage = {
   recipient_id: string;
   parent_message_id: string | null;
   body: string;
-  status: 'sent' | 'read' | 'replied';
+  status: 'sent' | 'read' | 'replied' | 'waiting';
   price_paid: number;
   created_at: string;
   read_at: string | null;
@@ -30,8 +30,13 @@ export type PrivateMessage = {
   recipient_username: string | null;
   recipient_avatar: string | null;
   attachments: Attachment[];
+  reply_count: number;
   reply: PrivateMessage | null;
+  /** Full thread oldest → newest — only present on the thread endpoint. */
+  thread?: PrivateMessage[];
 };
+
+export type InboxBox = 'inbox' | 'outbox' | 'waiting';
 
 async function token(): Promise<string> {
   const value = await getAccessToken();
@@ -39,7 +44,7 @@ async function token(): Promise<string> {
   return value;
 }
 
-export async function listPrivateMessages(box: 'inbox' | 'outbox', before?: string): Promise<PrivateMessage[]> {
+export async function listPrivateMessages(box: InboxBox, before?: string): Promise<PrivateMessage[]> {
   const qs = new URLSearchParams({ box });
   if (before) qs.set('before', before);
   const result = await authFetch<{ messages: PrivateMessage[] }>(`/private-messages?${qs}`, await token());
@@ -62,10 +67,12 @@ export async function sendPrivateMessage(input: { recipientId: string; body: str
   });
 }
 
-export async function replyToPrivateMessage(id: string, body: string, attachments?: Array<{ media_id: string; media_type: 'image' | 'video' | 'file'; price?: number }>) {
-  return authFetch<{ message: PrivateMessage }>(`/private-messages/${encodeURIComponent(id)}`, await token(), {
+/** Reply to the message `id` (any message in a thread). Either participant
+ * may reply; retries with the same idempotency key never duplicate it. */
+export async function replyToPrivateMessage(input: { id: string; body: string; idempotencyKey: string; attachments?: Array<{ media_id: string; media_type: 'image' | 'video' | 'file'; price?: number }> }) {
+  return authFetch<{ message: PrivateMessage }>(`/private-messages/${encodeURIComponent(input.id)}`, await token(), {
     method: 'POST',
-    body: JSON.stringify({ body, attachments }),
+    body: JSON.stringify({ body: input.body, idempotency_key: input.idempotencyKey, attachments: input.attachments }),
   });
 }
 
@@ -75,4 +82,32 @@ export async function markPrivateMessageRead(id: string) {
 
 export async function purchasePrivateAttachment(id: string) {
   return authFetch<{ attachment: Attachment; balance: number }>(`/private-message-attachments/${encodeURIComponent(id)}/purchase`, await token(), { method: 'POST' });
+}
+
+/**
+ * Delete a thread by ownership:
+ *  • the SENDER deleting removes it for BOTH participants,
+ *  • the RECEIVER deleting hides it only from their own inbox.
+ */
+export async function deletePrivateMessage(id: string) {
+  return authFetch<{ thread_id: string; deleted_for_both: boolean }>(`/private-messages/${encodeURIComponent(id)}`, await token(), { method: 'DELETE' });
+}
+
+/** Approve a waiting message into the recipient's normal inbox. */
+export async function approvePrivateMessage(id: string) {
+  return authFetch<{ message: PrivateMessage }>(`/private-messages/${encodeURIComponent(id)}`, await token(), { method: 'PATCH' });
+}
+
+/** Restrict a sender — their future messages queue in your Waiting section. */
+export async function restrictPrivateSender(userId: string) {
+  return authFetch<{ restricted: boolean }>('/private-messages/restrictions', await token(), {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+/** Allow a sender again — lifts the restriction and approves their pending messages. */
+export async function allowPrivateSender(userId: string) {
+  const qs = new URLSearchParams({ user_id: userId });
+  return authFetch<{ restricted: boolean; approved: number }>(`/private-messages/restrictions?${qs}`, await token(), { method: 'DELETE' });
 }
