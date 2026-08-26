@@ -246,7 +246,54 @@ export interface NotificationCreatedPayload {
   };
 }
 
+// ─── Private Message event set ───────────────────────────────────────────────
+// The minimum events the Private Message UI consumes over SweetSocket. Names
+// match the server's durable outbox (server/lib/realtime/types.ts) exactly —
+// nothing is invented client-side. The socket delivers; the DB stays
+// authoritative; no polling anywhere.
+
+/** `private_message.created` — a new message lands in a recipient's box. */
 export interface PrivateMessageCreatedPayload {
   box: 'inbox' | 'outbox';
   message: Record<string, unknown>; // PrivateMessageView shape from the API
+}
+
+/** `private_message.reply_created` — a reply arrived in an open thread. */
+export interface PrivateMessageReplyCreatedPayload {
+  original_id: string; // thread root id — match against the open thread
+  parent_id: string;   // the message the reply answers
+  reply: Record<string, unknown>; // PrivateMessageView shape
+}
+
+/** `private_message.read` — the other participant opened the correspondence. */
+export interface PrivateMessageReadPayload {
+  message_id: string;
+  read_at: string;
+}
+
+/** `private_message.updated` — status/reply-count refresh for a thread root. */
+export interface PrivateMessageUpdatedPayload {
+  box: 'inbox' | 'outbox';
+  status?: 'sent' | 'read' | 'replied' | 'waiting';
+  replied_at?: string | null;
+  message: Record<string, unknown>; // PrivateMessageView shape
+}
+
+/** `private_message.approved` — a waiting message moved into the inbox. */
+export interface PrivateMessageApprovedPayload {
+  message_id: string;
+  status: 'sent';
+}
+
+/** `private_message.deleted` — a thread was removed for one or both sides. */
+export interface PrivateMessageDeletedPayload {
+  thread_id: string;
+  deleted_for_both: boolean;
+}
+
+/** `private_message.attachment_purchased` — creator notification of a sale. */
+export interface PrivateMessageAttachmentPurchasedPayload {
+  attachment_id: string;
+  message_id: string;
+  buyer_id: string;
 }

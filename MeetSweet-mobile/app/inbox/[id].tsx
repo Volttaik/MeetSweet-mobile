@@ -1,23 +1,42 @@
 /**
- * Private Thread — email-style correspondence view.
+ * Private Thread — chat-style correspondence view.
  *
- * The whole thread renders as one vertical correspondence: the paid original
- * at the top, then every reply in order (replies to replies included). Each
- * message shows a compact reference to the message it answers — tap it to
- * jump to that message. Either participant may reply to any message; only
- * the creator can price reply attachments. Locked attachments never receive
- * a URL from the server; unlocked ones render inline and open in a viewer.
+ * Rebuilt from the old DM chat UI (UI recovery only): the thread now reads
+ * like a real chat screen while the underlying system stays the simplified
+ * Private Message model (original + replies, inbox/outbox/waiting, paid
+ * delivery, paid media). Nothing from the removed chat backend was restored.
  *
- * Waiting messages (sender muted) show an approval banner instead of the
- * composer until the recipient approves or allows the sender.
+ * Visual language (recovered from the pre-removal chat UI, rebuilt on the
+ * current MeetSweet design system):
+ *   • Sent bubbles right, received bubbles left — immediately obvious.
+ *   • Compact tail-corner bubbles (12px radius, 4px tail) that wrap tightly
+ *     around their content; sent bubbles carry the faint platform-gradient
+ *     wash, received bubbles sit on the plain app surface.
+ *   • Timestamp + delivery status on one non-wrapping line inside the bubble
+ *     (single check = sent, accent double-check = read).
+ *   • Centred date pills separate message groups by day.
+ *   • Replies carry a tappable quote preview above the bubble (accent bar,
+ *     "Replying to X" + preview) and indent under the message they answer —
+ *     tapping jumps to and highlights the original.
+ *   • Composer is a fixed bottom bar that rides the keyboard (keyboard-
+ *     controller), expands for longer text, and keeps the gradient send
+ *     button one tap away.
+ *
+ * Real-time: the screen subscribes to the existing SweetSocket stream
+ * (services/realtime) — new replies, read/status changes, approvals and
+ * deletions arrive as events and update the thread in place. No polling.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Image,
+  Linking,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -31,9 +50,11 @@ import {
   ArrowBendUpLeft,
   ArrowLeft,
   Check,
+  Checks,
   DotsThreeVertical,
   Hourglass,
   Lock,
+  PaperPlaneRight,
   Play,
   Plus,
   Prohibit,
@@ -42,12 +63,15 @@ import {
 } from 'phosphor-react-native';
 import { T, alpha, AppGradients, MEDIA_BG } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
-import { useScrollMotion } from '@/lib/scroll-motion';
 import { goBack } from '@/lib/safe-back';
+import { useScrollMotion } from '@/lib/scroll-motion';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsAttachmentSheet, type AttachmentResult } from '@/components/MsAttachmentSheet';
+import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
+import { MsShimmerChatList } from '@/components/MsShimmer';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -63,6 +87,7 @@ import {
 } from '@/services/private-inbox';
 import { blockUser } from '@/services/users';
 import { uploadMedia } from '@/services/media';
+import { realtime } from '@/services/realtime';
 
 type InboxMediaType = 'image' | 'video' | 'file';
 
@@ -81,6 +106,56 @@ function toInboxMediaType(result: AttachmentResult): InboxMediaType | null {
   return null;
 }
 
+// ─── Time / day helpers ───────────────────────────────────────────────────────
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (diffDays <= 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
+
+// ─── URL detection (recovered from the old chat text bubble) ─────────────────
+
+const URL_RE = /https?:\/\/[\w-]+(\.[\w-]+)+[\w-.,@?^=%&:/~+#]*|www\.[\w-]+(\.[\w-]+)+[\w-.,@?^=%&:/~+#]*/gi;
+
+function parseLinks(text: string): Array<{ text: string; isLink: boolean; url?: string }> {
+  if (!text) return [];
+  const segments: Array<{ text: string; isLink: boolean; url?: string }> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((match = URL_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), isLink: false });
+    }
+    const raw = match[0];
+    const url = raw.startsWith('http') ? raw : `https://${raw}`;
+    segments.push({ text: raw, isLink: true, url });
+    lastIndex = match.index + raw.length;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), isLink: false });
+  }
+  return segments;
+}
+
 /**
  * Sent-message bubble fill — a very subtle diagonal wash of the MeetSweet
  * brand gradient (magenta → amber → violet at low opacity). Just enough to
@@ -92,6 +167,54 @@ const SENT_BUBBLE_GRADIENT = [
   'rgba(255,20,147,0.15)',
   'rgba(128,0,128,0.17)',
 ] as const;
+
+/** Soft entrance for each message row — fade + 4px rise, like the old chat. */
+function Entrance({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 200,
+      delay,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [anim, delay]);
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [
+          { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) },
+        ],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Centred day pill between message groups (recovered date-separator pattern). */
+function DateSeparator({ label }: { label: string }) {
+  return (
+    <View style={styles.dateWrap}>
+      <View style={styles.datePill}>
+        <Text style={styles.dateText}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Delivery status — single check (sent) / accent double-check (read). */
+function StatusIcon({ msg, mine }: { msg: PrivateMessage; mine: boolean }) {
+  if (!mine || msg.status === 'waiting') return null;
+  const read = !!msg.read_at || msg.status === 'read' || msg.status === 'replied';
+  return read ? (
+    <Checks size={11} color={T.PRIMARY_LIGHT} weight="bold" />
+  ) : (
+    <Check size={11} color={T.TEXT_3} weight="bold" />
+  );
+}
 
 // ─── Unlocked attachment rendering ────────────────────────────────────────────
 
@@ -125,6 +248,28 @@ function UnlockedAttachment({
   );
 }
 
+/** Locked paid media — never exposes the content until purchased/unlocked. */
+function LockedAttachment({ attachment, onUnlock }: { attachment: Attachment; onUnlock: () => void }) {
+  return (
+    <Pressable style={styles.lockedCard} onPress={onUnlock} accessibilityRole="button" accessibilityLabel={`Unlock paid media for ₦${attachment.price.toLocaleString()}`}>
+      <View style={styles.lockedIcon}>
+        <BrandGradientFill />
+        <Lock size={16} color="#FFFFFF" weight="fill" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.lockedTitle}>Paid media</Text>
+        <Text style={styles.lockedSub}>Tap to unlock for ₦{attachment.price.toLocaleString()}</Text>
+      </View>
+      <View style={styles.unlockBtn}>
+        <BrandGradientFill />
+        <Text style={styles.unlockBtnText}>Unlock</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
 export default function PrivateThread() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -147,6 +292,9 @@ export default function PrivateThread() {
   // One idempotency key per reply draft: retries after a network failure
   // never duplicate the reply; a fresh key is minted after success.
   const idempotencyKeyRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  // Follow new messages: jump to the newest row on first paint, then animate
+  // down only when the row count grows (a reply arrived while open).
+  const lastRowCount = useRef(0);
 
   const amRecipient = message?.recipient_id === user?.id;
   const isWaiting = message?.status === 'waiting';
@@ -202,6 +350,71 @@ export default function PrivateThread() {
     return depths;
   }, [threadRows]);
 
+  // ── SweetSocket — the thread is live. New replies, read/status changes,
+  //    approvals and deletions arrive as events; the UI updates in place.
+  //    One subscription, cleaned up on unmount — no polling, no duplicates.
+  useEffect(() => {
+    return realtime.on((event) => {
+      switch (event.type) {
+        case 'private_message.reply_created': {
+          const payload = event.payload as { original_id?: string; parent_id?: string; reply?: PrivateMessage };
+          const reply = payload.reply;
+          if (!reply) return;
+          const belongsToThread =
+            payload.original_id === id || payload.parent_id === id || reply.id === id || reply.parent_message_id === id;
+          if (!belongsToThread) return;
+          setMessage((prev) => {
+            if (!prev) return prev;
+            const rows = prev.thread?.length ? prev.thread : [prev, ...(prev.reply ? [prev.reply] : [])];
+            if (rows.some((r) => r.id === reply.id) || prev.id === reply.id) return prev;
+            return {
+              ...prev,
+              status: prev.recipient_id === user?.id ? 'replied' : prev.status,
+              replied_at: reply.created_at,
+              reply_count: (prev.reply_count ?? 0) + 1,
+              thread: [...rows, reply],
+            };
+          });
+          break;
+        }
+        case 'private_message.read': {
+          const payload = event.payload as { message_id?: string; read_at?: string };
+          const mid = payload.message_id ?? event.resourceId;
+          if (!mid) return;
+          setMessage((prev) => {
+            if (!prev) return prev;
+            const patch = (m: PrivateMessage): PrivateMessage =>
+              m.id === mid
+                ? { ...m, read_at: payload.read_at ?? m.read_at, status: m.status === 'sent' ? 'read' : m.status }
+                : m;
+            return { ...patch(prev), thread: prev.thread?.map(patch) };
+          });
+          break;
+        }
+        case 'private_message.updated': {
+          const payload = event.payload as { message?: PrivateMessage };
+          if (event.resourceId === id && payload.message) {
+            setMessage((prev) => (prev ? { ...prev, ...payload.message! } : prev));
+          }
+          break;
+        }
+        case 'private_message.approved': {
+          const payload = event.payload as { message_id?: string };
+          if (payload.message_id !== id && event.resourceId !== id) return;
+          setMessage((prev) => (prev && prev.status === 'waiting' ? { ...prev, status: 'sent' } : prev));
+          break;
+        }
+        case 'private_message.deleted': {
+          const payload = event.payload as { thread_id?: string };
+          if (payload.thread_id === id || event.resourceId === id) goBack();
+          break;
+        }
+        default:
+          break;
+      }
+    });
+  }, [id, user?.id]);
+
   const onAttachmentPicked = useCallback((result: AttachmentResult) => {
     const mediaType = toInboxMediaType(result);
     if (!mediaType) return;
@@ -240,7 +453,9 @@ export default function PrivateThread() {
   };
 
   const sendReply = async () => {
-    if (!message || !body.trim() || sending) return;
+    if (!message || sending) return;
+    // A reply needs text, media, or both.
+    if (!body.trim() && attachments.length === 0) return;
     const target = replyTo ?? message;
     const ready = attachments.filter((a): a is PendingAttachment & { mediaId: string } => a.mediaId !== null);
     if (ready.length !== attachments.length) return; // uploads still in flight
@@ -255,6 +470,19 @@ export default function PrivateThread() {
           media_type: a.mediaType,
           ...(canPriceAttachments && a.price.trim() ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) } : {}),
         })),
+      });
+      // Optimistic append — the follow-up load() reconciles with the server.
+      setMessage((prev) => {
+        if (!prev) return prev;
+        const rows = prev.thread?.length ? prev.thread : [prev, ...(prev.reply ? [prev.reply] : [])];
+        if (rows.some((r) => r.id === result.message.id) || prev.id === result.message.id) return prev;
+        return {
+          ...prev,
+          status: prev.recipient_id === user?.id ? 'replied' : prev.status,
+          replied_at: result.message.created_at,
+          reply_count: (prev.reply_count ?? 0) + 1,
+          thread: [...rows, result.message],
+        };
       });
       await load();
       setBody('');
@@ -353,20 +581,7 @@ export default function PrivateThread() {
 
   const renderAttachment = (a: Attachment, keyPrefix: string) =>
     a.is_locked ? (
-      <Pressable key={`${keyPrefix}-${a.id}`} style={styles.lockedCard} onPress={() => unlock(a.id)}>
-        <View style={styles.lockedIcon}>
-          <BrandGradientFill />
-          <Lock size={16} color="#FFFFFF" weight="fill" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.lockedTitle}>Paid content</Text>
-          <Text style={styles.lockedSub}>Tap to unlock for ₦{a.price.toLocaleString()}</Text>
-        </View>
-        <View style={styles.unlockBtn}>
-          <BrandGradientFill />
-          <Text style={styles.unlockBtnText}>Unlock</Text>
-        </View>
-      </Pressable>
+      <LockedAttachment key={`${keyPrefix}-${a.id}`} attachment={a} onUnlock={() => unlock(a.id)} />
     ) : a.media_url ? (
       <UnlockedAttachment
         key={`${keyPrefix}-${a.id}`}
@@ -377,102 +592,128 @@ export default function PrivateThread() {
       <Text key={`${keyPrefix}-${a.id}`} style={styles.attachmentNote}>Attachment ({a.media_type})</Text>
     );
 
-  const renderMessage = (msg: PrivateMessage) => {
+  const renderMessage = (msg: PrivateMessage, index: number) => {
     const mine = msg.sender_id === user?.id;
     // Replies tuck in toward the centre under their parent so the thread
     // relationship reads at a glance; the side still shows who sent what.
     const depth = Math.min(threadDepths.get(msg.id) ?? 0, 3);
-    const senderLabel = mine ? 'You' : (msg.sender_name ?? msg.sender_username ?? 'Sender');
     const referenced = threadRows.find((t) => t.id === msg.parent_message_id);
-    const time = new Date(msg.created_at).toLocaleString();
+    const time = formatTime(msg.created_at);
     // Delivery fee only ever applies to the paid original, never to replies.
     const paidNote =
       !msg.parent_message_id && msg.price_paid > 0
         ? ` · ₦${msg.price_paid.toLocaleString()} delivery`
         : '';
     return (
-      <View
-        key={msg.id}
-        onLayout={(e) => layoutY.current.set(msg.id, e.nativeEvent.layout.y)}
-        style={[
-          styles.msgWrap,
-          mine ? styles.msgMine : styles.msgTheirs,
-          depth > 0 && { marginLeft: depth * 16 },
-        ]}
-      >
-        {msg.parent_message_id && referenced ? (
-          <Pressable
-            style={styles.reference}
-            onPress={() => jumpTo(referenced.id)}
-            accessibilityRole="button"
-            accessibilityLabel={`Jump to the message this replies to`}
-          >
-            <ArrowBendUpLeft size={13} color={T.TEXT_3} />
-            <View style={{ flex: 1, gap: 1 }}>
-              <Text style={styles.referenceName} numberOfLines={1}>
-                Replying to {referenced.sender_id === user?.id ? 'yourself' : (referenced.sender_name ?? referenced.sender_username ?? 'message')}
-              </Text>
-              <Text style={styles.referenceBody} numberOfLines={1}>{referenced.body}</Text>
-            </View>
-          </Pressable>
-        ) : null}
+      <Entrance key={msg.id} delay={Math.min(index * 25, 200)}>
         <View
+          onLayout={(e) => layoutY.current.set(msg.id, e.nativeEvent.layout.y)}
           style={[
-            styles.bubble,
-            mine ? styles.bubbleMine : styles.bubbleTheirs,
-            focusedId === msg.id && styles.focused,
+            styles.msgWrap,
+            mine ? styles.msgMine : styles.msgTheirs,
+            depth > 0 && { marginLeft: depth * 16 },
           ]}
         >
-          {/* Sent bubbles carry a faint platform-gradient wash; received ones
-              stay on the plain app surface. The structure is identical. */}
-          {mine ? (
-            <LinearGradient
-              colors={SENT_BUBBLE_GRADIENT}
-              start={AppGradients.brandStart}
-              end={AppGradients.brandEnd}
-              style={StyleSheet.absoluteFill}
-              pointerEvents="none"
-            />
-          ) : null}
-          <View style={styles.bubbleHeader}>
-            <Text
-              style={[styles.senderLabel, mine ? styles.senderLabelMine : styles.senderLabelTheirs]}
-              numberOfLines={1}
-            >
-              {senderLabel}
-            </Text>
-            {msg.status === 'waiting' ? (
-              <View style={styles.waitingChip}>
-                <Hourglass size={10} color="#FFFFFF" weight="fill" />
-                <Text style={styles.waitingChipText}>Waiting approval</Text>
-              </View>
-            ) : null}
-            <Text style={styles.time} numberOfLines={1}>
-              {time}{paidNote}
-            </Text>
-          </View>
-          <Text style={styles.body}>{msg.body}</Text>
-          {msg.attachments.map((a) => renderAttachment(a, msg.id))}
-          {!mine && !isWaiting ? (
+          {/* Reply quote — the message this one answers, tap to jump */}
+          {msg.parent_message_id && referenced ? (
             <Pressable
-              style={styles.replyLink}
-              onPress={() => setReplyTo(msg)}
+              style={styles.reference}
+              onPress={() => jumpTo(referenced.id)}
               accessibilityRole="button"
-              accessibilityLabel={`Reply to ${senderLabel}`}
+              accessibilityLabel={`Jump to the message this replies to`}
             >
-              <ArrowBendUpLeft size={14} color={T.PRIMARY_LIGHT} />
-              <Text style={styles.replyLinkText}>Reply</Text>
+              <View style={styles.referenceAccent} />
+              <ArrowBendUpLeft size={13} color={T.TEXT_3} />
+              <View style={{ flex: 1, gap: 1 }}>
+                <Text style={styles.referenceName} numberOfLines={1}>
+                  Replying to {referenced.sender_id === user?.id ? 'yourself' : (referenced.sender_name ?? referenced.sender_username ?? 'message')}
+                </Text>
+                <Text style={styles.referenceBody} numberOfLines={1}>{referenced.body || (referenced.attachments.length ? 'Attachment' : '')}</Text>
+              </View>
             </Pressable>
           ) : null}
+
+          {/* The bubble */}
+          <View
+            style={[
+              styles.bubble,
+              mine ? styles.bubbleMine : styles.bubbleTheirs,
+              focusedId === msg.id && styles.focused,
+            ]}
+          >
+            {/* Sent bubbles carry a faint platform-gradient wash; received ones
+                stay on the plain app surface. The structure is identical. */}
+            {mine ? (
+              <LinearGradient
+                colors={SENT_BUBBLE_GRADIENT}
+                start={AppGradients.brandStart}
+                end={AppGradients.brandEnd}
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+              />
+            ) : null}
+
+            <Text style={styles.body}>
+              {parseLinks(msg.body || '').map((seg, i) =>
+                seg.isLink ? (
+                  <Text
+                    key={i}
+                    style={styles.bodyLink}
+                    onPress={() => {
+                      if (seg.url) Linking.openURL(seg.url).catch(() => {});
+                    }}
+                  >
+                    {seg.text}
+                  </Text>
+                ) : (
+                  <Text key={i}>{seg.text}</Text>
+                )
+              )}
+            </Text>
+
+            {msg.attachments.map((a) => renderAttachment(a, msg.id))}
+
+            {/* Meta — timestamp + status always on ONE non-wrapping line */}
+            <View style={[styles.meta, mine ? styles.metaRight : styles.metaLeft]}>
+              {msg.status === 'waiting' ? (
+                <View style={styles.waitingChip}>
+                  <Hourglass size={10} color="#FFFFFF" weight="fill" />
+                  <Text style={styles.waitingChipText}>Waiting approval</Text>
+                </View>
+              ) : null}
+              <Text style={styles.time} numberOfLines={1}>
+                {time}{paidNote}
+              </Text>
+              <StatusIcon msg={msg} mine={mine} />
+            </View>
+
+            {/* Reply affordance — received messages only */}
+            {!mine && !isWaiting ? (
+              <Pressable
+                style={styles.replyLink}
+                onPress={() => setReplyTo(msg)}
+                accessibilityRole="button"
+                accessibilityLabel={`Reply to ${msg.sender_name ?? msg.sender_username ?? 'sender'}`}
+              >
+                <ArrowBendUpLeft size={13} color={T.PRIMARY_LIGHT} />
+                <Text style={styles.replyLinkText}>Reply</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-      </View>
+      </Entrance>
     );
   };
 
   if (loading) {
     return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator color={T.PRIMARY_LIGHT} />
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <View style={styles.iconBtn} />
+          <View style={styles.headerCenter} />
+          <View style={styles.iconBtn} />
+        </View>
+        <MsShimmerChatList count={6} />
       </View>
     );
   }
@@ -487,160 +728,219 @@ export default function PrivateThread() {
   const otherName = amRecipient
     ? message.sender_name ?? message.sender_username ?? 'User'
     : message.recipient_name ?? message.recipient_username ?? 'Creator';
+  const otherAvatar = amRecipient ? message.sender_avatar : message.recipient_avatar;
   const canCompose = !isWaiting; // waiting must be approved before replying
+
+  const readyCount = attachments.filter((a) => a.mediaId !== null).length;
+  const canSend = !sending && (body.trim().length > 0 || attachments.length > 0) && readyCount === attachments.length;
+
+  // Follow the newest message: first paint jumps, later additions animate.
+  const onContentSizeChange = useCallback(() => {
+    const count = threadRows.length;
+    if (lastRowCount.current === 0 && count > 0) {
+      lastRowCount.current = count;
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+    } else if (count > lastRowCount.current) {
+      lastRowCount.current = count;
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    }
+  }, [threadRows.length]);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Header */}
+      {/* Header — chat-style: back, avatar + name, actions */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
+        <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
           <ArrowLeft size={22} color={T.TEXT} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={styles.title} numberOfLines={1}>{otherName}</Text>
-          <Text style={styles.subtitle}>
-            {isWaiting ? 'Waiting for your approval' : 'Private correspondence'}
-          </Text>
+          <View style={styles.headerIdentity}>
+            <MsAvatar size={34} initials={(otherName || 'U').slice(0, 2).toUpperCase()} imageUri={otherAvatar ?? undefined} />
+            <View style={{ flex: 1, gap: 0 }}>
+              <Text style={styles.title} numberOfLines={1}>{otherName}</Text>
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {isWaiting ? 'Waiting for your approval' : 'Private correspondence'}
+              </Text>
+            </View>
+          </View>
         </View>
-        <Pressable onPress={openDeleteMenu} style={styles.backBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Delete correspondence">
+        <Pressable onPress={openDeleteMenu} style={styles.iconBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Delete correspondence">
           <DotsThreeVertical size={20} color={T.TEXT} />
         </Pressable>
       </View>
 
-      <KeyboardAwareScrollViewCompat
-        ref={scrollRef}
-        {...useScrollMotion()}
-        contentContainerStyle={styles.content}
-      >
-        {/* Waiting approval banner */}
-        {isWaiting && amRecipient ? (
-          <View style={styles.approveBanner}>
-            <View style={styles.approveIcon}>
-              <BrandGradientFill />
-              <Hourglass size={16} color="#FFFFFF" weight="fill" />
+      {/* KeyboardAvoidingView lifts the composer above the keyboard (iOS);
+          Android's resize mode already lifts the window. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <KeyboardAwareScrollViewCompat
+          ref={scrollRef}
+          {...useScrollMotion()}
+          onContentSizeChange={onContentSizeChange}
+          contentContainerStyle={styles.content}
+        >
+          {/* Waiting approval banner */}
+          {isWaiting && amRecipient ? (
+            <View style={styles.approveBanner}>
+              <View style={styles.approveIcon}>
+                <BrandGradientFill />
+                <Hourglass size={16} color="#FFFFFF" weight="fill" />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.approveTitle}>This message is waiting</Text>
+                <Text style={styles.approveSub}>
+                  Approve it to move it to your inbox, or allow the sender so future messages arrive normally.
+                </Text>
+              </View>
             </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={styles.approveTitle}>This message is waiting</Text>
-              <Text style={styles.approveSub}>
-                Approve it to move it to your inbox, or allow the sender so future messages arrive normally.
-              </Text>
+          ) : null}
+
+          {/* The thread — original then replies, oldest first, day pills between groups */}
+          {threadRows.map((msg, i) => {
+            const showDay = i === 0 || dayKey(msg.created_at) !== dayKey(threadRows[i - 1].created_at);
+            return (
+              <React.Fragment key={msg.id}>
+                {showDay ? <DateSeparator label={dayLabel(msg.created_at)} /> : null}
+                {renderMessage(msg, i)}
+              </React.Fragment>
+            );
+          })}
+
+          {/* Approval actions (waiting only) */}
+          {isWaiting && amRecipient ? (
+            <View style={styles.approveActions}>
+              <Pressable style={styles.approveBtn} onPress={approve}>
+                <BrandGradientFill />
+                <Check size={15} color="#FFFFFF" weight="bold" />
+                <Text style={styles.approveBtnText}>Approve</Text>
+              </Pressable>
+              <Pressable style={styles.allowBtn} onPress={allowSender}>
+                <UserCheck size={15} color={T.PRIMARY_LIGHT} weight="bold" />
+                <Text style={styles.allowBtnText}>Allow sender</Text>
+              </Pressable>
+              <Pressable style={styles.blockBtn} onPress={blockSender}>
+                <Prohibit size={15} color={T.SECONDARY} weight="bold" />
+                <Text style={styles.blockBtnText}>Block</Text>
+              </Pressable>
             </View>
-          </View>
-        ) : null}
+          ) : null}
+        </KeyboardAwareScrollViewCompat>
 
-        {/* The thread — original then replies, oldest first */}
-        {threadRows.map((msg) => renderMessage(msg))}
-
-        {/* Approval actions (waiting only) */}
-        {isWaiting && amRecipient ? (
-          <View style={styles.approveActions}>
-            <Pressable style={styles.approveBtn} onPress={approve}>
-              <BrandGradientFill />
-              <Check size={15} color="#FFFFFF" weight="bold" />
-              <Text style={styles.approveBtnText}>Approve</Text>
-            </Pressable>
-            <Pressable style={styles.allowBtn} onPress={allowSender}>
-              <UserCheck size={15} color={T.PRIMARY_LIGHT} weight="bold" />
-              <Text style={styles.allowBtnText}>Allow sender</Text>
-            </Pressable>
-            <Pressable style={styles.blockBtn} onPress={blockSender}>
-              <Prohibit size={15} color={T.SECONDARY} weight="bold" />
-              <Text style={styles.blockBtnText}>Block</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {/* Reply composer — either participant may reply to any message */}
+        {/* Composer — fixed bottom bar, rides the keyboard, expands naturally */}
         {canCompose ? (
-          <>
-            <View style={styles.threadLine} />
+          <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
             {replyTo ? (
               <View style={styles.replyToBanner}>
+                <View style={styles.replyToAccent} />
                 <View style={{ flex: 1, gap: 1 }}>
                   <Text style={styles.replyToName} numberOfLines={1}>
                     Replying to {replyTo.sender_id === user?.id ? 'yourself' : (replyTo.sender_name ?? replyTo.sender_username ?? 'message')}
                   </Text>
-                  <Text style={styles.replyToBody} numberOfLines={1}>{replyTo.body}</Text>
+                  <Text style={styles.replyToBody} numberOfLines={1}>
+                    {replyTo.body || (replyTo.attachments.length ? 'Attachment' : '')}
+                  </Text>
                 </View>
                 <Pressable hitSlop={10} onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply">
                   <X size={15} color={T.TEXT_3} />
                 </Pressable>
               </View>
             ) : null}
-            <TextInput
-              value={body}
-              onChangeText={setBody}
-              multiline
-              maxLength={5000}
-              placeholder={amRecipient ? 'Write a reply…' : 'Write a follow-up…'}
-              placeholderTextColor={T.TEXT_3}
-              selectionColor={T.CARET}
-              style={styles.input}
-              textAlignVertical="top"
-            />
 
-            {attachments.map((a, i) => (
-              <View key={`${a.localUri}-${i}`} style={styles.pendingRow}>
-                {a.mediaType === 'image' ? (
-                  <Image source={{ uri: a.localUri }} style={styles.pendingThumb} />
-                ) : (
-                  <View style={[styles.pendingThumb, styles.pendingThumbFallback]}>
-                    <Text style={styles.pendingFallbackText}>{a.mediaType.toUpperCase()}</Text>
-                  </View>
-                )}
-                <View style={{ flex: 1, gap: 6 }}>
-                  {!a.mediaId ? (
-                    <Text style={styles.pendingUploading}>Uploading…</Text>
-                  ) : canPriceAttachments ? (
-                    <View style={styles.priceRow}>
-                      <Text style={styles.priceRowLabel}>Price (leave empty for free)</Text>
-                      <View style={styles.priceInputWrap}>
-                        <Text style={styles.naira}>₦</Text>
-                        <TextInput
-                          value={a.price}
-                          onChangeText={(v) =>
-                            setAttachments((prev) => prev.map((x, idx) => (idx === i ? { ...x, price: v } : x)))
-                          }
-                          keyboardType="numeric"
-                          placeholder="0"
-                          placeholderTextColor={T.TEXT_3}
-                          selectionColor={T.CARET}
-                          style={styles.priceInput}
-                        />
+            {/* Staged attachments (with creator price input) */}
+            {attachments.length > 0 ? (
+              <View style={styles.stagedWrap}>
+                {attachments.map((a, i) => (
+                  <View key={`${a.localUri}-${i}`} style={styles.pendingRow}>
+                    {a.mediaType === 'image' ? (
+                      <Image source={{ uri: a.localUri }} style={styles.pendingThumb} />
+                    ) : (
+                      <View style={[styles.pendingThumb, styles.pendingThumbFallback]}>
+                        <Text style={styles.pendingFallbackText}>{a.mediaType.toUpperCase()}</Text>
                       </View>
+                    )}
+                    <View style={{ flex: 1, gap: 6 }}>
+                      {!a.mediaId ? (
+                        <Text style={styles.pendingUploading}>Uploading…</Text>
+                      ) : canPriceAttachments ? (
+                        <View style={styles.priceRow}>
+                          <Text style={styles.priceRowLabel}>Price (leave empty for free)</Text>
+                          <View style={styles.priceInputWrap}>
+                            <Text style={styles.naira}>₦</Text>
+                            <TextInput
+                              value={a.price}
+                              onChangeText={(v) =>
+                                setAttachments((prev) => prev.map((x, idx) => (idx === i ? { ...x, price: v } : x)))
+                              }
+                              keyboardType="numeric"
+                              placeholder="0"
+                              placeholderTextColor={T.TEXT_3}
+                              selectionColor={T.CARET}
+                              style={styles.priceInput}
+                            />
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={styles.pendingUploading}>Ready to attach</Text>
+                      )}
                     </View>
-                  ) : (
-                    <Text style={styles.pendingUploading}>Ready to attach</Text>
-                  )}
-                </View>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove attachment"
-                >
-                  <X size={16} color={T.TEXT_3} />
-                </Pressable>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove attachment"
+                    >
+                      <X size={16} color={T.TEXT_3} />
+                    </Pressable>
+                  </View>
+                ))}
               </View>
-            ))}
+            ) : null}
 
-            <View style={styles.composerActions}>
-              <Pressable style={styles.attachBtn} onPress={() => setSheetVisible(true)} disabled={attachments.length >= 10}>
-                <Plus size={17} color={T.TEXT_2} />
-                <Text style={styles.attachBtnText}>Attach</Text>
-              </Pressable>
+            {/* Input row — pill + attach + gradient send */}
+            <View style={styles.inputRow}>
+              <View style={styles.pill}>
+                <TextInput
+                  value={body}
+                  onChangeText={setBody}
+                  multiline
+                  maxLength={5000}
+                  placeholder={amRecipient ? 'Write a reply…' : 'Write a follow-up…'}
+                  placeholderTextColor={T.TEXT_3}
+                  selectionColor={T.CARET}
+                  style={styles.input}
+                  underlineColorAndroid="transparent"
+                  textAlignVertical="center"
+                />
+              </View>
+
               <Pressable
-                style={[styles.sendBtn, (!body.trim() || sending) && styles.disabled]}
+                style={styles.attachBtn}
+                onPress={() => setSheetVisible(true)}
+                disabled={attachments.length >= 10}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Attach media"
+              >
+                <Plus size={20} color={T.TEXT_2} weight="bold" />
+              </Pressable>
+
+              <Pressable
+                style={[styles.sendBtn, !canSend && styles.disabled]}
                 onPress={sendReply}
-                disabled={!body.trim() || sending}
+                disabled={!canSend}
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
               >
                 <BrandGradientFill />
-                {sending ? <ActivityIndicator color={T.ACCENT_FG} /> : <Text style={styles.sendBtnText}>Send Reply</Text>}
+                {sending ? (
+                  <ActivityIndicator color={T.ACCENT_FG} />
+                ) : (
+                  <PaperPlaneRight size={20} color={T.ACCENT_FG} weight="fill" />
+                )}
               </Pressable>
             </View>
-          </>
+          </View>
         ) : null}
-      </KeyboardAwareScrollViewCompat>
+      </KeyboardAvoidingView>
 
       {/* Fullscreen media viewer */}
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)} statusBarTranslucent>
@@ -666,63 +966,76 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: T.BG, alignItems: 'center', justifyContent: 'center', padding: 32 },
   notice: { color: T.TEXT_2, fontSize: 14, textAlign: 'center' },
 
+  // ── Header ────────────────────────────────────────────────────────────────
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
-  backBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: T.SURFACE },
-  headerCenter: { flex: 1, alignItems: 'center', marginHorizontal: 10 },
-  title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16 },
+  iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: T.SURFACE },
+  headerCenter: { flex: 1, marginHorizontal: 10 },
+  headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  title: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15 },
   subtitle: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 1 },
 
-  content: { gap: 14, paddingHorizontal: 18, paddingBottom: 48 },
+  // ── Message area ──────────────────────────────────────────────────────────
+  content: { paddingHorizontal: 14, paddingBottom: 24 },
 
-  // Two-sided correspondence: received messages left, sent messages right.
-  // Replies additionally indent (depth × 16) so the thread chain stays clear.
-  msgWrap: { maxWidth: '84%', gap: 8 },
+  // Two-sided chat: received left, sent right. Replies additionally indent
+  // (depth × 16) so the thread chain stays clear.
+  msgWrap: { maxWidth: '84%', gap: 6, marginBottom: 6 },
   msgMine: { alignSelf: 'flex-end' },
   msgTheirs: { alignSelf: 'flex-start' },
 
+  // Reply quote above the bubble — accent bar + "Replying to X" + preview.
   reference: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 11,
+    gap: 7,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE_2,
-    borderLeftWidth: 2,
-    borderLeftColor: T.ACCENT,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    overflow: 'hidden',
   },
-  referenceName: { color: T.TEXT_2, fontSize: 10.5, fontFamily: T.FONT.semibold },
+  referenceAccent: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: T.ACCENT, flexShrink: 0 },
+  referenceName: { color: T.PRIMARY_LIGHT, fontSize: 10.5, fontFamily: T.FONT.semibold },
   referenceBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
 
+  // Chat bubble — compact, tail corner on the sending side, wraps tightly.
   bubble: {
-    padding: 14,
-    borderRadius: T.RADIUS.lg,
-    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: T.RADIUS.md,
+    gap: 8,
     overflow: 'hidden',
+    borderWidth: 1,
   },
   bubbleMine: {
     backgroundColor: alpha(T.PRIMARY, 0.16),
-    borderWidth: 1,
     borderColor: alpha(T.PRIMARY_LIGHT, 0.32),
+    borderBottomRightRadius: 4,
   },
   bubbleTheirs: {
     backgroundColor: T.SURFACE,
-    borderWidth: 1,
     borderColor: T.BORDER,
+    borderBottomLeftRadius: 4,
   },
   focused: { borderColor: T.PRIMARY_LIGHT, borderWidth: 1.5 },
-  bubbleHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  senderLabel: { fontSize: 11.5, fontFamily: T.FONT.semibold, flexShrink: 1 },
-  senderLabelMine: { color: T.PRIMARY_LIGHT },
-  senderLabelTheirs: { color: T.TEXT_2 },
-  time: { color: T.TEXT_3, fontSize: 10.5, fontFamily: T.FONT.regular, flexShrink: 0 },
+
+  body: { color: T.TEXT, fontSize: 15, lineHeight: 23, fontFamily: T.FONT.regular },
+  bodyLink: { color: T.PRIMARY_LIGHT, textDecorationLine: 'underline' },
+
+  // Timestamp + status — one non-wrapping line.
+  meta: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 4, marginTop: 1 },
+  metaLeft: { justifyContent: 'flex-start' },
+  metaRight: { justifyContent: 'flex-end' },
+  time: { color: T.TEXT_3, fontSize: 10, fontFamily: T.FONT.regular, flexShrink: 0 },
   waitingChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: T.SECONDARY,
@@ -733,11 +1046,20 @@ const styles = StyleSheet.create({
   },
   waitingChipText: { color: '#FFFFFF', fontSize: 9, fontFamily: T.FONT.bold, letterSpacing: 0.3 },
 
-  body: { color: T.TEXT, fontSize: 15, lineHeight: 23, fontFamily: T.FONT.regular },
-  replyLink: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingTop: 2 },
+  replyLink: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingTop: 1 },
   replyLinkText: { color: T.PRIMARY_LIGHT, fontSize: 12, fontFamily: T.FONT.semibold },
 
-  threadLine: { alignSelf: 'flex-start', marginLeft: 24, width: 1.5, height: 14, backgroundColor: T.BORDER_2 },
+  // Centred date pill between message groups.
+  dateWrap: { alignItems: 'center', marginVertical: 12 },
+  datePill: {
+    backgroundColor: T.SURFACE_2,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    paddingHorizontal: 13,
+    paddingVertical: 4,
+    borderRadius: T.RADIUS.full,
+  },
+  dateText: { fontSize: 10.5, fontFamily: T.FONT.medium, color: T.TEXT_3, letterSpacing: 0.2 },
 
   // Waiting approval banner + actions
   approveBanner: {
@@ -750,6 +1072,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.BORDER,
     marginBottom: 4,
+    marginTop: 6,
   },
   approveIcon: {
     width: 38, height: 38, borderRadius: 19,
@@ -777,30 +1100,106 @@ const styles = StyleSheet.create({
   },
   blockBtnText: { color: T.SECONDARY, fontSize: 12.5, fontFamily: T.FONT.semibold },
 
-  // Reply composer
+  // ── Composer ──────────────────────────────────────────────────────────────
+  composer: {
+    backgroundColor: T.BG,
+    borderTopWidth: 1,
+    borderTopColor: T.BORDER,
+    paddingTop: 8,
+    paddingHorizontal: 10,
+  },
   replyToBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 8, paddingHorizontal: 12,
     borderRadius: T.RADIUS.md,
     backgroundColor: T.SURFACE_2,
-    borderLeftWidth: 2, borderLeftColor: T.ACCENT,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    overflow: 'hidden',
+    marginBottom: 8,
   },
+  replyToAccent: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: T.ACCENT, flexShrink: 0 },
   replyToName: { color: T.PRIMARY_LIGHT, fontSize: 11, fontFamily: T.FONT.semibold },
   replyToBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
 
-  sectionLabel: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.medium, marginTop: 4 },
-  input: {
-    minHeight: 110,
-    padding: 14,
+  stagedWrap: { gap: 8, marginBottom: 8 },
+  pendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 11,
     backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.lg,
-    color: T.TEXT,
-    fontSize: 15,
-    lineHeight: 22,
-    fontFamily: T.FONT.regular,
-    textAlignVertical: 'top',
+    borderRadius: T.RADIUS.md,
+    borderWidth: 1,
+    borderColor: T.BORDER,
   },
+  pendingThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: T.SURFACE_2 },
+  pendingThumbFallback: { alignItems: 'center', justifyContent: 'center' },
+  pendingFallbackText: { color: T.TEXT_3, fontSize: 9, fontFamily: T.FONT.bold },
+  pendingUploading: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.regular },
+  priceRow: { gap: 4 },
+  priceRowLabel: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular },
+  priceInputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.sm,
+    paddingHorizontal: 10,
+    height: 32,
+  },
+  naira: { color: T.TEXT_2, fontSize: 13, fontFamily: T.FONT.medium },
+  priceInput: { flex: 1, color: T.TEXT, fontSize: 14, fontFamily: T.FONT.medium, paddingVertical: 0 },
 
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.pill,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    paddingHorizontal: 14,
+    minHeight: 46,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: T.FONT.regular,
+    color: T.TEXT,
+    paddingTop: Platform.OS === 'ios' ? 8 : 6,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 6,
+    includeFontPadding: false,
+    maxHeight: 110,
+  },
+  attachBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  sendBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    shadowColor: T.ACCENT,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  disabled: { opacity: 0.5 },
+
+  // ── Media ─────────────────────────────────────────────────────────────────
   lockedCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -808,6 +1207,8 @@ const styles = StyleSheet.create({
     padding: 13,
     backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.md,
+    borderWidth: 1,
+    borderColor: T.BORDER,
   },
   lockedIcon: {
     width: 36, height: 36, borderRadius: 18,
@@ -845,52 +1246,6 @@ const styles = StyleSheet.create({
   },
   unlockedBadgeText: { color: '#FFFFFF', fontSize: 9, fontFamily: T.FONT.bold, letterSpacing: 0.5 },
   attachmentNote: { color: T.TEXT_2, fontSize: 12, fontFamily: T.FONT.regular },
-
-  pendingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.md,
-  },
-  pendingThumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: T.SURFACE_2 },
-  pendingThumbFallback: { alignItems: 'center', justifyContent: 'center' },
-  pendingFallbackText: { color: T.TEXT_3, fontSize: 9, fontFamily: T.FONT.bold },
-  pendingUploading: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.regular },
-  priceRow: { gap: 4 },
-  priceRowLabel: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular },
-  priceInputWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.sm,
-    paddingHorizontal: 10,
-    height: 34,
-  },
-  naira: { color: T.TEXT_2, fontSize: 13, fontFamily: T.FONT.medium },
-  priceInput: { flex: 1, color: T.TEXT, fontSize: 14, fontFamily: T.FONT.medium, paddingVertical: 0 },
-
-  composerActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  attachBtn: {
-    width: 88,
-    borderRadius: T.RADIUS.full,
-    backgroundColor: T.SURFACE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    paddingVertical: 12,
-  },
-  attachBtnText: { color: T.TEXT_2, fontSize: 11, fontFamily: T.FONT.medium },
-  sendBtn: {
-    flex: 1,
-    borderRadius: T.RADIUS.full,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 13,
-  },
-  disabled: { opacity: 0.5 },
-  sendBtnText: { color: T.ACCENT_FG, fontFamily: T.FONT.semibold, fontSize: 15 },
 
   viewerClose: { position: 'absolute', top: 48, right: 18, zIndex: 10 },
 });

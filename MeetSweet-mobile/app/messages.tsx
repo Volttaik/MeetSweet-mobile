@@ -342,6 +342,7 @@ export default function MessagesScreen() {
 
   // SweetSocket — the lists are live:
   //  • inbox/waiting: a newly paid message prepends to the matching box
+  //  • read receipts flip the outbox row in place (no reload needed)
   //  • approvals / deletions / replies / status changes refresh in place
   useEffect(
     () =>
@@ -356,6 +357,18 @@ export default function MessagesScreen() {
             }
           } else if (box === 'inbox') {
             setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
+          }
+        }
+        if (event.type === 'private_message.read') {
+          // The recipient opened our message — flip status/read_at in place.
+          const { message_id, read_at } = event.payload as { message_id?: string; read_at?: string };
+          if (message_id) {
+            const patch = (m: PrivateMessage): PrivateMessage =>
+              m.id === message_id
+                ? { ...m, read_at: read_at ?? m.read_at, status: m.status === 'replied' ? 'replied' : 'read' }
+                : m;
+            setMessages((old) => old.map(patch));
+            setWaitingMessages((old) => old.map(patch));
           }
         }
         if (
