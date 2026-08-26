@@ -66,8 +66,6 @@ jobs:
           set -euo pipefail
           node - <<'EOF'
           const { execSync } = require('node:child_process');
-          const fs = require('node:fs');
-          const path = require('node:path');
           const { createFingerprintAsync } = require('expo/fingerprint');
 
           const appDir = process.cwd();
@@ -90,29 +88,31 @@ jobs:
               return;
             }
 
-            const baseDir = '/tmp/fp-base';
-            execSync(`git worktree add --detach ${baseDir} HEAD~1`, { stdio: 'inherit' });
+            // Snapshot the previous commit's TRACKED files in place (node_modules
+            // and other ignored/untracked files stay put) so autolinking resolves
+            // identical module paths for both sides. A second worktree with a
+            // symlinked node_modules bakes machine-specific absolute paths into
+            // the autolinking config and always reports a false difference.
+            const repoRoot = execSync('git rev-parse --show-toplevel').toString().trim();
+            let parentFp;
             try {
-              fs.symlinkSync(
-                path.join(appDir, 'node_modules'),
-                path.join(baseDir, 'node_modules')
-              );
-              const parentFp = await createFingerprintAsync(baseDir);
-              console.log(`Parent fingerprint: ${parentFp.hash}`);
-
-              if (headFp.hash !== parentFp.hash) {
-                console.error(
-                  '::error::The pushed changes alter the native runtime fingerprint ' +
-                    '(app config, native code, or dependencies changed). ' +
-                    'A new native build is required — publish an EAS build (new APK) ' +
-                    'instead of an OTA update. See docs/ota-updates.md.'
-                );
-                process.exit(1);
-              }
-              console.log('No native runtime changes — OTA update is safe to publish.');
+              execSync('git restore --source=HEAD~1 --worktree -- :/', { cwd: repoRoot });
+              parentFp = await createFingerprintAsync(appDir);
             } finally {
-              execSync(`git worktree remove ${baseDir} --force`, { stdio: 'ignore' });
+              execSync('git restore --source=HEAD --worktree -- :/', { cwd: repoRoot });
             }
+            console.log(`Parent fingerprint: ${parentFp.hash}`);
+
+            if (headFp.hash !== parentFp.hash) {
+              console.error(
+                '::error::The pushed changes alter the native runtime fingerprint ' +
+                  '(app config, native code, or dependencies changed). ' +
+                  'A new native build is required — publish an EAS build (new APK) ' +
+                  'instead of an OTA update. See docs/ota-updates.md.'
+              );
+              process.exit(1);
+            }
+            console.log('No native runtime changes — OTA update is safe to publish.');
           })().catch((err) => {
             console.error(err);
             process.exit(1);
