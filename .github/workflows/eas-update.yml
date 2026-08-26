@@ -146,7 +146,10 @@ jobs:
         working-directory: MeetSweet-mobile
         run: |
           set -euo pipefail
-          # Idempotent: create the channel if missing, then pin it to the main branch.
+          # Idempotent: ensure the EAS branch and channel exist, then pin the
+          # channel to the main branch. The branch must exist before the channel
+          # can reference it — it is created on the first eas update otherwise.
+          eas branch:create main --non-interactive || true
           eas channel:create production --non-interactive || true
           eas channel:edit production --branch main --non-interactive
       - name: Publish OTA update
