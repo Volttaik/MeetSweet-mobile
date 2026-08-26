@@ -61,7 +61,7 @@ jobs:
       - name: Install dependencies
         run: pnpm --dir MeetSweet-mobile install --frozen-lockfile
       - name: Compare native fingerprints (HEAD vs HEAD~1)
-        working-directory: MeetSweet-mobile/MeetSweet-mobile
+        working-directory: MeetSweet-mobile
         run: |
           set -euo pipefail
           node - <<'EOF'
@@ -141,14 +141,14 @@ jobs:
       - name: Install dependencies
         run: pnpm --dir MeetSweet-mobile install --frozen-lockfile
       - name: Point production channel at main branch
-        working-directory: MeetSweet-mobile/MeetSweet-mobile
+        working-directory: MeetSweet-mobile
         run: |
           set -euo pipefail
           # Idempotent: create the channel if missing, then pin it to the main branch.
           eas channel:create production --non-interactive || true
           eas channel:edit production --branch main --non-interactive
       - name: Publish OTA update
-        working-directory: MeetSweet-mobile/MeetSweet-mobile
+        working-directory: MeetSweet-mobile
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'Manual production update' }}
         run: |
