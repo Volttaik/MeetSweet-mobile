@@ -55,7 +55,8 @@ jobs:
           version: 10
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # eas-cli 22.x requires Node >= 22 (engine check fails on Node 20).
+          node-version: 22
           cache: pnpm
           cache-dependency-path: MeetSweet-mobile/pnpm-lock.yaml
       - name: Install dependencies
@@ -130,7 +131,8 @@ jobs:
           version: 10
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # eas-cli 22.x requires Node >= 22 (engine check fails on Node 20).
+          node-version: 22
           cache: pnpm
           cache-dependency-path: MeetSweet-mobile/pnpm-lock.yaml
       - name: Setup EAS CLI
