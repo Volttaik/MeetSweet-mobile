@@ -7,6 +7,15 @@
     "icon": "./assets/images/icon.png",
     "scheme": "meetsweet",
     "userInterfaceStyle": "dark",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/655098fe-684b-4275-8650-a951cb856cc1",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",

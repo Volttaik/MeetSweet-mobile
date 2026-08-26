@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 // A card Pressable (button on web) cannot contain a nested <button>, so the
 // embedded Subscribe control drops its button role on web only (renders as a
@@ -9,7 +9,12 @@ import { SealCheck, Play, Sparkle, Users } from 'phosphor-react-native';
 import type { ContentPreview, Creator, TrendingCollection } from '@/lib/api-client-react';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
-import { T, ALBUM_TONES } from '@/constants/theme';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { T, ALBUM_TONES, AppGradients } from '@/constants/theme';
+
+// Two-column creator card grid: 20px screen padding each side, 12px gutter.
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+export const CREATOR_CARD_WIDTH = Math.round((SCREEN_WIDTH - 40 - 12) / 2);
 
 // Fallback solid tones when no real thumbnail
 const TONE = ALBUM_TONES;
@@ -167,9 +172,18 @@ export function MsFeaturedCreatorCard({
   );
 }
 
-// ─── Recommended Creator Row ──────────────────────────────────────────────────
+// ─── Creator Card (premium discovery card) ───────────────────────────────────
 
-export function MsRecommendedCreatorRow({
+/**
+ * MsCreatorCard — the Explore creator card.
+ *
+ * Premium two-column card: cover banner on top (real banner image or a soft
+ * platform-gradient fallback), avatar overlapping the banner with a gradient
+ * ring, name + verified badge, handle, category chip, subscriber count, bio
+ * and a brand-gradient subscribe CTA. Used for both creator discovery grids
+ * and creator search results — one card, no separate search design.
+ */
+export function MsCreatorCard({
   creator,
   onPress,
   onLongPress,
@@ -186,51 +200,113 @@ export function MsRecommendedCreatorRow({
   isSubscribed?: boolean;
   subscribing?: boolean;
 }) {
+  const hasBanner = Boolean(creator.bannerUrl);
+  const hasCategory = Boolean(creator.category);
+
   return (
     <Pressable
-      style={recommendedStyles.row}
+      style={creatorCardStyles.card}
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
       accessibilityRole="button"
       accessibilityLabel={`View ${creator.name}'s profile`}
     >
-      <Pressable onPress={onAvatarPress ?? onPress} hitSlop={6}>
-        <MsAvatar
-          size={50}
-          initials={creator.initials}
-          imageUri={creator.avatarUrl ?? undefined}
-          showOnline={creator.isOnline}
-        />
-      </Pressable>
+      {/* Cover banner — real banner or gradient fallback, scrimmed for depth */}
+      <View style={creatorCardStyles.bannerWrap}>
+        {hasBanner ? (
+          <MsMediaLoader
+            uri={creator.bannerUrl}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            accessibleLabel={`${creator.name} banner`}
+            errorMessage=""
+            fallback={null}
+          />
+        ) : (
+          <BrandGradientFill colors={AppGradients.rosePurple} />
+        )}
+        <View style={creatorCardStyles.bannerScrim} pointerEvents="none" />
+      </View>
 
-      <View style={recommendedStyles.info}>
-        <View style={recommendedStyles.nameRow}>
-          <Text style={recommendedStyles.name} numberOfLines={1}>
+      {/* Avatar overlapping the banner, wrapped in a platform-gradient ring */}
+      <View style={creatorCardStyles.avatarWrap}>
+        <Pressable
+          style={creatorCardStyles.avatarRing}
+          onPress={onAvatarPress ?? onPress}
+          hitSlop={6}
+          accessibilityRole={INNER_BUTTON_ROLE}
+          accessibilityLabel={`View ${creator.name}'s profile`}
+        >
+          <BrandGradientFill />
+          <View style={creatorCardStyles.avatarInset}>
+            <MsAvatar
+              size={52}
+              initials={creator.initials}
+              imageUri={creator.avatarUrl ?? undefined}
+              showOnline={creator.isOnline}
+            />
+          </View>
+        </Pressable>
+      </View>
+
+      {/* Identity + relevant creator info */}
+      <View style={creatorCardStyles.body}>
+        <View style={creatorCardStyles.nameRow}>
+          <Text style={creatorCardStyles.name} numberOfLines={1}>
             {creator.name}
           </Text>
-          {creator.isVerified && <SealCheck size={12} color={T.TEXT} weight="fill" />}
+          {creator.isVerified && (
+            <SealCheck size={13} color={T.PRIMARY_LIGHT} weight="fill" />
+          )}
         </View>
-        <Text style={recommendedStyles.handle} numberOfLines={1}>
+        <Text style={creatorCardStyles.handle} numberOfLines={1}>
           {creator.handle}
         </Text>
+
+        <View style={creatorCardStyles.metaRow}>
+          {hasCategory && (
+            <View style={creatorCardStyles.categoryChip}>
+              <Text style={creatorCardStyles.categoryText} numberOfLines={1}>
+                {creator.category}
+              </Text>
+            </View>
+          )}
+          <View style={creatorCardStyles.subscriberMetric}>
+            <Users size={12} color={T.TEXT_2} weight="bold" />
+            <Text style={creatorCardStyles.subscriberText} numberOfLines={1}>
+              {fmtSubscribers(creator.subscriberCount ?? 0)}
+            </Text>
+          </View>
+        </View>
+
+        {Boolean(creator.bio) && (
+          <Text style={creatorCardStyles.bio} numberOfLines={2}>
+            {creator.bio}
+          </Text>
+        )}
       </View>
 
-      <View style={recommendedStyles.meta}>
-        <Text style={recommendedStyles.category}>{(creator.category ?? '').toUpperCase()}</Text>
-        <Text style={recommendedStyles.subscriberCount}>{fmtSubscribers(creator.subscriberCount ?? 0)} subscribers</Text>
-      </View>
-
+      {/* Subscribe CTA — brand gradient when actionable, muted when subscribed */}
       <Pressable
-        style={[recommendedStyles.subscribeButton, isSubscribed && recommendedStyles.subscribeButtonSubscribed]}
+        style={[
+          creatorCardStyles.subscribeBtn,
+          isSubscribed && creatorCardStyles.subscribeBtnSubscribed,
+        ]}
         onPress={onSubscribe}
         disabled={subscribing || !onSubscribe}
         hitSlop={6}
         accessibilityRole={INNER_BUTTON_ROLE}
         accessibilityLabel={isSubscribed ? `Subscribed to ${creator.name}` : `Subscribe to ${creator.name}`}
       >
-        <Text style={[recommendedStyles.subscribeLabel, isSubscribed && { color: T.TEXT_2 }]}>
-          {isSubscribed ? 'Subscribed' : 'Subscribe'}
+        {!isSubscribed && <BrandGradientFill />}
+        <Text
+          style={[
+            creatorCardStyles.subscribeLabel,
+            isSubscribed && creatorCardStyles.subscribeLabelSubscribed,
+          ]}
+        >
+          {subscribing ? 'Subscribing…' : isSubscribed ? 'Subscribed' : 'Subscribe'}
         </Text>
       </Pressable>
     </Pressable>
@@ -425,32 +501,108 @@ const featuredStyles = StyleSheet.create({
   subscribeBtnSubscribed: { backgroundColor: T.SURFACE_2 },
 });
 
-const recommendedStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-    // No divider line — spacing and elevation provide separation
+const creatorCardStyles = StyleSheet.create({
+  card: {
+    width: CREATOR_CARD_WIDTH,
+    backgroundColor: T.SURFACE,
+    borderRadius: T.RADIUS.xl,
+    overflow: 'hidden',
+    ...T.SHADOWS.medium,
   },
-  info: { flex: 1, minWidth: 0 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  name: { color: T.TEXT, fontFamily: T.FONT.semibold, fontSize: 15, flexShrink: 1 },
-  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12, marginTop: 2 },
-  meta: { alignItems: 'flex-end', marginRight: 4, gap: 3 },
-  category: { color: T.TEXT_3, fontFamily: T.FONT.semibold, fontSize: 11, letterSpacing: 1 },
-  subscriberCount: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 12 },
-  subscribeButton: {
-    borderRadius: T.RADIUS.full,
-    paddingHorizontal: 14,
-    height: 34,
-    backgroundColor: T.TEXT,
+  bannerWrap: {
+    height: 96,
+    overflow: 'hidden',
+  },
+  bannerScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(8,5,12,0.30)',
+  },
+  avatarWrap: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    marginTop: -31,
+  },
+  avatarRing: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    padding: 2,
+    overflow: 'hidden',
+    backgroundColor: T.BG,
+  },
+  avatarInset: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  subscribeLabel: { color: T.BG, fontFamily: T.FONT.semibold, fontSize: 12 },
-  subscribeButtonSubscribed: { backgroundColor: T.SURFACE_2 },
+  body: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 3,
+  },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  name: {
+    color: T.TEXT,
+    fontFamily: T.FONT.bold,
+    fontSize: 14,
+    letterSpacing: -0.2,
+    flexShrink: 1,
+  },
+  handle: { color: T.TEXT_2, fontFamily: T.FONT.regular, fontSize: 11.5 },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 7,
+  },
+  categoryChip: {
+    backgroundColor: T.ACCENT_LIGHT,
+    borderRadius: T.RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    maxWidth: '62%',
+  },
+  categoryText: {
+    color: T.PRIMARY_LIGHT,
+    fontFamily: T.FONT.semibold,
+    fontSize: 9.5,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  subscriberMetric: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 1,
+  },
+  subscriberText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 11 },
+  bio: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 5,
+  },
+  subscribeBtn: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    marginTop: 4,
+    height: 36,
+    borderRadius: T.RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: T.SURFACE_2,
+  },
+  subscribeLabel: {
+    color: T.ACCENT_FG,
+    fontFamily: T.FONT.semibold,
+    fontSize: 12.5,
+  },
+  subscribeBtnSubscribed: { backgroundColor: T.SURFACE_2 },
+  subscribeLabelSubscribed: { color: T.TEXT_2 },
 });
 
 const previewStyles = StyleSheet.create({

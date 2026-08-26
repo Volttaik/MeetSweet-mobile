@@ -157,11 +157,29 @@ function handleNotificationTap(notification: Notifications.Notification) {
   const contentType = data.content_type ?? data.contentType ?? type;
   const contentId = data.content_id ?? data.contentId;
   const actorId = data.actor_id ?? data.actorId ?? data.username;
+  const privateMessageId = data.private_message_id ?? data.privateMessageId;
 
-  // wallet / payout → open wallet
-  if (type === 'wallet' || type === 'payout' || type === 'payment' || type === 'purchase' || type === 'referral_reward') {
+  // wallet / payout / failed renewal → open wallet
+  if (
+    type === 'wallet' ||
+    type === 'payout' ||
+    type === 'payment' ||
+    type === 'purchase' ||
+    type === 'referral_reward' ||
+    type === 'subscription_renewal_failed' ||
+    type === 'subscription_renewed'
+  ) {
     navigate('/wallet');
     return;
+  }
+
+  // Private Inbox → open the exact message thread (server sends
+  // private_message_id on private_message / private_message_reply pushes).
+  if (type === 'private_message' || type === 'private_message_reply') {
+    if (privateMessageId) {
+      navigate(`/inbox/${privateMessageId}`);
+      return;
+    }
   }
 
   // subscribe / creator → open profile
@@ -267,6 +285,20 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     lastRegisteredUser.current = regKey;
     registerPushTokenToBackend(pushToken, Platform.OS);
   }, [isAuthenticated, user?.id, pushToken]);
+
+  // ── 2b. Token rotation ──────────────────────────────────────────────────────
+  // In rare situations the push service rolls the device token while the app
+  // is running; the old token becomes invalid and pushes to it fail. Listening
+  // for the rotation and swapping the state re-triggers the (user, token)-keyed
+  // registration above so the backend targets the new token immediately.
+  useEffect(() => {
+    const sub = Notifications.addPushTokenListener((tokenData) => {
+      const t = tokenData.data;
+      if (!t) return;
+      setPushToken((prev) => (prev === t ? prev : t));
+    });
+    return () => sub.remove();
+  }, []);
 
   // ── Initial durable hydration ────────────────────────────────────────────
   // SweetSocket owns subsequent badge updates. This one request establishes

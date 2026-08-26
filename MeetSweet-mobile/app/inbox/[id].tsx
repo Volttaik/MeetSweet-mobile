@@ -12,19 +12,19 @@
  * composer until the recipient approves or allows the sender.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import type { ScrollView } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -40,11 +40,12 @@ import {
   UserCheck,
   X,
 } from 'phosphor-react-native';
-import { T, alpha, MEDIA_BG } from '@/constants/theme';
+import { T, alpha, AppGradients, MEDIA_BG } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
-import { GradientBorder } from '@/components/GradientBorder';
 import { useScrollMotion } from '@/lib/scroll-motion';
 import { goBack } from '@/lib/safe-back';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsAttachmentSheet, type AttachmentResult } from '@/components/MsAttachmentSheet';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
@@ -76,9 +77,21 @@ interface PendingAttachment {
 function toInboxMediaType(result: AttachmentResult): InboxMediaType | null {
   if (result.type === 'image' || result.type === 'gif') return 'image';
   if (result.type === 'video') return 'video';
-  if (result.type === 'audio' || result.type === 'document') return 'file';
+  if (result.type === 'document') return 'file';
   return null;
 }
+
+/**
+ * Sent-message bubble fill — a very subtle diagonal wash of the MeetSweet
+ * brand gradient (magenta → amber → violet at low opacity). Just enough to
+ * mark the sender's side without shouting; received bubbles stay on the plain
+ * app surface so the two sides read at a glance.
+ */
+const SENT_BUBBLE_GRADIENT = [
+  'rgba(255,140,0,0.13)',
+  'rgba(255,20,147,0.15)',
+  'rgba(128,0,128,0.17)',
+] as const;
 
 // ─── Unlocked attachment rendering ────────────────────────────────────────────
 
@@ -137,6 +150,10 @@ export default function PrivateThread() {
 
   const amRecipient = message?.recipient_id === user?.id;
   const isWaiting = message?.status === 'waiting';
+  // Only the thread's creator participant prices media — server-authoritative
+  // (thread_creator_id), correct in both thread directions: fan-initiated
+  // (creator = recipient) and creator-initiated (creator = sender).
+  const canPriceAttachments = message?.thread_creator_id === user?.id;
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -166,6 +183,24 @@ export default function PrivateThread() {
     : message
       ? [message, ...(message.reply ? [message.reply] : [])]
       : [];
+
+  /**
+   * Thread depth per message id (0 = original). Replies indent under the
+   * message they answer, so the original → reply → further-reply chain stays
+   * visually connected even though each message also sits on its own side.
+   */
+  const threadDepths = useMemo(() => {
+    const depths = new Map<string, number>();
+    const byId = new Map(threadRows.map((m) => [m.id, m]));
+    for (const m of threadRows) {
+      if (m.parent_message_id && byId.has(m.parent_message_id)) {
+        depths.set(m.id, (depths.get(m.parent_message_id) ?? 0) + 1);
+      } else {
+        depths.set(m.id, 0);
+      }
+    }
+    return depths;
+  }, [threadRows]);
 
   const onAttachmentPicked = useCallback((result: AttachmentResult) => {
     const mediaType = toInboxMediaType(result);
@@ -218,7 +253,7 @@ export default function PrivateThread() {
         attachments: ready.map((a) => ({
           media_id: a.mediaId,
           media_type: a.mediaType,
-          ...(amRecipient && a.price.trim() ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) } : {}),
+          ...(canPriceAttachments && a.price.trim() ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) } : {}),
         })),
       });
       await load();
@@ -342,15 +377,28 @@ export default function PrivateThread() {
       <Text key={`${keyPrefix}-${a.id}`} style={styles.attachmentNote}>Attachment ({a.media_type})</Text>
     );
 
-  const renderMessage = (msg: PrivateMessage, index: number) => {
+  const renderMessage = (msg: PrivateMessage) => {
     const mine = msg.sender_id === user?.id;
+    // Replies tuck in toward the centre under their parent so the thread
+    // relationship reads at a glance; the side still shows who sent what.
+    const depth = Math.min(threadDepths.get(msg.id) ?? 0, 3);
     const senderLabel = mine ? 'You' : (msg.sender_name ?? msg.sender_username ?? 'Sender');
     const referenced = threadRows.find((t) => t.id === msg.parent_message_id);
+    const time = new Date(msg.created_at).toLocaleString();
+    // Delivery fee only ever applies to the paid original, never to replies.
+    const paidNote =
+      !msg.parent_message_id && msg.price_paid > 0
+        ? ` · ₦${msg.price_paid.toLocaleString()} delivery`
+        : '';
     return (
       <View
         key={msg.id}
         onLayout={(e) => layoutY.current.set(msg.id, e.nativeEvent.layout.y)}
-        style={[styles.msgWrap, focusedId === msg.id && styles.focused]}
+        style={[
+          styles.msgWrap,
+          mine ? styles.msgMine : styles.msgTheirs,
+          depth > 0 && { marginLeft: depth * 16 },
+        ]}
       >
         {msg.parent_message_id && referenced ? (
           <Pressable
@@ -368,36 +416,55 @@ export default function PrivateThread() {
             </View>
           </Pressable>
         ) : null}
-        <Text style={styles.date}>
-          {new Date(msg.created_at).toLocaleString()}
-          {msg.parent_message_id ? '' : msg.price_paid > 0 ? ` · ₦${msg.price_paid.toLocaleString()} delivery` : ''}
-        </Text>
-        <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={styles.cardBorder}>
-          <View style={[styles.card, index === 0 && styles.originalCard]}>
-            <View style={styles.cardHeader}>
-              <Text style={[styles.senderLabel, mine && styles.senderLabelMine]}>{senderLabel}</Text>
-              {msg.status === 'waiting' ? (
-                <View style={styles.waitingChip}>
-                  <Hourglass size={10} color="#FFFFFF" weight="fill" />
-                  <Text style={styles.waitingChipText}>Waiting approval</Text>
-                </View>
-              ) : null}
-            </View>
-            <Text style={styles.body}>{msg.body}</Text>
-            {msg.attachments.map((a) => renderAttachment(a, msg.id))}
-            {!mine && !isWaiting ? (
-              <Pressable
-                style={styles.replyLink}
-                onPress={() => setReplyTo(msg)}
-                accessibilityRole="button"
-                accessibilityLabel={`Reply to ${senderLabel}`}
-              >
-                <ArrowBendUpLeft size={14} color={T.PRIMARY_LIGHT} />
-                <Text style={styles.replyLinkText}>Reply</Text>
-              </Pressable>
+        <View
+          style={[
+            styles.bubble,
+            mine ? styles.bubbleMine : styles.bubbleTheirs,
+            focusedId === msg.id && styles.focused,
+          ]}
+        >
+          {/* Sent bubbles carry a faint platform-gradient wash; received ones
+              stay on the plain app surface. The structure is identical. */}
+          {mine ? (
+            <LinearGradient
+              colors={SENT_BUBBLE_GRADIENT}
+              start={AppGradients.brandStart}
+              end={AppGradients.brandEnd}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+          ) : null}
+          <View style={styles.bubbleHeader}>
+            <Text
+              style={[styles.senderLabel, mine ? styles.senderLabelMine : styles.senderLabelTheirs]}
+              numberOfLines={1}
+            >
+              {senderLabel}
+            </Text>
+            {msg.status === 'waiting' ? (
+              <View style={styles.waitingChip}>
+                <Hourglass size={10} color="#FFFFFF" weight="fill" />
+                <Text style={styles.waitingChipText}>Waiting approval</Text>
+              </View>
             ) : null}
+            <Text style={styles.time} numberOfLines={1}>
+              {time}{paidNote}
+            </Text>
           </View>
-        </GradientBorder>
+          <Text style={styles.body}>{msg.body}</Text>
+          {msg.attachments.map((a) => renderAttachment(a, msg.id))}
+          {!mine && !isWaiting ? (
+            <Pressable
+              style={styles.replyLink}
+              onPress={() => setReplyTo(msg)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reply to ${senderLabel}`}
+            >
+              <ArrowBendUpLeft size={14} color={T.PRIMARY_LIGHT} />
+              <Text style={styles.replyLinkText}>Reply</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     );
   };
@@ -421,7 +488,6 @@ export default function PrivateThread() {
     ? message.sender_name ?? message.sender_username ?? 'User'
     : message.recipient_name ?? message.recipient_username ?? 'Creator';
   const canCompose = !isWaiting; // waiting must be approved before replying
-  const canPriceAttachments = amRecipient; // only the creator prices media
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -441,11 +507,10 @@ export default function PrivateThread() {
         </Pressable>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         ref={scrollRef}
         {...useScrollMotion()}
         contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
       >
         {/* Waiting approval banner */}
         {isWaiting && amRecipient ? (
@@ -464,7 +529,7 @@ export default function PrivateThread() {
         ) : null}
 
         {/* The thread — original then replies, oldest first */}
-        {threadRows.map((msg, i) => renderMessage(msg, i))}
+        {threadRows.map((msg) => renderMessage(msg))}
 
         {/* Approval actions (waiting only) */}
         {isWaiting && amRecipient ? (
@@ -575,7 +640,7 @@ export default function PrivateThread() {
             </View>
           </>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       {/* Fullscreen media viewer */}
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)} statusBarTranslucent>
@@ -614,16 +679,18 @@ const styles = StyleSheet.create({
   title: { color: T.TEXT, fontFamily: T.FONT.bold, fontSize: 16 },
   subtitle: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 1 },
 
-  content: { gap: 10, paddingHorizontal: 18, paddingBottom: 48 },
+  content: { gap: 14, paddingHorizontal: 18, paddingBottom: 48 },
 
-  msgWrap: { gap: 0 },
-  focused: { opacity: 1 },
+  // Two-sided correspondence: received messages left, sent messages right.
+  // Replies additionally indent (depth × 16) so the thread chain stays clear.
+  msgWrap: { maxWidth: '84%', gap: 8 },
+  msgMine: { alignSelf: 'flex-end' },
+  msgTheirs: { alignSelf: 'flex-start' },
 
   reference: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 8,
     paddingVertical: 7,
     paddingHorizontal: 11,
     borderRadius: T.RADIUS.md,
@@ -634,19 +701,35 @@ const styles = StyleSheet.create({
   referenceName: { color: T.TEXT_2, fontSize: 10.5, fontFamily: T.FONT.semibold },
   referenceBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
 
-  date: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 6, marginBottom: 6 },
-  cardBorder: { borderRadius: T.RADIUS.lg },
-  card: { padding: 16, backgroundColor: T.SURFACE, borderRadius: T.RADIUS.lg, gap: 12 },
-  originalCard: { borderLeftWidth: 2, borderLeftColor: T.ACCENT },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  senderLabel: { color: T.PRIMARY_LIGHT, fontSize: 12, fontFamily: T.FONT.semibold },
-  senderLabelMine: { color: T.TEXT_2 },
+  bubble: {
+    padding: 14,
+    borderRadius: T.RADIUS.lg,
+    gap: 10,
+    overflow: 'hidden',
+  },
+  bubbleMine: {
+    backgroundColor: alpha(T.PRIMARY, 0.16),
+    borderWidth: 1,
+    borderColor: alpha(T.PRIMARY_LIGHT, 0.32),
+  },
+  bubbleTheirs: {
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+  },
+  focused: { borderColor: T.PRIMARY_LIGHT, borderWidth: 1.5 },
+  bubbleHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  senderLabel: { fontSize: 11.5, fontFamily: T.FONT.semibold, flexShrink: 1 },
+  senderLabelMine: { color: T.PRIMARY_LIGHT },
+  senderLabelTheirs: { color: T.TEXT_2 },
+  time: { color: T.TEXT_3, fontSize: 10.5, fontFamily: T.FONT.regular, flexShrink: 0 },
   waitingChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: T.SECONDARY,
     overflow: 'hidden',
     paddingHorizontal: 8, paddingVertical: 3,
     borderRadius: T.RADIUS.full,
+    flexShrink: 0,
   },
   waitingChipText: { color: '#FFFFFF', fontSize: 9, fontFamily: T.FONT.bold, letterSpacing: 0.3 },
 

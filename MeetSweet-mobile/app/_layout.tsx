@@ -27,7 +27,6 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
-import { MsOfflineBanner } from '@/components/MsOfflineBanner';
 import { MsToastHost } from '@/components/MsToast';
 import { MsGlobalDialogsHost } from '@/components/MsGlobalDialogs';
 import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
@@ -214,7 +213,6 @@ export default function RootLayout() {
                           <GlobalScreenProtection />
                           <AppServices />
                           <RootLayoutNav />
-                          <MsOfflineBanner />
                           <MsToastHost />
                           <MsGlobalDialogsHost />
                           <HapticsGate />

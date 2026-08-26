@@ -47,6 +47,8 @@ import {
   type PrivateMessage,
 } from '@/services/private-inbox';
 import { listMySubscriptions, type SubscribedCreator } from '@/services/subscriptions';
+import { getCreatorSubscribers, type CreatorSubscriber } from '@/services/creator';
+import { useAuth } from '@/contexts/AuthContext';
 import { blockUser } from '@/services/users';
 import { realtime } from '@/services/realtime';
 
@@ -134,6 +136,8 @@ const TABS: { key: InboxBox; label: string; icon: 'inbox' | 'outbox' | 'waiting'
 
 export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const isCreator = Boolean(user?.isCreator);
   const [box, setBox] = useState<InboxBox>('inbox');
   const [messages, setMessages] = useState<PrivateMessage[]>([]);
   const [waitingMessages, setWaitingMessages] = useState<PrivateMessage[]>([]);
@@ -141,24 +145,35 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Composer creator picker ────────────────────────────────────────────────
+  // ── Composer picker ────────────────────────────────────────────────────────
+  // Fans pick a creator they subscribe to (fan → creator). Creators also get
+  // a second tab listing their own subscribers (creator → subscriber).
+  type PickerTab = 'subscriptions' | 'subscribers';
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<PickerTab>('subscriptions');
   const [subscribedCreators, setSubscribedCreators] = useState<SubscribedCreator[]>([]);
+  const [subscribers, setSubscribers] = useState<CreatorSubscriber[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
 
   const openCreatorPicker = useCallback(async () => {
     setPickerOpen(true);
+    setPickerTab('subscriptions');
     setPickerLoading(true);
     setPickerError(null);
     try {
       setSubscribedCreators(await listMySubscriptions());
+      if (isCreator) {
+        getCreatorSubscribers(1)
+          .then((r) => setSubscribers(r.subscribers ?? []))
+          .catch(() => setSubscribers([]));
+      }
     } catch (e) {
       setPickerError(e instanceof Error ? e.message : 'Could not load your subscriptions');
     } finally {
       setPickerLoading(false);
     }
-  }, []);
+  }, [isCreator]);
 
   /** Keep the Waiting tab badge honest without polling. */
   const refreshWaiting = useCallback(async () => {
@@ -446,16 +461,47 @@ export default function MessagesScreen() {
         )}
       </ScrollView>
 
-      {/* Composer creator picker — the airplane icon first shows the creators
-          the user is subscribed to (private messaging is subscriber-only), and
-          only then opens the composer for the chosen creator. */}
+      {/* Composer picker — the airplane icon first shows the creators the
+          user is subscribed to (private messaging is subscriber-only).
+          Creators additionally see their own subscribers, so they can
+          initiate a message in the other direction. */}
       <MsModal
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        title="Message a creator"
-        subtitle="Pick a creator you're subscribed to — only subscribers can send private messages."
+        title={pickerTab === 'subscribers' ? 'Message a subscriber' : 'Message a creator'}
+        subtitle={
+          pickerTab === 'subscribers'
+            ? 'Pick one of your subscribers — free delivery; you can price attachments.'
+            : "Pick a creator you're subscribed to — only subscribers can send private messages."
+        }
         style={pickerStyles.modal}
       >
+        {isCreator ? (
+          <View style={pickerStyles.tabs}>
+            <Pressable
+              style={[pickerStyles.tab, pickerTab === 'subscriptions' && pickerStyles.tabActive]}
+              onPress={() => setPickerTab('subscriptions')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: pickerTab === 'subscriptions' }}
+            >
+              {pickerTab === 'subscriptions' ? <BrandGradientFill /> : null}
+              <Text style={[pickerStyles.tabText, pickerTab === 'subscriptions' && pickerStyles.tabTextActive]}>
+                Your subscriptions
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[pickerStyles.tab, pickerTab === 'subscribers' && pickerStyles.tabActive]}
+              onPress={() => setPickerTab('subscribers')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: pickerTab === 'subscribers' }}
+            >
+              {pickerTab === 'subscribers' ? <BrandGradientFill /> : null}
+              <Text style={[pickerStyles.tabText, pickerTab === 'subscribers' && pickerStyles.tabTextActive]}>
+                Your subscribers
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
         {pickerLoading ? (
           <View style={pickerStyles.stateWrap}>
             <ActivityIndicator color={T.PRIMARY_LIGHT} />
@@ -467,7 +513,17 @@ export default function MessagesScreen() {
               <Text style={pickerStyles.retryText}>Retry</Text>
             </Pressable>
           </View>
-        ) : subscribedCreators.length === 0 ? (
+        ) : pickerTab === 'subscribers' && subscribers.length === 0 ? (
+          <View style={pickerStyles.stateWrap}>
+            <View style={pickerStyles.stateIcon}>
+              <PaperPlaneTilt size={26} color={T.TEXT_3} />
+            </View>
+            <Text style={pickerStyles.stateTitle}>No subscribers yet</Text>
+            <Text style={pickerStyles.stateText}>
+              When fans subscribe to you, you can message them here — free delivery, with optional paid attachments.
+            </Text>
+          </View>
+        ) : pickerTab === 'subscriptions' && subscribedCreators.length === 0 ? (
           <View style={pickerStyles.stateWrap}>
             <View style={pickerStyles.stateIcon}>
               <PaperPlaneTilt size={26} color={T.TEXT_3} />
@@ -487,6 +543,40 @@ export default function MessagesScreen() {
               <Text style={pickerStyles.discoverBtnText}>Discover creators</Text>
             </Pressable>
           </View>
+        ) : pickerTab === 'subscribers' ? (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pickerStyles.list}>
+            {subscribers.map((s) => {
+              const name = s.display_name?.trim() || s.username || 'Subscriber';
+              return (
+                <Pressable
+                  key={s.id}
+                  style={pickerStyles.row}
+                  onPress={() => {
+                    setPickerOpen(false);
+                    router.push({
+                      pathname: '/compose-private-message',
+                      params: { recipientId: s.id, mode: 'creator' },
+                    } as any);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Message ${name}`}
+                >
+                  <MsAvatar
+                    size={42}
+                    initials={name.slice(0, 2).toUpperCase()}
+                    imageUri={s.avatar_url ?? undefined}
+                  />
+                  <View style={pickerStyles.rowCopy}>
+                    <Text style={pickerStyles.rowName} numberOfLines={1}>{name}</Text>
+                    {s.username ? (
+                      <Text style={pickerStyles.rowHandle} numberOfLines={1}>@{s.username}</Text>
+                    ) : null}
+                  </View>
+                  <PaperPlaneTilt size={15} color={T.TEXT_3} />
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pickerStyles.list}>
             {subscribedCreators.map((c) => {
@@ -616,6 +706,27 @@ const styles = StyleSheet.create({
 
 const pickerStyles = StyleSheet.create({
   modal: { maxHeight: '78%' },
+  tabs: {
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.full,
+    padding: 3,
+    marginBottom: 12,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: T.RADIUS.full,
+    overflow: 'hidden',
+  },
+  tabActive: { backgroundColor: T.ACCENT },
+  tabText: { color: T.TEXT_2, fontFamily: T.FONT.medium, fontSize: 12 },
+  tabTextActive: { color: T.ACCENT_FG, fontFamily: T.FONT.bold },
   list: { gap: 8, paddingBottom: 8 },
   row: {
     flexDirection: 'row',

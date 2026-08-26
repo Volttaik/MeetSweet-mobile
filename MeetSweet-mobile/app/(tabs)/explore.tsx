@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -29,6 +29,7 @@ import type { Creator } from '@/lib/api-client-react';
 import {
   useExploreFeed,
   useLocalExploreCatalog,
+  useCreatorSearch,
   fmtTimeAgo,
 } from '@/services/explore';
 import { useLocalAlbumCatalog } from '@/services/albums';
@@ -41,8 +42,8 @@ import { useWalletBalance } from '@/hooks/useWalletBalance';
 import {
   MsCatalogSkeleton,
   MsCollectionCard,
+  MsCreatorCard,
   MsFeaturedCreatorCard,
-  MsRecommendedCreatorRow,
 } from '@/components/MsExploreVisual';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { MsSectionHeader } from '@/components/MsSectionHeader';
@@ -57,7 +58,6 @@ import { useScrollMotion } from '@/lib/scroll-motion';
 import type { Post } from '@/services/posts';
 import { T } from '@/constants/theme';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
-import { GradientBorder } from '@/components/GradientBorder';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -252,6 +252,16 @@ function ExploreHeader({ isLoading, isError, onRetry, showCatalogSkeleton = true
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
+  // Server-backed creator search runs on a short debounce so every keystroke
+  // doesn't fire a request; the UI still reacts to `search` immediately.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const creatorSearchQuery = useCreatorSearch(debouncedSearch);
+  const isSearching = search.trim().length > 0;
+  const searchResults = creatorSearchQuery.data ?? [];
   // Default to the new primary discovery tab
   const [viewMode, setViewMode] = useState<ViewMode>('explore');
   const [refreshing, setRefreshing] = useState(false);
@@ -811,83 +821,131 @@ export default function ExploreScreen() {
 
         {!isLoading && !isError && catalog && (
           <>
-            {/* Featured creators */}
-            {featured.length > 0 && (
+            {/* Discovery sections are hidden while a search is active — the
+                server-backed results grid below is the single source of truth. */}
+            {!isSearching && (
               <>
-                <MsSectionHeader
-                  title="Featured creators"
-                  style={styles.sectionHeader}
-                />
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.featuredRow}
-                >
-                  {featured.map((creator) => (
-                    <MsFeaturedCreatorCard
-                      key={creator.id}
-                      creator={creator}
-                      onPress={() => openCreator(creator)}
-                      onLongPress={() => setMenuCreator(creator)}
-                      onAvatarPress={() => openCreator(creator)}
-                      onSubscribe={() => handleSubscribe(creator)}
-                      isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
-                      subscribing={subscribingId === creator.id}
+                {/* Featured creators */}
+                {featured.length > 0 && (
+                  <>
+                    <MsSectionHeader
+                      title="Featured creators"
+                      style={styles.sectionHeader}
                     />
-                  ))}
-                </ScrollView>
-              </>
-            )}
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.featuredRow}
+                    >
+                      {featured.map((creator) => (
+                        <MsFeaturedCreatorCard
+                          key={creator.id}
+                          creator={creator}
+                          onPress={() => openCreator(creator)}
+                          onLongPress={() => setMenuCreator(creator)}
+                          onAvatarPress={() => openCreator(creator)}
+                          onSubscribe={() => handleSubscribe(creator)}
+                          isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
+                          subscribing={subscribingId === creator.id}
+                        />
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
 
-            {/* Albums highlight row */}
-            {allAlbums.length > 0 && (
-              <>
-                <MsSectionHeader
-                  title="Albums"
-                  actionLabel="See all"
-                  onAction={() => handleModeChange('albums')}
-                  style={styles.sectionHeader}
-                />
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.featuredRow}
-                >
-                  {allAlbums.slice(0, 4).map((album) => (
-                    <View key={album.id} style={styles.albumHighlightCard}>
-                      <ExploreAlbumCard
-                        album={album}
-                        onPress={() => router.push(`/album/${album.id}`)}
-                        onCreatorPress={() => navToCreatorId(album.creatorId)}
-                        onUnlockPress={() => router.push(`/album/${album.id}`)}
-                      />
+                {/* Albums highlight row */}
+                {allAlbums.length > 0 && (
+                  <>
+                    <MsSectionHeader
+                      title="Albums"
+                      actionLabel="See all"
+                      onAction={() => handleModeChange('albums')}
+                      style={styles.sectionHeader}
+                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.featuredRow}
+                    >
+                      {allAlbums.slice(0, 4).map((album) => (
+                        <View key={album.id} style={styles.albumHighlightCard}>
+                          <ExploreAlbumCard
+                            album={album}
+                            onPress={() => router.push(`/album/${album.id}`)}
+                            onCreatorPress={() => navToCreatorId(album.creatorId)}
+                            onUnlockPress={() => router.push(`/album/${album.id}`)}
+                          />
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* Recommended creators */}
+                {recommended.length > 0 && (
+                  <>
+                    <MsSectionHeader
+                      title="Recommended for you"
+                      style={styles.sectionHeader}
+                    />
+                    <View style={styles.creatorGrid}>
+                      {recommended.map((creator) => (
+                        <MsCreatorCard
+                          key={creator.id}
+                          creator={creator}
+                          onPress={() => openCreator(creator)}
+                          onLongPress={() => setMenuCreator(creator)}
+                          onAvatarPress={() => openCreator(creator)}
+                          onSubscribe={() => handleSubscribe(creator)}
+                          isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
+                          subscribing={subscribingId === creator.id}
+                        />
+                      ))}
                     </View>
-                  ))}
-                </ScrollView>
+                  </>
+                )}
               </>
             )}
 
-            {/* Recommended creators */}
-            {recommended.length > 0 && (
+            {/* Creator search results — server-backed, exact matches first */}
+            {isSearching && (
               <>
-                <MsSectionHeader
-                  title="Recommended for you"
-                  style={styles.sectionHeader}
-                />
-                <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={styles.recommendedWrap}>
-                  {recommended.map((creator) => (
-                    <MsRecommendedCreatorRow
-                      key={creator.id}
-                      creator={creator}
-                      onPress={() => openCreator(creator)}
-                      onLongPress={() => setMenuCreator(creator)}
-                      onAvatarPress={() => openCreator(creator)}
-                      onSubscribe={() => handleSubscribe(creator)}
-                      isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
-                      subscribing={subscribingId === creator.id}
-                    />
-                  ))}
-                </GradientBorder>
+                <MsSectionHeader title="Results" style={styles.sectionHeader} />
+                {creatorSearchQuery.isLoading && searchResults.length === 0 ? (
+                  <View style={styles.creatorGrid}>
+                    <View style={styles.creatorCardSkeleton} />
+                    <View style={styles.creatorCardSkeleton} />
+                  </View>
+                ) : creatorSearchQuery.isError && searchResults.length === 0 ? (
+                  <MsEmptyState
+                    title="Couldn't search creators"
+                    message="Something went wrong. Try again."
+                    actionLabel="Try again"
+                    onAction={() => creatorSearchQuery.refetch()}
+                  />
+                ) : searchResults.length > 0 ? (
+                  <View style={styles.creatorGrid}>
+                    {searchResults.map((creator) => (
+                      <MsCreatorCard
+                        key={creator.id}
+                        creator={creator}
+                        onPress={() => openCreator(creator)}
+                        onLongPress={() => setMenuCreator(creator)}
+                        onAvatarPress={() => openCreator(creator)}
+                        onSubscribe={() => handleSubscribe(creator)}
+                        isSubscribed={Boolean(creator.subscribedToCreator) || subscribedIds.has(creator.id)}
+                        subscribing={subscribingId === creator.id}
+                      />
+                    ))}
+                  </View>
+                ) : (
+                  <MsEmptyState
+                    title="No creators match your search"
+                    message="Try a different name or username."
+                    actionLabel="Clear search"
+                    onAction={() => setSearch('')}
+                  />
+                )}
               </>
             )}
 
@@ -942,7 +1000,7 @@ export default function ExploreScreen() {
             )}
 
             {/* Trending collections */}
-            {((catalog as any)?.collections ?? []).length > 0 && (
+            {!isSearching && ((catalog as any)?.collections ?? []).length > 0 && (
               <>
                 <MsSectionHeader
                   title="Trending collections"
@@ -965,15 +1023,15 @@ export default function ExploreScreen() {
             )}
 
             {/* All creators */}
-            {visibleCreators.length > 0 && (
+            {!isSearching && visibleCreators.length > 0 && (
               <>
                 <MsSectionHeader
                   title="All creators"
                   style={styles.sectionHeader}
                 />
-                <GradientBorder radius={T.RADIUS.xl} surface={T.SURFACE} style={styles.recommendedWrap}>
+                <View style={styles.creatorGrid}>
                   {visibleCreators.map((creator) => (
-                    <MsRecommendedCreatorRow
+                    <MsCreatorCard
                       key={creator.id}
                       creator={creator}
                       onPress={() => openCreator(creator)}
@@ -984,7 +1042,7 @@ export default function ExploreScreen() {
                       subscribing={subscribingId === creator.id}
                     />
                   ))}
-                </GradientBorder>
+                </View>
               </>
             )}
           </>
@@ -1073,7 +1131,19 @@ const styles = StyleSheet.create({
   sectionHeader: { paddingTop: 24, paddingBottom: 12 },
   featuredRow: { gap: 12, paddingHorizontal: 20, paddingBottom: 3 },
   collectionRow: { gap: 12, paddingHorizontal: 20 },
-  recommendedWrap: { marginHorizontal: 20, borderRadius: T.RADIUS.xl, ...T.SHADOWS.soft },
+  // Two-column creator card grid — matches MsCreatorCard's fixed width.
+  creatorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: 20,
+  },
+  creatorCardSkeleton: {
+    width: (SCREEN_WIDTH - 40 - 12) / 2,
+    height: 268,
+    borderRadius: T.RADIUS.xl,
+    backgroundColor: T.SURFACE,
+  },
   bottomSpace: { height: 28 },
 
   // Feed list — compact 8px spacing

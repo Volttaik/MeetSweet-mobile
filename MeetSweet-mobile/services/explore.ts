@@ -8,7 +8,8 @@
  * The old local stubs (hardcoded categories, empty previews) have been removed.
  */
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { apiFetch } from './api';
+import { apiFetch, authFetch } from './api';
+import { getAccessToken } from '@/lib/session-storage';
 import type {
   Creator,
   ContentPreview,
@@ -76,7 +77,7 @@ function creatorFromExplore(raw: any): Creator {
     handle: `@${raw.username ?? ''}`,
     initials: initialsFor(name),
     bio: raw.bio ?? '',
-    category: '',
+    category: raw.category ?? '',
     subscriberCount: numberFrom(raw.subscriber_count ?? raw.subscriberCount),
     isVerified: Boolean(
       raw.is_verified ?? raw.isVerified ?? raw.is_verified_creator ?? false,
@@ -252,5 +253,48 @@ export function useLocalExploreCatalog() {
     queryFn: getExploreCatalog,
     staleTime: 2 * 60 * 1000,
     retry: 2,
+  });
+}
+
+// ─── Creator search (server-backed, relevance-ranked) ────────────────────────
+
+/**
+ * Search ALL creators on the server via GET /api/search?type=creators.
+ *
+ * Unlike the local catalog (capped at the first explore page), this searches
+ * the full creator directory, returns only real creators (is_creator = true
+ * enforced server-side), and ranks exact name/username matches first — so an
+ * exact handle always surfaces as the top result.
+ */
+export async function searchCreators(q: string): Promise<Creator[]> {
+  const query = q.trim();
+  if (!query) return [];
+  const token = await getAccessToken();
+  const resp = await (token
+    ? authFetch<Record<string, unknown>>(`/search?type=creators&q=${encodeURIComponent(query)}&limit=30`, token)
+    : apiFetch<Record<string, unknown>>(`/search?type=creators&q=${encodeURIComponent(query)}&limit=30`));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const users = Array.isArray((resp as any)?.users) ? (resp as any).users : [];
+  return users
+    // Defensive: the server only returns creators for type=creators, but
+    // never surface a non-creator in the Creator search results.
+    .filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (u: any) =>
+        u.is_creator !== false &&
+        u.isCreator !== false &&
+        Boolean(u.id || u.username),
+    )
+    .map(creatorFromExplore);
+}
+
+export function useCreatorSearch(q: string) {
+  const query = q.trim();
+  return useQuery({
+    queryKey: ['explore', 'creator-search', query],
+    queryFn: () => searchCreators(query),
+    enabled: query.length > 0,
+    staleTime: 30_000,
+    retry: 1,
   });
 }

@@ -29,6 +29,8 @@ export type PrivateMessage = {
   recipient_name: string | null;
   recipient_username: string | null;
   recipient_avatar: string | null;
+  /** The thread's creator participant — only they may price attachments. */
+  thread_creator_id: string | null;
   attachments: Attachment[];
   reply_count: number;
   reply: PrivateMessage | null;
@@ -60,7 +62,7 @@ export async function getMessagingSettings(creatorId: string): Promise<{ enabled
   return authFetch(`/creators/${encodeURIComponent(creatorId)}/messaging-settings`, await token());
 }
 
-export async function sendPrivateMessage(input: { recipientId: string; body: string; idempotencyKey: string; attachments?: Array<{ media_id: string; media_type: 'image' | 'video' | 'file' }> }) {
+export async function sendPrivateMessage(input: { recipientId: string; body: string; idempotencyKey: string; attachments?: Array<{ media_id: string; media_type: 'image' | 'video' | 'file'; price?: number }> }) {
   return authFetch<{ message: PrivateMessage; balance: number; alreadyExisted: boolean }>('/private-messages', await token(), {
     method: 'POST',
     body: JSON.stringify({ recipient_id: input.recipientId, body: input.body, idempotency_key: input.idempotencyKey, attachments: input.attachments }),

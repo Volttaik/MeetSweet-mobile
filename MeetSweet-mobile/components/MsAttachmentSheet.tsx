@@ -61,7 +61,9 @@ function mimeFromAsset(asset: {
 }
 
 export interface AttachmentResult {
-  type: 'image' | 'video' | 'audio' | 'document' | 'gif';
+  // Audio is intentionally NOT a supported private-message attachment — the
+  // document picker below also rejects audio/* files outright.
+  type: 'image' | 'video' | 'document' | 'gif';
   uri: string;
   mimeType: string;
   fileName: string;
@@ -165,6 +167,12 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
+      // Private messaging supports images, videos and documents — not audio
+      // files. Reject audio/* selections with a clear message.
+      if (asset.mimeType?.startsWith('audio/') || /^\.(mp3|wav|m4a|aac|ogg|flac|opus|wma|amr)$/i.test(asset.name ?? '')) {
+        dialogs.alert({ title: 'Audio not supported', message: 'Private messages support images, videos and documents — audio files cannot be attached.' });
+        return;
+      }
       onResult({
         type: 'document',
         uri: asset.uri,

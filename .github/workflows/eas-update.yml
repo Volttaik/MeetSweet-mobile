@@ -1,0 +1,158 @@
+# EAS Update — production OTA pipeline
+#
+# GitHub (source of truth) → build/update pipeline → EAS Update → installed MeetSweet app
+#
+# When changes are pushed to the production branch (main), this workflow:
+#   1. Verifies the pushed commit does NOT change the native runtime fingerprint
+#      (app config, native code, or dependencies). If it does, it fails with
+#      "A new native build is required" instead of publishing an incompatible update.
+#   2. Ensures the EAS "production" channel points at the "main" EAS branch.
+#   3. Publishes the JS bundle + assets as an EAS Update to the "main" branch,
+#      which is delivered to every installed APK built with the "production"
+#      profile (channel: production) whose runtime fingerprint matches.
+#
+# The app NEVER downloads source from GitHub — EAS Update signs and serves
+# compatible bundles to installed builds.
+#
+# Required GitHub secret:
+#   EXPO_TOKEN — an Expo access token (https://expo.dev/settings/access-tokens)
+#                for an account with access to project
+#                655098fe-684b-4275-8650-a951cb856cc1 (owner: webcons-team).
+
+name: EAS Update — production
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/**'
+  workflow_dispatch:
+
+concurrency:
+  group: eas-update-production
+  cancel-in-progress: false
+
+jobs:
+  native-change-check:
+    name: Detect native runtime changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for EXPO_TOKEN
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "::error::EXPO_TOKEN secret is not configured. Add an Expo access token at https://expo.dev/settings/access-tokens as the EXPO_TOKEN repository secret (docs: docs/ota-updates.md)."
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+        with:
+          # Full history so the fingerprint of the previous commit (HEAD~1)
+          # can be computed and compared with the pushed commit.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: MeetSweet-mobile/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm --dir MeetSweet-mobile install --frozen-lockfile
+      - name: Compare native fingerprints (HEAD vs HEAD~1)
+        working-directory: MeetSweet-mobile/MeetSweet-mobile
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const { execSync } = require('node:child_process');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { createFingerprintAsync } = require('expo/fingerprint');
+
+          const appDir = process.cwd();
+
+          const hasParent = (() => {
+            try {
+              execSync('git rev-parse --verify --quiet HEAD~1', { stdio: 'ignore' });
+              return true;
+            } catch {
+              return false;
+            }
+          })();
+
+          (async () => {
+            const headFp = await createFingerprintAsync(appDir);
+            console.log(`HEAD fingerprint:   ${headFp.hash}`);
+
+            if (!hasParent) {
+              console.log('No parent commit to compare against — allowing publish.');
+              return;
+            }
+
+            const baseDir = '/tmp/fp-base';
+            execSync(`git worktree add --detach ${baseDir} HEAD~1`, { stdio: 'inherit' });
+            try {
+              fs.symlinkSync(
+                path.join(appDir, 'node_modules'),
+                path.join(baseDir, 'node_modules')
+              );
+              const parentFp = await createFingerprintAsync(baseDir);
+              console.log(`Parent fingerprint: ${parentFp.hash}`);
+
+              if (headFp.hash !== parentFp.hash) {
+                console.error(
+                  '::error::The pushed changes alter the native runtime fingerprint ' +
+                    '(app config, native code, or dependencies changed). ' +
+                    'A new native build is required — publish an EAS build (new APK) ' +
+                    'instead of an OTA update. See docs/ota-updates.md.'
+                );
+                process.exit(1);
+              }
+              console.log('No native runtime changes — OTA update is safe to publish.');
+            } finally {
+              execSync(`git worktree remove ${baseDir} --force`, { stdio: 'ignore' });
+            }
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          EOF
+
+  publish-update:
+    name: Publish EAS Update (production channel)
+    needs: native-change-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: MeetSweet-mobile/pnpm-lock.yaml
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install dependencies
+        run: pnpm --dir MeetSweet-mobile install --frozen-lockfile
+      - name: Point production channel at main branch
+        working-directory: MeetSweet-mobile/MeetSweet-mobile
+        run: |
+          set -euo pipefail
+          # Idempotent: create the channel if missing, then pin it to the main branch.
+          eas channel:create production --non-interactive || true
+          eas channel:edit production --branch main --non-interactive
+      - name: Publish OTA update
+        working-directory: MeetSweet-mobile/MeetSweet-mobile
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'Manual production update' }}
+        run: |
+          set -euo pipefail
+          MESSAGE="Production OTA: ${GITHUB_SHA} — $(printf '%s' "${COMMIT_MESSAGE}" | head -c 200)"
+          eas update --branch main --message "${MESSAGE}" --non-interactive
+          echo "Published update ${GITHUB_SHA} to EAS branch 'main' (channel: production)."
