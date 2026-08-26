@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Image,
+  LayoutAnimation,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -7,14 +10,34 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Spinner } from 'heroui-native';
 import { MsShimmer } from '@/components/MsShimmer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, BellSlash, Check, ArrowsClockwise, Trash } from 'phosphor-react-native';
+import {
+  ArrowBendUpLeft,
+  ArrowDown,
+  ArrowLeft,
+  ArrowsClockwise,
+  At,
+  Bell,
+  CaretDown,
+  CaretUp,
+  ChatCircle,
+  CheckCircle,
+  CurrencyNgn,
+  Gift,
+  Heart,
+  PaperPlaneTilt,
+  Sparkle,
+  Trash,
+  UserPlus,
+  WarningCircle,
+} from 'phosphor-react-native';
+import type { IconProps } from 'phosphor-react-native';
 import { router, Redirect } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import { T, alpha } from '@/constants/theme';
 import { GradientText } from '@/components/GradientText';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsEmptyState } from '@/components/MsEmptyState';
 import { toast } from '@/components/MsToast';
@@ -26,6 +49,7 @@ import {
   normalizeNotification,
   type Notification,
 } from '@/services/notifications';
+import { resolveNotificationTarget } from '@/lib/notification-nav';
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useScrollMotion } from '@/lib/scroll-motion';
@@ -90,12 +114,57 @@ function notificationMessage(n: Notification): string {
     mention: 'tagged you in a post',
     message: 'sent you a message',
     payment: 'sent you a payment',
+    private_message: 'sent you a private message',
+    private_message_reply: 'replied to your private message',
     withdrawal: 'updated your withdrawal',
+    referral_reward: 'sent you a referral reward',
+    subscription_renewed: 'renewed your subscription',
+    subscription_renewal_failed: 'your subscription renewal failed',
   };
   return fallback[n.type] ?? 'sent you a notification';
 }
 
-// ─── Notification row ─────────────────────────────────────────────────────────
+// ─── Per-type icon + accent (notification type at a glance) ──────────────────
+
+type MetaIcon = React.ComponentType<IconProps>;
+
+function notifMeta(type: string): { Icon: MetaIcon; color: string } {
+  switch (type) {
+    case 'like': return { Icon: Heart, color: T.PRIMARY_LIGHT };
+    case 'comment': return { Icon: ChatCircle, color: T.PRIMARY };
+    case 'reply': return { Icon: ArrowBendUpLeft, color: T.PRIMARY };
+    case 'subscribe': return { Icon: UserPlus, color: T.ACCENT };
+    case 'new_post': return { Icon: Sparkle, color: T.ACCENT };
+    case 'mention': return { Icon: At, color: T.PRIMARY_LIGHT };
+    case 'payment':
+    case 'purchase': return { Icon: CurrencyNgn, color: T.SUCCESS };
+    case 'private_message':
+    case 'private_message_reply': return { Icon: PaperPlaneTilt, color: T.PRIMARY_LIGHT };
+    case 'withdrawal': return { Icon: ArrowDown, color: T.INFO };
+    case 'referral_reward': return { Icon: Gift, color: T.SUCCESS };
+    case 'subscription_renewed': return { Icon: CheckCircle, color: T.SUCCESS };
+    case 'subscription_renewal_failed': return { Icon: WarningCircle, color: T.ERROR };
+    default: return { Icon: Bell, color: T.TEXT_2 };
+  }
+}
+
+/** Content-type label used by the preview strip on content notifications. */
+function contentLabel(contentType?: string): string {
+  const t = contentType ?? '';
+  if (t === 'video') return 'Video';
+  if (t === 'short') return 'Short';
+  if (t === 'album') return 'Album';
+  return 'Post';
+}
+
+// ─── Notification card ────────────────────────────────────────────────────────
+//
+// Three independent responsibilities, never mixed:
+//   • READ STATE  — set by the screen on open (auto read-all); the card only
+//                   READS it to style the unread accent.
+//   • PREVIEW     — the chevron expands compact per-type preview content.
+//   • VIEW        — navigates to the source content; has NOTHING to do with
+//                   read state.
 
 function NotifRow({
   item,
@@ -106,29 +175,130 @@ function NotifRow({
   onPress: (n: Notification) => void;
   onDelete: (n: Notification) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const actorName = item.actor?.name ?? 'MeetSweet';
   const actorInitials = initials(actorName);
   const actorAvatar = item.actor?.avatarUrl ?? undefined;
+  const meta = notifMeta(item.type);
+  const data = item.data ?? {};
+
+  const isContent = ['like', 'comment', 'reply', 'mention', 'new_post'].includes(item.type);
+  const isSubscribe = item.type === 'subscribe';
+  const isWallet = [
+    'payment',
+    'purchase',
+    'withdrawal',
+    'referral_reward',
+    'subscription_renewed',
+    'subscription_renewal_failed',
+  ].includes(item.type);
+  const isMessage = item.type === 'private_message' || item.type === 'private_message_reply';
+  const previewLabel = isContent
+    ? contentLabel(item.contentType ?? (data.content_type as string | undefined))
+    : isSubscribe
+      ? 'Creator profile'
+      : isWallet
+        ? 'Wallet'
+        : isMessage
+          ? 'Message thread'
+          : null;
+
+  // Does the payload carry actual preview content worth expanding?
+  // (thumbnail/caption for content, message text for private messages).
+  const preview = item.preview;
+  const hasExpandable =
+    !!preview &&
+    (!!preview.thumbnail || !!preview.title || !!preview.caption || !!preview.body);
+
+  const toggleExpand = () => {
+    if (Platform.OS !== 'web') {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    setExpanded((e) => !e);
+  };
 
   return (
     <TouchableOpacity
-      style={[styles.notifRow, !item.isRead && styles.notifRowUnread]}
+      style={[styles.card, !item.isRead && styles.cardUnread]}
       onPress={() => onPress(item)}
       activeOpacity={0.7}
     >
-      <MsAvatar
-        size={44}
-        initials={item.actor ? actorInitials : '!'}
-        imageUri={actorAvatar}
-      />
-      <View style={styles.notifContent}>
-        <Text style={styles.notifBody} numberOfLines={2}>
-          <Text style={styles.notifActor}>{actorName} </Text>
+      {/* Unread gradient accent bar */}
+      {!item.isRead ? (
+        <View style={styles.unreadBar}>
+          <BrandGradientFill />
+        </View>
+      ) : null}
+
+      {/* Actor avatar + type badge */}
+      <View style={styles.avatarWrap}>
+        <MsAvatar size={44} initials={item.actor ? actorInitials : '!'} imageUri={actorAvatar} />
+        <View style={[styles.typeBadge, { backgroundColor: meta.color }]}>
+          <meta.Icon size={10} color="#FFFFFF" weight="bold" />
+        </View>
+      </View>
+
+      {/* Description + time + contextual preview */}
+      <View style={styles.cardContent}>
+        <Text style={styles.cardBody} numberOfLines={2}>
+          <Text style={styles.cardActor}>{actorName} </Text>
           {notificationMessage(item)}
         </Text>
-        <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
+        <Text style={styles.cardTime}>{formatTime(item.createdAt)}</Text>
+
+        {/* Expandable preview content (only when the payload has some) */}
+        {hasExpandable && expanded ? (
+          <View style={styles.previewBody}>
+            {preview.thumbnail ? (
+              <Image
+                source={{ uri: preview.thumbnail }}
+                style={styles.previewThumb}
+                resizeMode="cover"
+              />
+            ) : null}
+            {preview.body ? (
+              <Text style={styles.previewTextBody} numberOfLines={3}>
+                {preview.body}
+              </Text>
+            ) : null}
+            {preview.title || preview.caption ? (
+              <Text style={styles.previewTextBody} numberOfLines={2}>
+                {preview.caption ?? preview.title}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Preview label + expand chevron + View */}
+        <View style={styles.preview}>
+          {hasExpandable ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                toggleExpand();
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={expanded ? 'Collapse preview' : 'Expand preview'}
+            >
+              {expanded ? (
+                <CaretUp size={13} color={T.TEXT_2} weight="bold" />
+              ) : (
+                <CaretDown size={13} color={T.TEXT_2} weight="bold" />
+              )}
+            </TouchableOpacity>
+          ) : null}
+          {previewLabel ? (
+            <Text style={styles.previewText} numberOfLines={1}>{previewLabel}</Text>
+          ) : null}
+          <View style={styles.viewChip}>
+            <BrandGradientFill />
+            <Text style={styles.viewChipText}>View</Text>
+          </View>
+        </View>
       </View>
-      {!item.isRead && <View style={styles.unreadDot} />}
+
+      {!item.isRead ? <View style={styles.unreadDot} /> : null}
       <TouchableOpacity
         style={styles.deleteBtn}
         onPress={(e) => {
@@ -139,7 +309,7 @@ function NotifRow({
         accessibilityRole="button"
         accessibilityLabel="Delete notification"
       >
-        <Trash size={16} color={T.TEXT_3} />
+        <Trash size={15} color={T.TEXT_3} />
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -178,8 +348,7 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [marking, setMarking] = useState(false);
-  const { decrementNotif, clearNotif, refresh: refreshCounts } = useNotifications();
+  const { clearNotif, refresh: refreshCounts } = useNotifications();
 
   const load = useCallback(async (isPull = false) => {
     if (isPull) setRefreshing(true);
@@ -189,6 +358,17 @@ export default function NotificationsScreen() {
     try {
       const data = await getNotifications();
       setNotifications(data.notifications);
+
+      // Opening the Notification screen IS the acknowledgement: auto-mark the
+      // unread notifications as read, immediately (no manual "mark read"
+      // button, no checkmark, and View never touches read state). The server
+      // is updated best-effort in the background; the UI reflects read state
+      // instantly so the unread accents disappear.
+      if (data.unreadCount > 0) {
+        setNotifications((prev) => prev.map((x) => ({ ...x, isRead: true, read: true })));
+        clearNotif();
+        markAllNotificationsRead().catch(() => {});
+      }
       refreshCounts();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load notifications');
@@ -196,7 +376,7 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [refreshCounts]);
+  }, [refreshCounts, clearNotif]);
 
   useEffect(() => {
     load();
@@ -222,6 +402,14 @@ export default function NotificationsScreen() {
             const row = normalizeNotification(notif);
             return [row, ...prev].slice(0, 100);
           });
+          // The user is ALREADY on the screen — being on the screen is the
+          // acknowledgement, so a live arrival is read immediately (same rule
+          // as on open). The server emits notification.read over the socket;
+          // the Context reconciles the badge idempotently.
+          markNotificationRead(String(notif.id)).catch(() => {});
+          setNotifications((prev) =>
+            prev.map((x) => (x.id === notif.id ? { ...x, isRead: true, read: true } : x)),
+          );
           break;
         }
         case 'notification.read': {
@@ -246,72 +434,35 @@ export default function NotificationsScreen() {
     });
   }, [isAuthenticated]);
 
-  const handlePress = async (n: Notification) => {
-    if (!n.isRead) {
-      setNotifications((prev) =>
-        prev.map((x) => (x.id === n.id ? { ...x, isRead: true, read: true } : x)),
-      );
-      markNotificationRead(n.id).catch(() => {});
-      // Pass the id so the Context guards against our own read socket echo
-      // double-decrementing the badge while another device still updates.
-      decrementNotif(n.id);
-    }
-
+  // VIEW = navigate to the source content. Deliberately does NOT touch read
+  // state (read state is handled when the screen opens) and does NOT need to.
+  const handlePress = (n: Notification) => {
     const data = n.data || {};
-    if (n.type === 'wallet' || n.type === 'payout' || n.type === 'payment' || n.type === 'purchase' || n.type === 'referral_reward') {
-      router.push('/wallet');
-      return;
-    }
-
-    const actorId = n.actor?.id || data.actorId || data.actor_id || data.creatorId || data.creator_id;
-    if (n.type === 'subscribe' || n.type === 'creator' || n.type === 'subscription') {
-      if (actorId) {
-        router.push(`/creator/${actorId}`);
-        return;
-      }
-    }
-
-    const id = n.contentId ?? n.postId ?? data.contentId ?? data.content_id ?? data.postId ?? data.post_id;
-    if (id) {
-      const contentType = n.contentType || data.contentType || data.content_type;
-      if (contentType === 'video') {
-        router.push(`/videos/${n.videoId ?? id}`);
-      } else if (contentType === 'short') {
-        router.push({ pathname: '/shorts', params: { startId: n.shortId ?? id } });
-      } else if (contentType === 'album') {
-        router.push(`/album/${n.albumId ?? id}`);
-      } else {
-        router.push(`/post/${id}`);
-      }
-      return;
-    }
+    const target = resolveNotificationTarget({
+      type: n.type,
+      contentType: n.contentType ?? undefined,
+      contentId: n.contentId ?? undefined,
+      postId: n.postId ?? undefined,
+      videoId: n.videoId ?? undefined,
+      shortId: n.shortId ?? undefined,
+      albumId: n.albumId ?? undefined,
+      actorId: n.actor?.id ?? undefined,
+      data,
+    });
+    if (target) router.push(target as any);
   };
 
   const handleDelete = async (n: Notification) => {
     try {
       await deleteNotification(n.id);
       setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.isRead) decrementNotif(n.id);
+      // Delete is independent of read state: the server emits notification.deleted
+      // and the socket handler in the Context reconciles the badge idempotently.
     } catch {
       toast.error('Failed to delete notification');
     }
   };
 
-  const handleMarkAll = async () => {
-    if (marking) return;
-    setMarking(true);
-    try {
-      await markAllNotificationsRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, read: true })));
-      clearNotif();
-    } catch {
-      toast.error('Failed to mark all as read');
-    } finally {
-      setMarking(false);
-    }
-  };
-
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
   const { today, yesterday, earlier } = groupNotifications(notifications);
 
   // Authenticated screen only — a logged-out visit (stale navigation history
@@ -336,19 +487,9 @@ export default function NotificationsScreen() {
           <ArrowLeft size={22} color={T.TEXT} />
         </TouchableOpacity>
         <GradientText text="Notifications" style={styles.headerTitle} />
-        {unreadCount > 0 ? (
-          <TouchableOpacity style={styles.iconBtn} onPress={handleMarkAll} activeOpacity={0.7}>
-            {marking ? (
-              <Spinner size="sm" color={T.TEXT_2 as any} />
-            ) : (
-              <Check size={18} color={T.TEXT_2} />
-            )}
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-            <BellSlash size={18} color={T.TEXT_2} />
-          </TouchableOpacity>
-        )}
+        {/* No manual "mark all read" control: opening this screen IS the
+            acknowledgement, so unread notifications are marked read
+            automatically on load. */}
       </View>
 
       {loading ? (
@@ -439,15 +580,6 @@ const styles = StyleSheet.create({
     color: T.TEXT,
     letterSpacing: -0.3,
   },
-  iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.SURFACE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
   shimmerRow: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -497,42 +629,118 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  notifRow: {
+  // ── Notification cards ────────────────────────────────────────────────────
+  card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
     gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: T.BORDER,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    marginHorizontal: 14,
+    marginBottom: 8,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    overflow: 'hidden',
   },
-  notifRowUnread: { backgroundColor: alpha(T.SECONDARY, 0.05) },
-  notifContent: { flex: 1 },
-  notifBody: {
-    fontSize: 14,
+  cardUnread: {
+    backgroundColor: alpha(T.PRIMARY, 0.07),
+    borderColor: alpha(T.PRIMARY_LIGHT, 0.28),
+  },
+  unreadBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
+  avatarWrap: { position: 'relative' },
+  typeBadge: {
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: T.SURFACE,
+  },
+  cardContent: { flex: 1, gap: 3 },
+  cardBody: {
+    fontSize: 13.5,
     fontFamily: T.FONT.regular,
-    color: T.TEXT,
-    lineHeight: 20,
+    color: T.TEXT_2,
+    lineHeight: 19,
   },
-  notifActor: { fontFamily: T.FONT.semibold },
-  notifTime: {
-    fontSize: 12,
+  cardActor: { fontFamily: T.FONT.bold, color: T.TEXT },
+  cardTime: {
+    fontSize: 11.5,
     fontFamily: T.FONT.regular,
     color: T.TEXT_3,
-    marginTop: 4,
   },
+  preview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  previewText: {
+    color: T.TEXT_2,
+    fontSize: 11.5,
+    fontFamily: T.FONT.medium,
+    flexShrink: 1,
+  },
+  viewChip: {
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  viewChipText: { color: '#FFFFFF', fontSize: 10.5, fontFamily: T.FONT.bold },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: T.TEXT,
+    backgroundColor: T.PRIMARY_LIGHT,
     marginTop: 4,
+    flexShrink: 0,
+  },
+  previewBody: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: T.SURFACE_2,
+    borderRadius: T.RADIUS.md,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    overflow: 'hidden',
+    padding: 8,
+  },
+  previewThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: T.RADIUS.sm,
+    backgroundColor: T.SURFACE_2,
+  },
+  previewTextBody: {
+    flex: 1,
+    color: T.TEXT_2,
+    fontSize: 12.5,
+    fontFamily: T.FONT.medium,
+    lineHeight: 18,
   },
   deleteBtn: {
     width: 28,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
   },
 });

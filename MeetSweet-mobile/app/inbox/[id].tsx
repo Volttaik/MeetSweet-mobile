@@ -15,9 +15,10 @@
  *   • Timestamp + delivery status on one non-wrapping line inside the bubble
  *     (single check = sent, accent double-check = read).
  *   • Centred date pills separate message groups by day.
- *   • Replies carry a tappable quote preview above the bubble (accent bar,
- *     "Replying to X" + preview) and indent under the message they answer —
- *     tapping jumps to and highlights the original.
+ *   • Compact chat: every message renders flush with no reply-quote banner and
+ *     no indentation, so sent/received bubbles stay neatly aligned. A sender
+ *     may still start a reply thread from the composer, but no automatic
+ *     "reply to" metadata is shown on normal messages.
  *   • Composer is a fixed bottom bar that rides the keyboard (keyboard-
  *     controller), expands for longer text, and keeps the gradient send
  *     button one tap away.
@@ -27,7 +28,7 @@
  * deletions arrive as events and update the thread in place. No polling.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -36,28 +37,26 @@ import {
   Image,
   Linking,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import type { ScrollView } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import type { ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowBendUpLeft,
   ArrowLeft,
   Check,
   Checks,
+  Copy,
   DotsThreeVertical,
   Hourglass,
   Lock,
-  PaperPlaneRight,
   Play,
-  Plus,
   Prohibit,
+  Trash,
   UserCheck,
   X,
 } from 'phosphor-react-native';
@@ -69,10 +68,14 @@ import { goBack } from '@/lib/safe-back';
 import { useScrollMotion } from '@/lib/scroll-motion';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { MsAttachmentSheet, type AttachmentResult } from '@/components/MsAttachmentSheet';
+import { MsModal } from '@/components/MsModal';
+import * as Clipboard from 'expo-clipboard';
 import { MsAvatar } from '@/components/MsAvatar';
 import { MsMediaLoader } from '@/components/MsMediaLoader';
 import { MsShimmerChatList } from '@/components/MsShimmer';
 import { MsVideoPlayer } from '@/components/MsVideoPlayer';
+import { ChatBackground } from '@/components/ChatBackground';
+import { ChatComposer } from '@/components/ChatComposer';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   allowPrivateSender,
@@ -82,22 +85,14 @@ import {
   markPrivateMessageRead,
   purchasePrivateAttachment,
   replyToPrivateMessage,
+  restrictPrivateSender,
   type Attachment,
   type PrivateMessage,
 } from '@/services/private-inbox';
 import { blockUser } from '@/services/users';
-import { uploadMedia } from '@/services/media';
 import { realtime } from '@/services/realtime';
 
 type InboxMediaType = 'image' | 'video' | 'file';
-
-interface PendingAttachment {
-  localUri: string;
-  mediaId: string | null;
-  mediaType: InboxMediaType;
-  /** Optional unlock price (Naira) the creator places on this content. */
-  price: string;
-}
 
 function toInboxMediaType(result: AttachmentResult): InboxMediaType | null {
   if (result.type === 'image' || result.type === 'gif') return 'image';
@@ -217,6 +212,38 @@ function StatusIcon({ msg, mine }: { msg: PrivateMessage; mine: boolean }) {
 }
 
 // ─── Unlocked attachment rendering ────────────────────────────────────────────
+// Media renders as a clean card at the top of the message bubble; any caption
+// the sender attached renders BELOW the media (inside the same bubble), never
+// on top of the image/video.
+
+/**
+ * Measure an image's natural dimensions and return a height/width ratio,
+ * clamped so extreme portraits/landscapes don't dominate the bubble. Falls
+ * back to a sensible default until the image header loads — the media card
+ * never flashes a blank/wrong-shape area.
+ */
+function useNaturalRatio(uri: string | null, fallback: number): number {
+  const [ratio, setRatio] = useState(fallback);
+  useEffect(() => {
+    if (!uri) return;
+    let alive = true;
+    Image.getSize(
+      uri,
+      (w, h) => {
+        if (!alive || !w || !h) return;
+        // Clamp: ~8:13 portrait … 16:9 landscape.
+        setRatio(Math.min(Math.max(h / w, 0.62), 1.85));
+      },
+      () => {
+        // Unmeasurable (offline / exotic host) — keep the fallback ratio.
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [uri]);
+  return ratio;
+}
 
 function UnlockedAttachment({
   attachment,
@@ -227,13 +254,18 @@ function UnlockedAttachment({
 }) {
   const isVideo = attachment.media_type === 'video';
   const uri = isVideo ? (attachment.thumbnail_url ?? attachment.media_url) : attachment.media_url;
+  // Hooks before the early return. Images follow their natural dimensions;
+  // videos use a fixed 16:10 frame (no natural-size probe for video URLs).
+  const ratio = useNaturalRatio(isVideo ? null : uri, isVideo ? 16 / 10 : 4 / 3);
   if (!uri) return null;
   return (
-    <Pressable onPress={onPress} style={styles.media}>
+    <Pressable onPress={onPress} style={[styles.media, { aspectRatio: ratio }]} accessibilityRole="button" accessibilityLabel={isVideo ? 'Video message. Tap to play.' : 'Image message. Tap to view.'}>
       <MsMediaLoader uri={uri} style={StyleSheet.absoluteFill} resizeMode="cover" accessibleLabel="" errorMessage="" fallback={null} />
       {isVideo ? (
-        <View style={styles.playBadge}>
-          <Play size={12} color={T.ACCENT_FG} weight="fill" />
+        <View style={styles.playBadge} pointerEvents="none">
+          <View style={styles.playBadgeInner}>
+            <Play size={18} color={T.ACCENT_FG} weight="fill" />
+          </View>
         </View>
       ) : null}
       {/* Paid + purchased — show it was unlocked */}
@@ -248,15 +280,15 @@ function UnlockedAttachment({
   );
 }
 
-/** Locked paid media — never exposes the content until purchased/unlocked. */
+/** Locked paid media — compact, never exposes the content until purchased. */
 function LockedAttachment({ attachment, onUnlock }: { attachment: Attachment; onUnlock: () => void }) {
   return (
     <Pressable style={styles.lockedCard} onPress={onUnlock} accessibilityRole="button" accessibilityLabel={`Unlock paid media for ₦${attachment.price.toLocaleString()}`}>
       <View style={styles.lockedIcon}>
         <BrandGradientFill />
-        <Lock size={16} color="#FFFFFF" weight="fill" />
+        <Lock size={14} color="#FFFFFF" weight="fill" />
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, gap: 1 }}>
         <Text style={styles.lockedTitle}>Paid media</Text>
         <Text style={styles.lockedSub}>Tap to unlock for ₦{attachment.price.toLocaleString()}</Text>
       </View>
@@ -280,15 +312,23 @@ export default function PrivateThread() {
   const [replyTo, setReplyTo] = useState<PrivateMessage | null>(null);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
   // Viewer state: which attachment is open fullscreen.
   const [viewer, setViewer] = useState<{ uri: string; isVideo: boolean } | null>(null);
-  // Jump-to + highlight a referenced message.
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  // Action sheets: header three-dot menu + per-message long-press actions.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [actionMessage, setActionMessage] = useState<PrivateMessage | null>(null);
+  // Set when THIS device blocks the sender this session — the composer is
+  // replaced by a clear blocked notice (server enforces it going forward).
+  const [blockedOther, setBlockedOther] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
-  const layoutY = useRef<Map<string, number>>(new Map());
+  // Measured height of the floating composer (the composer's OWN layout, not
+  // the keyboard-padding wrapper around it). The message list reserves exactly
+  // this much bottom room + a comfortable gap, so the newest message always
+  // sits naturally above the input and is never covered by it.
+  const [composerHeight, setComposerHeight] = useState(0);
+  const composerMeasured = useRef(false);
   // One idempotency key per reply draft: retries after a network failure
   // never duplicate the reply; a fresh key is minted after success.
   const idempotencyKeyRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -331,24 +371,6 @@ export default function PrivateThread() {
     : message
       ? [message, ...(message.reply ? [message.reply] : [])]
       : [];
-
-  /**
-   * Thread depth per message id (0 = original). Replies indent under the
-   * message they answer, so the original → reply → further-reply chain stays
-   * visually connected even though each message also sits on its own side.
-   */
-  const threadDepths = useMemo(() => {
-    const depths = new Map<string, number>();
-    const byId = new Map(threadRows.map((m) => [m.id, m]));
-    for (const m of threadRows) {
-      if (m.parent_message_id && byId.has(m.parent_message_id)) {
-        depths.set(m.id, (depths.get(m.parent_message_id) ?? 0) + 1);
-      } else {
-        depths.set(m.id, 0);
-      }
-    }
-    return depths;
-  }, [threadRows]);
 
   // ── SweetSocket — the thread is live. New replies, read/status changes,
   //    approvals and deletions arrive as events; the UI updates in place.
@@ -415,20 +437,26 @@ export default function PrivateThread() {
     });
   }, [id, user?.id]);
 
+  // Selecting media opens the dedicated media composer screen — nothing is
+  // uploaded or sent here. The composer previews the asset, collects caption +
+  // free/paid + price (creators), and only uploads/sends on Send.
   const onAttachmentPicked = useCallback((result: AttachmentResult) => {
     const mediaType = toInboxMediaType(result);
     if (!mediaType) return;
-    const entry: PendingAttachment = { localUri: result.uri, mediaId: null, mediaType, price: '' };
-    setAttachments((prev) => [...prev, entry]);
-    uploadMedia(result.uri, result.mimeType, result.fileName)
-      .then((uploaded) => {
-        setAttachments((prev) => prev.map((a) => (a === entry ? { ...a, mediaId: uploaded.id } : a)));
-      })
-      .catch(() => {
-        setAttachments((prev) => prev.filter((a) => a !== entry));
-        Alert.alert('Upload failed', 'The attachment could not be uploaded. Please try again.');
-      });
-  }, []);
+    router.push({
+      pathname: '/media-composer',
+      params: {
+        mode: 'reply',
+        targetId: (replyTo?.id ?? message?.id) ?? '',
+        canPrice: canPriceAttachments ? '1' : '0',
+        uri: result.uri,
+        mimeType: result.mimeType,
+        fileName: result.fileName,
+        mediaType,
+      },
+    } as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyTo?.id, message?.id, canPriceAttachments]);
 
   /** Purchase a priced reply attachment — server debits once atomically. */
   const unlock = async (attachmentId: string) => {
@@ -454,22 +482,15 @@ export default function PrivateThread() {
 
   const sendReply = async () => {
     if (!message || sending) return;
-    // A reply needs text, media, or both.
-    if (!body.trim() && attachments.length === 0) return;
+    // Text reply only — media goes through the media composer screen.
+    if (!body.trim()) return;
     const target = replyTo ?? message;
-    const ready = attachments.filter((a): a is PendingAttachment & { mediaId: string } => a.mediaId !== null);
-    if (ready.length !== attachments.length) return; // uploads still in flight
     setSending(true);
     try {
       const result = await replyToPrivateMessage({
         id: target.id,
         body: body.trim(),
         idempotencyKey: idempotencyKeyRef.current,
-        attachments: ready.map((a) => ({
-          media_id: a.mediaId,
-          media_type: a.mediaType,
-          ...(canPriceAttachments && a.price.trim() ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) } : {}),
-        })),
       });
       // Optimistic append — the follow-up load() reconciles with the server.
       setMessage((prev) => {
@@ -486,7 +507,6 @@ export default function PrivateThread() {
       });
       await load();
       setBody('');
-      setAttachments([]);
       setReplyTo(null);
       idempotencyKeyRef.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     } catch (e) {
@@ -534,6 +554,7 @@ export default function PrivateThread() {
           onPress: async () => {
             try {
               await blockUser(message.sender_username ?? message.sender_id);
+              setBlockedOther(true);
               Alert.alert('Blocked', `You can no longer receive private messages from ${senderName}.`);
             } catch (e) {
               Alert.alert('Could not block', e instanceof Error ? e.message : 'Please try again.');
@@ -544,7 +565,8 @@ export default function PrivateThread() {
     );
   };
 
-  const openDeleteMenu = () => {
+  /** Confirm-then-delete the whole correspondence (thread-level only). */
+  const confirmDelete = () => {
     if (!message) return;
     const senderInitiated = message.sender_id === user?.id;
     Alert.alert(
@@ -570,13 +592,50 @@ export default function PrivateThread() {
     );
   };
 
-  const jumpTo = (msgId: string) => {
-    const y = layoutY.current.get(msgId);
-    setFocusedId(msgId);
-    if (y != null) {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 10), animated: true });
-    }
-    setTimeout(() => setFocusedId(null), 1400);
+  /** Confirm-then-mute the sender — their future messages wait for approval. */
+  const confirmMute = () => {
+    if (!message) return;
+    const senderName = message.sender_name ?? message.sender_username ?? 'this sender';
+    Alert.alert(
+      `Set ${senderName} to waiting?`,
+      'Future messages from this sender will wait for your approval instead of arriving in your inbox.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Set to waiting',
+          onPress: async () => {
+            try {
+              await restrictPrivateSender(message.sender_id);
+              Alert.alert('Muted', `Future messages from ${senderName} will wait for your approval.`);
+            } catch (e) {
+              Alert.alert('Could not mute', e instanceof Error ? e.message : 'Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  /** Long-press a message → available actions. Only genuinely supported ones:
+   *  reply (either participant may reply) and copy text. Per-message delete is
+   *  NOT supported by the backend (delete is thread-level only), so it is not
+   *  offered here — no fake actions. */
+  const openMessageActions = (msg: PrivateMessage) => {
+    setActionMessage(msg);
+  };
+
+  const replyToActionMessage = () => {
+    const m = actionMessage;
+    if (!m) return;
+    setReplyTo(m);
+    setActionMessage(null);
+  };
+
+  const copyActionMessage = () => {
+    const m = actionMessage;
+    if (!m) return;
+    Clipboard.setStringAsync(m.body).catch(() => {});
+    setActionMessage(null);
   };
 
   const renderAttachment = (a: Attachment, keyPrefix: string) =>
@@ -594,120 +653,124 @@ export default function PrivateThread() {
 
   const renderMessage = (msg: PrivateMessage, index: number) => {
     const mine = msg.sender_id === user?.id;
-    // Replies tuck in toward the centre under their parent so the thread
-    // relationship reads at a glance; the side still shows who sent what.
-    const depth = Math.min(threadDepths.get(msg.id) ?? 0, 3);
-    const referenced = threadRows.find((t) => t.id === msg.parent_message_id);
     const time = formatTime(msg.created_at);
-    // Delivery fee only ever applies to the paid original, never to replies.
-    const paidNote =
-      !msg.parent_message_id && msg.price_paid > 0
-        ? ` · ₦${msg.price_paid.toLocaleString()} delivery`
-        : '';
+    // No per-message pricing in the conversation — the sending fee is a
+    // transaction that happened when the message was sent, not part of the
+    // chat. Pricing stays where it matters: paid-media unlock, settings,
+    // transaction history.
+    const text = msg.body.trim();
+    const hasMedia = msg.attachments.length > 0;
+
+    const renderSegments = (value: string) =>
+      parseLinks(value).map((seg, i) =>
+        seg.isLink ? (
+          <Text
+            key={i}
+            style={styles.bodyLink}
+            onPress={() => {
+              if (seg.url) Linking.openURL(seg.url).catch(() => {});
+            }}
+          >
+            {seg.text}
+          </Text>
+        ) : (
+          <Text key={i}>{seg.text}</Text>
+        ),
+      );
+
     return (
       <Entrance key={msg.id} delay={Math.min(index * 25, 200)}>
-        <View
-          onLayout={(e) => layoutY.current.set(msg.id, e.nativeEvent.layout.y)}
-          style={[
-            styles.msgWrap,
-            mine ? styles.msgMine : styles.msgTheirs,
-            depth > 0 && { marginLeft: depth * 16 },
-          ]}
+        <View style={[styles.msgWrap, mine ? styles.msgMine : styles.msgTheirs]}
         >
-          {/* Reply quote — the message this one answers, tap to jump */}
-          {msg.parent_message_id && referenced ? (
-            <Pressable
-              style={styles.reference}
-              onPress={() => jumpTo(referenced.id)}
-              accessibilityRole="button"
-              accessibilityLabel={`Jump to the message this replies to`}
-            >
-              <View style={styles.referenceAccent} />
-              <ArrowBendUpLeft size={13} color={T.TEXT_3} />
-              <View style={{ flex: 1, gap: 1 }}>
-                <Text style={styles.referenceName} numberOfLines={1}>
-                  Replying to {referenced.sender_id === user?.id ? 'yourself' : (referenced.sender_name ?? referenced.sender_username ?? 'message')}
-                </Text>
-                <Text style={styles.referenceBody} numberOfLines={1}>{referenced.body || (referenced.attachments.length ? 'Attachment' : '')}</Text>
-              </View>
-            </Pressable>
-          ) : null}
-
-          {/* The bubble */}
-          <View
-            style={[
-              styles.bubble,
-              mine ? styles.bubbleMine : styles.bubbleTheirs,
-              focusedId === msg.id && styles.focused,
-            ]}
+          {/* The bubble — long-press opens message actions. NO accessibilityRole
+              here: on web that renders <button>, and the bubble legitimately
+              contains interactive children (media tap, unlock), which must not
+              nest inside another <button>. Without the role the wrapper is a
+              plain pressable container on web and the inner buttons stay
+              valid HTML. */}
+          <Pressable
+            onLongPress={() => openMessageActions(msg)}
+            delayLongPress={350}
+            accessibilityLabel={`Message from ${mine ? 'you' : 'the other person'}. Long press for actions.`}
           >
-            {/* Sent bubbles carry a faint platform-gradient wash; received ones
-                stay on the plain app surface. The structure is identical. */}
-            {mine ? (
-              <LinearGradient
-                colors={SENT_BUBBLE_GRADIENT}
-                start={AppGradients.brandStart}
-                end={AppGradients.brandEnd}
-                style={StyleSheet.absoluteFill}
-                pointerEvents="none"
-              />
-            ) : null}
-
-            <Text style={styles.body}>
-              {parseLinks(msg.body || '').map((seg, i) =>
-                seg.isLink ? (
-                  <Text
-                    key={i}
-                    style={styles.bodyLink}
-                    onPress={() => {
-                      if (seg.url) Linking.openURL(seg.url).catch(() => {});
-                    }}
-                  >
-                    {seg.text}
-                  </Text>
-                ) : (
-                  <Text key={i}>{seg.text}</Text>
-                )
-              )}
-            </Text>
-
-            {msg.attachments.map((a) => renderAttachment(a, msg.id))}
-
-            {/* Meta — timestamp + status always on ONE non-wrapping line */}
-            <View style={[styles.meta, mine ? styles.metaRight : styles.metaLeft]}>
-              {msg.status === 'waiting' ? (
-                <View style={styles.waitingChip}>
-                  <Hourglass size={10} color="#FFFFFF" weight="fill" />
-                  <Text style={styles.waitingChipText}>Waiting approval</Text>
-                </View>
+            <View
+              style={[
+                styles.bubble,
+                mine ? styles.bubbleMine : styles.bubbleTheirs,
+              ]}
+            >
+              {/* Sent bubbles carry a faint platform-gradient wash; received ones
+                  stay on the plain app surface. The structure is identical. */}
+              {mine ? (
+                <LinearGradient
+                  colors={SENT_BUBBLE_GRADIENT}
+                  start={AppGradients.brandStart}
+                  end={AppGradients.brandEnd}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                />
               ) : null}
-              <Text style={styles.time} numberOfLines={1}>
-                {time}{paidNote}
-              </Text>
-              <StatusIcon msg={msg} mine={mine} />
-            </View>
 
-            {/* Reply affordance — received messages only */}
-            {!mine && !isWaiting ? (
-              <Pressable
-                style={styles.replyLink}
-                onPress={() => setReplyTo(msg)}
-                accessibilityRole="button"
-                accessibilityLabel={`Reply to ${msg.sender_name ?? msg.sender_username ?? 'sender'}`}
-              >
-                <ArrowBendUpLeft size={13} color={T.PRIMARY_LIGHT} />
-                <Text style={styles.replyLinkText}>Reply</Text>
-              </Pressable>
-            ) : null}
-          </View>
+              {/* Media first, caption below — one cohesive message card */}
+              {hasMedia ? (
+                <View style={styles.mediaStack}>
+                  {msg.attachments.map((a) => renderAttachment(a, msg.id))}
+                  {text ? <Text style={styles.caption}>{renderSegments(text)}</Text> : null}
+                </View>
+              ) : text ? (
+                <Text style={styles.body}>{renderSegments(text)}</Text>
+              ) : null}
+
+              {/* Meta — timestamp + status always on ONE non-wrapping line */}
+              <View style={[styles.meta, mine ? styles.metaRight : styles.metaLeft]}>
+                {msg.status === 'waiting' ? (
+                  <View style={styles.waitingChip}>
+                    <Hourglass size={10} color="#FFFFFF" weight="fill" />
+                    <Text style={styles.waitingChipText}>Waiting approval</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.time} numberOfLines={1}>
+                  {time}
+                </Text>
+                <StatusIcon msg={msg} mine={mine} />
+              </View>
+            </View>
+          </Pressable>
         </View>
       </Entrance>
     );
   };
 
+  // Follow the newest message: first paint jumps to the latest; later arrivals
+  // only animate down when the reader is already near the bottom — reading
+  // older messages must never be yanked to the newest row.
+  const nearBottom = useRef(true);
+  const onScrollNearBottom = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    nearBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+  }, []);
+  // NOTE: this hook must stay ABOVE the early returns below — every render
+  // (loading, not-found, loaded) must call the same hooks in the same order.
+  const scrollMotion = useScrollMotion();
+  const onContentSizeChange = useCallback(() => {
+    const count = threadRows.length;
+    if (lastRowCount.current === 0 && count > 0) {
+      lastRowCount.current = count;
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+    } else if (count > lastRowCount.current) {
+      lastRowCount.current = count;
+      if (nearBottom.current) {
+        requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+      }
+    }
+  }, [threadRows.length]);
+
   if (loading) {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
+        {/* Wallpaper behind the loading skeleton too — the conversation
+            surface is continuous from the very first frame. */}
+        <ChatBackground />
         <View style={styles.header}>
           <View style={styles.iconBtn} />
           <View style={styles.headerCenter} />
@@ -720,6 +783,7 @@ export default function PrivateThread() {
   if (!message) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
+        <ChatBackground />
         <Text style={styles.notice}>Message not found.</Text>
       </View>
     );
@@ -729,25 +793,26 @@ export default function PrivateThread() {
     ? message.sender_name ?? message.sender_username ?? 'User'
     : message.recipient_name ?? message.recipient_username ?? 'Creator';
   const otherAvatar = amRecipient ? message.sender_avatar : message.recipient_avatar;
-  const canCompose = !isWaiting; // waiting must be approved before replying
+  // No composer when waiting (approval first) or after blocking this sender.
+  const canCompose = !isWaiting && !blockedOther;
 
-  const readyCount = attachments.filter((a) => a.mediaId !== null).length;
-  const canSend = !sending && (body.trim().length > 0 || attachments.length > 0) && readyCount === attachments.length;
+  // Bottom inset for the message list = measured floating-composer height + a
+  // comfortable gap, so the newest message always lands just above the input
+  // (never a huge dead zone, never clipped behind it). Until the first
+  // measurement lands we fall back to the single-line composer height so the
+  // thread never starts out cramped. With no composer, just clear the safe
+  // area so the approval/blocked notices sit naturally.
+  const listBottomPadding = canCompose
+    ? Math.max(composerHeight, 62) + 16
+    : insets.bottom + 18;
 
-  // Follow the newest message: first paint jumps, later additions animate.
-  const onContentSizeChange = useCallback(() => {
-    const count = threadRows.length;
-    if (lastRowCount.current === 0 && count > 0) {
-      lastRowCount.current = count;
-      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
-    } else if (count > lastRowCount.current) {
-      lastRowCount.current = count;
-      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-    }
-  }, [threadRows.length]);
+  const canSend = !sending && body.trim().length > 0;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
+      {/* Chat wallpaper — one continuous, low-contrast surface behind the
+          whole thread, the header and the floating composer. */}
+      <ChatBackground />
       {/* Header — chat-style: back, avatar + name, actions */}
       <View style={styles.header}>
         <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
@@ -764,7 +829,7 @@ export default function PrivateThread() {
             </View>
           </View>
         </View>
-        <Pressable onPress={openDeleteMenu} style={styles.iconBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Delete correspondence">
+        <Pressable onPress={() => setMenuOpen(true)} style={styles.iconBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Conversation actions">
           <DotsThreeVertical size={20} color={T.TEXT} />
         </Pressable>
       </View>
@@ -774,9 +839,13 @@ export default function PrivateThread() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <KeyboardAwareScrollViewCompat
           ref={scrollRef}
-          {...useScrollMotion()}
+          {...scrollMotion}
+          onScroll={(e) => {
+            scrollMotion.onScroll(e);
+            onScrollNearBottom(e);
+          }}
           onContentSizeChange={onContentSizeChange}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: listBottomPadding }]}
         >
           {/* Waiting approval banner */}
           {isWaiting && amRecipient ? (
@@ -789,6 +858,22 @@ export default function PrivateThread() {
                 <Text style={styles.approveTitle}>This message is waiting</Text>
                 <Text style={styles.approveSub}>
                   Approve it to move it to your inbox, or allow the sender so future messages arrive normally.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Blocked notice — replaces the composer so the thread never looks
+              like it can still receive messages from a blocked sender. */}
+          {blockedOther && amRecipient ? (
+            <View style={styles.approveBanner}>
+              <View style={[styles.approveIcon, styles.blockedIcon]}>
+                <Prohibit size={16} color="#FFFFFF" weight="fill" />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.approveTitle}>You blocked this sender</Text>
+                <Text style={styles.approveSub}>
+                  They can't send you private messages. Unblock them from their profile to message again.
                 </Text>
               </View>
             </View>
@@ -824,123 +909,131 @@ export default function PrivateThread() {
             </View>
           ) : null}
         </KeyboardAwareScrollViewCompat>
-
-        {/* Composer — fixed bottom bar, rides the keyboard, expands naturally */}
-        {canCompose ? (
-          <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-            {replyTo ? (
-              <View style={styles.replyToBanner}>
-                <View style={styles.replyToAccent} />
-                <View style={{ flex: 1, gap: 1 }}>
-                  <Text style={styles.replyToName} numberOfLines={1}>
-                    Replying to {replyTo.sender_id === user?.id ? 'yourself' : (replyTo.sender_name ?? replyTo.sender_username ?? 'message')}
-                  </Text>
-                  <Text style={styles.replyToBody} numberOfLines={1}>
-                    {replyTo.body || (replyTo.attachments.length ? 'Attachment' : '')}
-                  </Text>
-                </View>
-                <Pressable hitSlop={10} onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply">
-                  <X size={15} color={T.TEXT_3} />
-                </Pressable>
-              </View>
-            ) : null}
-
-            {/* Staged attachments (with creator price input) */}
-            {attachments.length > 0 ? (
-              <View style={styles.stagedWrap}>
-                {attachments.map((a, i) => (
-                  <View key={`${a.localUri}-${i}`} style={styles.pendingRow}>
-                    {a.mediaType === 'image' ? (
-                      <Image source={{ uri: a.localUri }} style={styles.pendingThumb} />
-                    ) : (
-                      <View style={[styles.pendingThumb, styles.pendingThumbFallback]}>
-                        <Text style={styles.pendingFallbackText}>{a.mediaType.toUpperCase()}</Text>
-                      </View>
-                    )}
-                    <View style={{ flex: 1, gap: 6 }}>
-                      {!a.mediaId ? (
-                        <Text style={styles.pendingUploading}>Uploading…</Text>
-                      ) : canPriceAttachments ? (
-                        <View style={styles.priceRow}>
-                          <Text style={styles.priceRowLabel}>Price (leave empty for free)</Text>
-                          <View style={styles.priceInputWrap}>
-                            <Text style={styles.naira}>₦</Text>
-                            <TextInput
-                              value={a.price}
-                              onChangeText={(v) =>
-                                setAttachments((prev) => prev.map((x, idx) => (idx === i ? { ...x, price: v } : x)))
-                              }
-                              keyboardType="numeric"
-                              placeholder="0"
-                              placeholderTextColor={T.TEXT_3}
-                              selectionColor={T.CARET}
-                              style={styles.priceInput}
-                            />
-                          </View>
-                        </View>
-                      ) : (
-                        <Text style={styles.pendingUploading}>Ready to attach</Text>
-                      )}
-                    </View>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove attachment"
-                    >
-                      <X size={16} color={T.TEXT_3} />
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            {/* Input row — pill + attach + gradient send */}
-            <View style={styles.inputRow}>
-              <View style={styles.pill}>
-                <TextInput
-                  value={body}
-                  onChangeText={setBody}
-                  multiline
-                  maxLength={5000}
-                  placeholder={amRecipient ? 'Write a reply…' : 'Write a follow-up…'}
-                  placeholderTextColor={T.TEXT_3}
-                  selectionColor={T.CARET}
-                  style={styles.input}
-                  underlineColorAndroid="transparent"
-                  textAlignVertical="center"
-                />
-              </View>
-
-              <Pressable
-                style={styles.attachBtn}
-                onPress={() => setSheetVisible(true)}
-                disabled={attachments.length >= 10}
-                hitSlop={6}
-                accessibilityRole="button"
-                accessibilityLabel="Attach media"
-              >
-                <Plus size={20} color={T.TEXT_2} weight="bold" />
-              </Pressable>
-
-              <Pressable
-                style={[styles.sendBtn, !canSend && styles.disabled]}
-                onPress={sendReply}
-                disabled={!canSend}
-                accessibilityRole="button"
-                accessibilityLabel="Send message"
-              >
-                <BrandGradientFill />
-                {sending ? (
-                  <ActivityIndicator color={T.ACCENT_FG} />
-                ) : (
-                  <PaperPlaneRight size={20} color={T.ACCENT_FG} weight="fill" />
-                )}
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
       </KeyboardAvoidingView>
+
+      {/* Composer overlay — a separate floating component at the bottom,
+          outside the message list, so the chat background shows through all
+          around it and it stays aligned just below the newest message. Its own
+          KeyboardAvoidingView lifts it above the keyboard on iOS. */}
+      {canCompose ? (
+        <KeyboardAvoidingView style={styles.composerOverlay} behavior="padding" pointerEvents="box-none">
+          {/* Measuring wrapper — reports the composer's real height so the
+              thread can reserve exactly the right bottom room for it. */}
+          <View
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setComposerHeight(h);
+              if (!composerMeasured.current) {
+                composerMeasured.current = true;
+                // The first measurement grows the list's bottom inset — pull
+                // the newest message back up so it lands above the composer.
+                if (nearBottom.current) {
+                  requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+                }
+              }
+            }}
+          >
+            <ChatComposer
+              body={body}
+              onChangeBody={setBody}
+              amRecipient={amRecipient}
+              ownId={user?.id}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+              canSend={canSend}
+              sending={sending}
+              onSend={sendReply}
+              onAttach={() => setSheetVisible(true)}
+              bottomInset={insets.bottom}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      ) : null}
+
+      {/* Header three-dot menu — conversation management actions */}
+      <MsModal
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        title={otherName}
+        subtitle={isWaiting ? 'Waiting for your approval' : 'Private correspondence'}
+        presentation="sheet"
+      >
+        <View style={styles.sheetBody}>
+          <Pressable
+            style={styles.sheetRow}
+            onPress={() => {
+              setMenuOpen(false);
+              router.replace({ pathname: '/messages', params: { tab: 'waiting' } } as any);
+            }}
+          >
+            <View style={styles.sheetIcon}>
+              <BrandGradientFill />
+              <Hourglass size={15} color="#FFFFFF" weight="bold" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sheetRowText}>View waiting messages</Text>
+              <Text style={styles.sheetRowSub}>Messages awaiting your approval</Text>
+            </View>
+          </Pressable>
+          {amRecipient && !isWaiting ? (
+            <Pressable style={styles.sheetRow} onPress={() => { setMenuOpen(false); confirmMute(); }}>
+              <View style={styles.sheetIcon}>
+                <BrandGradientFill />
+                <Hourglass size={15} color="#FFFFFF" weight="bold" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetRowText}>Set to waiting</Text>
+                <Text style={styles.sheetRowSub}>Future messages from this sender need your approval</Text>
+              </View>
+            </Pressable>
+          ) : null}
+          {amRecipient ? (
+            <Pressable style={styles.sheetRow} onPress={() => { setMenuOpen(false); blockSender(); }}>
+              <View style={[styles.sheetIcon, styles.sheetIconDanger]}>
+                <Prohibit size={15} color="#FFFFFF" weight="bold" />
+              </View>
+              <Text style={[styles.sheetRowText, styles.sheetRowDanger]}>Block sender</Text>
+            </Pressable>
+          ) : null}
+          <Pressable style={styles.sheetRow} onPress={() => { setMenuOpen(false); confirmDelete(); }}>
+            <View style={[styles.sheetIcon, styles.sheetIconDanger]}>
+              <Trash size={15} color="#FFFFFF" weight="bold" />
+            </View>
+            <Text style={[styles.sheetRowText, styles.sheetRowDanger]}>
+              {amRecipient ? 'Delete for me' : 'Delete for both'}
+            </Text>
+          </Pressable>
+        </View>
+      </MsModal>
+
+      {/* Long-press message actions — only genuinely supported actions */}
+      <MsModal
+        visible={!!actionMessage}
+        onClose={() => setActionMessage(null)}
+        title="Message actions"
+        presentation="sheet"
+      >
+        <View style={styles.sheetBody}>
+          {!isWaiting ? (
+            <Pressable style={styles.sheetRow} onPress={replyToActionMessage}>
+              <View style={styles.sheetIcon}>
+                <BrandGradientFill />
+                <ArrowBendUpLeft size={15} color="#FFFFFF" weight="bold" />
+              </View>
+              <Text style={styles.sheetRowText}>Reply</Text>
+            </Pressable>
+          ) : null}
+          {actionMessage?.body ? (
+            <Pressable style={styles.sheetRow} onPress={copyActionMessage}>
+              <View style={styles.sheetIcon}>
+                <BrandGradientFill />
+                <Copy size={15} color="#FFFFFF" weight="bold" />
+              </View>
+              <Text style={styles.sheetRowText}>Copy text</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </MsModal>
 
       {/* Fullscreen media viewer */}
       <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)} statusBarTranslucent>
@@ -982,37 +1075,23 @@ const styles = StyleSheet.create({
   subtitle: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular, marginTop: 1 },
 
   // ── Message area ──────────────────────────────────────────────────────────
-  content: { paddingHorizontal: 14, paddingBottom: 24 },
+  // Bottom padding is dynamic — set inline from the measured floating-composer
+  // height so the newest message always sits a comfortable gap above it.
+  content: { paddingHorizontal: 14 },
 
-  // Two-sided chat: received left, sent right. Replies additionally indent
-  // (depth × 16) so the thread chain stays clear.
-  msgWrap: { maxWidth: '84%', gap: 6, marginBottom: 6 },
+  // Two-sided chat: received left, sent right. No reply indentation — every
+  // message sits flush so the chat stays compact and aligned.
+  msgWrap: { maxWidth: '80%', marginBottom: 2 },
   msgMine: { alignSelf: 'flex-end' },
   msgTheirs: { alignSelf: 'flex-start' },
 
-  // Reply quote above the bubble — accent bar + "Replying to X" + preview.
-  reference: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.SURFACE_2,
-    borderWidth: 1,
-    borderColor: T.BORDER,
-    overflow: 'hidden',
-  },
-  referenceAccent: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: T.ACCENT, flexShrink: 0 },
-  referenceName: { color: T.PRIMARY_LIGHT, fontSize: 10.5, fontFamily: T.FONT.semibold },
-  referenceBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
-
-  // Chat bubble — compact, tail corner on the sending side, wraps tightly.
+  // Chat bubble — compact (tall bubbles read as cards; short messages should
+  // stay short), tail corner on the sending side, wraps tightly around content.
   bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: T.RADIUS.md,
-    gap: 8,
+    gap: 4,
     overflow: 'hidden',
     borderWidth: 1,
   },
@@ -1026,13 +1105,33 @@ const styles = StyleSheet.create({
     borderColor: T.BORDER,
     borderBottomLeftRadius: 4,
   },
-  focused: { borderColor: T.PRIMARY_LIGHT, borderWidth: 1.5 },
-
-  body: { color: T.TEXT, fontSize: 15, lineHeight: 23, fontFamily: T.FONT.regular },
+  // Strong, readable message typography — compact bubble, bold text.
+  body: { color: T.TEXT, fontSize: 15, lineHeight: 21, fontFamily: T.FONT.semibold },
+  // Caption under media — same strength so text + media read as one card.
+  caption: { color: T.TEXT, fontSize: 15, lineHeight: 21, fontFamily: T.FONT.semibold },
   bodyLink: { color: T.PRIMARY_LIGHT, textDecorationLine: 'underline' },
 
+  // Media-first card: media on top, caption below — one cohesive message.
+  // Aspect ratio is applied inline from the natural image dimensions.
+  mediaStack: { gap: 6 },
+  media: { width: '100%', borderRadius: T.RADIUS.md, overflow: 'hidden', backgroundColor: MEDIA_BG },
+  playBadge: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playBadgeInner: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   // Timestamp + status — one non-wrapping line.
-  meta: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 4, marginTop: 1 },
+  meta: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 4, marginTop: 2 },
   metaLeft: { justifyContent: 'flex-start' },
   metaRight: { justifyContent: 'flex-end' },
   time: { color: T.TEXT_3, fontSize: 10, fontFamily: T.FONT.regular, flexShrink: 0 },
@@ -1046,8 +1145,25 @@ const styles = StyleSheet.create({
   },
   waitingChipText: { color: '#FFFFFF', fontSize: 9, fontFamily: T.FONT.bold, letterSpacing: 0.3 },
 
-  replyLink: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingTop: 1 },
-  replyLinkText: { color: T.PRIMARY_LIGHT, fontSize: 12, fontFamily: T.FONT.semibold },
+  // ── Action sheets ─────────────────────────────────────────────────────────
+  sheetBody: { gap: 2, paddingBottom: 4 },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  sheetIcon: {
+    width: 34, height: 34, borderRadius: 17,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetIconDanger: { backgroundColor: alpha(T.SECONDARY, 0.15) },
+  sheetRowText: { color: T.TEXT, fontSize: 14.5, fontFamily: T.FONT.semibold, flexShrink: 1 },
+  sheetRowSub: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular, marginTop: 2 },
+  sheetRowDanger: { color: T.SECONDARY },
 
   // Centred date pill between message groups.
   dateWrap: { alignItems: 'center', marginVertical: 12 },
@@ -1079,6 +1195,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
   },
+  blockedIcon: { backgroundColor: alpha(T.SECONDARY, 0.18) },
   approveTitle: { color: T.TEXT, fontSize: 13.5, fontFamily: T.FONT.semibold },
   approveSub: { color: T.TEXT_2, fontSize: 11.5, lineHeight: 17, fontFamily: T.FONT.regular },
   approveActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
@@ -1100,118 +1217,30 @@ const styles = StyleSheet.create({
   },
   blockBtnText: { color: T.SECONDARY, fontSize: 12.5, fontFamily: T.FONT.semibold },
 
-  // ── Composer ──────────────────────────────────────────────────────────────
-  composer: {
-    backgroundColor: T.BG,
-    borderTopWidth: 1,
-    borderTopColor: T.BORDER,
-    paddingTop: 8,
-    paddingHorizontal: 10,
+  // Floating composer overlay — anchored to the bottom, outside the message
+  // scroll, so the chat background shows through and it aligns with the last
+  // message. It rides the keyboard via its own KeyboardAvoidingView.
+  composerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
   },
-  replyToBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 8, paddingHorizontal: 12,
-    borderRadius: T.RADIUS.md,
-    backgroundColor: T.SURFACE_2,
-    borderWidth: 1,
-    borderColor: T.BORDER,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  replyToAccent: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: T.ACCENT, flexShrink: 0 },
-  replyToName: { color: T.PRIMARY_LIGHT, fontSize: 11, fontFamily: T.FONT.semibold },
-  replyToBody: { color: T.TEXT_3, fontSize: 11.5, fontFamily: T.FONT.regular },
-
-  stagedWrap: { gap: 8, marginBottom: 8 },
-  pendingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 11,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.md,
-    borderWidth: 1,
-    borderColor: T.BORDER,
-  },
-  pendingThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: T.SURFACE_2 },
-  pendingThumbFallback: { alignItems: 'center', justifyContent: 'center' },
-  pendingFallbackText: { color: T.TEXT_3, fontSize: 9, fontFamily: T.FONT.bold },
-  pendingUploading: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.regular },
-  priceRow: { gap: 4 },
-  priceRowLabel: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular },
-  priceInputWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.sm,
-    paddingHorizontal: 10,
-    height: 32,
-  },
-  naira: { color: T.TEXT_2, fontSize: 13, fontFamily: T.FONT.medium },
-  priceInput: { flex: 1, color: T.TEXT, fontSize: 14, fontFamily: T.FONT.medium, paddingVertical: 0 },
-
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  pill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.pill,
-    borderWidth: 1,
-    borderColor: T.BORDER,
-    paddingHorizontal: 14,
-    minHeight: 46,
-  },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 21,
-    fontFamily: T.FONT.regular,
-    color: T.TEXT,
-    paddingTop: Platform.OS === 'ios' ? 8 : 6,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 6,
-    includeFontPadding: false,
-    maxHeight: 110,
-  },
-  attachBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: T.SURFACE,
-    borderWidth: 1,
-    borderColor: T.BORDER,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  sendBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    shadowColor: T.ACCENT,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  disabled: { opacity: 0.5 },
 
   // ── Media ─────────────────────────────────────────────────────────────────
   lockedCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 13,
+    gap: 10,
+    padding: 10,
     backgroundColor: T.SURFACE_2,
     borderRadius: T.RADIUS.md,
     borderWidth: 1,
     borderColor: T.BORDER,
   },
   lockedIcon: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 32, height: 32, borderRadius: 16,
     overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
   },
@@ -1220,22 +1249,14 @@ const styles = StyleSheet.create({
   unlockBtn: {
     backgroundColor: T.ACCENT,
     overflow: 'hidden',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: T.RADIUS.full,
   },
   unlockBtnText: {
     color: T.ACCENT_FG,
     fontSize: 12,
     fontFamily: T.FONT.bold,
-  },
-
-  media: { width: '100%', aspectRatio: 4 / 3, borderRadius: T.RADIUS.md, overflow: 'hidden', backgroundColor: MEDIA_BG },
-  playBadge: {
-    position: 'absolute', left: 8, bottom: 8,
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center', justifyContent: 'center',
   },
   unlockedBadge: {
     position: 'absolute', right: 8, top: 8,

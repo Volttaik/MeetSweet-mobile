@@ -107,8 +107,13 @@ export function MsMediaLoader({
 
   return (
     <View style={[styles.root, style]} accessible accessibilityLabel={accessibleLabel}>
-      {/* Full-res image — starts at opacity 0 for new URIs, 1 for cached ones */}
-      {uri && (
+      {/* Full-res image — starts at opacity 0 for new URIs, 1 for cached ones.
+          IMPORTANT: must be `uri ? … : null`, never `uri && …`. React ignores
+          `false` children, but an EMPTY STRING uri (e.g. a hidden web Modal
+          mounting this component without a value) renders as a literal text
+          node inside the View — react-native-web rejects that with
+          "Unexpected text node" in the browser. */}
+      {uri ? (
         <Animated.Image
           key={`sharp:${uri}:${attempt}`}
           source={{ uri }}
@@ -121,7 +126,7 @@ export function MsMediaLoader({
             onLoadError?.();
           }}
         />
-      )}
+      ) : null}
 
       {state === 'loading' && !loaded && (
         <View

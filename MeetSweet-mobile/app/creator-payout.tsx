@@ -700,6 +700,20 @@ export default function CreatorPayoutScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Processing note — the product promise every payout must state */}
+            <View style={styles.processingNote}>
+              <View style={styles.processingIcon}>
+                <BrandGradientFill />
+                <Clock size={14} color="#FFFFFF" weight="fill" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.processingTitle}>Processing may take up to 24 hours</Text>
+                <Text style={styles.processingSub}>
+                  Withdrawals are sent to your bank once processed. Funds stay reserved until then.
+                </Text>
+              </View>
+            </View>
+
             {/* Bank account card */}
             <TouchableOpacity
               style={styles.bankCard}
@@ -900,6 +914,35 @@ const styles = StyleSheet.create({
   },
   withdrawBtnDisabled: { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER_2 },
   withdrawLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.ACCENT_FG },
+
+  processingNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 20,
+    marginBottom: 8,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: T.SURFACE,
+    borderWidth: 1,
+    borderColor: T.BORDER,
+  },
+  processingIcon: {
+    width: 30, height: 30, borderRadius: 15,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  processingTitle: { color: T.TEXT, fontSize: 12.5, fontFamily: T.FONT.semibold },
+  processingSub: {
+    color: T.TEXT_3,
+    fontSize: 11,
+    fontFamily: T.FONT.regular,
+    lineHeight: 16,
+    marginTop: 1,
+  },
 
   bankCard: {
     flexDirection: 'row',

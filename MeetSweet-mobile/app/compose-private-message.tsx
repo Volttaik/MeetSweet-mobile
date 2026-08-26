@@ -16,9 +16,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -31,7 +29,6 @@ import {
   PaperPlaneTilt,
   Plus,
   Lock,
-  X,
 } from 'phosphor-react-native';
 import { T, AppGradients } from '@/constants/theme';
 import { goBack } from '@/lib/safe-back';
@@ -42,21 +39,10 @@ import { GradientText } from '@/components/GradientText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MsAttachmentSheet, type AttachmentResult } from '@/components/MsAttachmentSheet';
 import { getMessagingSettings, sendPrivateMessage } from '@/services/private-inbox';
-import { uploadMedia } from '@/services/media';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
 
 /** Attachment types the Private Inbox accepts (server-validated). */
 type InboxMediaType = 'image' | 'video' | 'file';
-
-interface PendingAttachment {
-  /** Local URI for the preview chip before/after upload. */
-  localUri: string;
-  /** Set once the upload completes — this is what the API needs. */
-  mediaId: string | null;
-  mediaType: InboxMediaType;
-  /** Optional pay-to-unlock price (Naira) — creators pricing media only. */
-  price: string;
-}
 
 function toInboxMediaType(result: AttachmentResult): InboxMediaType | null {
   if (result.type === 'image' || result.type === 'gif') return 'image';
@@ -83,9 +69,7 @@ export default function ComposePrivateMessage() {
   const [blockedReason, setBlockedReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(recipient));
   const [sending, setSending] = useState(false);
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [uploadingCount, setUploadingCount] = useState(0);
 
   /**
    * One idempotency key per compose session: a retry after a network failure
@@ -136,59 +120,39 @@ export default function ComposePrivateMessage() {
     };
   }, [recipient, isCreatorMode]);
 
+  // Selecting media opens the dedicated media composer screen — nothing is
+  // uploaded or sent here. The composer previews the asset, collects caption +
+  // free/paid + price (creators), and only uploads/sends on Send.
   const onAttachmentPicked = useCallback((result: AttachmentResult) => {
     const mediaType = toInboxMediaType(result);
-    if (!mediaType) return;
-    if (attachments.length >= 10) {
-      dialogs.alert({ title: 'Limit reached', message: 'Up to 10 attachments per message.' });
-      return;
-    }
-    const entry: PendingAttachment = {
-      localUri: result.uri,
-      mediaId: null,
-      mediaType,
-      price: '',
-    };
-    setAttachments((prev) => [...prev, entry]);
-    setUploadingCount((n) => n + 1);
-    uploadMedia(result.uri, result.mimeType, result.fileName)
-      .then((uploaded) => {
-        setAttachments((prev) =>
-          prev.map((a) => (a === entry ? { ...a, mediaId: uploaded.id } : a)),
-        );
-      })
-      .catch(() => {
-        setAttachments((prev) => prev.filter((a) => a !== entry));
-        dialogs.alert({ variant: 'error', title: 'Upload failed', message: 'The attachment could not be uploaded. Please try again.' });
-      })
-      .finally(() => setUploadingCount((n) => Math.max(0, n - 1)));
-  }, [attachments.length]);
+    if (!mediaType || !recipient) return;
+    router.push({
+      pathname: '/media-composer',
+      params: {
+        mode: 'new',
+        targetId: recipient,
+        canPrice: isCreatorMode ? '1' : '0',
+        uri: result.uri,
+        mimeType: result.mimeType,
+        fileName: result.fileName,
+        mediaType,
+      },
+    } as any);
+  }, [recipient, isCreatorMode]);
 
-  const readyAttachments = attachments.filter((a): a is PendingAttachment & { mediaId: string } => a.mediaId !== null);
-  const canSend =
-    Boolean(recipient) && canMessage && body.trim().length > 0 && sending === false && uploadingCount === 0;
+  // Text only — media goes through the media composer screen.
+  const canSend = Boolean(recipient) && canMessage && body.trim().length > 0 && sending === false;
 
   const insufficient = price !== null && balance < price;
 
   const send = async () => {
-    if (!recipient || !body.trim() || !canMessage || sending) return;
-    // Block send until every attachment finished uploading.
-    if (readyAttachments.length !== attachments.length) return;
+    if (!recipient || !canMessage || sending) return;
     setSending(true);
     try {
       await sendPrivateMessage({
         recipientId: recipient,
         body: body.trim(),
         idempotencyKey: idempotencyKeyRef.current,
-        attachments: readyAttachments.map((a) => ({
-          media_id: a.mediaId,
-          media_type: a.mediaType,
-          // Only a creator pricing media for their subscriber sends a price;
-          // the server forces every other attachment free.
-          ...(isCreatorMode && a.price.trim()
-            ? { price: Math.max(0, Number(a.price.replace(/[^0-9.]/g, '')) || 0) }
-            : {}),
-        })),
       });
       // Consumed — the next message gets its own key.
       idempotencyKeyRef.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -322,88 +286,9 @@ export default function ComposePrivateMessage() {
             textAlignVertical="top"
           />
 
-          {/* Attachment previews — chips for fans; rows with a per-attachment
-              price input for creators (price is shown clearly before sending). */}
-          {attachments.length > 0 ? (
-            isCreatorMode ? (
-              <View style={styles.rows}>
-                {attachments.map((a, i) => (
-                  <View key={`${a.localUri}-${i}`} style={styles.pendingRow}>
-                    {a.mediaType === 'image' ? (
-                      <Image source={{ uri: a.localUri }} style={styles.pendingThumb} />
-                    ) : (
-                      <View style={[styles.pendingThumb, styles.pendingThumbFallback]}>
-                        <Text style={styles.pendingFallbackText}>{a.mediaType.toUpperCase()}</Text>
-                      </View>
-                    )}
-                    <View style={{ flex: 1, gap: 6 }}>
-                      {!a.mediaId ? (
-                        <Text style={styles.pendingUploading}>Uploading…</Text>
-                      ) : (
-                        <View style={styles.priceRow}>
-                          <Text style={styles.priceRowLabel}>Price (leave empty for free)</Text>
-                          <View style={styles.priceInputWrap}>
-                            <Text style={styles.naira}>₦</Text>
-                            <TextInput
-                              value={a.price}
-                              onChangeText={(v) =>
-                                setAttachments((prev) => prev.map((x, idx) => (idx === i ? { ...x, price: v } : x)))
-                              }
-                              keyboardType="numeric"
-                              placeholder="0"
-                              placeholderTextColor={T.TEXT_3}
-                              selectionColor={T.CARET}
-                              style={styles.priceInput}
-                            />
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove attachment"
-                    >
-                      <X size={16} color={T.TEXT_3} />
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-                {attachments.map((a, i) => (
-                  <View key={`${a.localUri}-${i}`} style={styles.chip}>
-                    {a.mediaType === 'image' ? (
-                      <Image source={{ uri: a.localUri }} style={styles.chipThumb} />
-                    ) : (
-                      <View style={[styles.chipThumb, styles.chipThumbFallback]}>
-                        <Text style={styles.chipThumbFallbackText}>{a.mediaType.toUpperCase()}</Text>
-                      </View>
-                    )}
-                    {!a.mediaId ? (
-                      <View style={styles.chipOverlay}>
-                        <ActivityIndicator size="small" color={T.ACCENT_FG} />
-                      </View>
-                    ) : null}
-                    <Pressable
-                      style={styles.chipRemove}
-                      hitSlop={6}
-                      onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove attachment"
-                    >
-                      <X size={11} color={T.ACCENT_FG} weight="bold" />
-                    </Pressable>
-                  </View>
-                ))}
-              </ScrollView>
-            )
-          ) : null}
-
           {/* Actions */}
           <View style={[styles.actions, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <Pressable style={styles.attachBtn} onPress={() => setSheetVisible(true)} disabled={attachments.length >= 10}>
+            <Pressable style={styles.attachBtn} onPress={() => setSheetVisible(true)}>
               <Plus size={18} color={T.TEXT_2} />
               <Text style={styles.attachBtnText}>Attach</Text>
             </Pressable>
@@ -528,48 +413,6 @@ const styles = StyleSheet.create({
     fontFamily: T.FONT.regular,
     textAlignVertical: 'top',
   },
-
-  chips: { gap: 10, paddingHorizontal: 18, paddingTop: 14 },
-  chip: { width: 64, height: 64, borderRadius: 12, overflow: 'hidden', backgroundColor: T.SURFACE_2 },
-  chipThumb: { width: '100%', height: '100%' },
-  chipThumbFallback: { alignItems: 'center', justifyContent: 'center' },
-  chipThumbFallbackText: { color: T.TEXT_3, fontSize: 9, fontFamily: T.FONT.bold, letterSpacing: 0.5 },
-  chipOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
-  chipRemove: {
-    position: 'absolute', top: 3, right: 3,
-    width: 18, height: 18, borderRadius: 9,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  // Creator-mode attachment rows with per-attachment price input.
-  rows: { gap: 10, paddingHorizontal: 18, paddingTop: 14 },
-  pendingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    backgroundColor: T.SURFACE,
-    borderRadius: T.RADIUS.md,
-    borderWidth: 1,
-    borderColor: T.BORDER,
-  },
-  pendingThumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: T.SURFACE_2 },
-  pendingThumbFallback: { alignItems: 'center', justifyContent: 'center' },
-  pendingFallbackText: { color: T.TEXT_3, fontSize: 9, fontFamily: T.FONT.bold },
-  pendingUploading: { color: T.TEXT_3, fontSize: 12, fontFamily: T.FONT.regular },
-  priceRowLabel: { color: T.TEXT_3, fontSize: 11, fontFamily: T.FONT.regular },
-  priceInputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: T.SURFACE_2,
-    borderRadius: T.RADIUS.sm,
-    paddingHorizontal: 10,
-    height: 34,
-  },
-  naira: { color: T.TEXT_2, fontSize: 13, fontFamily: T.FONT.medium },
-  priceInput: { flex: 1, color: T.TEXT, fontSize: 14, fontFamily: T.FONT.medium, paddingVertical: 0 },
 
   actions: {
     flexDirection: 'row',

@@ -50,6 +50,7 @@ import { goBack } from '@/lib/safe-back';
 import { pushOnce } from '@/lib/nav';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { T, alpha } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { GradientBorder } from '@/components/GradientBorder';
 import { GradientText } from '@/components/GradientText';
@@ -342,6 +343,26 @@ function SectionHeader({ title }: { title: string }) {
   return <Text style={rs.sectionTitle}>{title}</Text>;
 }
 
+/**
+ * Soft platform-gradient glow at the right end of a settings bar. A warm
+ * horizontal fade — transparent on the left, thickening into the brand amber/
+ * magenta toward the right edge — so each bar ends in a gentle glow instead
+ * of a hard accent.
+ */
+function RowAccent() {
+  return (
+    <View style={rs.rowAccent} pointerEvents="none">
+      <LinearGradient
+        colors={['rgba(255,20,147,0)', 'rgba(255,20,147,0.10)', 'rgba(255,140,0,0.26)']}
+        locations={[0, 0.55, 1]}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
+
 function Row({
   label,
   sub,
@@ -369,6 +390,7 @@ function Row({
         </View>
       ) : null}
       {!noChevron ? <CaretRight size={14} color={T.TEXT_3} /> : null}
+      <RowAccent />
     </TouchableOpacity>
   );
 }
@@ -397,6 +419,7 @@ function ToggleRow({
         onValueChange={onValueChange}
         disabled={disabled}
       />
+      <RowAccent />
     </View>
   );
 }
@@ -442,6 +465,15 @@ const rs = StyleSheet.create({
     backgroundColor: T.SURFACE_2,
   },
   badgeText: { fontSize: 11, fontFamily: T.FONT.bold, color: T.TEXT_2 },
+  // Soft platform-gradient glow anchored to the right edge, fading leftwards.
+  rowAccent: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 72,
+    overflow: 'hidden',
+  },
   divider: { height: 1, backgroundColor: T.BORDER, marginLeft: 16 },
 });
 

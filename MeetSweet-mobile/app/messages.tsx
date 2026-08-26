@@ -25,7 +25,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useScrollMotion } from '@/lib/scroll-motion';
 import { ArrowLeft, Envelope, EnvelopeOpen, Hourglass, PaperPlaneTilt } from 'phosphor-react-native';
@@ -101,7 +101,6 @@ function Item({
                 : isUnread
                   ? 'Unread'
                   : 'Read'}
-            {message.price_paid > 0 ? ` · ₦${message.price_paid.toLocaleString()}` : ''}
           </Text>
         </View>
         <Text style={styles.date}>{new Date(message.created_at).toLocaleDateString()}</Text>
@@ -138,7 +137,12 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const isCreator = Boolean(user?.isCreator);
-  const [box, setBox] = useState<InboxBox>('inbox');
+  // Allow deep-links like "View waiting messages" from a conversation's
+  // three-dot menu to land on the Waiting tab.
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const [box, setBox] = useState<InboxBox>(() =>
+    tab === 'waiting' ? 'waiting' : tab === 'outbox' ? 'outbox' : 'inbox',
+  );
   const [messages, setMessages] = useState<PrivateMessage[]>([]);
   const [waitingMessages, setWaitingMessages] = useState<PrivateMessage[]>([]);
   const [loading, setLoading] = useState(true);

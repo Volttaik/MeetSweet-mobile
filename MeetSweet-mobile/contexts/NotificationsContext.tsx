@@ -25,6 +25,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
+import { resolveNotificationTarget } from '@/lib/notification-nav';
 import { T } from '@/constants/theme';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
 import { useAuth } from '@/contexts/AuthContext';
@@ -152,78 +153,27 @@ function navigate(href: Parameters<typeof router.push>[0]) {
 function handleNotificationTap(notification: Notifications.Notification) {
   const data = (notification.request.content.data ?? {}) as Record<string, string>;
 
-  const type = data.type ?? '';
-  const postId = data.post_id ?? data.postId;
-  const contentType = data.content_type ?? data.contentType ?? type;
-  const contentId = data.content_id ?? data.contentId;
-  const actorId = data.actor_id ?? data.actorId ?? data.username;
-  const privateMessageId = data.private_message_id ?? data.privateMessageId;
-
-  // wallet / payout / failed renewal → open wallet
-  if (
-    type === 'wallet' ||
-    type === 'payout' ||
-    type === 'payment' ||
-    type === 'purchase' ||
-    type === 'referral_reward' ||
-    type === 'subscription_renewal_failed' ||
-    type === 'subscription_renewed'
-  ) {
-    navigate('/wallet');
-    return;
-  }
-
-  // Private Inbox → open the exact message thread (server sends
-  // private_message_id on private_message / private_message_reply pushes).
-  if (type === 'private_message' || type === 'private_message_reply') {
-    if (privateMessageId) {
-      navigate(`/inbox/${privateMessageId}`);
-      return;
-    }
-  }
-
-  // subscribe / creator → open profile
-  if (type === 'subscribe' || type === 'creator' || type === 'subscription') {
-    if (actorId) {
-      navigate(`/creator/${actorId}`);
-      return;
-    }
-  }
-
-  // new_post / mention → route by content_type using content_id
-  if (type === 'new_post' || type === 'mention' || contentId) {
-    const id = contentId ?? postId;
-    if (id) {
-      if (contentType === 'video') {
-        navigate(`/videos/${id}`);
-      } else if (contentType === 'short') {
-        navigate({ pathname: '/shorts', params: { startId: id } } as any);
-      } else if (contentType === 'album') {
-        navigate(`/album/${id}`);
-      } else {
-        navigate(`/post/${id}`);
-      }
-      return;
-    }
-  }
-
-  // like / comment → route by content_type using post_id
-  if (postId) {
-    if (contentType === 'video') {
-      navigate(`/videos/${postId}`);
-    } else if (contentType === 'short') {
-      navigate({ pathname: '/shorts', params: { startId: postId } } as any);
-    } else if (contentType === 'album') {
-      navigate(`/album/${postId}`);
-    } else {
-      navigate(`/post/${postId}`);
-    }
-    return;
-  }
+  // Single source of truth for destinations — the SAME resolver the in-app
+  // notification list uses. "View"/tap only navigates; read state is handled
+  // by the Notifications screen when it opens.
+  const target = resolveNotificationTarget({
+    type: data.type ?? '',
+    contentType: data.content_type ?? data.contentType,
+    contentId: data.content_id ?? data.contentId,
+    postId: data.post_id ?? data.postId,
+    videoId: data.video_id ?? data.videoId,
+    shortId: data.short_id ?? data.shortId,
+    albumId: data.album_id ?? data.albumId,
+    privateMessageId: data.private_message_id ?? data.privateMessageId,
+    actorId: data.actor_id ?? data.actorId ?? data.username,
+    commentId: data.comment_id ?? data.commentId,
+    data: data as Record<string, unknown>,
+  });
 
   // Never auto-open the notifications list. Every known push type routes to its
   // specific screen above; if the payload is unrecognized we do nothing rather
   // than hijacking the user into the generic list screen.
+  if (target) navigate(target as any);
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────

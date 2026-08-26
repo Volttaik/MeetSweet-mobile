@@ -11,6 +11,15 @@ export interface NotificationActor {
   avatarUrl?: string | null;
 }
 
+export interface NotificationPreview {
+  /** Media thumbnail for content notifications (post/video/short/album). */
+  thumbnail?: string | null;
+  title?: string | null;
+  caption?: string | null;
+  /** Actual message text for private-message notifications. */
+  body?: string | null;
+}
+
 export interface Notification {
   id: string;
   type: string;
@@ -27,6 +36,8 @@ export interface Notification {
   videoId?: string;
   shortId?: string;
   albumId?: string;
+  /** Compact preview content rendered on the card (expandable). */
+  preview?: NotificationPreview | null;
   data?: Record<string, any>;
 }
 
@@ -74,6 +85,18 @@ export function normalizeNotification(raw: any): Notification {
 
   const notifId = raw.id || raw.notification_id || raw._id || data.id || data.notification_id;
 
+  // Preview block: server sends raw.preview on the list + socket payload.
+  const previewRaw =
+    raw.preview || data.preview || (data.preview_content as Record<string, any> | undefined);
+  const preview: NotificationPreview | null = previewRaw
+    ? {
+        thumbnail: previewRaw.thumbnail ?? null,
+        title: previewRaw.title ?? null,
+        caption: previewRaw.caption ?? null,
+        body: previewRaw.body ?? null,
+      }
+    : null;
+
   return {
     id: String(notifId || Math.random()),
     type: raw.type || data.type || 'system',
@@ -90,6 +113,7 @@ export function normalizeNotification(raw: any): Notification {
     videoId: raw.videoId || raw.video_id || data.videoId || data.video_id,
     shortId: raw.shortId || raw.short_id || data.shortId || data.short_id,
     albumId: raw.albumId || raw.album_id || data.albumId || data.album_id,
+    preview,
     data,
   };
 }
@@ -116,7 +140,9 @@ export async function getNotifications(page = 1): Promise<GetNotificationsResult
 export async function markNotificationRead(id: string): Promise<void> {
   const token = await getToken();
   if (!token) return;
-  await authFetch<void>(`/notifications/${id}/read`, token, { method: 'POST' }).catch(() => {});
+  // The server route is PUT; a POST here was a silent 405 that kept per-notification
+  // read state permanently stale.
+  await authFetch<void>(`/notifications/${id}/read`, token, { method: 'PUT' }).catch(() => {});
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
