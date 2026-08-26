@@ -31,11 +31,14 @@ import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { GradientText } from '@/components/GradientText';
 import { uploadMedia } from '@/services/media';
 import { replyToPrivateMessage, sendPrivateMessage } from '@/services/private-inbox';
+import { registerLocalChatMedia } from '@/services/chat-media';
+import { useAuth } from '@/contexts/AuthContext';
 
 type ComposerMediaType = 'image' | 'video' | 'file';
 
 export default function MediaComposer() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{
     mode?: string;
     targetId?: string;
@@ -63,6 +66,24 @@ export default function MediaComposer() {
     price.trim().length > 0 ? Math.max(0, Number(price.replace(/[^0-9.]/g, '')) || 0) : 0;
   const canSend = !sending && targetId.length > 0 && uri.length > 0 && (!paid || priceNumber > 0);
 
+  /** Best-effort: point the sent attachment at the picked local file. */
+  const registerSentMediaLocally = async (
+    sentMessage: { id: string; attachments?: Array<{ id: string; media_url: string | null }> },
+    mediaType: ComposerMediaType,
+    localUri: string,
+  ) => {
+    const first = sentMessage.attachments?.[0];
+    if (!first || !user?.id) return;
+    await registerLocalChatMedia({
+      attachmentId: first.id,
+      userId: user.id,
+      messageId: sentMessage.id,
+      mediaType,
+      localUri,
+      remoteUrl: first.media_url ?? undefined,
+    }).catch(() => {});
+  };
+
   const send = async () => {
     if (!canSend || sending) return;
     setSending(true);
@@ -79,21 +100,26 @@ export default function MediaComposer() {
       const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       if (mode === 'reply') {
-        await replyToPrivateMessage({
+        const result = await replyToPrivateMessage({
           id: targetId,
           body: caption.trim(),
           idempotencyKey,
           attachments,
         });
+        // The sender already HAS this file on device — register it in the local
+        // media cache so the thread renders it from the local file immediately
+        // instead of downloading their own upload back from the server.
+        void registerSentMediaLocally(result.message, mediaType, uri);
         toast.success('Media sent');
         goBack();
       } else {
-        await sendPrivateMessage({
+        const result = await sendPrivateMessage({
           recipientId: targetId,
           body: caption.trim(),
           idempotencyKey,
           attachments,
         });
+        void registerSentMediaLocally(result.message, mediaType, uri);
         toast.success('Private message sent');
         router.replace('/messages' as any);
       }

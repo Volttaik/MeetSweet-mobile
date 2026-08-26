@@ -3,6 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { router } from 'expo-router';
 import { apiFetch, ApiError, refreshAccessToken, setSessionExpiredHandler } from '@/services/api';
 import { clearUserCache } from '@/lib/posts-db';
+import { clearUserChatCache } from '@/lib/chat-cache';
 import { uploadMedia } from '@/services/media';
 import { peekPendingAvatar, clearPendingAvatar } from '@/lib/pending-avatar';
 import { realtime } from '@/services/realtime';
@@ -156,6 +157,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearSessionStorage();
     if (currentUserId) {
       await clearUserCache(currentUserId).catch(() => {});
+      // Chat threads + media metadata are user-scoped caches too — purge them
+      // so one account's conversations never leak into the next session.
+      await clearUserChatCache(currentUserId).catch(() => {});
     }
     setState({ user: null, accessToken: null, isLoading: false, isAuthenticated: false });
   }, [state.user?.id]);

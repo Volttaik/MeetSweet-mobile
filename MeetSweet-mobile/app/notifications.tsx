@@ -447,6 +447,9 @@ export default function NotificationsScreen() {
       shortId: n.shortId ?? undefined,
       albumId: n.albumId ?? undefined,
       actorId: n.actor?.id ?? undefined,
+      // Server entity reference fallback — tag notifications open their post.
+      entityId: n.entityId ?? undefined,
+      entityType: n.entityType ?? undefined,
       data,
     });
     if (target) router.push(target as any);

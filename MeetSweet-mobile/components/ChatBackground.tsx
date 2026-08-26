@@ -3,16 +3,15 @@
  *
  * The bundled chat-wallpaper asset (assets/images/chat-wallpaper.png) is the
  * primary visual surface of the conversation: a dark, brand-themed wallpaper
- * (deep plum → magenta → warm coral/amber glow) rendered in COVER mode across
- * the entire viewport, exactly like a messaging app's chat background. It is
- * intentionally a single continuous surface — no borders, no boxes — so the
- * message list, media cards, empty/loading states and the floating composer
- * all sit directly on it.
+ * rendered in COVER mode across the entire viewport, exactly like a messaging
+ * app's chat background. It is intentionally a single continuous surface — no
+ * borders, no boxes — so the message list, media cards, empty/loading states
+ * and the floating composer all sit directly on it.
  *
- * A very soft top fade (black → transparent) sits behind the header and
- * status bar so the name/avatar row and system clock always read cleanly
- * over the brighter regions of the wallpaper, without ever dimming the
- * conversation below.
+ * A soft top fade (black → transparent) sits behind the header and status bar
+ * so the name/avatar row and system clock always read cleanly over the
+ * brighter regions of the wallpaper, without ever dimming the conversation
+ * below.
  *
  * Purely decorative: pointerEvents="none", drawn once, fully static.
  */
@@ -36,7 +35,7 @@ export function ChatBackground() {
         {/* Soft top fade — keeps the header + status bar legible over the
             wallpaper's warm glow; fades out well above the first message. */}
         <LinearGradient
-          colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']}
+          colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)']}
           locations={[0, 1]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}

@@ -167,6 +167,10 @@ function handleNotificationTap(notification: Notifications.Notification) {
     privateMessageId: data.private_message_id ?? data.privateMessageId,
     actorId: data.actor_id ?? data.actorId ?? data.username,
     commentId: data.comment_id ?? data.commentId,
+    // The server's canonical entity reference — lets tag/mention pushes open
+    // the exact post even when only entity_id/entity_type are in the payload.
+    entityId: data.entity_id ?? data.entityId,
+    entityType: data.entity_type ?? data.entityType,
     data: data as Record<string, unknown>,
   });
 

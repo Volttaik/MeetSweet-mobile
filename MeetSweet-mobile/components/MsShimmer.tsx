@@ -186,89 +186,6 @@ export function MsShimmerCommentsList({ count = 4 }: { count?: number }) {
   );
 }
 
-// ─── Chat message skeleton ─────────────────────────────────────────────────────
-// Matches the DM message-area rule: bubbles ONLY, no profile pictures beside
-// messages (avatars live in the chat header). Each message bubble is a SINGLE
-// STATIC block in the surface tokens (SURFACE_3 outgoing / SURFACE_2 incoming)
-// with the 10px-radius tail corner — the bubble itself represents the loading
-// message. There is NO moving reflection/animation inside the bubble (no
-// MsShimmer inside). Widths are deterministic (no Math.random) so the
-// skeleton never flickers.
-
-const CHAT_BUBBLE_COLOR_OWN   = T.SURFACE_3; // outgoing
-const CHAT_BUBBLE_COLOR_OTHER = T.SURFACE_2; // incoming
-// Deterministic bubble widths, cycled per row.
-const CHAT_BUBBLE_WIDTHS = [224, 232, 216, 240, 228, 220, 236, 224, 232, 218];
-
-/**
- * Height of a static bubble for `lines` message lines: real MsTextBubble
- * padding (7 top + 7 bottom) plus 25px line (+ 7px gap + 25px line for 2 lines).
- */
-function chatBubbleHeight(lines: 1 | 2): number {
-  return lines === 2 ? 7 + 25 + 7 + 25 + 7 : 7 + 25 + 7;
-}
-
-export function MsShimmerChatMessage({
-  own = false,
-  width,
-  lines = 1,
-}: {
-  own?: boolean;
-  width?: number;
-  lines?: 1 | 2;
-}) {
-  const bubbleW = width ?? (own ? 176 : 208);
-  const bubbleColor = own ? CHAT_BUBBLE_COLOR_OWN : CHAT_BUBBLE_COLOR_OTHER;
-  const tailRadius = own
-    ? { borderBottomRightRadius: 3 }
-    : { borderBottomLeftRadius: 3 };
-  return (
-    <View style={[shimStyles.chatMsg, own ? shimStyles.chatMsgOwn : shimStyles.chatMsgOther]}>
-      {/* Static bubble — no avatar, no animated shimmer elements inside. */}
-      <View
-        style={[
-          shimStyles.chatBubble,
-          {
-            width: bubbleW,
-            height: chatBubbleHeight(lines),
-            backgroundColor: bubbleColor,
-            ...tailRadius,
-          },
-        ]}
-      />
-    </View>
-  );
-}
-
-export function MsShimmerChatList({ count = 8 }: { count?: number }) {
-  // All bubbles are the larger/full-size style (2 lines) — no skinny variants.
-  const rhythm = [
-    { own: false, lines: 2 },
-    { own: true,  lines: 2 },
-    { own: false, lines: 2 },
-    { own: true,  lines: 2 },
-    { own: false, lines: 2 },
-    { own: true,  lines: 2 },
-    { own: false, lines: 2 },
-    { own: true,  lines: 2 },
-  ] as const;
-  return (
-    <View style={shimStyles.chatList}>
-      {Array.from({ length: count }).map((_, i) => {
-        const r = rhythm[i % rhythm.length];
-        return (
-          <MsShimmerChatMessage
-            key={i}
-            own={r.own}
-            lines={r.lines}
-            width={CHAT_BUBBLE_WIDTHS[i % CHAT_BUBBLE_WIDTHS.length]}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
 // ─── Search result skeleton ────────────────────────────────────────────────────
 
 export function MsShimmerSearchResult() {
@@ -502,38 +419,6 @@ const shimStyles = StyleSheet.create({
     gap: 10,
     paddingVertical: 12,
     paddingHorizontal: 20,
-  },
-  chatMsg: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    // Notification shimmer row spacing (paddingVertical 10 per row).
-    paddingVertical: 10,
-  },
-  // Push the loading bubbles down a touch so they sit naturally in the
-  // message area rather than hugging the top edge.
-  chatList: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-  },
-  chatMsgOwn: {
-    justifyContent: 'flex-end',
-  },
-  chatMsgOther: {
-    justifyContent: 'flex-start',
-  },
-  // Static bubble shell — real MsTextBubble padding so the skeleton rows land
-  // at the same height/position as real messages (no layout jump on load).
-  chatBubble: {
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingTop: 7,
-    paddingBottom: 8,
-    overflow: 'hidden',
-  },
-  chatDateChip: {
-    alignItems: 'center',
-    paddingTop: 4,
-    paddingBottom: 6,
   },
   searchRow: {
     flexDirection: 'row',

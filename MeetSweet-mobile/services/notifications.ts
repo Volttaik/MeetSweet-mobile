@@ -36,6 +36,9 @@ export interface Notification {
   videoId?: string;
   shortId?: string;
   albumId?: string;
+  /** Server entity reference (entity_id / entity_type) when present. */
+  entityId?: string;
+  entityType?: string;
   /** Compact preview content rendered on the card (expandable). */
   preview?: NotificationPreview | null;
   data?: Record<string, any>;
@@ -83,6 +86,17 @@ export function normalizeNotification(raw: any): Notification {
       }
     : undefined;
 
+  // The server's canonical entity reference — tag/mention and content
+  // notifications carry entity_type + entity_id (the tagged post, video, etc.).
+  // These are the fallback target identifiers when the explicit content_* /
+  // post_* fields are absent, so tapping the notification opens the exact post.
+  // ONLY content entity types qualify: a follow notification's entity is a
+  // user, which must never be mistaken for a post id.
+  const entityId = raw.entity_id || raw.entityId || data.entity_id || data.entityId;
+  const entityType = raw.entity_type || raw.entityType || data.entity_type || data.entityType;
+  const isContentEntity =
+    entityType === 'post' || entityType === 'video' || entityType === 'short' || entityType === 'album';
+
   const notifId = raw.id || raw.notification_id || raw._id || data.id || data.notification_id;
 
   // Preview block: server sends raw.preview on the list + socket payload.
@@ -106,13 +120,15 @@ export function normalizeNotification(raw: any): Notification {
     read: isRead,
     createdAt: raw.createdAt || raw.created_at || raw.timestamp || new Date().toISOString(),
     actor,
-    postId: raw.postId || raw.post_id || data.postId || data.post_id,
-    contentId: raw.contentId || raw.content_id || data.contentId || data.content_id,
-    contentType: raw.contentType || raw.content_type || data.contentType || data.content_type,
+    postId: raw.postId || raw.post_id || data.postId || data.post_id || (entityType === 'post' ? entityId : undefined),
+    contentId: raw.contentId || raw.content_id || data.contentId || data.content_id || (isContentEntity ? entityId : undefined),
+    contentType: raw.contentType || raw.content_type || data.contentType || data.content_type || (isContentEntity ? entityType : undefined),
     chatRoomId: raw.chatRoomId || raw.chat_room_id || data.chatRoomId || data.chat_room_id,
     videoId: raw.videoId || raw.video_id || data.videoId || data.video_id,
     shortId: raw.shortId || raw.short_id || data.shortId || data.short_id,
     albumId: raw.albumId || raw.album_id || data.albumId || data.album_id,
+    entityId: entityId ? String(entityId) : undefined,
+    entityType: entityType ? String(entityType) : undefined,
     preview,
     data,
   };

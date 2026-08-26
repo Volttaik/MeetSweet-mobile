@@ -28,6 +28,10 @@ interface ResolveInput {
   privateMessageId?: string | null;
   actorId?: string | null;
   commentId?: string | null;
+  /** Server entity reference (entity_id / entity_type) — used as fallback
+   *  identifiers so tag/mention notifications resolve to their exact post. */
+  entityId?: string | null;
+  entityType?: string | null;
   data?: Record<string, unknown> | null;
 }
 
@@ -56,6 +60,11 @@ const PROFILE_TYPES = new Set(['subscribe', 'creator', 'subscription']);
 
 /** Private-message notifications land on the exact message thread. */
 const MESSAGE_TYPES = new Set(['private_message', 'private_message_reply']);
+
+/** Entity types that point at content (post/video/short/album). A follow or
+ *  subscriber notification's entity is a USER — never a post — so entity ids
+ *  only qualify as content targets for these types. */
+const CONTENT_ENTITY_TYPES = new Set(['post', 'video', 'short', 'album']);
 
 /**
  * Resolve a notification to its destination. Returns null when the payload
@@ -98,14 +107,28 @@ export function resolveNotificationTarget(input: ResolveInput): NotificationTarg
   }
 
   // 4. Content notifications (like / comment / reply / mention / new_post) →
-  //    the specific content, routed by content_type.
-  const contentType =
+  //    the specific content, routed by content_type. The server's canonical
+  //    entity reference (entity_id / entity_type) is the fallback when the
+  //    explicit content_* / post_* fields are missing — this is what makes a
+  //    tag/mention notification open the exact post it references.
+  const explicitContentType =
     input.contentType ??
     pick(data.content_type as string | undefined, data.contentType as string | undefined);
-  const id =
+  const explicitId =
     input.contentId ??
     input.postId ??
     pick(data.content_id as string | undefined, data.post_id as string | undefined);
+  // Entity fallback — only for content entity types (never for user entities).
+  const entityType =
+    input.entityType ?? (data.entity_type as string | undefined) ?? (data.entityType as string | undefined);
+  const entityId =
+    input.entityId ?? (data.entity_id as string | undefined) ?? (data.entityId as string | undefined);
+  const contentType =
+    explicitContentType ??
+    (entityType && CONTENT_ENTITY_TYPES.has(entityType) ? entityType : undefined);
+  const id =
+    explicitId ??
+    (entityId && entityType && CONTENT_ENTITY_TYPES.has(entityType) ? entityId : undefined);
   if (id) {
     if (contentType === 'video') {
       return `/videos/${input.videoId ?? id}`;
