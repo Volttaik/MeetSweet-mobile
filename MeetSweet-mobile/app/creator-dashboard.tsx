@@ -403,7 +403,7 @@ export default function CreatorDashboardScreen() {
   const [subscriberPrice, setSubscriberPrice] = useState(0);
   const [subscriberPlusPrice, setSubscriberPlusPrice] = useState(0);
   const [inboxEnabled, setInboxEnabled] = useState(true);
-  const [inboxPrice, setInboxPrice] = useState(100);
+  const [inboxPrice, setInboxPrice] = useState(0);
   const [editingPrice, setEditingPrice] = useState<'subscriber' | 'subscriber_plus' | 'private_message' | null>(null);
   const [priceDraft, setPriceDraft] = useState('');
   const [feedback, setFeedback] = useState<{
@@ -482,7 +482,7 @@ export default function CreatorDashboardScreen() {
         setSubscriberPrice(settings.subscription_price ?? 0);
         setSubscriberPlusPrice(settings.subscription_plus_price ?? 0);
         setInboxEnabled(settings.private_inbox_enabled ?? true);
-        setInboxPrice(settings.private_message_price ?? 100);
+        setInboxPrice(settings.private_message_price ?? 0);
       }
       setError('');
     } catch (e) {
@@ -506,18 +506,16 @@ export default function CreatorDashboardScreen() {
     ));
   };
 
-  /** Save the Private Inbox delivery price (what a fan pays per message). */
+  /** Save the Private Inbox delivery price (0 = FREE, >0 = paid per message). */
   const saveInboxPrice = async () => {
-    const price = Math.max(1, Math.round(Number(priceDraft.replace(/[^0-9.]/g, '')) || 0));
+    const price = Math.max(0, Math.round(Number(priceDraft.replace(/[^0-9.]/g, '')) || 0));
     try {
       const next = await updateCreatorSettings({ private_message_price: price });
       setInboxPrice(next.private_message_price ?? price);
       setEditingPrice(null);
-      setFeedback({
-        variant: 'success',
-        title: 'Inbox price updated',
-        message: `Fans now pay ₦${price.toLocaleString()} to send you a private message.`,
-      });
+      setFeedback(price > 0
+        ? { variant: 'success', title: 'Paid messaging enabled', message: `Fans pay ₦${price.toLocaleString()} to send you a private message.` }
+        : { variant: 'success', title: 'Messaging is free', message: 'Fans can send you private messages for free.' });
     } catch {
       setFeedback({ variant: 'error', title: 'Could not save price', message: 'Please try again.' });
     }
@@ -923,11 +921,39 @@ export default function CreatorDashboardScreen() {
               }}
             />
             <SettingsDivider />
+            {/* Free by default — the creator explicitly opts messaging into
+                PAID by setting a per-message price. */}
+            <SettingsToggleRow
+              label="Paid messages"
+              value={inboxPrice > 0}
+              onChange={async (v) => {
+                if (v) {
+                  // Turning payments on opens the price editor — a positive
+                  // price must be saved for the toggle to latch on.
+                  beginPriceEdit('private_message');
+                } else {
+                  // Turn payments off → back to free messaging.
+                  const prev = inboxPrice;
+                  setInboxPrice(0);
+                  try {
+                    await updateCreatorSettings({ private_message_price: 0 });
+                    setFeedback({ variant: 'success', title: 'Messaging is free', message: 'Fans can send you private messages for free.' });
+                  } catch {
+                    setInboxPrice(prev);
+                    dialogs.alert({ variant: 'error', title: 'Could not update', message: 'Please try again.' });
+                  }
+                }
+              }}
+            />
+            <SettingsDivider />
             {editingPrice === 'private_message' ? (
               <View style={styles.priceEditor}>
                 <View style={styles.priceEditorLabelRow}>
                   <Envelope size={15} color={T.TEXT_2} />
                   <Text style={styles.priceEditorLabel}>Per-message price</Text>
+                  {inboxPrice === 0 ? (
+                    <Text style={styles.priceEditorHint}>0 = Free</Text>
+                  ) : null}
                 </View>
                 <View style={styles.priceEditorControls}>
                   <Text style={styles.nairaPrefix}>₦</Text>
@@ -953,7 +979,7 @@ export default function CreatorDashboardScreen() {
               <SettingsRow
                 label="Message price"
                 icon={Envelope}
-                value={inboxPrice > 0 ? `${formatNaira(inboxPrice)}/msg` : 'Not set'}
+                value={inboxPrice > 0 ? `${formatNaira(inboxPrice)}/msg` : 'Free'}
                 onPress={() => beginPriceEdit('private_message')}
               />
             )}
@@ -1443,6 +1469,12 @@ const styles = StyleSheet.create({
     color: T.TEXT_2,
     fontFamily: T.FONT.regular,
     fontSize: 13,
+  },
+  priceEditorHint: {
+    color: T.TEXT_3,
+    fontFamily: T.FONT.medium,
+    fontSize: 11,
+    marginLeft: 'auto',
   },
   priceEditorLabelRow: {
     flexDirection: 'row',

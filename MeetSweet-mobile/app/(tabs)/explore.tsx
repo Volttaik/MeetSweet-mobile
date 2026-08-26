@@ -359,12 +359,19 @@ export default function ExploreScreen() {
   const visibleCreators = useMemo(() => {
     if (!catalog) return [];
     const needle = search.trim().toLowerCase();
-    if (!needle) return catalogCreators;
-    return catalogCreators.filter((creator) =>
-      `${creator.name ?? ''} ${creator.handle ?? ''} ${creator.bio ?? ''} ${creator.category ?? ''}`
-        .toLowerCase()
-        .includes(needle),
-    );
+    // Defensive: only real creators are ever shown in the creators discovery
+    // section (the backend enforces this; this guards any client-side filter).
+    const isRealCreator = (c: Creator) =>
+      (c as unknown as { is_creator?: boolean; isCreator?: boolean }).is_creator !== false &&
+      (c as unknown as { is_creator?: boolean; isCreator?: boolean }).isCreator !== false;
+    if (!needle) return catalogCreators.filter(isRealCreator);
+    return catalogCreators
+      .filter(isRealCreator)
+      .filter((creator) =>
+        `${creator.name ?? ''} ${creator.handle ?? ''} ${creator.bio ?? ''} ${creator.category ?? ''}`
+          .toLowerCase()
+          .includes(needle),
+      );
   }, [catalog, catalogCreators, search]);
 
   const featured = featuredCreatorIds

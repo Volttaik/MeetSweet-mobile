@@ -32,7 +32,6 @@ import {
   Video,
   File,
   Camera,
-  Waveform,
 } from 'phosphor-react-native';
 import { T, alpha } from '@/constants/theme';
 import { MsPressable } from '@/components/MsPressable';
@@ -155,29 +154,6 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
     }
   };
 
-  const pickAudio = async () => {
-    onClose();
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await new Promise((r) => setTimeout(r, 300));
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['audio/*'],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-      const asset = result.assets[0];
-      onResult({
-        type: 'audio',
-        uri: asset.uri,
-        mimeType: asset.mimeType ?? 'audio/mpeg',
-        fileName: asset.name ?? 'audio',
-        fileSize: asset.size,
-      });
-    } catch {
-      dialogs.alert({ variant: 'error', title: 'Could not open the audio picker' });
-    }
-  };
-
   const pickDocument = async () => {
     onClose();
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -208,7 +184,6 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
     { icon: ImageIcon,     label: 'Photo',    color: T.SUCCESS, onPress: pickImage    },
     { icon: Video,         label: 'Video',    color: T.PURPLE,  onPress: pickVideo    },
     { icon: Camera,        label: 'Camera',   color: T.ACCENT,  onPress: launchCamera },
-    { icon: Waveform,      label: 'Audio',    color: T.WARNING, onPress: pickAudio    },
     { icon: File,          label: 'Document', color: T.INFO, onPress: pickDocument },
   ];
 

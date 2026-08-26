@@ -10,11 +10,11 @@
  *     and duplicate events can never re-trigger a sound for the same message.
  *   • A persisted "sound effects" preference (default on) gates all playback.
  *     We never bypass it.
- *   • iOS respects the device silent switch (playsInSilentModeIOS: false).
+ *   • iOS respects the device silent switch (playsInSilentMode: false).
  *
  * Sounds live in assets/sounds — see README.md there for source + license.
  */
-import { Audio } from 'expo-av';
+import { createAudioPlayer, preload, setAudioModeAsync } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SOUNDS_ENABLED_KEY = 'ms_sounds_enabled_v1';
@@ -29,7 +29,7 @@ const SOUND_SOURCES: Record<SoundName, number> = {
 };
 
 class SoundService {
-  private sounds = new Map<SoundName, Audio.Sound>();
+  private sounds = new Map<SoundName, ReturnType<typeof createAudioPlayer>>();
   private enabled = true;
   private ready = false;
   private initPromise: Promise<void> | null = null;
@@ -48,19 +48,22 @@ class SoundService {
     this.initPromise = (async () => {
       try {
         // Respect the iOS silent switch; duck over other audio on Android.
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: false,
-          staysActiveInBackground: false,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: false,
+          shouldPlayInBackground: false,
+          shouldRouteThroughEarpiece: false,
+          interruptionMode: 'duckOthers',
         });
+        // Buffer every sound up front so the first play is instant.
         await Promise.all(
-          (Object.keys(SOUND_SOURCES) as SoundName[]).map(async (name) => {
-            const { sound } = await Audio.Sound.createAsync(SOUND_SOURCES[name], { shouldPlay: false });
-            this.sounds.set(name, sound);
-          }),
+          (Object.keys(SOUND_SOURCES) as SoundName[]).map((name) =>
+            preload(SOUND_SOURCES[name]),
+          ),
         );
+        for (const name of Object.keys(SOUND_SOURCES) as SoundName[]) {
+          this.sounds.set(name, createAudioPlayer(SOUND_SOURCES[name]));
+        }
         this.ready = true;
       } catch {
         this.ready = false;
@@ -104,11 +107,12 @@ class SoundService {
         if (oldest) this.playedIds.delete(oldest);
       }
     }
-    const sound = this.sounds.get(name);
-    if (!sound) return;
+    const player = this.sounds.get(name);
+    if (!player) return;
     try {
-      await sound.setPositionAsync(0);
-      await sound.playAsync();
+      // Replay from position 0 so repeated plays are always the full effect.
+      await player.seekTo(0);
+      player.play();
     } catch {
       // Playback is supplemental — never let it throw into the caller.
     }

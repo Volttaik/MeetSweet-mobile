@@ -26,6 +26,8 @@ import { shouldShowOnboarding } from '@/services/onboarding';
 import { consumePendingShareDestination, routeToShareDestination } from '@/lib/deep-link';
 import { MsScreenBackground } from '@/components/MsScreenBackground';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientText } from '@/components/GradientText';
 
 export default function TwoFactorScreen() {
   const insets = useSafeAreaInsets();
@@ -119,7 +121,7 @@ export default function TwoFactorScreen() {
           </View>
 
           <View style={styles.headerText}>
-            <Text style={styles.title}>Two-Factor Authentication</Text>
+            <GradientText text="Two-Factor Authentication" style={styles.title} />
             <Text style={styles.subtitle}>
               We sent a 6-digit code to your email. Enter it below to finish signing in.
             </Text>
@@ -154,6 +156,7 @@ export default function TwoFactorScreen() {
             disabled={loading || !completed}
             activeOpacity={0.85}
           >
+            <BrandGradientFill />
             {loading ? (
               <ActivityIndicator size="small" color={T.ACCENT_FG} />
             ) : (
@@ -207,32 +210,33 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontFamily: 'Poppins_700Bold',
-    color: T.ACCENT_FG,
     letterSpacing: -0.4,
     textAlign: 'center',
+    color: T.ACCENT_FG,
   },
   subtitle: {
     fontSize: 15,
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: T.FONT.regular,
     color: 'rgba(255,255,255,0.45)',
     textAlign: 'center',
     lineHeight: 24,
   },
   errorText: {
     fontSize: 13,
-    fontFamily: 'Poppins_400Regular',
+    fontFamily: T.FONT.regular,
     color: T.ERROR,
     textAlign: 'center',
   },
   verifyBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 50,
+    // Brand-gradient primary — the platform gradient fills the pill, exactly
+    // like Forgot Password / Verification. `overflow: hidden` clips the fill.
+    backgroundColor: T.ACCENT,
+    borderRadius: T.RADIUS.pill,
     height: 56,
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
@@ -240,11 +244,10 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   verifyBtnDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: 'rgba(255,255,255,0.08)',
+    opacity: 0.35,
   },
   verifyBtnLabel: {
-    fontFamily: 'Poppins_600SemiBold',
+    fontFamily: T.FONT.semibold,
     fontSize: 16,
     color: T.ACCENT_FG,
   },

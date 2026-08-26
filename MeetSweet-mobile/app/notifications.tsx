@@ -29,6 +29,7 @@ import {
 import { useNotifications } from '@/contexts/NotificationsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useScrollMotion } from '@/lib/scroll-motion';
+import { realtime, type RealtimeEvent } from '@/services/realtime';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,14 +203,58 @@ export default function NotificationsScreen() {
   }, [load]);
 
   // ── Realtime (SweetSocket): the list is live, not just the badge ─────────
-  // notification:new prepends the row, notification:read flips rows to read,
+  // The DB remains authoritative (load() on mount + pull-to-refresh); socket
+  // events only update rows in place. Dedup by id keeps replay-after-reconnect
+  // and the same device's own HTTP writes from double-adding rows. This screen
+  // subscribes through the ONE global connection — no second socket.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return realtime.on((event: RealtimeEvent) => {
+      const p = event.payload as Record<string, unknown>;
+      const nid = p.notification_id as string | undefined;
+
+      switch (event.type) {
+        case 'notification.created': {
+          const notif = (p.notification ?? null) as Record<string, unknown> | null;
+          if (!notif?.id) break;
+          setNotifications((prev) => {
+            if (prev.some((n) => n.id === notif.id)) return prev;
+            const row = normalizeNotification(notif);
+            return [row, ...prev].slice(0, 100);
+          });
+          break;
+        }
+        case 'notification.read': {
+          if (!nid) break;
+          setNotifications((prev) =>
+            prev.map((x) => (x.id === nid ? { ...x, isRead: true, read: true } : x)),
+          );
+          break;
+        }
+        case 'notification.deleted': {
+          if (!nid) break;
+          setNotifications((prev) => prev.filter((x) => x.id !== nid));
+          break;
+        }
+        case 'notification.read_all': {
+          setNotifications((prev) => prev.map((x) => ({ ...x, isRead: true, read: true })));
+          break;
+        }
+        default:
+          break;
+      }
+    });
+  }, [isAuthenticated]);
+
   const handlePress = async (n: Notification) => {
     if (!n.isRead) {
       setNotifications((prev) =>
         prev.map((x) => (x.id === n.id ? { ...x, isRead: true, read: true } : x)),
       );
       markNotificationRead(n.id).catch(() => {});
-      decrementNotif(1);
+      // Pass the id so the Context guards against our own read socket echo
+      // double-decrementing the badge while another device still updates.
+      decrementNotif(n.id);
     }
 
     const data = n.data || {};
@@ -246,7 +291,7 @@ export default function NotificationsScreen() {
     try {
       await deleteNotification(n.id);
       setNotifications((prev) => prev.filter((x) => x.id !== n.id));
-      if (!n.isRead) decrementNotif(1);
+      if (!n.isRead) decrementNotif(n.id);
     } catch {
       toast.error('Failed to delete notification');
     }

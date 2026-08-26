@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "273156456304",
+    "project_id": "meetsweet-8cd30",
+    "storage_bucket": "meetsweet-8cd30.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:273156456304:android:1281996cdb0407126599b5",
+        "android_client_info": {
+          "package_name": "com.meetsweet.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1EELG2yif4UTtWxvmy80fAcS-wUvwLsk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

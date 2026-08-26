@@ -55,8 +55,13 @@ interface NotificationsContextValue {
   pushToken: string | null;
   /** Manually re-fetch both counts right now */
   refresh: () => void;
-  /** Decrement notifUnread by n (optimistic mark-read) */
-  decrementNotif: (n?: number) => void;
+  /**
+   * Decrement notifUnread. Pass a STRING notification id to record the local
+   * read/deleted transition (so this device's own `notification.read` /
+   * `notification.deleted` socket echo is not double-counted), or a NUMBER
+   * count for a plain bulk decrement.
+   */
+  decrementNotif: (idOrCount?: string | number) => void;
   /** Zero out notifUnread (mark-all-read) */
   clearNotif: () => void;
 }
@@ -217,6 +222,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const notifListenerRef = useRef<Notifications.EventSubscription | null>(null);
   const responseListenerRef = useRef<Notifications.EventSubscription | null>(null);
 
+  // Notification ids this DEVICE transitioned itself (read/deleted) this
+  // session. Used to make the badge idempotent: when our own write is echoed
+  // back to us as a socket event, we must not decrement a second time, while
+  // OTHER devices still decrement for the same event. Cleared on logout and
+  // on a full read-all (the DB is then clean anyway).
+  const locallyHandledRef = useRef(new Map<string, 'read' | 'deleted'>());
+
   // ── Fetch the unread count ───────────────────────────────────────────────
   const fetchCounts = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -263,6 +275,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     if (!isAuthenticated) {
       setNotifUnread(0);
       lastRegisteredUser.current = null;
+      locallyHandledRef.current.clear();
       return;
     }
     fetchCounts();
@@ -352,19 +365,51 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [isAuthenticated]);
 
   // ── SweetSocket: the badge is live while the app is connected ────────────
-  // Every server-side notification write emits a durable `notification.created`
-  // event on the recipient's user channel (and replays it after reconnect),
-  // so the badge updates without polling and without double-counting against
-  // the OS-push fallback above.
+  // Every server-side notification write emits a durable event on the
+  // recipient's user channel (and replays it after reconnect). `created`
+  // increments the badge; `read` / `deleted` / `read_all` decrement it. The
+  // `locallyHandledRef` guard keeps each transition idempotent per device, so
+  // our own HTTP write echoing back over the socket never double-decrements
+  // while another logged-in device still updates correctly.
   useEffect(() => {
     if (!isAuthenticated) return;
     return realtime.on((event) => {
-      if (event.type !== 'notification.created') return;
-      const notification = (event.payload as { notification?: { type?: string; entity_type?: string | null } }).notification;
-      setNotifUnread((n) => n + 1);
-      const t = notification?.type ?? '';
-      if (t === 'payment' || t === 'purchase' || t === 'wallet' || t === 'referral_reward') {
-        refreshWallet();
+      const p = event.payload as Record<string, unknown>;
+      const nid = p.notification_id as string | undefined;
+
+      switch (event.type) {
+        case 'notification.created': {
+          const notification = (p as { notification?: { type?: string; entity_type?: string | null } }).notification;
+          setNotifUnread((n) => n + 1);
+          const t = notification?.type ?? '';
+          if (t === 'payment' || t === 'purchase' || t === 'wallet' || t === 'referral_reward') {
+            refreshWallet();
+          }
+          break;
+        }
+        case 'notification.read': {
+          if (!nid) break;
+          if (locallyHandledRef.current.has(nid)) break; // already counted on this device
+          locallyHandledRef.current.set(nid, 'read');
+          setNotifUnread((n) => Math.max(0, n - 1));
+          break;
+        }
+        case 'notification.deleted': {
+          if (!nid) break;
+          if (locallyHandledRef.current.get(nid) === 'deleted') break;
+          if (locallyHandledRef.current.get(nid) === 'read') break; // already removed from badge
+          locallyHandledRef.current.set(nid, 'deleted');
+          // Only decrement once for an unread deletion.
+          setNotifUnread((n) => Math.max(0, n - (n > 0 ? 1 : 0)));
+          break;
+        }
+        case 'notification.read_all': {
+          locallyHandledRef.current.clear();
+          setNotifUnread(0);
+          break;
+        }
+        default:
+          break;
       }
     });
   }, [isAuthenticated, refreshWallet]);
@@ -373,11 +418,19 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     fetchCounts();
   }, [fetchCounts]);
 
-  const decrementNotif = useCallback((n = 1) => {
-    setNotifUnread((prev) => Math.max(0, prev - n));
+  const decrementNotif = useCallback((idOrCount: string | number = 1) => {
+    if (typeof idOrCount === 'string') {
+      // A notification id: this device transitioned it locally. Record it so
+      // our own socket echo does not double-decrement, then drop one unread.
+      locallyHandledRef.current.set(idOrCount, 'read');
+      setNotifUnread((prev) => Math.max(0, prev - 1));
+      return;
+    }
+    setNotifUnread((prev) => Math.max(0, prev - (Number(idOrCount) || 0)));
   }, []);
 
   const clearNotif = useCallback(() => {
+    locallyHandledRef.current.clear();
     setNotifUnread(0);
   }, []);
 

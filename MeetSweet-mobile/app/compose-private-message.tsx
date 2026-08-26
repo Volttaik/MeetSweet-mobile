@@ -204,25 +204,38 @@ export default function ComposePrivateMessage() {
         </View>
       ) : (
         <>
-          {/* Price summary */}
-          <View style={styles.priceCard}>
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Delivery price</Text>
-              <Text style={styles.priceValue}>₦{(price ?? 0).toLocaleString()}</Text>
+          {/* Delivery summary — free by default, paid only when the creator
+              explicitly enabled paid messaging with a per-message price. */}
+          {price !== null && price > 0 ? (
+            <View style={styles.priceCard}>
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>Delivery price</Text>
+                <Text style={styles.priceValue}>₦{price.toLocaleString()}</Text>
+              </View>
+              <View style={[styles.priceRow, styles.balanceRow]}>
+                <Text style={styles.priceLabel}>Your balance</Text>
+                <Text style={[styles.balanceValue, insufficient && styles.balanceInsufficient]}>
+                  ₦{balance.toLocaleString()}
+                </Text>
+              </View>
+              {insufficient ? (
+                <Pressable style={styles.topUpHint} onPress={() => router.push('/wallet' as any)}>
+                  <Lock size={13} color={T.GOLD} />
+                  <Text style={styles.topUpHintText}>Balance too low — top up your wallet to send</Text>
+                </Pressable>
+              ) : null}
             </View>
-            <View style={[styles.priceRow, styles.balanceRow]}>
-              <Text style={styles.priceLabel}>Your balance</Text>
-              <Text style={[styles.balanceValue, insufficient && styles.balanceInsufficient]}>
-                ₦{balance.toLocaleString()}
+          ) : (
+            <View style={styles.priceCard}>
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>Delivery</Text>
+                <Text style={styles.freeValue}>Free</Text>
+              </View>
+              <Text style={styles.freeHint}>
+                This creator accepts private messages for free. No wallet charge on send.
               </Text>
             </View>
-            {insufficient ? (
-              <Pressable style={styles.topUpHint} onPress={() => router.push('/wallet' as any)}>
-                <Lock size={13} color={T.GOLD} />
-                <Text style={styles.topUpHintText}>Balance too low — top up your wallet to send</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          )}
 
           <TextInput
             value={body}
@@ -324,6 +337,8 @@ const styles = StyleSheet.create({
   priceLabel: { color: T.TEXT_2, fontSize: 13, fontFamily: T.FONT.regular },
   // Coral delivery price — premium/money accent in the six-colour system.
   priceValue: { color: T.GOLD, fontSize: 17, fontFamily: T.FONT.bold },
+  freeValue: { color: T.SUCCESS, fontSize: 17, fontFamily: T.FONT.bold },
+  freeHint: { color: T.TEXT_3, fontSize: 12, lineHeight: 18, fontFamily: T.FONT.regular, marginTop: 2 },
   balanceRow: { paddingTop: 10, borderTopWidth: 1, borderTopColor: T.BORDER },
   balanceValue: { color: T.TEXT_2, fontSize: 14, fontFamily: T.FONT.semibold },
   balanceInsufficient: { color: T.ERROR },

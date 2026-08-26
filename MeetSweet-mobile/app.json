@@ -35,6 +35,7 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.meetsweet.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
@@ -73,6 +74,81 @@
         },
         {
           "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "meetsweet.space",
+              "pathPrefix": "/creator"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "meetsweet.space",
+              "pathPrefix": "/post"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "meetsweet.space",
+              "pathPrefix": "/album"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "meetsweet.space",
+              "pathPrefix": "/video"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "meetsweet.space",
+              "pathPrefix": "/short"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
           "data": [
             {
               "scheme": "com.meetsweet.app",
@@ -92,6 +168,19 @@
     "plugins": [
       "./plugins/withSecureWindow",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000",
+          "dark": {
+            "image": "./assets/images/icon.png",
+            "backgroundColor": "#000000"
+          }
+        }
+      ],
+      [
         "expo-router",
         {
           "origin": "https://replit.com/"
@@ -107,7 +196,7 @@
           "androidMode": "default",
           "androidCollapsedTitle": "#{unread_notifications} new interactions",
           "sounds": [
-            "./assets/sounds/message-received.wav"
+            "./assets/sounds/message_received.wav"
           ]
         }
       ],
@@ -123,7 +212,8 @@
               "armeabi-v7a"
             ],
             "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": true
           }
         }
       ]
@@ -133,7 +223,13 @@
       "reactCompiler": true
     },
     "extra": {
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "655098fe-684b-4275-8650-a951cb856cc1"
+      },
+      "router": {
+        "origin": "https://replit.com/"
+      }
+    },
+    "owner": "webcons-team"
   }
 }

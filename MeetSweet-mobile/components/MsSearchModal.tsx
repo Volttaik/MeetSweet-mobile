@@ -171,10 +171,15 @@ export function MsSearchModal({ visible, onClose }: MsSearchModalProps) {
         const matchingCreators: ResultItem[] = rawCreators
           .filter(
             (c: any) =>
-              (c.name ?? '').toLowerCase().includes(lower) ||
-              (c.username ?? '').toLowerCase().includes(lower) ||
-              (c.handle ?? '').toLowerCase().includes(lower) ||
-              (c.bio ?? '').toLowerCase().includes(lower),
+              // Defensive guard: the backend only returns real creators from
+              // /creators, but never surface a non-creator in a creator search
+              // result even if the source data ever contained one.
+              c.is_creator !== false &&
+              c.isCreator !== false &&
+              ((c.name ?? '').toLowerCase().includes(lower) ||
+                (c.username ?? '').toLowerCase().includes(lower) ||
+                (c.handle ?? '').toLowerCase().includes(lower) ||
+                (c.bio ?? '').toLowerCase().includes(lower)),
           )
           .slice(0, 10)
           .map((c: any) => ({

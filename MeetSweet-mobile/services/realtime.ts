@@ -20,7 +20,7 @@ import {
   setLastRealtimeSeq,
 } from '@/lib/session-storage';
 
-type RealtimeEvent = {
+export type RealtimeEvent = {
   id: string;
   seq: number;
   type: string;
