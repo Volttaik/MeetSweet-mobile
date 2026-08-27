@@ -83,6 +83,7 @@ import {
   Lock,
   Pause,
   Play,
+  WarningCircle,
 } from 'phosphor-react-native';
 import type { MediaQuality } from '@/services/posts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -97,7 +98,9 @@ import {
   getCachedVideoFile,
   downloadAndCacheVideo,
   preloadVideo,
+  deleteCachedVideo,
 } from '@/services/video-cache';
+import { mediaRecovery } from '@/lib/media-recovery';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,6 +176,21 @@ export interface MsVideoPlayerProps {
 const DOUBLE_TAP_MS    = 260;
 const SEEK_SECONDS     = 10;
 const CONTROLS_HIDE_MS = 2500;
+// ── Reliability tuning ───────────────────────────────────────────────────────
+// A requested seek that the engine never acknowledges (position never moves
+// toward the target within the window) marks the video as having a seeking
+// problem. Two consecutive failures before the warning appears — a slow-but-
+// working seek on a large remote file is allowed one window to land.
+const SEEK_MOVE_TOLERANCE_MS = 250;
+const SEEK_MOVE_WINDOW_MS    = 4000;   // engine must move within 4s of the request
+const SEEK_FAILURE_THRESHOLD  = 2;
+// Playback-stall watchdog: while the engine reports PLAYING, the position must
+// advance at least every STALL_DETECT_MS, and buffering must resolve within
+// BUFFER_STUCK_MS. Violations restart the player (release + reload + resume)
+// so a frozen frame can never keep "playing" silently.
+const STALL_DETECT_MS   = 5000;
+const BUFFER_STUCK_MS   = 20000;
+const MAX_CONSECUTIVE_RESTARTS = 3;
 // Seek-sync: react-native-video's seek() lands exactly (ExoPlayer/AVPlayer
 // seekTo with no tolerance window), so the native engine is the single
 // authority and a requested seek never snaps back to 0. While a seek is in
@@ -192,6 +210,18 @@ function fmtTime(ms: number): string {
   const sc = s % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sc).padStart(2, '0')}`;
   return `${m}:${String(sc).padStart(2, '0')}`;
+}
+
+/**
+ * A URL the native player (or web <video>) can actually load. Anything else —
+ * a bare R2 object key from a misconfigured server, a malformed/unresolvable
+ * host, an empty string — is rejected BEFORE it reaches the engine, so the
+ * user sees a clean app-level "Video could not load" instead of an obscure
+ * native DNS/host error.
+ */
+function isPlayableUrl(u: string | null | undefined): u is string {
+  if (!u || typeof u !== 'string') return false;
+  return /^(https?|file|ph|content|blob):/i.test(u);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -236,6 +266,24 @@ export function MsVideoPlayer({
   const hideTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevBufferingRef = useRef(true);   // tracks last known buffering state
   const videoEndedRef    = useRef(false);  // true when didJustFinish fired
+  // ── Reliability state (seek + stall recovery) ──
+  const seekUnreliableRef  = useRef(false);
+  const seekFailuresRef    = useRef(0);
+  const preSeekPosRef      = useRef<{ pos: number; at: number } | null>(null);   // inline player
+  const fsPreSeekPosRef    = useRef<{ pos: number; at: number } | null>(null);   // fullscreen player
+  // Playback-stall watchdog refs (read from the watchdog interval without
+  // stale closures).
+  const lastTickAtRef       = useRef(0);
+  const lastFsTickAtRef     = useRef(0);
+  const bufferingSinceRef   = useRef(0);
+  const fsBufferingSinceRef = useRef(0);
+  const isBufferingRef      = useRef(true);
+  const fsBufferingRef      = useRef(true);
+  const fsVisibleRef        = useRef(false);
+  const errorRef            = useRef(false);
+  const consecutiveRestartsRef = useRef(0);
+  const restartInFlightRef  = useRef(false);
+  const errorAutoRestartedRef = useRef(false);
   // Watch-time accumulation (both inline + fullscreen players share one
   // accumulator so time is never lost when toggling fullscreen). Deltas are
   // flushed every ~4s of real playback and on pause/end/unmount.
@@ -306,12 +354,27 @@ export function MsVideoPlayer({
   const [aspectRatio,   setAspectRatio]   = useState(initialAspectRatio ?? 16 / 9);
   const [fsVisible,     setFsVisible]     = useState(false);
   const [videoEnded,    setVideoEnded]    = useState(false);
+  // Bumped to force a FULL native-player restart (release + reload + resume).
+  // The <Video key={recoveryNonce}> remount releases the old native player
+  // (surface, decoder, buffers) and initialises a fresh one — the recovery
+  // flow for a stalled/frozen player.
+  const [recoveryNonce,   setRecoveryNonce]   = useState(0);
+  const [fsRecoveryNonce, setFsRecoveryNonce] = useState(0);
+  // True once the engine reported it cannot reliably seek this video (live /
+  // no duration, or requested seeks never land). Disables the seek tracers
+  // and shows the "seeking problem" warning.
+  const [seekUnreliable, setSeekUnreliable] = useState(false);
   const { hearts, spawnHeart } = useHeartBurst();
 
   // react-native-video's `paused` prop is declarative: `isPlaying` / `fsPlaying`
   // are the single source of truth for play/pause. Keep the refs in sync so
-  // callbacks and event handlers always read the latest value.
-  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  // callbacks and event handlers always read the latest value. When playback
+  // (re)starts, reset the stall watchdog's last-seen tick so a stale
+  // pre-pause tick can never look like a frozen frame.
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (isPlaying) lastTickAtRef.current = Date.now();
+  }, [isPlaying]);
 
   // ── Shorts: notify the host of playback state (drives focus mode) ──────────
   // A ref keeps the latest callback without re-subscribing the effect.
@@ -333,7 +396,12 @@ export function MsVideoPlayer({
   const [fsVideoEnded, setFsVideoEnded] = useState(false);
   const fsHasPlayedRef = useRef(false);
 
-  useEffect(() => { fsPlayingRef.current = fsPlaying; }, [fsPlaying]);
+  useEffect(() => {
+    fsPlayingRef.current = fsPlaying;
+    if (fsPlaying) lastFsTickAtRef.current = Date.now();
+  }, [fsPlaying]);
+
+  useEffect(() => { fsVisibleRef.current = fsVisible; }, [fsVisible]);
 
   // ── Animated values ───────────────────────────────────────────────────────
   // Controls overlay (auto-hiding)
@@ -425,6 +493,15 @@ export function MsVideoPlayer({
     bufferOpacity.value = 1;
     brightnessOpacity.value = 0.25;
     if (initialAspectRatio) setAspectRatio(initialAspectRatio);
+    // Reset reliability state for the new source.
+    seekUnreliableRef.current = false;
+    seekFailuresRef.current   = 0;
+    setSeekUnreliable(false);
+    errorRef.current            = false;
+    consecutiveRestartsRef.current = 0;
+    errorAutoRestartedRef.current = false;
+    lastTickAtRef.current       = 0;
+    lastFsTickAtRef.current     = 0;
   }, [videoId, selectedUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Quality: follow a NEW video (uri prop change) while keeping the user's
@@ -532,8 +609,15 @@ export function MsVideoPlayer({
 
   useEffect(() => {
     let isCurrent = true;
-    if (!selectedUrl) {
+    // Reject malformed/unresolvable sources BEFORE they reach the native
+    // engine — a bare R2 key from a misconfigured server or a bad host
+    // surfaces as a clean app-level "Video could not load" instead of an
+    // obscure native DNS/host error.
+    if (!isPlayableUrl(selectedUrl)) {
+      errorRef.current = true;
       setPlayableUri(null);
+      setError(true);
+      setIsBuffering(false);
       return;
     }
 
@@ -566,7 +650,7 @@ export function MsVideoPlayer({
     return () => {
       isCurrent = false;
     };
-  }, [selectedUrl, cacheKey, videoId, active, prebuffer, autoPlay, isShorts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedUrl, cacheKey, videoId, active, prebuffer, autoPlay, isShorts, recoveryNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Preload upcoming videos when prebuffer is true ────────────────────────
   useEffect(() => {
@@ -669,6 +753,217 @@ export function MsVideoPlayer({
     },
     [],
   );
+
+  // ── Seek reliability detection ───────────────────────────────────────────
+  // Some videos play fine but cannot be sought reliably (live/unknown
+  // duration, moov-at-end files over HTTP, unusual metadata). We DETECT that
+  // instead of assuming every video seeks: when a requested seek never moves
+  // the engine position (or the engine confirms landing far away), count a
+  // failure; after two consecutive failures the player reports the problem and
+  // disables the seek bar rather than letting the user fight a broken scrubber.
+  const markSeekUnreliable = useCallback(() => {
+    if (seekUnreliableRef.current) return;
+    seekUnreliableRef.current = true;
+    setSeekUnreliable(true);
+  }, []);
+
+  const noteSeekSuccess = useCallback(() => {
+    seekFailuresRef.current = 0;
+  }, []);
+
+  const noteSeekFailure = useCallback(() => {
+    seekFailuresRef.current += 1;
+    if (seekFailuresRef.current >= SEEK_FAILURE_THRESHOLD) {
+      markSeekUnreliable();
+    }
+  }, [markSeekUnreliable]);
+
+  // ── Section-scoped recovery: restart THIS player ──────────────────────────
+  // A full native restart: bumping the remount key releases the native player
+  // (decoder, surface, buffers) and initialises a fresh one; only THIS video's
+  // cached file is dropped (a corrupt/half-downloaded entry can wedge the
+  // reload); playback + reliability state resets; then the player reloads and,
+  // if the user was watching, resumes. Triggered by the stall watchdog below
+  // (frozen frame with audio still going) and by mediaRecovery restart events.
+  const restartPlayer = useCallback(() => {
+    if (restartInFlightRef.current) return;
+    restartInFlightRef.current = true;
+    // Remember which player was active + where it was, so recovery resumes
+    // where the user left off instead of restarting from 0.
+    const fsActive      = fsVisibleRef.current;
+    const resumePlayback = fsActive ? fsPlayingRef.current : isPlayingRef.current;
+    const resumePos      = fsActive ? fsPositionRef.current : positionRef.current;
+    // 1. Release the native player(s) — key remount tears them down.
+    setRecoveryNonce((n) => n + 1);
+    setFsRecoveryNonce((n) => n + 1);
+    // 2. Drop only THIS video's cached file. Never touches any other cache.
+    if (selectedUrl) deleteCachedVideo(selectedUrl, cacheKey).catch(() => {});
+    // 3. Reset playback + reliability state for the fresh session. The source-
+    //    change effect gives the ONE-shot auto-error budget and watchdog cap
+    //    per session, so a restart never resets those here.
+    lastResolvedSessionRef.current = null;
+    lastResolvedUriRef.current = null;
+    hasPlayedRef.current     = false;
+    premiumFiredRef.current  = false;
+    premiumGateRef.current   = false;
+    isPlayingRef.current     = false;
+    fsPlayingRef.current     = false;
+    positionRef.current      = 0;
+    durationRef.current      = 0;
+    fsPositionRef.current    = 0;
+    fsDurationRef.current    = 0;
+    pendingSeekRef.current   = null;
+    fsPendingSeekRef.current = null;
+    prevBufferingRef.current = true;
+    videoEndedRef.current    = false;
+    fsEndedRef.current       = false;
+    errorRef.current         = false;
+    seekUnreliableRef.current = false;
+    seekFailuresRef.current  = 0;
+    lastTickAtRef.current    = 0;
+    lastFsTickAtRef.current  = 0;
+    bufferingSinceRef.current = Date.now();
+    fsBufferingSinceRef.current = Date.now();
+    setPremiumGated(false);
+    setError(false);
+    setDurationMs(0);
+    setPositionMs(0);
+    setFsDurationMs(0);
+    setIsPlaying(false);
+    setFsPlaying(false);
+    setIsBuffering(true);
+    setVideoEnded(false);
+    setFsVideoEnded(false);
+    setSeekUnreliable(false);
+    posterOpacity.value = 1;
+    videoOpacity.value  = 0;
+    bufferOpacity.value = 1;
+    brightnessOpacity.value = 0.25;
+    ctrlOpacity.value = 1;
+    // Restore the position on the fresh player's load (same pending-resume
+    // mechanism the quality switch uses) so recovery resumes mid-video.
+    if (resumePlayback && active !== false && resumePos > 0) {
+      pendingResumeRef.current = {
+        position: resumePos,
+        shouldPlay: true,
+        target: fsActive ? 'fs' : 'inline',
+      };
+    }
+    // 4. Let the fresh player mount, then resume (but never auto-resume audio
+    //    when the screen is blurred/backgrounded).
+    setTimeout(() => {
+      restartInFlightRef.current = false;
+      if (resumePlayback && active !== false) {
+        if (fsActive) setFsPlaying(true); else setIsPlaying(true);
+      }
+    }, 120);
+  }, [selectedUrl, cacheKey, active]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Playback-stall watchdog ───────────────────────────────────────────────
+  // Detects the worst failure mode: the engine reports PLAYING (audio keeps
+  // going) while the video frame never advances (frozen/blank surface), or
+  // buffering never resolves. Restarts the player (release → reload → resume)
+  // so audio can never keep playing over a frozen video. Runs on an interval
+  // reading ONLY refs — never a stale render closure. After MAX_CONSECUTIVE_
+  // RESTARTS the source is treated as unrenderable: surface the error state
+  // (and for Shorts, restart the whole section via mediaRecovery).
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (restartInFlightRef.current) return;
+      const now = Date.now();
+
+      // ── Inline player ──
+      if (isPlayingRef.current && !errorRef.current && !premiumGateRef.current && !videoEndedRef.current) {
+        if (!isBufferingRef.current) {
+          // "Playing" but the position hasn't advanced in a while.
+          const last = lastTickAtRef.current;
+          if (last > 0 && now - last > STALL_DETECT_MS) {
+            if (consecutiveRestartsRef.current < MAX_CONSECUTIVE_RESTARTS) {
+              consecutiveRestartsRef.current += 1;
+              restartPlayer();
+              return;
+            }
+            if (!errorRef.current) {
+              errorRef.current = true;
+              setIsPlaying(false);
+              setIsBuffering(false);
+              setError(true);
+              // Shorts: the active short cannot be rendered at all — restart
+              // the whole section (clear feed cache + refetch) so the user is
+              // not left on a dead page. One-shot: the Shorts screen bounds
+              // repeated auto-restarts.
+              if (isShorts) mediaRecovery.restartShortsFeed();
+            }
+            return;
+          }
+        } else if (bufferingSinceRef.current > 0 && now - bufferingSinceRef.current > BUFFER_STUCK_MS) {
+          // Buffering that never resolves.
+          if (consecutiveRestartsRef.current < MAX_CONSECUTIVE_RESTARTS) {
+            consecutiveRestartsRef.current += 1;
+            restartPlayer();
+            return;
+          }
+          if (!errorRef.current) {
+            errorRef.current = true;
+            setIsPlaying(false);
+            setIsBuffering(false);
+            setError(true);
+            if (isShorts) mediaRecovery.restartShortsFeed();
+          }
+          return;
+        }
+      }
+
+      // ── Fullscreen player ──
+      if (fsVisibleRef.current && fsPlayingRef.current && !errorRef.current && !premiumGateRef.current && !fsEndedRef.current) {
+        if (!fsBufferingRef.current) {
+          const last = lastFsTickAtRef.current;
+          if (last > 0 && now - last > STALL_DETECT_MS) {
+            if (consecutiveRestartsRef.current < MAX_CONSECUTIVE_RESTARTS) {
+              consecutiveRestartsRef.current += 1;
+              restartPlayer();
+              return;
+            }
+            if (!errorRef.current) {
+              errorRef.current = true;
+              setIsPlaying(false);
+              setFsPlaying(false);
+              setIsBuffering(false);
+              setError(true);
+            }
+            return;
+          }
+        } else if (fsBufferingSinceRef.current > 0 && now - fsBufferingSinceRef.current > BUFFER_STUCK_MS) {
+          if (consecutiveRestartsRef.current < MAX_CONSECUTIVE_RESTARTS) {
+            consecutiveRestartsRef.current += 1;
+            restartPlayer();
+            return;
+          }
+          if (!errorRef.current) {
+            errorRef.current = true;
+            setIsPlaying(false);
+            setFsPlaying(false);
+            setIsBuffering(false);
+            setError(true);
+          }
+          return;
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(iv);
+  }, [isShorts, restartPlayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Section-scoped recovery subscription ──────────────────────────────────
+  // External restart requests (e.g. another subsystem resetting a broken
+  // player) restart THIS player only when the event targets this videoId.
+  useEffect(() => {
+    return mediaRecovery.on((event) => {
+      if (event.type === 'video-restart' && event.videoId === videoId) {
+        restartPlayer();
+      }
+    });
+  }, [videoId, restartPlayer]);
 
   // Flush any pending watch time when the player unmounts.
   useEffect(() => {
@@ -826,6 +1121,9 @@ export function MsVideoPlayer({
     // yet arrived) so a double-tap seek can never clamp to 0 / "jump back".
     const d = durationRef.current > 0 ? durationRef.current : durationMs;
     const target = Math.max(0, Math.min(d, positionRef.current + deltaS * 1000));
+    // Remember where the engine was so the seek-reliability check can tell a
+    // slow-but-working seek from one that never moved at all.
+    preSeekPosRef.current = { pos: positionRef.current, at: Date.now() };
     ref.current?.seek(target / 1000);
     positionRef.current = target;
     setPositionMs(target);
@@ -878,6 +1176,7 @@ export function MsVideoPlayer({
       const target = tapRatio < 0.5
         ? Math.max(0, fsPositionRef.current - SEEK_SECONDS * 1000)
         : Math.min(fsDurationRef.current, fsPositionRef.current + SEEK_SECONDS * 1000);
+      fsPreSeekPosRef.current = { pos: fsPositionRef.current, at: Date.now() };
       fsVideoRef.current?.seek(target / 1000);
       fsPositionRef.current = target;
       setFsPositionMs(target);
@@ -921,6 +1220,11 @@ export function MsVideoPlayer({
         durationRef.current = data.duration * 1000;
         setDurationMs(data.duration * 1000);
       }
+      // No usable duration (live stream, missing/unusual metadata) means the
+      // seek bar has nothing to seek against — flag it up front.
+      if (!Number.isFinite(data.duration) || data.duration <= 0) {
+        markSeekUnreliable();
+      }
       const w = data.naturalSize?.width;
       const h = data.naturalSize?.height;
       if (w && h && h > 0 && !initialAspectRatio) setAspectRatio(w / h);
@@ -939,7 +1243,7 @@ export function MsVideoPlayer({
         if (resume.shouldPlay) setIsPlaying(true);
       }
     },
-    [initialAspectRatio, requestSeek],
+    [initialAspectRatio, requestSeek, markSeekUnreliable],
   );
 
   // onProgress: fires regularly during playback — the ONLY place the inline
@@ -948,6 +1252,9 @@ export function MsVideoPlayer({
   const onInlineProgress = useCallback(
     (data: OnProgressData) => {
       const pos = data.currentTime * 1000;
+      // Feed the stall watchdog: a live position tick means the frame is
+      // advancing, so a frozen frame (audio only) is detectable.
+      lastTickAtRef.current = Date.now();
 
       // First progress tick while playing = the poster/video crossfade moment.
       const justStartedPlaying = isPlayingRef.current && !hasPlayedRef.current;
@@ -1001,6 +1308,14 @@ export function MsVideoPlayer({
   const onInlineBuffer = useCallback(
     ({ isBuffering }: OnBufferData) => {
       setIsBuffering(isBuffering);
+      isBufferingRef.current = isBuffering;
+      // Clock the buffering session for the stall watchdog's stuck-buffer
+      // check (must resolve within BUFFER_STUCK_MS while "playing").
+      if (isBuffering) {
+        if (!bufferingSinceRef.current) bufferingSinceRef.current = Date.now();
+      } else {
+        bufferingSinceRef.current = 0;
+      }
       if (isBuffering !== prevBufferingRef.current) {
         prevBufferingRef.current = isBuffering;
         bufferOpacity.value = withTiming(isBuffering ? 1 : 0, {
@@ -1012,16 +1327,33 @@ export function MsVideoPlayer({
     [],
   );
 
-  // onSeek: the engine confirms the seek landed — adopt its real position.
+  // onSeek: the engine confirms the seek landed — adopt its real position and
+  // grade the seek for the reliability check.
   const onInlineSeek = useCallback(
     ({ currentTime }: OnSeekData) => {
+      const pending = pendingSeekRef.current;
       pendingSeekRef.current = null;
-      if (currentTime > 0) {
-        positionRef.current = currentTime * 1000;
-        setPositionMs(currentTime * 1000);
+      const landed = currentTime * 1000;
+      if (pending) {
+        const nearTarget = Math.abs(landed - pending.target) <= SEEK_CONFIRM_TOLERANCE_MS * 6;
+        if (nearTarget) {
+          noteSeekSuccess();
+        } else if (
+          preSeekPosRef.current &&
+          Math.abs(landed - preSeekPosRef.current.pos) < SEEK_MOVE_TOLERANCE_MS
+        ) {
+          // Engine confirmed a position that never left the pre-seek spot —
+          // this video does not seek.
+          noteSeekFailure();
+        }
+        preSeekPosRef.current = null;
+      }
+      if (landed > 0) {
+        positionRef.current = landed;
+        setPositionMs(landed);
       }
     },
-    [],
+    [noteSeekFailure, noteSeekSuccess],
   );
 
   const onInlineEnd = useCallback(() => {
@@ -1032,10 +1364,19 @@ export function MsVideoPlayer({
   }, [flushWatch]);
 
   const onInlineError = useCallback(() => {
+    // A transient decode/network error must not kill the video: auto-restart
+    // the player ONCE per session (release → reload → resume) before
+    // surfacing a permanent error. If it fails again, show the error state.
+    if (!errorAutoRestartedRef.current) {
+      errorAutoRestartedRef.current = true;
+      restartPlayer();
+      return;
+    }
+    errorRef.current = true;
     setError(true);
     setIsBuffering(false);
     onError?.();
-  }, [onError]);
+  }, [onError, restartPlayer]);
 
   // ── Playback status (fullscreen) ───────────────────────────────────────────
   const onFsLoad = useCallback(
@@ -1043,6 +1384,9 @@ export function MsVideoPlayer({
       if (data.duration > 0) {
         fsDurationRef.current = data.duration * 1000;
         setFsDurationMs(data.duration * 1000);
+      }
+      if (!Number.isFinite(data.duration) || data.duration <= 0) {
+        markSeekUnreliable();
       }
       // Quality switch while in fullscreen: restore position/playback here.
       if (pendingResumeRef.current && pendingResumeRef.current.target === 'fs') {
@@ -1057,12 +1401,13 @@ export function MsVideoPlayer({
         if (resume.shouldPlay) setFsPlaying(true);
       }
     },
-    [requestSeek],
+    [requestSeek, markSeekUnreliable],
   );
 
   const onFsProgress = useCallback(
     (data: OnProgressData) => {
       const pos = data.currentTime * 1000;
+      lastFsTickAtRef.current = Date.now();
       if (fsPlayingRef.current && !fsHasPlayedRef.current) {
         fsHasPlayedRef.current = true;
       }
@@ -1080,6 +1425,12 @@ export function MsVideoPlayer({
   const onFsBuffer = useCallback(
     ({ isBuffering }: OnBufferData) => {
       setFsBuffering(isBuffering);
+      fsBufferingRef.current = isBuffering;
+      if (isBuffering) {
+        if (!fsBufferingSinceRef.current) fsBufferingSinceRef.current = Date.now();
+      } else {
+        fsBufferingSinceRef.current = 0;
+      }
       if (isBuffering !== fsPrevBuffRef.current) {
         fsPrevBuffRef.current = isBuffering;
       }
@@ -1110,6 +1461,7 @@ export function MsVideoPlayer({
     // beginning" bug. Fall back to the duration state when the ref is 0.
     const d = durationRef.current > 0 ? durationRef.current : durationMs;
     const t = Math.max(0, Math.min(d, ms));
+    preSeekPosRef.current = { pos: positionRef.current, at: Date.now() };
     positionRef.current = t;
     setPositionMs(t);
     requestSeek(pendingSeekRef, t);
@@ -1124,6 +1476,7 @@ export function MsVideoPlayer({
     // 0 and "seek back to the beginning". Fall back to the duration state.
     const d = fsDurationRef.current > 0 ? fsDurationRef.current : fsDurationMs;
     const t = Math.max(0, Math.min(d, ms));
+    fsPreSeekPosRef.current = { pos: fsPositionRef.current, at: Date.now() };
     fsPositionRef.current = t;
     setFsPositionMs(t);
     requestSeek(fsPendingSeekRef, t);
@@ -1203,7 +1556,10 @@ export function MsVideoPlayer({
       {/* ── Video (crossfades in on first play) ── */}
       {playableUri && !error ? (
         <Animated.View style={[StyleSheet.absoluteFill, videoFadeStyle]}>
+          {/* key={recoveryNonce}: a bump forces a FULL native remount — the
+              recovery flow (release → reload → resume) for a stalled player. */}
           <Video
+            key={`inline-${recoveryNonce}`}
             ref={videoRef}
             source={{ uri: playableUri }}
             style={[
@@ -1358,6 +1714,7 @@ export function MsVideoPlayer({
                   onFullscreen={openFullscreen}
                   showFullscreen={!fillContainer}
                   hasBackground={fillContainer}
+                  seekUnreliable={seekUnreliable}
                   qualityOptions={showQualityPicker ? qualityOptions : []}
                   currentQualityLabel={currentQualityLabel}
                   qualityMenuOpen={qualityMenuOpen}
@@ -1394,7 +1751,8 @@ export function MsVideoPlayer({
 
       {/* ── Shorts: bold seek tracer — always interactive (tap or drag), the
           thumb is integrated into the bar (no floating dot above it). Same
-          VideoTracer as the standard player, so seeking feels identical. ── */}
+          VideoTracer as the standard player, so seeking feels identical.
+          Disabled once the engine proved this video cannot seek. ── */}
       {isShorts ? (
         <View style={styles.shortsTracerWrap} pointerEvents="box-none">
           <VideoTracer
@@ -1402,7 +1760,20 @@ export function MsVideoPlayer({
             durationMs={durationMs}
             onSeek={seekTo}
             onDragStart={() => onShortsTapRef.current?.()}
+            disabled={seekUnreliable}
           />
+        </View>
+      ) : null}
+
+      {/* ── Seeking-problem warning ── */}
+      {seekUnreliable && !error ? (
+        <View style={styles.seekWarnWrap} pointerEvents="none">
+          <View style={styles.seekWarnChip}>
+            <WarningCircle size={13} color="#FFC65C" weight="bold" />
+            <Text style={styles.seekWarnText}>
+              This video may have a seeking problem. Please select another video.
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -1472,6 +1843,8 @@ export function MsVideoPlayer({
           ctrlStyle={fsCtrlStyle}
           onSeekTo={fsSeekTo}
           onDragStart={showFsControls}
+          seekUnreliable={seekUnreliable}
+          fsRecoveryNonce={fsRecoveryNonce}
           onOrientPickerChange={(open) => {
             // Suspend the auto-hide timer while orientation picker is open
             // so controls don't disappear beneath the modal menu.
@@ -1697,6 +2070,8 @@ interface SeekBarProps {
   showFullscreen?: boolean;
   onExitFullscreen?: () => void;
   hasBackground?: boolean;
+  /** Engine proved this video cannot seek reliably — disable the tracer. */
+  seekUnreliable?: boolean;
   // ── Quality selector (only passed when multiple variants exist) ──
   qualityOptions?: Array<{ label: string; url: string; height?: number | null }>;
   currentQualityLabel?: string;
@@ -1719,6 +2094,7 @@ function SeekBar({
   showFullscreen = false,
   onExitFullscreen,
   hasBackground = true,
+  seekUnreliable = false,
   qualityOptions = [],
   currentQualityLabel = 'Auto',
   qualityMenuOpen = false,
@@ -1733,7 +2109,7 @@ function SeekBar({
         durationMs={durationMs}
         onSeek={onSeek}
         onDragStart={onDragStart}
-        disabled={durationMs <= 0}
+        disabled={durationMs <= 0 || seekUnreliable}
         style={sb.tracerSlot}
       />
       <Text style={sb.time}>{fmtTime(durationMs)}</Text>
@@ -1843,6 +2219,10 @@ interface FullscreenModalProps {
   ctrlStyle: object;
   onSeekTo: (ms: number) => void;
   onDragStart: () => void;
+  /** Engine proved this video cannot seek reliably — disable the tracer. */
+  seekUnreliable?: boolean;
+  /** Bump to force a full native remount of the fullscreen player. */
+  fsRecoveryNonce: number;
   /** Called when orientation picker opens (true) or closes (false). */
   onOrientPickerChange: (open: boolean) => void;
   // ── Quality selector ──
@@ -1877,6 +2257,8 @@ function FullscreenModal({
   ctrlStyle,
   onSeekTo,
   onDragStart,
+  seekUnreliable = false,
+  fsRecoveryNonce,
   onOrientPickerChange,
   qualityOptions,
   currentQualityLabel,
@@ -1951,6 +2333,7 @@ function FullscreenModal({
         {/* Video */}
         {uri ? (
           <Video
+            key={`fs-${fsRecoveryNonce}`}
             ref={videoRef}
             source={{ uri }}
             style={StyleSheet.absoluteFill}
@@ -2090,6 +2473,7 @@ function FullscreenModal({
                 onSeek={onSeekTo}
                 onDragStart={onDragStart}
                 onExitFullscreen={onClose}
+                seekUnreliable={seekUnreliable}
                 qualityOptions={qualityOptions}
                 currentQualityLabel={currentQualityLabel}
                 qualityMenuOpen={qualityMenuOpen}
@@ -2365,4 +2749,24 @@ const styles = StyleSheet.create({
   },
   premiumTitle: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 16 },
   premiumSub:   { color: 'rgba(255,255,255,0.65)', fontFamily: T.FONT.regular, fontSize: 12 },
+
+  // Seeking-problem warning chip (bottom-centre, above the seek bar)
+  seekWarnWrap: {
+    position: 'absolute', left: 12, right: 12, bottom: 58,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  seekWarnChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    maxWidth: '92%',
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: T.RADIUS.full,
+    paddingHorizontal: 12, paddingVertical: 7,
+  },
+  seekWarnText: {
+    color: 'rgba(255,255,255,0.92)',
+    fontFamily: T.FONT.medium,
+    fontSize: 11,
+    flexShrink: 1,
+  },
 });

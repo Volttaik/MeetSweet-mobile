@@ -30,7 +30,8 @@ import { MsShortsPlayer } from '@/components/MsShortsPlayer';
 import { PressScale } from '@/components/motion/PressScale';
 import { FlyingHeart, useHeartBurst } from '@/components/motion/FlyingHeart';
 import { getShortsFeed, likeContent, trackShortView, type Short } from '@/services/content';
-import { getCachedPosts, cachePosts } from '@/lib/posts-db';
+import { getCachedPosts, cachePosts, clearCachedFeed } from '@/lib/posts-db';
+import { mediaRecovery } from '@/lib/media-recovery';
 import { reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
@@ -113,6 +114,10 @@ export default function ShortsScreen() {
   const [shareId, setShareId]   = useState<string | null>(null);
   const [pageHeight, setPageHeight] = useState(SCREEN_HEIGHT);
   const viewConfig = useRef({ itemVisiblePercentThreshold: 75 });
+  // Bounds how many times the feed can auto-restart in a row (a genuinely
+  // broken feed then surfaces as the error/empty state with a manual retry).
+  const autoRestartCountRef = useRef(0);
+  const MAX_AUTO_FEED_RESTARTS = 3;
 
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -177,6 +182,8 @@ export default function ShortsScreen() {
       const page = await getShortsFeed();
       setShorts(page.items);
       setError(false);
+      // A successful fetch proves the section recovered — re-arm auto-restarts.
+      autoRestartCountRef.current = 0;
       reportNetworkSuccess();
       // Cache: convert Short → Post-like shape for storage
       const postsToCache: Post[] = page.items.map((s) => ({
@@ -222,6 +229,23 @@ export default function ShortsScreen() {
   }, [user?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // ── Section-scoped recovery ───────────────────────────────────────────────
+  // When a subsystem flags a broken Shorts section (e.g. the player watchdog
+  // exhausted its restarts on the active short), clear ONLY the shorts feed
+  // cache and refetch — auth, preferences and unrelated app data stay
+  // untouched. Bounded by MAX_AUTO_FEED_RESTARTS so a persistently broken
+  // feed cannot loop forever.
+  useEffect(() => {
+    return mediaRecovery.on((event) => {
+      if (event.type !== 'shorts-feed-restart') return;
+      if (autoRestartCountRef.current >= MAX_AUTO_FEED_RESTARTS) return;
+      autoRestartCountRef.current += 1;
+      clearCachedFeed('shorts', user?.id ?? 'guest')
+        .catch(() => {})
+        .finally(() => load());
+    });
+  }, [user?.id, load]);
 
   // Scroll to startId once list is loaded
   useEffect(() => {

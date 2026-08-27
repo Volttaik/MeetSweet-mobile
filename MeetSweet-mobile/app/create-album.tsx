@@ -173,7 +173,9 @@ export default function CreateAlbumScreen() {
       allowsEditing:    effectiveType === 'image' && target === 'cover',
       aspect:           effectiveType === 'image' && target === 'cover' ? [1, 1] : undefined,
       quality:          effectiveType === 'image' ? 0.85 : undefined,
-      videoMaxDuration: 300,
+      // Albums have no video duration cap on MeetSweet — only Shorts are
+      // limited (≤60s). Do not impose a five-minute limit here.
+      videoMaxDuration: undefined,
       // Album ITEMS support multi-select (up to the 20-item cap); the cover is
       // always a single image. Every selected asset is appended in picker order
       // and uploaded individually — the album is never limited to one file.
@@ -364,6 +366,10 @@ export default function CreateAlbumScreen() {
         successSubtitle="Your album is now live on Explore."
         onRetry={publishFailed ? handlePublish : undefined}
         onCancel={publishFailed ? () => { setPublishFailed(false); setStep('preview'); } : undefined}
+        // Transient upload failures shouldn't trap the user on the error
+        // screen forever — dismiss back to the editor after 10 seconds.
+        autoDismissMs={10_000}
+        onAutoDismiss={() => { setPublishFailed(false); setStep('preview'); }}
         onDone={() => router.replace('/(tabs)/explore')}
       />
     );
@@ -818,7 +824,7 @@ function MediaPickerModal({
             </View>
             <View style={styles.mediaOptionText}>
               <Text style={styles.mediaOptionLabel}>Video</Text>
-              <Text style={styles.mediaOptionDesc}>Select a video (up to 5 minutes)</Text>
+              <Text style={styles.mediaOptionDesc}>Select a video</Text>
             </View>
             <ArrowRight size={16} color={T.TEXT_3} />
           </TouchableOpacity>

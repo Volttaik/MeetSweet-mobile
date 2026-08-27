@@ -281,6 +281,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     notifListenerRef.current = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as Record<string, string> | null;
       const type = data?.type ?? data?.content_type ?? '';
+      // Local background-upload notifications (progress/completion/failure) are
+      // not server notifications — they must NOT count toward the unread badge.
+      if (type === 'upload') return;
       setNotifUnread((n) => n + 1);
       if (data?.wallet || type === 'wallet' || type === 'payment' || type === 'referral_reward') {
         // WalletProvider owns the balance; this makes a foreground reward or

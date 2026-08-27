@@ -288,6 +288,33 @@ export async function getVideoCacheSize(): Promise<number> {
 }
 
 /**
+ * Delete ONE cached video file. Used by player recovery: a corrupt or
+ * half-downloaded cache entry can stall playback, so a player restart clears
+ * only this video's file — never the rest of the cache.
+ */
+export async function deleteCachedVideo(
+  remoteUrl: string | null | undefined,
+  videoId?: string,
+): Promise<void> {
+  if (!remoteUrl || Platform.OS === 'web' || remoteUrl.startsWith('file://')) return;
+  if (!isCacheableVideo(remoteUrl)) return;
+  const fs = await getFs();
+  if (!fs) return;
+  const cacheDir = await getCacheDir(fs);
+  if (!cacheDir) return;
+
+  const ext = getExtension(remoteUrl);
+  const fileName = sanitizeFileName(videoId || remoteUrl, ext);
+  const localPath = `${cacheDir}${fileName}`;
+  try {
+    await fs.deleteAsync(localPath, { idempotent: true });
+    _cachedFileUris.delete(localPath);
+  } catch (err) {
+    console.warn('[video-cache] Delete cached video error:', err);
+  }
+}
+
+/**
  * Clear the entire video cache directory.
  */
 export async function clearVideoCache(): Promise<void> {

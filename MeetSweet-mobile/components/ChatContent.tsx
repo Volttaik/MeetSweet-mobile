@@ -19,17 +19,17 @@ import {
   Easing,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import type { ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import type { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Check, Checks, Hourglass, Prohibit, UserCheck } from 'phosphor-react-native';
 import { T, alpha, AppGradients } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { ChatAttachment } from '@/components/ChatAttachment';
-import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import type { PrivateMessage } from '@/services/private-inbox';
 import { useScrollMotion } from '@/lib/scroll-motion';
 
@@ -313,10 +313,18 @@ export function ChatContent({
     );
   }
 
+  // A plain ScrollView, NOT a keyboard-aware one: the message list must not
+  // rearrange itself or inject keyboard-sized bottom padding when the composer
+  // (which lives outside this list) is focused. The list only scrolls based on
+  // its own content, and the parent reserves the composer/keyboard/safe-area
+  // room as a static bottom inset, so scrolling always stops naturally at the
+  // logical end of the conversation.
   return (
-    <KeyboardAwareScrollViewCompat
+    <ScrollView
       ref={scrollRef}
       {...scrollMotion}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
       onScroll={(e) => {
         scrollMotion.onScroll(e);
         onScroll(e);
@@ -393,7 +401,7 @@ export function ChatContent({
           </Pressable>
         </View>
       ) : null}
-    </KeyboardAwareScrollViewCompat>
+    </ScrollView>
   );
 }
 

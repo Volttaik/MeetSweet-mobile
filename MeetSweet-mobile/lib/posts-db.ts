@@ -163,6 +163,32 @@ export async function getCachedPosts(
 }
 
 /**
+ * Clear ONE user-scoped feed view (e.g. the Shorts section) — used by section
+ * recovery to reset a broken feed without touching any other cached content.
+ * feedName: 'feed' | 'explore' | 'shorts' | 'profile'
+ */
+export async function clearCachedFeed(feedName: string, userId: string): Promise<void> {
+  if (!feedName || !userId) return;
+  const fk = feedKey(userId, feedName);
+  const db = await getDb();
+  if (db) {
+    try {
+      await db.runAsync('DELETE FROM posts WHERE feed_key = ?', [fk]);
+    } catch (e) {
+      console.warn('[posts-db] clearCachedFeed error:', e);
+    }
+    return;
+  }
+  try {
+    // AsyncStorage fallback (web) — remove only this feed's key.
+    await AsyncStorage.removeItem(`@ms_feed_${fk}`).catch(() => {});
+    await AsyncStorage.removeItem(`@ms_posts_${fk}`).catch(() => {});
+  } catch (e) {
+    console.warn('[posts-db] clearCachedFeed fallback error:', e);
+  }
+}
+
+/**
  * Purge a server-confirmed deleted post from EVERY feed view of this user.
  * Prevents a deleted post from resurrecting out of the local cache (e.g. on a
  * cache-first paint after an app restart, before the server refresh replaces

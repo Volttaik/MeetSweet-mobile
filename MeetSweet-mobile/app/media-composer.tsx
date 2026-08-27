@@ -30,7 +30,11 @@ import { toast } from '@/components/MsToast';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
 import { GradientText } from '@/components/GradientText';
 import { uploadMedia } from '@/services/media';
-import { replyToPrivateMessage, sendPrivateMessage } from '@/services/private-inbox';
+import {
+  notifyThreadReplyConfirmed,
+  replyToPrivateMessage,
+  sendPrivateMessage,
+} from '@/services/private-inbox';
 import { registerLocalChatMedia } from '@/services/chat-media';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -42,6 +46,7 @@ export default function MediaComposer() {
   const params = useLocalSearchParams<{
     mode?: string;
     targetId?: string;
+    threadId?: string;
     canPrice?: string;
     uri?: string;
     mimeType?: string;
@@ -51,6 +56,10 @@ export default function MediaComposer() {
 
   const mode = params.mode === 'new' ? 'new' : 'reply';
   const targetId = params.targetId ?? '';
+  // The thread root id (passed by the thread screen) — echoed back via
+  // notifyThreadReplyConfirmed so the still-mounted thread appends the
+  // confirmed media reply immediately, without waiting on the realtime event.
+  const threadId = params.threadId ?? '';
   const canPrice = params.canPrice === '1';
   const mediaType = (params.mediaType as ComposerMediaType) || 'image';
   const uri = params.uri ?? '';
@@ -106,6 +115,12 @@ export default function MediaComposer() {
           idempotencyKey,
           attachments,
         });
+        // Hand the server-confirmed reply to the open thread BEFORE popping
+        // back — the sender sees their own media immediately, no reload, no
+        // dependence on the realtime event's live fan-out.
+        if (threadId) {
+          notifyThreadReplyConfirmed({ threadId, message: result.message });
+        }
         // The sender already HAS this file on device — register it in the local
         // media cache so the thread renders it from the local file immediately
         // instead of downloading their own upload back from the server.

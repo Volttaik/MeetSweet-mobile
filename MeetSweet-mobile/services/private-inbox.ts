@@ -40,6 +40,44 @@ export type PrivateMessage = {
 
 export type InboxBox = 'inbox' | 'outbox' | 'waiting';
 
+// ─── Locally-confirmed thread replies ───────────────────────────────────────
+// The server emits `private_message.reply_created` for BOTH participants, and
+// the open thread appends from it — but live fan-out is only guaranteed when
+// the request lands on the same instance as the socket (Vercel pins a socket
+// to one Function instance; durable replay only happens on reconnect). The
+// sender's own device already holds the server-CONFIRMED reply (the API
+// response), so we also hand it straight to the open thread through this tiny
+// in-process channel — same data the event would carry, appended via the same
+// dedup check, so a late server event can never duplicate it. No polling, no
+// reload — the sender's media appears the moment the send confirms.
+export interface ThreadReplyConfirmed {
+  /** The thread root message id — matches the open thread screen's param. */
+  threadId: string;
+  message: PrivateMessage;
+}
+
+type ThreadReplyListener = (e: ThreadReplyConfirmed) => void;
+const threadReplyListeners = new Set<ThreadReplyListener>();
+
+/** Notify open thread screens that the server confirmed a new reply. */
+export function notifyThreadReplyConfirmed(e: ThreadReplyConfirmed): void {
+  threadReplyListeners.forEach((l) => {
+    try {
+      l(e);
+    } catch {
+      // A listener must never break the others.
+    }
+  });
+}
+
+/** Subscribe to locally-confirmed replies. Returns an unsubscribe function. */
+export function onThreadReplyConfirmed(l: ThreadReplyListener): () => void {
+  threadReplyListeners.add(l);
+  return () => {
+    threadReplyListeners.delete(l);
+  };
+}
+
 async function token(): Promise<string> {
   const value = await getAccessToken();
   if (!value) throw new Error('Not authenticated');

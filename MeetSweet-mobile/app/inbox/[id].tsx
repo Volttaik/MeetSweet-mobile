@@ -28,6 +28,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   Modal,
   Pressable,
   StyleSheet,
@@ -66,6 +67,7 @@ import {
   deletePrivateMessage,
   getPrivateMessage,
   markPrivateMessageRead,
+  onThreadReplyConfirmed,
   purchasePrivateAttachment,
   replyToPrivateMessage,
   restrictPrivateSender,
@@ -112,6 +114,12 @@ export default function PrivateThread() {
   // sits naturally above the input and is never covered by it.
   const [composerHeight, setComposerHeight] = useState(0);
   const composerMeasured = useRef(false);
+  // Current on-screen keyboard height (0 when closed). Tracked only to give
+  // the message list a bottom inset that grows with the keyboard so the newest
+  // message scrolls clear of the composer while it's lifted above the keyboard
+  // — never an arbitrary number. When the keyboard closes this returns to 0
+  // and the layout returns naturally.
+  const [keyboardVisibleHeight, setKeyboardVisibleHeight] = useState(0);
   // One idempotency key per reply draft: retries after a network failure
   // never duplicate the reply; a fresh key is minted after success.
   const idempotencyKeyRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -185,12 +193,52 @@ export default function PrivateThread() {
     }
   }, [message, id, user?.id]);
 
+  // Track the real keyboard height in JS (0 when closed) so the message list's
+  // bottom inset is derived from the actual keyboard dimension, not a guess.
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardVisibleHeight(e.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardVisibleHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   /** Thread rows oldest → newest, with a legacy fallback for cached shapes. */
   const threadRows: PrivateMessage[] = message?.thread?.length
     ? message.thread
     : message
       ? [message, ...(message.reply ? [message.reply] : [])]
       : [];
+
+  /**
+   * Append a confirmed reply to the open thread (root status/reply_count kept
+   * in sync). Dedup-safe: the same reply arriving twice — realtime event AND
+   * locally-confirmed send — is appended once. Shared by all three paths:
+   * the SweetSocket `reply_created` event, the locally-confirmed media send,
+   * and the text composer's optimistic append.
+   */
+  const appendReply = useCallback(
+    (reply: PrivateMessage) => {
+      setMessage((prev) => {
+        if (!prev) return prev;
+        const rows = prev.thread?.length ? prev.thread : [prev, ...(prev.reply ? [prev.reply] : [])];
+        if (rows.some((r) => r.id === reply.id) || prev.id === reply.id) return prev;
+        return {
+          ...prev,
+          status: prev.recipient_id === user?.id ? 'replied' : prev.status,
+          replied_at: reply.created_at,
+          reply_count: (prev.reply_count ?? 0) + 1,
+          thread: [...rows, reply],
+        };
+      });
+    },
+    [user?.id],
+  );
 
   // ── SweetSocket — the thread is live. New replies, read/status changes,
   //    approvals and deletions arrive as events; the UI updates in place.
@@ -205,18 +253,7 @@ export default function PrivateThread() {
           const belongsToThread =
             payload.original_id === id || payload.parent_id === id || reply.id === id || reply.parent_message_id === id;
           if (!belongsToThread) return;
-          setMessage((prev) => {
-            if (!prev) return prev;
-            const rows = prev.thread?.length ? prev.thread : [prev, ...(prev.reply ? [prev.reply] : [])];
-            if (rows.some((r) => r.id === reply.id) || prev.id === reply.id) return prev;
-            return {
-              ...prev,
-              status: prev.recipient_id === user?.id ? 'replied' : prev.status,
-              replied_at: reply.created_at,
-              reply_count: (prev.reply_count ?? 0) + 1,
-              thread: [...rows, reply],
-            };
-          });
+          appendReply(reply);
           break;
         }
         case 'private_message.read': {
@@ -255,7 +292,18 @@ export default function PrivateThread() {
           break;
       }
     });
-  }, [id, user?.id]);
+  }, [id, user?.id, appendReply]);
+
+  // Locally-confirmed replies: the media composer hands the open thread the
+  // server-confirmed message straight away (its realtime fan-out can be
+  // delayed/lost when the send lands on a different instance than the socket).
+  // Same dedup-safe append as the server event, so a late event can never
+  // duplicate it. No polling, no reload.
+  useEffect(() => {
+    return onThreadReplyConfirmed((e) => {
+      if (e.threadId === id) appendReply(e.message);
+    });
+  }, [id, appendReply]);
 
   // Selecting media opens the dedicated media composer screen — nothing is
   // uploaded or sent here. The composer previews the asset, collects caption +
@@ -268,6 +316,9 @@ export default function PrivateThread() {
       params: {
         mode: 'reply',
         targetId: (replyTo?.id ?? message?.id) ?? '',
+        // The thread root id — echoed back by the composer after a confirmed
+        // send so THIS open thread updates immediately (see onThreadReplyConfirmed).
+        threadId: message?.id ?? '',
         canPrice: canPriceAttachments ? '1' : '0',
         uri: result.uri,
         mimeType: result.mimeType,
@@ -318,22 +369,15 @@ export default function PrivateThread() {
         idempotencyKey: idempotencyKeyRef.current,
       });
       // Optimistic append — the follow-up load() reconciles with the server.
-      setMessage((prev) => {
-        if (!prev) return prev;
-        const rows = prev.thread?.length ? prev.thread : [prev, ...(prev.reply ? [prev.reply] : [])];
-        if (rows.some((r) => r.id === result.message.id) || prev.id === result.message.id) return prev;
-        return {
-          ...prev,
-          status: prev.recipient_id === user?.id ? 'replied' : prev.status,
-          replied_at: result.message.created_at,
-          reply_count: (prev.reply_count ?? 0) + 1,
-          thread: [...rows, result.message],
-        };
-      });
+      appendReply(result.message);
       await load();
       setBody('');
       setReplyTo(null);
       idempotencyKeyRef.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      // The user just sent a message — always bring the newest row into view
+      // immediately, regardless of where they were reading. Scroll after the
+      // optimistic append + reconcile have painted the new row.
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch (e) {
       Alert.alert('Could not reply', e instanceof Error ? e.message : 'Please try again.');
     } finally {
@@ -497,13 +541,20 @@ export default function PrivateThread() {
   // hides only when the thread turns out not to exist.
   const canCompose = message ? !isWaiting && !blockedOther : loading;
 
-  // Bottom inset for the message list = measured floating-composer height + a
-  // comfortable gap, so the newest message always lands just above the input.
+  // Bottom inset for the message list = the composer's REAL on-screen footprint
+  // (measured) + any keyboard currently lifted under it + a small comfortable
+  // gap. All three come from the actual rendered layout / device, never from a
+  // hard-coded giant padding. When the keyboard opens the composer rises above
+  // it (its own KeyboardAvoidingView) and this inset grows by exactly the
+  // keyboard height, so the newest message scrolls clear of the lifted
+  // composer and scrolling stops right there. When the keyboard closes,
+  // keyboardVisibleHeight returns to 0 and the layout falls back naturally.
+  //
   // Until the first measurement lands we fall back to the single-line composer
   // height so the thread never starts out cramped. With no composer, just
   // clear the safe area so the approval/blocked notices sit naturally.
   const listBottomPadding = canCompose
-    ? Math.max(composerHeight, 62) + 16
+    ? Math.max(composerHeight, 62) + keyboardVisibleHeight + 14
     : insets.bottom + 18;
 
   const canSend = !sending && !!message && body.trim().length > 0;
@@ -525,29 +576,32 @@ export default function PrivateThread() {
       />
 
       {/* Content area — the only part that synchronizes. Cached rows paint
-          instantly; the authoritative fetch + realtime events fill the rest. */}
+          instantly; the authoritative fetch + realtime events fill the rest.
+          Deliberately NOT wrapped in a KeyboardAvoidingView: the floating
+          composer is the only element that rides the keyboard (via its own
+          KAV below). Padding this whole area for the keyboard on top of the
+          list's own composer/keyboard inset is what used to stack a giant
+          empty gap beneath the last message. */}
       <View style={{ flex: 1 }}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-          <ChatContent
-            message={message}
-            loading={loading}
-            threadRows={threadRows}
-            amRecipient={amRecipient}
-            isWaiting={isWaiting}
-            blockedOther={blockedOther}
-            listBottomPadding={listBottomPadding}
-            scrollRef={scrollRef}
-            userId={user?.id}
-            onScroll={onScrollNearBottom}
-            onContentSizeChange={onContentSizeChange}
-            onMessageLongPress={openMessageActions}
-            onUnlock={unlock}
-            onOpenMedia={openMedia}
-            onApprove={approve}
-            onAllowSender={allowSender}
-            onBlockSender={blockSender}
-          />
-        </KeyboardAvoidingView>
+        <ChatContent
+          message={message}
+          loading={loading}
+          threadRows={threadRows}
+          amRecipient={amRecipient}
+          isWaiting={isWaiting}
+          blockedOther={blockedOther}
+          listBottomPadding={listBottomPadding}
+          scrollRef={scrollRef}
+          userId={user?.id}
+          onScroll={onScrollNearBottom}
+          onContentSizeChange={onContentSizeChange}
+          onMessageLongPress={openMessageActions}
+          onUnlock={unlock}
+          onOpenMedia={openMedia}
+          onApprove={approve}
+          onAllowSender={allowSender}
+          onBlockSender={blockSender}
+        />
       </View>
 
       {/* Composer overlay — a separate floating component at the bottom,

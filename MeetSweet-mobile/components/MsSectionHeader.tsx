@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { type ReactNode } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { T } from '@/constants/theme';
 
@@ -6,6 +6,9 @@ interface MsSectionHeaderProps {
   title: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** Custom element rendered on the right side — takes precedence over the
+   *  text `actionLabel` slot (e.g. a gradient Shorts button). */
+  actionElement?: ReactNode;
   style?: ViewStyle;
 }
 
@@ -13,16 +16,19 @@ export function MsSectionHeader({
   title,
   actionLabel,
   onAction,
+  actionElement,
   style,
 }: MsSectionHeaderProps) {
   return (
     <View style={[styles.row, style]}>
       <Text style={styles.title}>{title}</Text>
-      {actionLabel && (
+      {actionElement ? (
+        actionElement
+      ) : actionLabel ? (
         <TouchableOpacity onPress={onAction} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.action}>{actionLabel}</Text>
         </TouchableOpacity>
-      )}
+      ) : null}
     </View>
   );
 }

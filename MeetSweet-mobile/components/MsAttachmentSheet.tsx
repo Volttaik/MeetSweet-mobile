@@ -116,7 +116,9 @@ export function MsAttachmentSheet({ visible, onClose, onResult }: Props) {
       mediaTypes: ['videos'],
       allowsEditing: false,
       quality: 0.85,
-      videoMaxDuration: 300,
+      // Chat media has no duration cap on MeetSweet — only Shorts are limited
+      // (≤60s). Do not impose a five-minute limit here.
+      videoMaxDuration: undefined,
     });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];

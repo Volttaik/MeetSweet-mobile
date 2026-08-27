@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import {
   View,
   Text as RNText,
@@ -33,10 +33,18 @@ export function GradientText({
   // always matches the real text width.
   const [box, setBox] = useState<{ width: number; height: number } | null>(null);
 
+  // UNIQUE gradient id per instance. On web every SVG lives in the same DOM
+  // document, and `url(#id)` paint references resolve to the FIRST element
+  // with that id — previously all instances shared id="gradientTextFill", so
+  // an instance whose nearest match sat inside another (hidden) screen could
+  // fail to paint entirely and render INVISIBLE.
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const gradId = `gradientTextFill-${uid}`;
+
   const flat = (StyleSheet.flatten(style) ?? {}) as TextStyle;
   const textAlign = flat.textAlign ?? 'center';
   const fontFamily = flat.fontFamily;
-  const fontSize = flat.fontSize;
+  const fontSize = flat.fontSize ?? 16;
   const fontWeight = flat.fontWeight;
   const letterSpacing = flat.letterSpacing;
 
@@ -63,6 +71,17 @@ export function GradientText({
   // (and centering the text on the same point) makes that impossible.
   const PAD = 8;
 
+  // The gradient paint must NEVER be gated on layout events: if onLayout is
+  // late or missing on a given platform/context, we still paint using a rough
+  // estimate and snap to the exact measured box the moment the hidden layout
+  // Text reports it. This guarantees gradient text is never invisible.
+  const fallbackHeight = fontSize * (numberOfLines > 1 ? 1.7 : 1.25);
+  const fallbackWidth = Math.max(24, (text?.length ?? 4) * fontSize * 0.62);
+
+  const w = box?.width ?? fallbackWidth;
+  const h = box?.height ?? fallbackHeight;
+  const paintWidth = w + PAD * 2;
+
   return (
     <View style={[wrapStyle, styles.wrap]} onLayout={(e) => {
       const { width, height } = e.nativeEvent.layout;
@@ -77,39 +96,34 @@ export function GradientText({
         {text}
       </RNText>
       {/* Gradient paint — overlays the same space */}
-      {box ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.paint,
-            { width: box.width + PAD * 2, height: box.height, left: -PAD },
-          ]}
-        >
-          <Svg width={box.width + PAD * 2} height={box.height}>
-            <Defs>
-              <LinearGradient id="gradientTextFill" x1="0" y1="0" x2="1" y2="0">
-                <Stop offset="0" stopColor={AppGradients.brand[1]} />
-                <Stop offset="0.45" stopColor={AppGradients.brand[2]} />
-                <Stop offset="0.75" stopColor={AppGradients.brand[3]} />
-                <Stop offset="1" stopColor={AppGradients.brand[0]} />
-              </LinearGradient>
-            </Defs>
-            <SvgText
-              x={textAlign === 'left' ? PAD : box.width / 2 + PAD}
-              y={box.height / 2}
-              textAnchor={textAlign === 'left' ? 'start' : 'middle'}
-              alignmentBaseline="central"
-              fill="url(#gradientTextFill)"
-              fontFamily={fontFamily}
-              fontSize={fontSize}
-              fontWeight={fontWeight}
-              letterSpacing={letterSpacing}
-            >
-              {text}
-            </SvgText>
-          </Svg>
-        </View>
-      ) : null}
+      <View
+        pointerEvents="none"
+        style={[styles.paint, { width: paintWidth, height: h, left: -PAD }]}
+      >
+        <Svg width={paintWidth} height={h}>
+          <Defs>
+            <LinearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor={AppGradients.brand[1]} />
+              <Stop offset="0.45" stopColor={AppGradients.brand[2]} />
+              <Stop offset="0.75" stopColor={AppGradients.brand[3]} />
+              <Stop offset="1" stopColor={AppGradients.brand[0]} />
+            </LinearGradient>
+          </Defs>
+          <SvgText
+            x={textAlign === 'left' ? PAD : w / 2 + PAD}
+            y={h / 2}
+            textAnchor={textAlign === 'left' ? 'start' : 'middle'}
+            alignmentBaseline="central"
+            fill={`url(#${gradId})`}
+            fontFamily={fontFamily}
+            fontSize={fontSize}
+            fontWeight={fontWeight}
+            letterSpacing={letterSpacing}
+          >
+            {text}
+          </SvgText>
+        </Svg>
+      </View>
     </View>
   );
 }

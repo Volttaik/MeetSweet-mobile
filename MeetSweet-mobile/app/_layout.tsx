@@ -29,6 +29,7 @@ import { PostActionsProvider } from '@/contexts/PostActionsContext';
 import { NotificationsProvider } from '@/contexts/NotificationsContext';
 import { MsToastHost } from '@/components/MsToast';
 import { MsGlobalDialogsHost } from '@/components/MsGlobalDialogs';
+import { MsUploadStatusPill } from '@/components/MsUploadStatusPill';
 import { MsHapticsPrompt } from '@/components/MsHapticsPrompt';
 import { loadHapticsPreference, onHapticsPromptNeeded } from '@/lib/haptics';
 import { markNavigatorReady } from '@/lib/nav';
@@ -138,6 +139,8 @@ function RootLayoutNav() {
       {/* Authenticated push screens */}
       <Stack.Screen name="notifications"         options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="settings"              options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="info-center"           options={{ animation: 'slide_from_right', headerShown: false }} />
+      <Stack.Screen name="legal"                 options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="wallet"                options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="messages" options={{ animation: 'slide_from_right', headerShown: false }} />
       <Stack.Screen name="compose-private-message" options={{ animation: 'slide_from_bottom', headerShown: false }} />
@@ -164,6 +167,10 @@ function RootLayoutNav() {
       <Stack.Screen
         name="create-post"
         options={{ animation: 'slide_from_bottom', gestureEnabled: true, presentation: 'modal' }}
+      />
+      <Stack.Screen
+        name="upload-details"
+        options={{ animation: 'slide_from_bottom', gestureEnabled: true, presentation: 'modal', headerShown: false }}
       />
       <Stack.Screen name="creator-dashboard" options={{ animation: 'slide_from_right' }} />
       {/* Share deep-link resolver */}
@@ -216,6 +223,7 @@ export default function RootLayout() {
                           <RootLayoutNav />
                           <MsToastHost />
                           <MsGlobalDialogsHost />
+                          <MsUploadStatusPill />
                           <HapticsGate />
                         </NotificationsProvider>
                       </PostActionsProvider>

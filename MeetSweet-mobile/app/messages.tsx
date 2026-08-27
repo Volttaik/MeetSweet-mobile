@@ -359,6 +359,10 @@ export default function MessagesScreen() {
             if (box === 'waiting') {
               setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
             }
+          } else if (targetBox === 'outbox' && box === 'outbox') {
+            // Own outgoing message (media or text) — prepend to the Outbox tab
+            // immediately so the sender sees it without a refresh/reopen.
+            setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
           } else if (box === 'inbox') {
             setMessages((old) => (old.some((m) => m.id === message.id) ? old : [message, ...old]));
           }

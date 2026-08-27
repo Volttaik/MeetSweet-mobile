@@ -149,7 +149,18 @@ export async function apiFetch<T = unknown>(
   const base = getApiBase();
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
 
-  const response = await _rawFetch(url, options);
+  let response: Response;
+  try {
+    response = await _rawFetch(url, options);
+  } catch (e) {
+    // A transport-level failure (DNS resolution failure, connection refused,
+    // timeout) surfaces as a bare TypeError ("Network request failed") on
+    // native/web. Never expose raw developer text — normalise it into a
+    // friendly, machine-readable app-level error the UI already knows how to
+    // display and retry.
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(0, 'Network error. Check your connection and try again.', 'NETWORK_ERROR');
+  }
 
   // ── 401: attempt token refresh ────────────────────────────────────────────
   // A 401 from login/register is a normal authentication error, not an

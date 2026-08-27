@@ -206,13 +206,19 @@ const styles = StyleSheet.create({
   headerText: {
     alignItems: 'center',
     gap: 10,
+    // Stretch across the full content width (a long title must be able to
+    // wrap instead of being clipped at the centered, content-sized container).
+    alignSelf: 'stretch',
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: 'Poppins_700Bold',
     letterSpacing: -0.4,
     textAlign: 'center',
     color: T.ACCENT_FG,
+    // Constrain to the container so a long title wraps to two centred lines
+    // (e.g. "Two-Factor Authentication") rather than overflowing the edges.
+    width: '100%',
   },
   subtitle: {
     fontSize: 15,

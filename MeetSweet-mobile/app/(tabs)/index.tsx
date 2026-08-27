@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bell, Compass, MonitorPlay } from 'phosphor-react-native';
+import { Bell, Compass, MonitorPlay, VideoCamera } from 'phosphor-react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { pushOnce } from '@/lib/nav';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -39,6 +39,47 @@ import {
   enqueueOfflineAction,
 } from '@/lib/posts-db';
 import { useNetwork, reportNetworkSuccess, reportNetworkError } from '@/hooks/useNetwork';
+
+// ─── Shorts entry button ──────────────────────────────────────────────────────
+
+/**
+ * Opens the Shorts feed. Follows the brand rule used by the MeetSweet header,
+ * Private Messages, and 2FA titles: the platform gradient is painted INSIDE
+ * the glyphs (GradientText), never as a background behind the label.
+ */
+function ShortsHeaderButton() {
+  return (
+    <TouchableOpacity
+      style={shortsStyles.wrap}
+      activeOpacity={0.85}
+      onPress={() => pushOnce('/shorts')}
+      hitSlop={8}
+      accessibilityLabel="Open Shorts"
+      accessibilityRole="button"
+    >
+      <View style={shortsStyles.row}>
+        <VideoCamera size={14} color={T.TEXT_2} weight="bold" />
+        <GradientText text="Shorts" style={shortsStyles.label} />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const shortsStyles = StyleSheet.create({
+  wrap: {
+    borderRadius: T.RADIUS.full,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  label: {
+    fontFamily: T.FONT.bold,
+    fontSize: 13,
+    letterSpacing: 0.2,
+  },
+});
 
 function greetingText(): string {
   const hour = new Date().getHours();
@@ -349,6 +390,10 @@ export default function HomeScreen() {
 
   const walletBalance = useWalletBalance();
 
+  // NOTE: MeetSweet opens to the normal Home feed. Shorts is only ever opened
+  // by the user tapping the Shorts button above — never automatically on
+  // launch, resume, or navigation.
+
   return (
     <MsAmbientBackground style={[styles.bg, { paddingTop: insets.top }]}>
 
@@ -383,6 +428,10 @@ export default function HomeScreen() {
           ) : null}
         </View>
       </View>
+
+      {/* ── Home title row + Shorts entry (fixed above the feed so the
+          button stays reachable in every feed state) ── */}
+      <MsSectionHeader title="Home Feed" actionElement={<ShortsHeaderButton />} />
 
       {/* ── Feed ── */}
       {loading && posts.length === 0 ? (
@@ -464,7 +513,6 @@ export default function HomeScreen() {
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.4}
-          ListHeaderComponent={<MsSectionHeader title="Home Feed" />}
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.footer}>

@@ -137,9 +137,9 @@ export default function WelcomeScreen() {
           <FadeUp delay={300}>
             <Text style={styles.terms}>
               By continuing you agree to our{' '}
-              <Text style={styles.termsLink}>Terms</Text>
+              <Text style={styles.termsLink} onPress={() => router.push('/legal?doc=terms' as any)}>Terms</Text>
               {' '}and{' '}
-              <Text style={styles.termsLink}>Privacy Policy</Text>
+              <Text style={styles.termsLink} onPress={() => router.push('/legal?doc=privacy' as any)}>Privacy Policy</Text>
             </Text>
           </FadeUp>
         </View>

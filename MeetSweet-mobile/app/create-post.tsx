@@ -19,9 +19,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/safe-back';
 import {
+  ArrowCounterClockwise,
   ArrowLeft,
   ArrowRight,
   Check,
+  CloudArrowUp,
   FilmStrip,
   Image as ImageIcon,
   MonitorPlay,
@@ -36,10 +38,12 @@ import { MsRoomCreationLoader } from '@/components/MsRoomCreationLoader';
 import { T, AppGradients } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
-import { uploadMedia } from '@/services/media';
+import { uploadMedia, UploadCancelledError, isUnrecoverableUploadError } from '@/services/media';
 import { createPost } from '@/services/posts';
+import { uploadManager, useBackgroundUploads } from '@/services/upload-manager';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePostActions } from '@/contexts/PostActionsContext';
+import { toast } from '@/components/MsToast';
 import { dialogs } from '@/components/MsGlobalDialogs';
 import { apiFetch } from '@/services/api';
 import { getCategories, type Category } from '@/services/categories';
@@ -282,7 +286,9 @@ export default function CreatePostScreen() {
       mediaTypes:       type === 'image' ? ['images'] : ['videos'],
       allowsEditing:    false,   // no forced crop — full native aspect ratio
       quality:          type === 'image' ? 0.92 : undefined,
-      videoMaxDuration: contentType === 'shorts' ? 60 : 300,
+      // Long-form videos have NO duration cap on MeetSweet — only Shorts are
+      // limited (≤60s, by definition). Do not impose a five-minute limit here.
+      videoMaxDuration: contentType === 'shorts' ? 60 : undefined,
     });
 
     if (result.canceled || !result.assets[0]) return;
@@ -365,6 +371,119 @@ export default function CreatePostScreen() {
 
   // ─── Publish ──────────────────────────────────────────────────────────────
 
+  const bgUploads = useBackgroundUploads();
+
+  /**
+   * The full publish pipeline (media upload + optional thumbnail + create), as
+   * a self-contained job. Used for BOTH the foreground publish and the
+   * background hand-off, so leaving the screen never changes what gets created.
+   * Reads the form state captured when the job is built.
+   */
+  const buildPublishJob = useCallback(() => {
+    const jobMeta = {
+      uploadId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      label: contentType === 'video' ? 'video' : 'post',
+      fileName: mediaName ?? mediaUri ?? 'content',
+      fileUri: mediaUri ?? '',
+      previewUri: thumbnailUri ?? mediaUri ?? undefined,
+      mediaType: (mediaType === 'video' ? 'video' : mediaUri ? 'image' : 'file') as 'image' | 'video' | 'file',
+    };
+
+    // ONE AbortController per job. cancel() aborts it; every await below
+    // re-checks the signal so a cancelled upload stops immediately and can
+    // never create the post afterwards.
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    return {
+      ...jobMeta,
+      abort: () => controller.abort(),
+      /** Runs media + thumbnail + createPost, reporting 0→1 overall progress. */
+      run: async (onProgress: (p: number) => void): Promise<void> => {
+        let mediaIds: string[] | undefined;
+        let thumbUrl: string | undefined;
+
+        if (mediaUri && mediaType) {
+          const assetMeta =
+            mediaType === 'video'
+              ? { width: mediaAssetWidth, height: mediaAssetHeight, durationSecs: mediaAssetDuration }
+              : undefined;
+          const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
+            onProgress(thumbnailUri ? p * 0.9 : p);
+          }, assetMeta, contentType === 'video', { signal });
+          if (signal.aborted) throw new UploadCancelledError();
+
+          if (thumbnailUri) {
+            const uploadedThumb = await uploadMedia(thumbnailUri, thumbnailMime, thumbnailName, (p) => {
+              onProgress(0.9 + p * 0.1);
+            }, undefined, undefined, { signal });
+            thumbUrl = uploadedThumb.url || undefined;
+          }
+          if (signal.aborted) throw new UploadCancelledError();
+
+          mediaIds = [uploaded.id];
+
+          // Attach thumbnail to the media record (best-effort PATCH); the
+          // createPost thumbnail_url field is the fallback below.
+          if (thumbUrl && uploaded.id) {
+            try {
+              const { getAccessToken } = await import('@/lib/session-storage');
+              const _tok = await getAccessToken();
+              if (_tok) {
+                await apiFetch(`/media/${uploaded.id}`, {
+                  method: 'PATCH',
+                  headers: { Authorization: `Bearer ${_tok}` },
+                  body: JSON.stringify({ thumbnail_url: thumbUrl }),
+                });
+              }
+            } catch {
+              // Non-critical — see createPost fallback.
+            }
+          }
+        }
+
+        const backendContentType: Record<ContentType, 'post' | 'video' | 'short' | 'album'> = {
+          post:   'post',
+          album:  'album',
+          video:  'video',
+          shorts: 'short',
+        };
+        const finalCaption = caption.trim();
+        const resolvedVisibility =
+          contentType === 'shorts' ? 'public' : (tier === 'subscriber_plus' ? 'subscribers' : TIERS[tier].visibility);
+
+        if (signal.aborted) throw new UploadCancelledError();
+
+        await createPost({
+          caption:       finalCaption,
+          visibility:    resolvedVisibility,
+          media_ids:     mediaIds,
+          categories:    selectedCategories,
+          tags,
+          content_type:  backendContentType[contentType],
+          title:         contentType === 'video' && videoTitle.trim() ? videoTitle.trim() : undefined,
+          tier:          contentType === 'shorts' ? 'free' : tier,
+          thumbnail_url: thumbUrl,
+          comments_enabled: true,
+        });
+        if (signal.aborted) throw new UploadCancelledError();
+        onProgress(1);
+      },
+    };
+  }, [
+    contentType, mediaName, mediaUri, mediaType, mediaMime,
+    mediaAssetWidth, mediaAssetHeight, mediaAssetDuration,
+    thumbnailUri, thumbnailMime, thumbnailName,
+    caption, videoTitle, tier, selectedCategories, tags,
+  ]);
+
+  const contentLabel = {
+    post:   'Post',
+    album:  'Album',
+    video:  'Video',
+    shorts: 'Short',
+  }[contentType];
+
   const handlePublish = async () => {
     if (!caption.trim() && !mediaUri && contentType !== 'post') {
       setError('Select media before publishing.');
@@ -380,110 +499,64 @@ export default function CreatePostScreen() {
     setStep('uploading');
     setUploadProgress(0);
 
+    const job = buildPublishJob();
+    // Register the job with the manager so its progress/failure/completion are
+    // owned app-wide (notifications + rediscovery). Crucially this ADOPTS the
+    // already-in-flight run rather than starting a second one: if the user taps
+    // "Upload in background" later, the SAME upload keeps going — no duplicates.
+    uploadManager.adopt(job);
     try {
-      let mediaIds: string[] | undefined;
-      // Hoisted so it's available in the createPost payload below
-      let thumbUrl: string | undefined;
-
-      if (mediaUri && mediaType) {
-        // Pass the asset's real dimensions/duration so the media record (and
-        // every feed/detail response) carries the true aspect ratio + duration
-        // — the player sizes instantly instead of jumping after the first frame.
-        const assetMeta =
-          mediaType === 'video'
-            ? { width: mediaAssetWidth, height: mediaAssetHeight, durationSecs: mediaAssetDuration }
-            : undefined;
-        const uploaded = await uploadMedia(mediaUri, mediaMime, mediaName, (p) => {
-          setUploadProgress(thumbnailUri ? p * 0.9 : p);
-        }, assetMeta, contentType === 'video');
-
-        if (thumbnailUri) {
-          const uploadedThumb = await uploadMedia(thumbnailUri, thumbnailMime, thumbnailName, (p) => {
-            setUploadProgress(0.9 + p * 0.1);
-          });
-          thumbUrl = uploadedThumb.url || undefined;
-        }
-
-        // Use the stable media ID returned by POST /api/uploads/:id/complete.
-        mediaIds = [uploaded.id];
-
-        // Attach thumbnail to the media record (best-effort PATCH).
-        // We also send thumbnail_url directly in createPost below as a fallback.
-        if (thumbUrl && uploaded.id) {
-          try {
-            const { getAccessToken } = await import('@/lib/session-storage');
-            const _tok = await getAccessToken();
-            if (_tok) {
-              await apiFetch(`/media/${uploaded.id}`, {
-                method: 'PATCH',
-                headers: { Authorization: `Bearer ${_tok}` },
-                body: JSON.stringify({ thumbnail_url: thumbUrl }),
-              });
-            }
-          } catch {
-            // Non-critical — thumbnail will still be set via createPost's thumbnail_url field
-          }
-        }
-      }
-
-      setStep('creating');
-
-      // Map contentType → backend content_type field
-      const backendContentType: Record<ContentType, 'post' | 'video' | 'short' | 'album'> = {
-        post:   'post',
-        album:  'album',
-        video:  'video',
-        shorts: 'short',
-      };
-
-      const finalCaption = caption.trim();
-
-      // Shorts are always free/public; everything else maps from the tier picker.
-      const resolvedVisibility =
-        contentType === 'shorts' ? 'public' : (tier === 'subscriber_plus' ? 'subscribers' : TIERS[tier].visibility);
-
-      await createPost({
-        caption:       finalCaption,
-        visibility:    resolvedVisibility,
-        media_ids:     mediaIds,
-        categories:    selectedCategories,
-        tags,
-        content_type:  backendContentType[contentType],
-        // Send title as its own field for videos (not collapsed into caption)
-        title:         contentType === 'video' && videoTitle.trim() ? videoTitle.trim() : undefined,
-        // Send tier so backend can store it when multi-tier is supported
-        tier:          contentType === 'shorts' ? 'free' : tier,
-        // Send thumbnail URL directly — fallback if the separate PATCH fails
-        thumbnail_url: thumbUrl,
-        // Comments ON by default — the backend creates/associates a Comment
-        // Room when the post is created (post → commentRoomId).
-        comments_enabled: true,
+      await job.run((p) => {
+        setUploadProgress(p);
+        uploadManager.reportProgress(job.uploadId, p);
       });
+      uploadManager.finish(job.uploadId);
 
       setStep('processing');
       await new Promise((r) => setTimeout(r, 600));
       setStep('success');
       await new Promise((r) => setTimeout(r, 1200));
 
-      // Clear the draft on success
       AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
-      // Bump the shared content-created version so the (already-mounted) Home
-      // and Profile feeds refresh on their next focus — the new post appears
-      // without closing/reopening the app.
       markContentCreated();
       router.replace('/(tabs)');
     } catch (err) {
-      setError((err as Error).message ?? 'Publish failed. Please try again.');
+      // A user cancel is not a failure — return to the editor quietly. The
+      // manager already removed the job (cancel()) and aborted the R2 session.
+      if (err instanceof UploadCancelledError) {
+        setStep('preview');
+        setError('');
+        setPublishFailed(false);
+        return;
+      }
+      // An unrecoverable failure (local file gone, format/size rejected) can
+      // never succeed by retrying the same job — terminate it cleanly and
+      // reset to the editor so the user can pick another video from a clean
+      // state instead of hitting a dead-end Retry button.
+      if (isUnrecoverableUploadError(err)) {
+        uploadManager.fail(job.uploadId, err);
+        setStep('preview');
+        setError((err as Error).message ?? 'This video could not be uploaded. Please select another one.');
+        setPublishFailed(false);
+        return;
+      }
+      const msg = (err as Error).message ?? 'Publish failed. Please try again.';
+      uploadManager.fail(job.uploadId, err);
+      setError(msg);
       setPublishFailed(true);
     }
   };
 
-  const contentLabel = {
-    post:   'Post',
-    album:  'Album',
-    video:  'Video',
-    shorts: 'Short',
-  }[contentType];
+  /**
+   * Leave the screen while the upload keeps running. The foreground publish
+   * already adopted the job into the background manager, so this only navigates
+   * away — the in-flight run continues and drives progress + completion/failure
+   * notifications. Returning to this screen rediscovers the upload.
+   */
+  const handleUploadInBackground = () => {
+    goBack();
+    toast.info('Uploading in the background · we’ll notify you when it’s done');
+  };
 
   // ─── Publishing overlay (Create Chatroom-style loader) ─────────────────────
   // The step machine drives clean status copy around the shared disc loader:
@@ -499,19 +572,72 @@ export default function CreatePostScreen() {
     }[step === 'success' ? 'processing' : step];
 
     return (
-      <MsRoomCreationLoader
-        visible
-        label={phaseCopy.label}
-        hint={phaseCopy.status}
-        status={step === 'success' ? null : phaseCopy.status}
-        error={publishFailed ? error : null}
-        success={step === 'success' && !publishFailed}
-        successTitle="Published!"
-        successSubtitle={`Your ${contentLabel.toLowerCase()} is live.`}
-        onRetry={publishFailed ? handlePublish : undefined}
-        onCancel={publishFailed ? () => { setPublishFailed(false); setStep('preview'); } : undefined}
-        onDone={() => router.replace('/(tabs)')}
-      />
+      <View style={styles.publishOverlay}>
+        <MsRoomCreationLoader
+          visible
+          label={phaseCopy.label}
+          hint={phaseCopy.status}
+          status={step === 'success' ? null : phaseCopy.status}
+          error={publishFailed ? error : null}
+          success={step === 'success' && !publishFailed}
+          successTitle="Published!"
+          successSubtitle={`Your ${contentLabel.toLowerCase()} is live.`}
+          onRetry={publishFailed ? handlePublish : undefined}
+          onCancel={publishFailed ? () => { setPublishFailed(false); setStep('preview'); } : undefined}
+          // Transient upload failures shouldn't trap the user on the error
+          // screen forever — dismiss back to the editor after 10 seconds.
+          autoDismissMs={10_000}
+          onAutoDismiss={() => { setPublishFailed(false); setStep('preview'); }}
+          onDone={() => router.replace('/(tabs)')}
+        />
+
+        {/* Keep the user's options while the media uploads: leave to the
+            background manager (upload continues + notifications) instead of
+            being stuck on this screen for a long video. */}
+        {step === 'uploading' && !publishFailed ? (
+          <Pressable
+            style={styles.bgUploadBtn}
+            onPress={handleUploadInBackground}
+            accessibilityRole="button"
+            accessibilityLabel="Upload in background"
+          >
+            <BrandGradientFill />
+            <CloudArrowUp size={18} color={T.ACCENT_FG} weight="fill" />
+            <Text style={styles.bgUploadLabel}>
+              Upload in background
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {/* In-flight / failed background uploads for THIS screen's kind — lets
+            the user see progress or retry a failed one without losing it. */}
+        {bgUploads.uploads.length > 0 ? (
+          <View style={styles.bgUploadsPanel}>
+            {bgUploads.uploads.map((u) => (
+              <View key={u.uploadId} style={styles.bgUploadsRow}>
+                <View style={styles.bgUploadsText}>
+                  <Text style={styles.bgUploadsName} numberOfLines={1}>
+                    {u.fileName || u.label}
+                  </Text>
+                  <Text style={styles.bgUploadsStatus}>
+                    {u.status === 'failed'
+                      ? 'Upload failed'
+                      : u.status === 'complete'
+                        ? 'Upload complete'
+                        : `${Math.round(u.progress * 100)}%`}
+                  </Text>
+                </View>
+                {u.status === 'failed' && uploadManager.get(u.uploadId) ? (
+                  <Pressable style={styles.bgUploadsRetry} onPress={() => bgUploads.retry(u.uploadId)}>
+                    <ArrowCounterClockwise size={13} color="#FFFFFF" weight="bold" />
+                    <Text style={styles.bgUploadsRetryLabel}>Retry</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
     );
   }
 
@@ -697,7 +823,7 @@ export default function CreatePostScreen() {
                 <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('video')} activeOpacity={0.8}>
                   <FilmStrip size={22} color={T.TEXT_2} />
                   <Text style={styles.pickerOptionLabel}>
-                    {contentType === 'shorts' ? 'Short Video (max 60s)' : 'Video (max 5 min)'}
+                    {contentType === 'shorts' ? 'Short Video (max 60s)' : 'Video'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -824,7 +950,7 @@ export default function CreatePostScreen() {
                   </View>
                   <Text style={styles.mediaPickerLabel}>
                     {contentType === 'album'  ? 'Select photos or videos' :
-                     contentType === 'video'  ? 'Select video (max 5 min)' :
+                     contentType === 'video'  ? 'Select video' :
                      'Select short video (max 60s)'}
                   </Text>
                 </TouchableOpacity>
@@ -967,13 +1093,12 @@ export default function CreatePostScreen() {
                 <Text style={styles.pickerOptionLabel}>Photo</Text>
               </TouchableOpacity>
             )}
-            {contentType !== 'post' && (
-              <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('video')} activeOpacity={0.8}>
-                <FilmStrip size={22} color={T.TEXT_2} />
-                <Text style={styles.pickerOptionLabel}>
-                  {contentType === 'shorts' ? 'Short Video (max 60s)' : 'Video (max 5 min)'}
-                </Text>
-              </TouchableOpacity>
+            {contentType !== 'post' && (                <TouchableOpacity style={styles.pickerOption} onPress={() => pickMedia('video')} activeOpacity={0.8}>
+                  <FilmStrip size={22} color={T.TEXT_2} />
+                  <Text style={styles.pickerOptionLabel}>
+                    {contentType === 'shorts' ? 'Short Video (max 60s)' : 'Video'}
+                  </Text>
+                </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.pickerCancel} onPress={() => setPickerVisible(false)}>
               <Text style={styles.pickerCancelLabel}>Cancel</Text>
@@ -1423,4 +1548,51 @@ const styles = StyleSheet.create({
   pickerOptionLabel: { fontSize: 15, fontFamily: T.FONT.medium, color: T.TEXT },
   pickerCancel: { paddingVertical: 16, alignItems: 'center', marginTop: 4 },
   pickerCancelLabel: { fontSize: 14, fontFamily: T.FONT.medium, color: T.TEXT_2 },
+
+  // ── Publishing overlay (loader + background-upload handoff) ───────────────
+  publishOverlay: { flex: 1 },
+  bgUploadBtn: {
+    position: 'absolute',
+    bottom: 48,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 48,
+    paddingHorizontal: 24,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+    overflow: 'hidden',
+    zIndex: 10000,
+    elevation: 10000,
+  },
+  bgUploadLabel: { fontSize: 14, fontFamily: T.FONT.semibold, color: T.ACCENT_FG },
+  bgUploadsPanel: {
+    position: 'absolute',
+    top: 120,
+    alignSelf: 'center',
+    width: '82%',
+    padding: 12,
+    borderRadius: T.RADIUS.lg,
+    backgroundColor: 'rgba(20,20,26,0.95)',
+    borderWidth: 1,
+    borderColor: T.BORDER,
+    gap: 8,
+    zIndex: 10000,
+    elevation: 10000,
+  },
+  bgUploadsRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bgUploadsText: { flex: 1 },
+  bgUploadsName: { fontSize: 13, fontFamily: T.FONT.semibold, color: '#FFFFFF' },
+  bgUploadsStatus: { fontSize: 12, fontFamily: T.FONT.regular, color: T.TEXT_3, marginTop: 2 },
+  bgUploadsRetry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: T.RADIUS.full,
+    backgroundColor: T.ACCENT,
+  },
+  bgUploadsRetryLabel: { fontSize: 12, fontFamily: T.FONT.semibold, color: '#FFFFFF' },
 });

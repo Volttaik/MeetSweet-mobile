@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -1153,27 +1154,22 @@ function SupportModal({
 
   if (type === 'help') {
     return (
-      <BottomSheet visible={visible} onClose={onClose} title="Help Centre">
+      <BottomSheet visible={visible} onClose={onClose} title="Help">
         <View style={{ gap: 12, paddingBottom: 4 }}>
-          {[
-            { label: 'Getting Started Guide', sub: 'Learn the basics of MeetSweet' },
-            { label: 'FAQ', sub: 'Frequently asked questions' },
-            { label: 'Creator Resources', sub: 'Tips for creators and monetisation' },
-            { label: 'Community Guidelines', sub: 'Rules and standards for our community' },
-          ].map((item, i) => (
-            <TouchableOpacity
-              key={i}
-              style={[rs.row, { backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md }]}
-              onPress={() => toast.info('Visit meetsweet.io/help')}
-              activeOpacity={0.7}
-            >
-              <View style={rs.rowText}>
-                <Text style={rs.rowLabel}>{item.label}</Text>
-                <Text style={rs.rowSub}>{item.sub}</Text>
-              </View>
-              <CaretRight size={14} color={T.TEXT_3} />
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={[ms.saveBtn, { height: 52 }]}
+            onPress={() => { onClose(); router.push('/info-center' as any); }}
+            activeOpacity={0.85}
+          >
+            <BrandGradientFill />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Question size={16} color="#FFFFFF" weight="fill" />
+              <Text style={ms.saveLabel}>Open Information Center</Text>
+            </View>
+          </TouchableOpacity>
+          <Text style={[ms.sub, { textAlign: 'center', lineHeight: 19 }]}>
+            Browse guides and FAQs on every part of MeetSweet, searchable by question.
+          </Text>
         </View>
       </BottomSheet>
     );
@@ -1213,10 +1209,17 @@ function SupportModal({
         <View style={{ gap: 14, paddingBottom: 4 }}>
           <View style={{ backgroundColor: T.SURFACE_2, borderRadius: T.RADIUS.md, padding: 16, gap: 6 }}>
             <Text style={rs.rowLabel}>Email Support</Text>
-            <Text style={rs.rowSub}>support@meetsweet.io</Text>
+            <Text style={rs.rowSub}>meetsweetsupport@gmail.com</Text>
             <Text style={[rs.rowSub, { marginTop: 4 }]}>We respond within 24 hours, Monday to Friday.</Text>
           </View>
-          <TouchableOpacity style={ms.saveBtn} onPress={() => { toast.info('Opening email…'); onClose(); }} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={ms.saveBtn}
+            onPress={() => {
+              Linking.openURL('mailto:meetsweetsupport@gmail.com').catch(() => toast.info('Email us at meetsweetsupport@gmail.com'));
+              onClose();
+            }}
+            activeOpacity={0.8}
+          >
             <Text style={ms.saveLabel}>Send Email</Text>
           </TouchableOpacity>
         </View>
@@ -1237,13 +1240,20 @@ function SupportModal({
           Built for creators everywhere.{'\n'}Connect, create, and grow your community.{'\n\n'}© 2026 MeetSweet Inc.
         </Text>
         {[
-          { label: 'Terms of Service', url: 'meetsweet.io/terms' },
-          { label: 'Privacy Policy', url: 'meetsweet.io/privacy' },
+          { label: 'Terms of Service', route: '/legal?doc=terms' },
+          { label: 'Privacy Policy', route: '/legal?doc=privacy' },
         ].map((item) => (
-          <TouchableOpacity key={item.label} onPress={() => toast.info(`Visit ${item.url}`)} activeOpacity={0.7}>
+          <TouchableOpacity
+            key={item.label}
+            onPress={() => { onClose(); router.push(item.route as any); }}
+            activeOpacity={0.7}
+          >
             <Text style={[ms.sub, { color: T.TEXT_2, textDecorationLine: 'underline' }]}>{item.label}</Text>
           </TouchableOpacity>
         ))}
+        <Text style={[ms.sub, { textAlign: 'center', color: T.TEXT_3 }]}>
+          Support: meetsweetsupport@gmail.com
+        </Text>
         <TouchableOpacity style={[ms.cancelBtn, { width: '100%', marginTop: 8 }]} onPress={onClose} activeOpacity={0.7}>
           <Text style={ms.cancelLabel}>Close</Text>
         </TouchableOpacity>
@@ -1873,7 +1883,7 @@ export default function SettingsScreen() {
         {/* ── SUPPORT ──────────────────────────────────────────────────────── */}
         <SectionHeader title="Support" />
         <GradientBorder radius={T.RADIUS.lg} surface={T.SURFACE} style={rs.sectionBorder}>
-          <Row label="Help Centre" sub="Guides, FAQs, and tutorials" onPress={() => setModal('help')} />
+          <Row label="Information Center" sub="Guides, FAQs, and how MeetSweet works" onPress={() => router.push('/info-center' as any)} />
           <Divider />
           <Row label="Report a Bug" sub="Help us improve" onPress={() => setModal('bug')} />
           <Divider />

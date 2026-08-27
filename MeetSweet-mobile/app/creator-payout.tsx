@@ -462,7 +462,9 @@ function WithdrawAmountSheet({
             disabled={!isValid}
             activeOpacity={0.85}
           >
-            <BrandGradientFill />
+            {/* Gradient only while enabled — the disabled state is the plain
+                design-system surface (never the old gold theme). */}
+            {isValid ? <BrandGradientFill /> : null}
             <Text style={[amtS.withdrawLabel, !isValid && { color: T.TEXT_3 }]}>
               {isValid ? `Withdraw ${formatNaira(parsed)}` : 'Enter valid amount'}
             </Text>
@@ -513,12 +515,14 @@ const amtS = StyleSheet.create({
   withdrawBtn: {
     height: 52,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.GOLD,
+    // No backgroundColor — the MeetSweet platform gradient (BrandGradientFill)
+    // IS the button's background. The old gold theme was removed so it can
+    // never paint over the gradient at runtime.
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  withdrawBtnDisabled: { backgroundColor: T.SURFACE_2 },
+  withdrawBtnDisabled: { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER_2 },
   withdrawLabel: { color: T.ACCENT_FG, fontFamily: T.FONT.bold, fontSize: 15 },
 });
 
@@ -686,7 +690,11 @@ export default function CreatorPayoutScreen() {
                 activeOpacity={0.85}
                 disabled={!canWithdraw || withdrawing}
               >
-                <BrandGradientFill />
+                {/* Gradient while enabled OR loading (the platform gradient is
+                    the loading state's on-brand treatment). The purely disabled
+                    state (no balance) uses the plain design-system surface —
+                    never the old gold theme. */}
+                {canWithdraw || withdrawing ? <BrandGradientFill /> : null}
                 {withdrawing ? (
                   <ActivityIndicator color={T.ACCENT_FG} size="small" />
                 ) : (
@@ -830,8 +838,10 @@ export default function CreatorPayoutScreen() {
               disabled={!otpValue || finalizing}
               activeOpacity={0.85}
             >
-              <BrandGradientFill />
-              {finalizing ? <ActivityIndicator color={T.ACCENT_FG} size="small" /> : <Text style={amtS.withdrawLabel}>Confirm & Send</Text>}
+              {/* Gradient only while enabled — the disabled state is the plain
+                  design-system surface (never the old gold theme). */}
+              {otpValue && !finalizing ? <BrandGradientFill /> : null}
+              {finalizing ? <ActivityIndicator color={T.ACCENT_FG} size="small" /> : <Text style={[amtS.withdrawLabel, !otpValue && { color: T.TEXT_3 }]}>Confirm & Send</Text>}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -909,7 +919,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 13,
     borderRadius: T.RADIUS.full,
-    backgroundColor: T.GOLD,
+    // No backgroundColor — the MeetSweet platform gradient (BrandGradientFill)
+    // IS the button's background. The old gold theme was removed so it can
+    // never paint over the gradient at runtime.
     overflow: 'hidden',
   },
   withdrawBtnDisabled: { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER_2 },

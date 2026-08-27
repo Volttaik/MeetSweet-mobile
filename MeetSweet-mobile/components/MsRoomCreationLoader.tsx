@@ -39,6 +39,16 @@ interface Props {
   onRetry?: () => void;
   onCancel?: () => void;
   onDone?: () => void;
+  /**
+   * Auto-dismiss the terminal ERROR state after this many ms (e.g. 10_000 for
+   * transient upload failures). A fresh timer starts each time `error` is set,
+   * and it is cancelled the moment the error clears (retry, cancel, or a new
+   * attempt) — so a retry always runs normally and a later error gets its own
+   * fresh 10-second window.
+   */
+  autoDismissMs?: number;
+  /** Called when the auto-dismiss timer fires (dismiss the error UI). */
+  onAutoDismiss?: () => void;
 }
 
 export function MsRoomCreationLoader({
@@ -53,10 +63,42 @@ export function MsRoomCreationLoader({
   onRetry,
   onCancel,
   onDone,
+  autoDismissMs,
+  onAutoDismiss,
 }: Props) {
   const spin = useRef(new Animated.Value(0)).current;
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest callback via ref so the timer effect can depend on `error` only — a
+  // fresh inline closure from the parent must never restart the countdown.
+  const onAutoDismissRef = useRef(onAutoDismiss);
+  onAutoDismissRef.current = onAutoDismiss;
+  const autoDismissMsRef = useRef(autoDismissMs);
+  autoDismissMsRef.current = autoDismissMs;
 
   const animate = visible && !success && !error;
+
+  // Auto-dismiss: restart the countdown only when the error state changes
+  // (null → error starts it; error → null cancels it; a NEW error message
+  // restarts it). Tapping Retry clears the error, which cancels the timer, so
+  // the retry always runs normally.
+  useEffect(() => {
+    if (dismissTimer.current) {
+      clearTimeout(dismissTimer.current);
+      dismissTimer.current = null;
+    }
+    if (error && autoDismissMsRef.current && autoDismissMsRef.current > 0 && onAutoDismissRef.current) {
+      dismissTimer.current = setTimeout(() => {
+        dismissTimer.current = null;
+        onAutoDismissRef.current?.();
+      }, autoDismissMsRef.current);
+    }
+    return () => {
+      if (dismissTimer.current) {
+        clearTimeout(dismissTimer.current);
+        dismissTimer.current = null;
+      }
+    };
+  }, [error]);
 
   useEffect(() => {
     if (!animate) return;

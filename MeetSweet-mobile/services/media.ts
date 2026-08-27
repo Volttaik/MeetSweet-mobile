@@ -18,6 +18,13 @@
  *
  * The API handles authorization, metadata and database rows; R2 handles the
  * actual bytes. No R2 access/secret keys ever reach the client.
+ *
+ * MEMORY: native byte ranges are read straight from disk with a FileHandle
+ * (one part at a time), so memory stays constant no matter how large the
+ * file is. The previous implementation used `File.slice()`, whose
+ * expo-file-system implementation calls `bytesSync()` — reading the ENTIRE
+ * file into the JS heap for EVERY part (Android OOMs above ~100 MB on its
+ * 256 MB Hermes heap). See the `UploadSource` helper below.
  */
 import { Platform } from 'react-native';
 import { File } from 'expo-file-system';
@@ -72,7 +79,53 @@ export interface UploadMediaResult {
   media_type?: string;
 }
 
+/**
+ * Raised when the upload is cancelled by the user (never a network/server
+ * failure). The upload pipeline treats it specially: the R2 session is aborted
+ * server-side and the job is removed instead of being marked "failed".
+ */
+export class UploadCancelledError extends Error {
+  constructor(message = 'Upload cancelled') {
+    super(message);
+    this.name = 'UploadCancelledError';
+  }
+}
+
+/**
+ * Raised when the upload can NEVER succeed by retrying — the local source file
+ * is missing/unreadable. Retrying the same job is pointless, so the manager
+ * marks the job unrecoverable and the UI offers "select another video" instead
+ * of a Retry button.
+ */
+export class UploadSourceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UploadSourceError';
+  }
+}
+
+/**
+ * True when retrying the same job can never succeed (missing source file, or a
+ * server rejection that a new attempt will repeat, e.g. file too large or an
+ * unsupported format). Network failures and expired sessions stay recoverable.
+ */
+export function isUnrecoverableUploadError(e: unknown): boolean {
+  if (e instanceof UploadSourceError) return true;
+  if (e instanceof ApiError) {
+    return e.code === 'FILE_TOO_LARGE' || e.code === 'UNSUPPORTED_MIME';
+  }
+  return false;
+}
+
 const MAX_PART_ATTEMPTS = 4;
+
+// expo/fetch (like RN fetch) has NO timeout of its own — a stalled connection
+// rejects never, so a dead part would hang the upload forever with progress
+// frozen (the "stuck at 8%" symptom). Every byte-transfer request gets a hard
+// deadline so a hung connection fails, hits the existing retry/backoff, and
+// eventually surfaces a real "Upload failed" state instead of freezing.
+const PART_REQUEST_TIMEOUT_MS = 90_000;   // one 10 MiB part, slow-but-working connections included
+const SINGLE_PUT_TIMEOUT_MS   = 300_000;  // whole-file PUT (files ≤ 20 MB)
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -83,21 +136,108 @@ function clampProgress(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new UploadCancelledError();
+}
+
 /**
- * Resolve the picker/recorder URI into a Blob-like body plus its byte size.
- * Native uses expo-file-system's File (reads the on-disk file lazily); web
- * resolves the blob:/data: URI into a real Blob.
+ * expo/fetch wrapper that combines the caller's cancel signal with a hard
+ * timeout. Returns the response, or rejects (AbortError on timeout, the
+ * fetch's own error on cancel) — the caller distinguishes the two via
+ * `signal.aborted`.
  */
-async function resolveBody(uri: string, mimeType: string): Promise<Blob> {
+async function fetchWithTimeout(
+  url: string,
+  init: { method: string; headers?: Record<string, string>; body?: Blob | ArrayBuffer },
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  throwIfAborted(signal);
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener('abort', onAbort);
+  try {
+    return await expoFetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    // A user cancel is not a failure — the upload pipeline turns it into
+    // UploadCancelledError (removed, not marked failed).
+    if (signal?.aborted) throw new UploadCancelledError();
+    // A hard timeout (dead connection) is a real, retryable failure with a
+    // human-readable message, not a bare "aborted" DOMException.
+    if (timedOut) throw new Error('Upload timed out. Check your connection and try again.');
+    // A bare network failure (TypeError "Network request failed" / DNS
+    // resolution failure) must never reach the user as raw developer text —
+    // normalise it into the same friendly, retryable app-level error.
+    if (e instanceof TypeError) {
+      throw new ApiError(0, 'Network error. Check your connection and try again.', 'NETWORK_ERROR');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * A lazily-read upload source.
+ *
+ * Native: byte ranges are read straight from disk via a FileHandle, so memory
+ * stays CONSTANT — one part at a time — never the whole file. This is what
+ * makes 100–200 MB uploads work: `File.slice()` (the previous approach)
+ * materialises the ENTIRE file into the JS heap on every part through
+ * `bytesSync()`, which throws java.lang.OutOfMemoryError above ~100 MB on
+ * Android's 256 MB Hermes heap.
+ *
+ * Web: a real Blob, whose `.slice()` is a cheap view rather than a copy.
+ */
+interface UploadSource {
+  /** Total byte size of the file. */
+  size: number;
+  /** Read exactly `length` bytes starting at `start`. */
+  readPart(start: number, length: number): Promise<Blob | ArrayBuffer>;
+  /** Read the whole file (single-PUT path — files are ≤ 20 MB there). */
+  readWhole(): Promise<Blob | ArrayBuffer>;
+}
+
+/** Read a byte range from a native file with constant memory. */
+function readNativeRange(file: File, start: number, length: number): ArrayBuffer {
+  const handle = file.open();
+  try {
+    handle.offset = start;
+    const bytes = handle.readBytes(length);
+    // readBytes may hand back a reused buffer — slice() detaches a fresh copy
+    // so the chunk stays valid after the handle is closed. Peak memory is 2×
+    // the part size, constant regardless of how large the file is.
+    return bytes.slice().buffer;
+  } finally {
+    handle.close();
+  }
+}
+
+async function resolveSource(uri: string, mimeType: string): Promise<UploadSource> {
   if (Platform.OS === 'web') {
     const blob = await (await fetch(uri)).blob();
-    return blob.type ? blob : new Blob([blob], { type: mimeType });
+    const typed = blob.type ? blob : new Blob([blob], { type: mimeType });
+    return {
+      size: typed.size,
+      readPart: (start, length) => Promise.resolve(typed.slice(start, start + length, mimeType)),
+      readWhole: () => Promise.resolve(typed),
+    };
   }
   const file = new File(uri);
   if (file.size === 0) {
-    throw new Error('The selected file could not be read. Please select it again.');
+    throw new UploadSourceError('The selected file could not be read. Please select it again.');
   }
-  return file as unknown as Blob;
+  return {
+    size: file.size,
+    readPart: async (start, length) => readNativeRange(file, start, length),
+    readWhole: async () => readNativeRange(file, 0, file.size),
+  };
 }
 
 /**
@@ -151,21 +291,28 @@ async function abortSession(token: string, sessionId: string): Promise<void> {
 /** Single PUT: the whole object goes straight to R2 via the presigned URL. */
 async function uploadSingle(
   session: CreateSessionResponse,
-  body: Blob,
+  source: UploadSource,
   mimeType: string,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (!session.upload_url) throw new Error('Upload authorization is missing its upload URL.');
 
   onProgress?.(clampProgress(0.3));
 
+  const body = await source.readWhole();
+  throwIfAborted(signal);
+
   // The presigned URL's signature covers Content-Type, so it MUST match the
   // mime type the server signed (otherwise R2 returns 403 SignatureDoesNotMatch).
-  const resp = await expoFetch(session.upload_url, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType },
-    body,
-  });
+  // A plain Uint8Array body (native) is never auto-overridden by expo/fetch —
+  // only Blob bodies get their Content-Type replaced — so the header survives.
+  const resp = await fetchWithTimeout(
+    session.upload_url,
+    { method: 'PUT', headers: { 'Content-Type': mimeType }, body },
+    SINGLE_PUT_TIMEOUT_MS,
+    signal,
+  );
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
@@ -184,12 +331,16 @@ async function uploadPartWithRetry(
   token: string,
   session: CreateSessionResponse,
   partNumber: number,
-  chunk: Blob,
+  chunk: Blob | ArrayBuffer,
   urlByPart: Map<number, string>,
+  signal?: AbortSignal,
 ): Promise<string> {
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt < MAX_PART_ATTEMPTS; attempt++) {
+    // A user cancel must stop immediately — never retry an aborted part.
+    throwIfAborted(signal);
+
     let url = urlByPart.get(partNumber);
     if (!url) {
       url = await reissuePartUrl(token, session.id, partNumber);
@@ -197,10 +348,14 @@ async function uploadPartWithRetry(
     }
 
     try {
-      const resp = await expoFetch(url, {
-        method: 'PUT',
-        body: chunk,
-      });
+      // Hard deadline per attempt: a hung connection fails here (and retries
+      // below) instead of freezing the upload at its last reported progress.
+      const resp = await fetchWithTimeout(
+        url,
+        { method: 'PUT', body: chunk },
+        PART_REQUEST_TIMEOUT_MS,
+        signal,
+      );
 
       if (resp.ok) {
         // R2/S3 return the part ETag (quoted). It must be forwarded verbatim
@@ -225,6 +380,8 @@ async function uploadPartWithRetry(
         'PART_UPLOAD_FAILED',
       );
     } catch (e) {
+      // A caller cancel is not a transient failure — propagate immediately.
+      if (signal?.aborted) throw new UploadCancelledError();
       lastError = e;
     }
 
@@ -236,13 +393,14 @@ async function uploadPartWithRetry(
   throw lastError instanceof Error ? lastError : new Error(`Part ${partNumber} failed.`);
 }
 
-/** Multipart: slice the body into parts, upload each directly to R2, collect ETags. */
+/** Multipart: read each part with constant memory, upload directly to R2, collect ETags. */
 async function uploadMultipart(
   token: string,
   session: CreateSessionResponse,
-  body: Blob,
+  source: UploadSource,
   mimeType: string,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<Array<{ partNumber: number; etag: string }>> {
   const partCount = session.part_count ?? 0;
   const partSize = session.part_size ?? 0;
@@ -258,15 +416,24 @@ async function uploadMultipart(
 
   const uploaded: Array<{ partNumber: number; etag: string }> = [];
   for (let i = 0; i < partCount; i++) {
+    throwIfAborted(signal);
+
     const partNumber = i + 1;
     const start = i * partSize;
-    const end = Math.min(body.size, start + partSize);
+    const length = Math.min(source.size - start, partSize);
 
-    const chunk = body.slice(start, end, mimeType);
-    const etag = await uploadPartWithRetry(token, session, partNumber, chunk, urlByPart);
+    // Constant memory: reads ONLY this part from disk (native FileHandle) or
+    // slices a Blob view (web) — the whole file is never materialised at once.
+    const chunk = await source.readPart(start, length);
+    const etag = await uploadPartWithRetry(token, session, partNumber, chunk, urlByPart, signal);
     uploaded.push({ partNumber, etag });
 
-    onProgress?.(clampProgress(uploaded.length / partCount));
+    // BYTE-accurate progress: report how many bytes have actually been stored
+    // in R2, mapped into the transfer band (0.1 → 0.95). Because it is driven
+    // by completed bytes — not an arbitrary estimate — it advances smoothly
+    // per part and never regresses below the pre-transfer milestones.
+    const bytesDone = Math.min(source.size, (i + 1) * partSize);
+    onProgress?.(clampProgress(0.1 + 0.85 * (bytesDone / source.size)));
   }
 
   return uploaded;
@@ -295,6 +462,15 @@ async function completeSession(
  * every caller (posts, shorts, albums, chat media, avatars/banners) migrates
  * without modification.
  */
+export interface UploadMediaOptions {
+  /** Abort the upload (user cancel). In-flight requests are aborted and the
+   *  R2 session is aborted server-side so no orphan parts are left behind. */
+  signal?: AbortSignal;
+  /** Called with the server session id once the upload is authorized, so the
+   *  caller can abort the R2 multipart upload on cancel. */
+  onSession?: (sessionId: string) => void;
+}
+
 export async function uploadMedia(
   uri: string,
   mimeType = 'image/jpeg',
@@ -303,27 +479,44 @@ export async function uploadMedia(
   meta?: UploadMediaMeta,
   /** Request server-side transcoding (Cloudflare Stream) for long-form videos. */
   transcode?: boolean,
+  options?: UploadMediaOptions,
 ): Promise<UploadMediaResult> {
   const token = await getAccessToken();
   if (!token) throw new Error('Not authenticated');
 
-  onProgress?.(clampProgress(0.05));
+  // Progress is strictly MONOTONIC: it can only move forward. The multipart
+  // path reports per-part byte progress that can otherwise land BELOW the
+  // pre-transfer milestone (e.g. 1/12 parts → 8% after the 10% "authorized"
+  // step), which visibly makes the bar crawl backwards and appear stuck.
+  let lastProgress = 0;
+  const report = (p: number): void => {
+    const clamped = clampProgress(p);
+    if (clamped > lastProgress) {
+      lastProgress = clamped;
+      onProgress?.(clamped);
+    }
+  };
 
-  const body = await resolveBody(uri, mimeType);
+  report(0.05);
+
+  const source = await resolveSource(uri, mimeType);
 
   // 1. Authorize — metadata only, no bytes through the API body.
-  const session = await createSession(token, mimeType, fileName, body.size, transcode === true);
-  onProgress?.(clampProgress(0.1));
+  const session = await createSession(token, mimeType, fileName, source.size, transcode === true);
+  report(0.1);
+  options?.onSession?.(session.id);
 
   let sessionId: string | null = session.id;
   try {
     // 2. Upload bytes directly to R2.
     let parts: Array<{ partNumber: number; etag: string }> = [];
     if (session.mode === 'multipart') {
-      parts = await uploadMultipart(token, session, body, mimeType, onProgress);
+      parts = await uploadMultipart(token, session, source, mimeType, report, options?.signal);
     } else {
-      await uploadSingle(session, body, mimeType, onProgress);
+      await uploadSingle(session, source, mimeType, report, options?.signal);
     }
+
+    throwIfAborted(options?.signal);
 
     // 3. Finalize — server validates + creates the media record.
     const result = await completeSession(token, session.id, parts);
@@ -361,10 +554,15 @@ export async function uploadMedia(
 
     return uploaded;
   } catch (e) {
-    // Cancel any in-flight multipart upload in R2 so a failed/abandoned upload
-    // never leaves billable orphan parts behind. Safe no-op if already done.
+    // A user cancel aborts the R2 multipart upload server-side so no orphan
+    // parts are ever left behind. Failed uploads do the same cleanup.
     if (sessionId) {
       await abortSession(token, sessionId);
+    }
+    // Surface cancellations as such so the caller can distinguish them from
+    // real failures (a cancelled job is removed, never shown as "failed").
+    if (options?.signal?.aborted || e instanceof UploadCancelledError) {
+      throw new UploadCancelledError();
     }
     throw e;
   }
