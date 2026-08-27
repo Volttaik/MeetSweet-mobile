@@ -46,6 +46,7 @@ import {
 } from 'phosphor-react-native';
 import { T } from '@/constants/theme';
 import { BrandGradientFill } from '@/components/BrandGradientFill';
+import { GradientText } from '@/components/GradientText';
 import { toast } from '@/components/MsToast';
 import { MsShimmer } from '@/components/MsShimmer';
 import { MsConfirmDialog } from '@/components/MsConfirmDialog';
@@ -624,8 +625,6 @@ export default function CreatorPayoutScreen() {
     }
   };
 
-  const canWithdraw = available >= MIN_WITHDRAWAL_NAIRA;
-
   return (
     <View style={[styles.bg, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -680,31 +679,25 @@ export default function CreatorPayoutScreen() {
                 </>
               )}
 
+              {/* Withdraw — compact gradient-text action, same treatment as
+                  the MeetSweet header / Shorts button on Home: the platform
+                  gradient is painted INSIDE the glyphs (GradientText), never
+                  as a background behind the label. */}
               <TouchableOpacity
-                style={[styles.withdrawBtn, (!canWithdraw || withdrawing) && styles.withdrawBtnDisabled]}
+                style={styles.withdrawBtn}
                 onPress={() => {
-                  if (!canWithdraw) return;
                   if (!bankDetails) { setShowBankSheet(true); return; }
                   setShowWithdrawAmt(true);
                 }}
                 activeOpacity={0.85}
-                disabled={!canWithdraw || withdrawing}
+                hitSlop={8}
+                accessibilityLabel="Withdraw"
+                accessibilityRole="button"
               >
-                {/* Gradient while enabled OR loading (the platform gradient is
-                    the loading state's on-brand treatment). The purely disabled
-                    state (no balance) uses the plain design-system surface —
-                    never the old gold theme. */}
-                {canWithdraw || withdrawing ? <BrandGradientFill /> : null}
-                {withdrawing ? (
-                  <ActivityIndicator color={T.ACCENT_FG} size="small" />
-                ) : (
-                  <>
-                    <ArrowDown size={15} color={canWithdraw ? T.ACCENT_FG : T.TEXT_3} />
-                    <Text style={[styles.withdrawLabel, !canWithdraw && { color: T.TEXT_3 }]}>
-                      Withdraw Funds
-                    </Text>
-                  </>
-                )}
+                <View style={styles.withdrawBtnRow}>
+                  <ArrowDown size={14} color={T.TEXT_2} weight="bold" />
+                  <GradientText text="Withdraw" style={styles.withdrawLabel} />
+                </View>
               </TouchableOpacity>
             </View>
 
@@ -911,21 +904,20 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   withdrawBtn: {
+    marginTop: 18,
+    alignSelf: 'flex-start',
+    borderRadius: T.RADIUS.full,
+  },
+  withdrawBtnRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 18,
-    paddingHorizontal: 28,
-    paddingVertical: 13,
-    borderRadius: T.RADIUS.full,
-    // No backgroundColor — the MeetSweet platform gradient (BrandGradientFill)
-    // IS the button's background. The old gold theme was removed so it can
-    // never paint over the gradient at runtime.
-    overflow: 'hidden',
+    gap: 6,
   },
-  withdrawBtnDisabled: { backgroundColor: T.SURFACE_2, borderWidth: 1, borderColor: T.BORDER_2 },
-  withdrawLabel: { fontSize: 14, fontFamily: T.FONT.bold, color: T.ACCENT_FG },
+  withdrawLabel: {
+    fontFamily: T.FONT.bold,
+    fontSize: 14,
+    letterSpacing: 0.2,
+  },
 
   processingNote: {
     flexDirection: 'row',

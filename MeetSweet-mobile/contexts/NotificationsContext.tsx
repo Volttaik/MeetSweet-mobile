@@ -26,6 +26,7 @@ import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { getNotifications, registerPushTokenToBackend } from '@/services/notifications';
 import { resolveNotificationTarget } from '@/lib/notification-nav';
+import { maybeSendWelcomeNotification } from '@/lib/welcome-notification';
 import { T } from '@/constants/theme';
 import { pushOnce, whenNavigatorReady } from '@/lib/nav';
 import { useAuth } from '@/contexts/AuthContext';
@@ -220,7 +221,12 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     registerPushToken().then(({ token, status }) => {
       if (cancelled) return;
       setPermissionStatus(status);
-      if (token) setPushToken(token);
+      if (token) {
+        setPushToken(token);
+        // First-install welcome push — sent exactly once per installation,
+        // and only once push setup (permission + token) has succeeded.
+        maybeSendWelcomeNotification();
+      }
     });
     return () => {
       cancelled = true;
@@ -281,9 +287,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     notifListenerRef.current = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as Record<string, string> | null;
       const type = data?.type ?? data?.content_type ?? '';
-      // Local background-upload notifications (progress/completion/failure) are
-      // not server notifications — they must NOT count toward the unread badge.
-      if (type === 'upload') return;
+      // Local background-upload notifications (progress/completion/failure) and
+      // the first-install welcome push are not server notifications — they must
+      // NOT count toward the unread badge.
+      if (type === 'upload' || type === 'welcome') return;
       setNotifUnread((n) => n + 1);
       if (data?.wallet || type === 'wallet' || type === 'payment' || type === 'referral_reward') {
         // WalletProvider owns the balance; this makes a foreground reward or
