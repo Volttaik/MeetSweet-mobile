@@ -62,5 +62,11 @@
         "expo-sfv-version": "0"
       }
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

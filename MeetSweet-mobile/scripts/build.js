@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
@@ -569,6 +569,60 @@ function createLandingPage(domain) {
   console.log('Landing page created at', path.relative(projectRoot, output));
 }
 
+// Temporary staging dir for the web export — merged into static-build/ root
+// afterwards so the deployed root serves the web app while the native Expo Go
+// bundles/manifests stay reachable at their existing paths.
+const WEB_EXPORT_DIR = path.join(projectRoot, 'static-build', '.web-export');
+
+/**
+ * Exports the same app for the browser (expo export --platform web) so the
+ * deployment root renders the actual app instead of an Expo Go landing page.
+ *
+ * Fatal on failure: the web app is the point of this deploy, and Vercel keeps
+ * the previous good deployment alive, so failing loudly is safer than silently
+ * shipping the landing page again. Set EXPO_WEB=0 in the build environment to
+ * opt out and deploy the Expo Go landing page instead.
+ */
+async function exportWebBundle() {
+  console.log('Exporting web bundle...');
+  if (fs.existsSync(WEB_EXPORT_DIR)) {
+    fs.rmSync(WEB_EXPORT_DIR, { recursive: true, force: true });
+  }
+  fs.mkdirSync(WEB_EXPORT_DIR, { recursive: true });
+
+  const result = spawnSync(
+    'npx',
+    ['expo', 'export', '--platform', 'web', '--output-dir', WEB_EXPORT_DIR],
+    {
+      cwd: projectRoot,
+      env: process.env,
+      stdio: 'inherit',
+    },
+  );
+
+  if (result.status !== 0) {
+    exitWithError(
+      'Web export failed (status ' + result.status + '). The native Expo Go ' +
+        'build is fine, but the web app could not be produced. Fix the error ' +
+        'above, or set EXPO_WEB=0 in the build environment to deploy the Expo ' +
+        'Go landing page instead.',
+    );
+  }
+  console.log('Web bundle exported');
+}
+
+/** Merge the staged web export into static-build/ root. */
+function mergeWebExport() {
+  const staticBuild = path.join(projectRoot, 'static-build');
+  for (const entry of fs.readdirSync(WEB_EXPORT_DIR)) {
+    fs.cpSync(path.join(WEB_EXPORT_DIR, entry), path.join(staticBuild, entry), {
+      recursive: true,
+    });
+  }
+  fs.rmSync(WEB_EXPORT_DIR, { recursive: true, force: true });
+  console.log('Web bundle merged into static-build');
+}
+
 async function main() {
   console.log('Building static Expo Go deployment...');
 
@@ -617,9 +671,21 @@ async function main() {
     updateBundleUrls(timestamp, baseUrl);
   }
 
-  console.log('Updating manifests and creating landing page...');
+  console.log('Updating manifests...');
   updateManifests(manifests, timestamp, baseUrl, assetsByHash);
-  createLandingPage(domain);
+
+  // Web app: export the same app for the browser and merge it at the root of
+  // the deployment. Expo Go manifest/static paths are untouched, so the
+  // website and the native host keep working side by side.
+  const buildWeb = (process.env.EXPO_WEB ?? '1') !== '0';
+  if (buildWeb) {
+    await exportWebBundle();
+    mergeWebExport();
+  } else {
+    // Fallback (EXPO_WEB=0): plain Expo Go landing page at the root.
+    console.log('Creating landing page...');
+    createLandingPage(domain);
+  }
 
   console.log('Build complete! Deploy to:', baseUrl);
 

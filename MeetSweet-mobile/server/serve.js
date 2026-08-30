@@ -122,6 +122,12 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === '/') {
+      // When the build produced a web app (static-build/index.html), serve it
+      // at the root; otherwise fall back to the Expo Go landing page template.
+      const webIndex = path.join(STATIC_ROOT, 'index.html');
+      if (fs.existsSync(webIndex)) {
+        return serveStaticFile('index.html', res);
+      }
       return serveLandingPage(req, res, landingPageTemplate, appName);
     }
   }
