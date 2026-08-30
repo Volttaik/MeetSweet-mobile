@@ -521,6 +521,54 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
   console.log('Manifests updated');
 }
 
+/**
+ * Renders the landing page template into static-build/index.html.
+ *
+ * serve.js used to serve this page at runtime; static hosts (Vercel) need it
+ * on disk so the deployment root is usable in a browser. Placeholders are
+ * resolved at build time from the deployment domain, mirroring what serve.js
+ * did per-request. Best-effort: a missing template must never fail the build.
+ */
+function createLandingPage(domain) {
+  const templatePath = path.join(
+    projectRoot,
+    'server',
+    'templates',
+    'landing-page.html',
+  );
+  if (!fs.existsSync(templatePath)) {
+    console.warn(
+      '[Landing page] Template not found, skipping:',
+      templatePath,
+    );
+    return;
+  }
+
+  let appName = 'MeetSweet';
+  try {
+    const appJson = JSON.parse(
+      fs.readFileSync(path.join(projectRoot, 'app.json'), 'utf-8'),
+    );
+    if (appJson?.expo?.name) appName = appJson.expo.name;
+  } catch (error) {
+    console.warn(
+      '[Landing page] Could not read app.json, using default name:',
+      error.message,
+    );
+  }
+
+  const baseUrl = `https://${domain}`;
+  let html = fs.readFileSync(templatePath, 'utf-8');
+  html = html
+    .replace(/APP_NAME_PLACEHOLDER/g, appName)
+    .replace(/EXPS_URL_PLACEHOLDER/g, domain)
+    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl);
+
+  const output = path.join(projectRoot, 'static-build', 'index.html');
+  fs.writeFileSync(output, html);
+  console.log('Landing page created at', path.relative(projectRoot, output));
+}
+
 async function main() {
   console.log('Building static Expo Go deployment...');
 
@@ -571,6 +619,7 @@ async function main() {
 
   console.log('Updating manifests and creating landing page...');
   updateManifests(manifests, timestamp, baseUrl, assetsByHash);
+  createLandingPage(domain);
 
   console.log('Build complete! Deploy to:', baseUrl);
 

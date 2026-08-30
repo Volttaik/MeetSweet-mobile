@@ -1,0 +1,66 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "static-build",
+  "routes": [
+    {
+      "src": "/",
+      "has": [
+        {
+          "type": "header",
+          "key": "expo-platform",
+          "value": "ios"
+        }
+      ],
+      "dest": "/ios/manifest.json",
+      "headers": {
+        "expo-protocol-version": "1",
+        "expo-sfv-version": "0"
+      }
+    },
+    {
+      "src": "/",
+      "has": [
+        {
+          "type": "header",
+          "key": "expo-platform",
+          "value": "android"
+        }
+      ],
+      "dest": "/android/manifest.json",
+      "headers": {
+        "expo-protocol-version": "1",
+        "expo-sfv-version": "0"
+      }
+    },
+    {
+      "src": "/manifest",
+      "has": [
+        {
+          "type": "header",
+          "key": "expo-platform",
+          "value": "ios"
+        }
+      ],
+      "dest": "/ios/manifest.json",
+      "headers": {
+        "expo-protocol-version": "1",
+        "expo-sfv-version": "0"
+      }
+    },
+    {
+      "src": "/manifest",
+      "has": [
+        {
+          "type": "header",
+          "key": "expo-platform",
+          "value": "android"
+        }
+      ],
+      "dest": "/android/manifest.json",
+      "headers": {
+        "expo-protocol-version": "1",
+        "expo-sfv-version": "0"
+      }
+    }
+  ]
+}
